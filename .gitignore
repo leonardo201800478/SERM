@@ -1,0 +1,6 @@
+*.xml
+*.cvs
+*.db
+*.ini
+*.dat
+data/input/
