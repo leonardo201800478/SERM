@@ -38,13 +38,12 @@ class MainWindow:
         self.torrents_tab = TorrentsTab(notebook, self.settings)
         notebook.add(self.torrents_tab.frame, text="Torrents")
 
-        # Área de log e progresso
+        # Área de log
         log_frame = tk.Frame(self.root)
         log_frame.pack(fill='both', expand=True, padx=10, pady=5)
 
         self.log_text = tk.Text(log_frame, height=12, state='disabled', wrap='word', font=('Consolas', 9))
         self.log_text.pack(fill='both', expand=True, side='left')
-
         scrollbar = tk.Scrollbar(log_frame, command=self.log_text.yview)
         scrollbar.pack(side='right', fill='y')
         self.log_text.configure(yscrollcommand=scrollbar.set)
@@ -53,7 +52,6 @@ class MainWindow:
         self.progress_var = tk.DoubleVar()
         self.progress_bar = ttk.Progressbar(self.root, variable=self.progress_var, maximum=100)
         self.progress_bar.pack(fill='x', padx=10, pady=5)
-
         self.status_label = tk.Label(self.root, text="Pronto", font=('Arial', 9))
         self.status_label.pack(pady=5)
 
@@ -91,7 +89,6 @@ class MainWindow:
         messagebox.showinfo("Sucesso", "Configurações salvas com sucesso!")
 
     def run(self):
-        # Validar campos
         paths = self.paths_tab.get_values()
         if not paths['mame_exe']:
             messagebox.showerror("Erro", "Selecione o executável do MAME.")
@@ -103,24 +100,22 @@ class MainWindow:
             messagebox.showerror("Erro", "Selecione o diretório de saída.")
             return
 
-        # Salvar configurações
         self.save_settings()
 
-        # Atualizar config
         config.MAME_EXE = Path(paths['mame_exe'])
         config.ROMS_DIR = Path(paths['roms_dir'])
         config.OUTPUT_DAT = Path(paths['output_dir']) / "filtrado.dat"
         config.FOLDERS = Path(paths['ini_folder']) if paths['ini_folder'] else Path("data/input/folders")
         config.DATABASE = Path(paths['db_file']) if paths['db_file'] else Path("data/cache/mame.db")
 
-        # Filtros básicos
+        # Filtros básicos (listas)
         basic = self.basic_tab.get_values()
         config.FILTER_WORKING = basic['filter_working']
         config.FILTER_ARCADE = basic['filter_arcade']
         config.FILTER_CLONES = basic['filter_clones']
-        config.FILTER_CONTROL = basic['control_type']
-        config.FILTER_PLAYERS = basic['players']
-        config.FILTER_CATEGORY = basic['category']
+        config.FILTER_CONTROLS = basic['controls']      # lista
+        config.FILTER_PLAYERS = basic['players']        # lista
+        config.FILTER_CATEGORIES = basic['category']    # lista
 
         # Filtros avançados
         adv = self.advanced_tab.get_values()
@@ -145,39 +140,33 @@ class MainWindow:
         config.SOFTWARE_ROM_DIR = Path(torrent['torrent_sw_rom_dir']) if torrent['torrent_sw_rom_dir'] else Path("software_roms")
         config.SOFTWARE_CHD_DIR = Path(torrent['torrent_sw_chd_dir']) if torrent['torrent_sw_chd_dir'] else Path("software_chds")
 
-        # Configurações do qBittorrent
         config.QB_EXE = torrent.get('qb_exe', '')
         config.QB_HOST = torrent.get('qb_host', 'localhost')
         config.QB_PORT = torrent.get('qb_port', '8080')
         config.QB_USER = torrent.get('qb_user', 'admin')
         config.QB_PASS = torrent.get('qb_pass', 'adminadmin')
 
-        # Limpar log e progresso
+        # Limpar log
         self.log_text.configure(state='normal')
         self.log_text.delete(1.0, tk.END)
         self.log_text.configure(state='disabled')
         self.update_progress(0, "Iniciando...")
 
-        # Desabilitar botões
         self.btn_run.config(state='disabled', bg='gray')
         self.btn_save.config(state='disabled', bg='gray')
 
-        # Executar em thread
         self.processor = AsyncProcessor(
             target=main.main,
             log_callback=self.log_message,
             progress_callback=self.update_progress
         )
         self.processor.start()
-
-        # Monitorar término
         self.monitor_thread()
 
     def monitor_thread(self):
         if self.processor and self.processor.is_alive():
             self.root.after(100, self.monitor_thread)
         else:
-            # Reabilitar botões
             self.btn_run.config(state='normal', bg='#4CAF50')
             self.btn_save.config(state='normal', bg='#2196F3')
             if self.processor and self.processor.exception:

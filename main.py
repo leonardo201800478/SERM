@@ -5,7 +5,7 @@ from pathlib import Path
 from config import (
     LISTXML, DATABASE, FOLDERS, OUTPUT_DAT, MAME_EXE,
     FILTER_WORKING, FILTER_ARCADE, FILTER_CLONES,
-    FILTER_CONTROL, FILTER_PLAYERS, FILTER_CATEGORY,
+    FILTER_CONTROLS, FILTER_PLAYERS, FILTER_CATEGORIES,
     REMOVE_MECHANICAL, REMOVE_BIOS, REMOVE_DEVICES, REMOVE_JUNK, KEEP_SOFTWARE_BIOS,
     TORRENT_LINKS, ENABLE_TORRENT, ROM_DIR, CHD_DIR, SOFTWARE_ROM_DIR, SOFTWARE_CHD_DIR,
     QB_EXE, QB_HOST, QB_PORT, QB_USER, QB_PASS
@@ -17,7 +17,8 @@ from core.migrations import run_migrations
 from repositories.machine_repository import MachineRepository
 from filters.filters import (
     working_filter, no_clones_filter, no_mechanical_filter,
-    category_contains, CompositeFilter, ContainsFilter
+    category_contains, CompositeFilter, ContainsFilter,
+    BooleanFilter, FilterClass
 )
 from exporters.dat_exporter import DATExporter
 
@@ -79,7 +80,7 @@ def generate_torrent_script(machines, output_dir):
         json.dump(missing_by_category, f, indent=2)
     print(f"Lista de arquivos faltantes salva em: {json_path}")
 
-    # Tentar integração com qBittorrent
+    # Integração com qBittorrent
     if QB_EXE or (QB_HOST and QB_PORT):
         try:
             from torrent_manager import start_qbittorrent, connect_qbittorrent, add_torrent_with_files
@@ -90,8 +91,7 @@ def generate_torrent_script(machines, output_dir):
                 for cat, files in missing_by_category.items():
                     magnet = TORRENT_LINKS.get(cat)
                     if magnet:
-                        # Determinar pasta de destino
-                        if cat == 'mame_roms' or cat == 'mame_bios':
+                        if cat in ('mame_roms', 'mame_bios'):
                             save_path = ROM_DIR
                         elif cat == 'software_roms':
                             save_path = SOFTWARE_ROM_DIR
@@ -145,18 +145,28 @@ def main():
     if FILTER_ARCADE:
         machines = category_contains("Arcade").apply(machines)
         print(f"  Após category_contains('Arcade'): {len(machines)}")
-    if FILTER_CLONES is False:
+    if not FILTER_CLONES:
         machines = no_clones_filter().apply(machines)
         print(f"  Após no_clones_filter: {len(machines)}")
-    if FILTER_CONTROL:
-        machines = ContainsFilter("controls", FILTER_CONTROL).apply(machines)
-        print(f"  Após controls='{FILTER_CONTROL}': {len(machines)}")
+
+    # Filtros com múltipla escolha (OR)
+    if FILTER_CONTROLS:
+        filters = [ContainsFilter("controls", c) for c in FILTER_CONTROLS]
+        control_filter = CompositeFilter(filters, mode="OR")
+        machines = control_filter.apply(machines)
+        print(f"  Após controles {FILTER_CONTROLS}: {len(machines)}")
+
     if FILTER_PLAYERS:
-        machines = ContainsFilter("players", FILTER_PLAYERS).apply(machines)
-        print(f"  Após players='{FILTER_PLAYERS}': {len(machines)}")
-    if FILTER_CATEGORY:
-        machines = ContainsFilter("category", FILTER_CATEGORY).apply(machines)
-        print(f"  Após category='{FILTER_CATEGORY}': {len(machines)}")
+        filters = [ContainsFilter("players", p) for p in FILTER_PLAYERS]
+        players_filter = CompositeFilter(filters, mode="OR")
+        machines = players_filter.apply(machines)
+        print(f"  Após jogadores {FILTER_PLAYERS}: {len(machines)}")
+
+    if FILTER_CATEGORIES:
+        filters = [ContainsFilter("category", cat) for cat in FILTER_CATEGORIES]
+        category_filter = CompositeFilter(filters, mode="OR")
+        machines = category_filter.apply(machines)
+        print(f"  Após categorias {FILTER_CATEGORIES}: {len(machines)}")
 
     # Filtros avançados
     print("\n--- Aplicando filtros avançados (limpeza) ---")

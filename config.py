@@ -13,13 +13,13 @@ FOLDERS = INPUT_DIR / "folders"
 DATABASE = CACHE_DIR / "mame.db"
 OUTPUT_DAT = OUTPUT_DIR / "filtrado.dat"
 
-# Filtros básicos
+# Filtros básicos - agora são listas para múltipla escolha
 FILTER_WORKING = True
 FILTER_ARCADE = True
-FILTER_CLONES = False
-FILTER_CONTROL = ""
-FILTER_PLAYERS = ""
-FILTER_CATEGORY = ""
+FILTER_CLONES = False          # False = excluir clones
+FILTER_CONTROLS = []           # ex: ['joystick', 'trackball']
+FILTER_PLAYERS = []            # ex: ['1', '2']
+FILTER_CATEGORIES = []         # ex: ['Arcade', 'Console']
 
 # Filtros avançados
 REMOVE_MECHANICAL = True
