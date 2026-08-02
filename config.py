@@ -1,61 +1,65 @@
 from pathlib import Path
 
-# ==========================================================
-# DIRETÓRIO RAIZ DO PROJETO
-# ==========================================================
+# Diretórios base
+BASE_DIR = Path(__file__).parent
+DATA_DIR = BASE_DIR / "data"
+INPUT_DIR = DATA_DIR / "input"
+OUTPUT_DIR = DATA_DIR / "output"
+CACHE_DIR = DATA_DIR / "cache"
 
-ROOT = Path(__file__).resolve().parent
+# Caminhos (serão sobrescritos pela GUI)
+MAME_EXE = Path("mame.exe")
+ROMS_DIR = Path("roms")
+LISTXML = INPUT_DIR / "listxml.xml"
+FOLDERS = INPUT_DIR / "folders"
+DATABASE = CACHE_DIR / "mame.db"
+OUTPUT_DAT = OUTPUT_DIR / "filtrado.dat"
 
-# ==========================================================
-# PASTAS
-# ==========================================================
+# Filtros básicos (GUI - Aba 1)
+FILTER_WORKING = True
+FILTER_ARCADE = True
+FILTER_CLONES = False   # False = excluir clones
+FILTER_CONTROL = ""
+FILTER_PLAYERS = ""
+FILTER_CATEGORY = ""
 
-DATA = ROOT / "data"
+# Filtros avançados de limpeza (GUI - Aba 2)
+REMOVE_MECHANICAL = True
+REMOVE_BIOS = True
+REMOVE_DEVICES = True
+REMOVE_JUNK = True       # Bootlegs, Mahjong, Gambling, Quiz, Pachinko
+KEEP_SOFTWARE_BIOS = True  # Mantém BIOS de consoles/PCs (NES, SNES, Genesis, etc.)
 
-INPUT = DATA / "input"
+# ... (configurações anteriores permanecem)
 
-OUTPUT = DATA / "output"
+# === LINKS MAGNÉTICOS PARA TORRENTS ===
+TORRENT_LINKS = {
+    "mame_roms": "",          # Link magnético para MAME ROMs
+    "mame_bios": "",          # Link magnético para BIOS/Devices
+    "mame_chds": "",          # Link magnético para CHDs
+    "software_roms": "",      # Link magnético para Software List ROMs
+    "software_chds": ""       # Link magnético para Software List CHDs
+}
 
-CACHE = DATA / "cache"
+# Diretórios para verificação (podem ser os mesmos de ROMs)
+ROM_DIR = Path("roms")
+CHD_DIR = Path("chds")
+SOFTWARE_ROM_DIR = Path("software_roms")
+SOFTWARE_CHD_DIR = Path("software_chds")
 
-FOLDERS = INPUT / "folders"
 
-LISTXML = INPUT / "listxml.xml"
+# === LINKS MAGNÉTICOS PARA TORRENTS ===
+TORRENT_LINKS = {
+    "mame_roms": "",
+    "mame_bios": "",
+    "mame_chds": "",
+    "software_roms": "",
+    "software_chds": ""
+}
+ENABLE_TORRENT = True
 
-# ==========================================================
-# BANCO SQLITE
-# ==========================================================
-
-DATABASE = CACHE / "mame289.db"
-
-# ==========================================================
-# PASTAS DE SAÍDA
-# ==========================================================
-
-OUTPUT_XML = OUTPUT / "xml"
-
-OUTPUT_DAT = OUTPUT / "dat"
-
-OUTPUT_TXT = OUTPUT / "txt"
-
-OUTPUT_CSV = OUTPUT / "csv"
-
-OUTPUT_REPORT = OUTPUT / "reports"
-
-# ==========================================================
-# CRIAÇÃO AUTOMÁTICA DAS PASTAS
-# ==========================================================
-
-for folder in (
-    DATA,
-    INPUT,
-    OUTPUT,
-    CACHE,
-    FOLDERS,
-    OUTPUT_XML,
-    OUTPUT_DAT,
-    OUTPUT_TXT,
-    OUTPUT_CSV,
-    OUTPUT_REPORT,
-):
-    folder.mkdir(parents=True, exist_ok=True)
+# Diretórios para verificação de arquivos
+ROM_DIR = Path("roms")
+CHD_DIR = Path("chds")
+SOFTWARE_ROM_DIR = Path("software_roms")
+SOFTWARE_CHD_DIR = Path("software_chds")
