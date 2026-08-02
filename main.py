@@ -1,11 +1,14 @@
 import subprocess
 import time
+import json
 from pathlib import Path
 from config import (
     LISTXML, DATABASE, FOLDERS, OUTPUT_DAT, MAME_EXE,
     FILTER_WORKING, FILTER_ARCADE, FILTER_CLONES,
     FILTER_CONTROL, FILTER_PLAYERS, FILTER_CATEGORY,
-    REMOVE_MECHANICAL, REMOVE_BIOS, REMOVE_DEVICES, REMOVE_JUNK, KEEP_SOFTWARE_BIOS
+    REMOVE_MECHANICAL, REMOVE_BIOS, REMOVE_DEVICES, REMOVE_JUNK, KEEP_SOFTWARE_BIOS,
+    TORRENT_LINKS, ENABLE_TORRENT, ROM_DIR, CHD_DIR, SOFTWARE_ROM_DIR, SOFTWARE_CHD_DIR,
+    QB_EXE, QB_HOST, QB_PORT, QB_USER, QB_PASS
 )
 from parsers.xml_parser import XMLParser
 from parsers.ini_parser import INIParser
@@ -14,46 +17,27 @@ from core.migrations import run_migrations
 from repositories.machine_repository import MachineRepository
 from filters.filters import (
     working_filter, no_clones_filter, no_mechanical_filter,
-    category_contains, CompositeFilter, ContainsFilter,
-    BooleanFilter
+    category_contains, CompositeFilter, ContainsFilter
 )
 from exporters.dat_exporter import DATExporter
 
-
-# ===================================================================
-# 1. GERAÇÃO AUTOMÁTICA DO LISTXML
-# ===================================================================
 def ensure_listxml():
-    """Gera o arquivo listxml.xml a partir do executável do MAME, se não existir."""
     if LISTXML.exists():
         print(f"Arquivo listxml já existe: {LISTXML}")
         return
-
     print("Gerando listxml.xml a partir do MAME...")
     if not MAME_EXE.exists():
         raise FileNotFoundError(f"Executável do MAME não encontrado: {MAME_EXE}")
-
+    LISTXML.parent.mkdir(parents=True, exist_ok=True)
     try:
-        # Cria o diretório pai se não existir
-        LISTXML.parent.mkdir(parents=True, exist_ok=True)
-
         with open(LISTXML, 'w', encoding='utf-8', errors='ignore') as f:
-            # Executa o MAME com -listxml e redireciona a saída
             subprocess.run([str(MAME_EXE), "-listxml"], stdout=f, check=True, text=True, encoding='utf-8', errors='ignore')
         print(f"listxml.xml gerado com sucesso em {LISTXML}")
-    except subprocess.CalledProcessError as e:
-        print(f"Erro ao executar MAME: {e}")
-        raise
     except Exception as e:
-        print(f"Erro inesperado: {e}")
+        print(f"Erro ao gerar listxml: {e}")
         raise
 
-
-# ===================================================================
-# 2. FUNÇÃO AUXILIAR PARA CONEXÃO COM O BANCO
-# ===================================================================
 def get_connection(db):
-    """Obtém a conexão do objeto Database, independente do nome do atributo."""
     for attr in ['conn', 'connection', '_connection', '_conn', 'db']:
         if hasattr(db, attr):
             conn = getattr(db, attr)
@@ -61,37 +45,83 @@ def get_connection(db):
                 return conn
     if hasattr(db, 'connect'):
         return db.connect()
-    raise AttributeError(
-        "Não foi possível encontrar a conexão no objeto Database. "
-        "Verifique o nome do atributo em core/database.py"
-    )
+    raise AttributeError("Conexão não encontrada no objeto Database.")
 
+def generate_torrent_script(machines, output_dir):
+    if not ENABLE_TORRENT:
+        return
+    rom_names = [m.name for m in machines]
 
-# ===================================================================
-# 3. MAIN
-# ===================================================================
+    def get_missing_files(names, directory, extension='.zip'):
+        if not directory.exists():
+            return names
+        existing = {f.stem for f in directory.glob(f'*{extension}') if f.is_file()}
+        missing = [name for name in names if name not in existing]
+        return missing
+
+    categories = {
+        'mame_roms': (rom_names, ROM_DIR, '.zip'),
+        'mame_bios': (rom_names, ROM_DIR, '.zip'),
+        'software_roms': (rom_names, SOFTWARE_ROM_DIR, '.zip'),
+    }
+    missing_by_category = {}
+    for cat, (names, dir_path, ext) in categories.items():
+        missing = get_missing_files(names, dir_path, ext)
+        if missing:
+            missing_by_category[cat] = missing
+
+    if not missing_by_category:
+        print("Todos os arquivos já estão presentes. Nenhum download necessário.")
+        return
+
+    json_path = output_dir / "missing_files.json"
+    with open(json_path, 'w', encoding='utf-8') as f:
+        json.dump(missing_by_category, f, indent=2)
+    print(f"Lista de arquivos faltantes salva em: {json_path}")
+
+    # Tentar integração com qBittorrent
+    if QB_EXE or (QB_HOST and QB_PORT):
+        try:
+            from torrent_manager import start_qbittorrent, connect_qbittorrent, add_torrent_with_files
+            if QB_EXE:
+                start_qbittorrent(QB_EXE)
+            client = connect_qbittorrent(QB_HOST, int(QB_PORT), QB_USER, QB_PASS)
+            if client:
+                for cat, files in missing_by_category.items():
+                    magnet = TORRENT_LINKS.get(cat)
+                    if magnet:
+                        # Determinar pasta de destino
+                        if cat == 'mame_roms' or cat == 'mame_bios':
+                            save_path = ROM_DIR
+                        elif cat == 'software_roms':
+                            save_path = SOFTWARE_ROM_DIR
+                        else:
+                            save_path = output_dir / "downloads"
+                        print(f"Adicionando torrent para {cat} com {len(files)} arquivos...")
+                        add_torrent_with_files(client, magnet, files, save_path)
+                print("Torrents adicionados com sucesso.")
+            else:
+                print("Não foi possível conectar ao qBittorrent. Verifique as credenciais.")
+        except Exception as e:
+            print(f"Erro na integração com qBittorrent: {e}")
+    else:
+        print("qBittorrent não configurado. Gere o script manualmente.")
+
 def main():
     print("=" * 60)
     print("MAME Set Builder")
     print("=" * 60)
 
-    # --- Garantir que o listxml existe ---
     ensure_listxml()
-
-    # --- Conectar ao banco e aplicar migrações ---
     db = Database(DATABASE)
     conn = get_connection(db)
-
-    # Otimizações de desempenho
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA synchronous = OFF")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_machine_name ON machine(name);")
     conn.commit()
-
     run_migrations(db)
     repo = MachineRepository(db)
 
-    # --- Importar XML se o banco estiver vazio ---
     if repo.count() == 0:
         print("Importando listxml.xml...")
         parser = XMLParser(LISTXML, DATABASE)
@@ -100,83 +130,57 @@ def main():
     else:
         print(f"Banco já possui {repo.count():,} máquinas.")
 
-    # --- Ler arquivos .ini (catver, controls, players, etc.) ---
     print("Lendo arquivos .ini da pasta folders...")
     ini_parser = INIParser(FOLDERS, db)
     ini_parser.parse_all()
 
-    # --- Carregar todas as máquinas ---
     machines = repo.get_all()
     print(f"Total de máquinas carregadas: {len(machines):,}")
 
-    # ==============================================================
-    # 4. APLICAÇÃO DOS FILTROS (em ordem)
-    # ==============================================================
-
-    # ---- 4.1 Filtros Básicos (GUI Aba 1) ----
+    # Aplicar filtros básicos
     print("\n--- Aplicando filtros básicos ---")
     if FILTER_WORKING:
         machines = working_filter().apply(machines)
         print(f"  Após working_filter: {len(machines)}")
-
     if FILTER_ARCADE:
         machines = category_contains("Arcade").apply(machines)
         print(f"  Após category_contains('Arcade'): {len(machines)}")
-
-    if FILTER_CLONES is False:  # False = excluir clones
+    if FILTER_CLONES is False:
         machines = no_clones_filter().apply(machines)
         print(f"  Após no_clones_filter: {len(machines)}")
-
     if FILTER_CONTROL:
         machines = ContainsFilter("controls", FILTER_CONTROL).apply(machines)
         print(f"  Após controls='{FILTER_CONTROL}': {len(machines)}")
-
     if FILTER_PLAYERS:
         machines = ContainsFilter("players", FILTER_PLAYERS).apply(machines)
         print(f"  Após players='{FILTER_PLAYERS}': {len(machines)}")
-
     if FILTER_CATEGORY:
         machines = ContainsFilter("category", FILTER_CATEGORY).apply(machines)
         print(f"  Após category='{FILTER_CATEGORY}': {len(machines)}")
 
-    # ---- 4.2 Filtros Avançados (Limpeza - GUI Aba 2) ----
+    # Filtros avançados
     print("\n--- Aplicando filtros avançados (limpeza) ---")
-
-    # Remover Mecânicas
     if REMOVE_MECHANICAL:
         machines = [m for m in machines if m.ismechanical == 0]
         print(f"  Removidas mecânicas: {len(machines)}")
-
-    # Remover Devices
     if REMOVE_DEVICES:
         machines = [m for m in machines if m.isdevice == 0]
         print(f"  Removidos devices: {len(machines)}")
-
-    # Remover Junk (Bootlegs, Mahjong, Gambling, Quiz, Pachinko)
     if REMOVE_JUNK:
         junk_keywords = ['bootleg', 'mahjong', 'gambling', 'casino', 'quiz', 'pachinko']
         before = len(machines)
         machines = [
             m for m in machines
-            if not any(
-                k in (m.category or '').lower() or
-                k in (m.genre or '').lower()
-                for k in junk_keywords
-            )
+            if not any(k in (m.category or '').lower() or k in (m.genre or '').lower() for k in junk_keywords)
         ]
-        print(f"  Removidos junk (Bootlegs/Mahjong/etc): {len(machines)} (antes: {before})")
-
-    # Remover BIOS (com exceção de software lists, se KEEP_SOFTWARE_BIOS estiver ativo)
+        print(f"  Removidos junk: {len(machines)} (antes: {before})")
     if REMOVE_BIOS:
         before = len(machines)
         if KEEP_SOFTWARE_BIOS:
-            # Lista de prefixes de software lists (consoles/PCs domésticos)
-            sw_prefixes = [
-                'nes/', 'snes/', 'genesis/', 'megadriv/', 'psx/', 'n64/',
-                'gb/', 'gba/', 'gbc/', 'sms/', 'sg/', 'pce/', 'tg16/',
-                'cpc/', 'msx/', 'amiga/', 'atari/', 'pc/', 'apple/',
-                'coleco/', 'intv/', 'vectrex/', 'odyssey2/'
-            ]
+            sw_prefixes = ['nes/', 'snes/', 'genesis/', 'megadriv/', 'psx/', 'n64/',
+                           'gb/', 'gba/', 'gbc/', 'sms/', 'sg/', 'pce/', 'tg16/',
+                           'cpc/', 'msx/', 'amiga/', 'atari/', 'pc/', 'apple/',
+                           'coleco/', 'intv/', 'vectrex/', 'odyssey2/']
             def is_software_bios(m):
                 if m.isbios != 1:
                     return False
@@ -185,41 +189,33 @@ def main():
                         if m.sourcefile.lower().startswith(prefix):
                             return True
                 return False
-
-            # Mantém máquinas que NÃO são BIOS OU são BIOS de software
             machines = [m for m in machines if m.isbios == 0 or is_software_bios(m)]
         else:
-            # Remove todas as BIOS
             machines = [m for m in machines if m.isbios == 0]
         print(f"  Removidas BIOS: {len(machines)} (antes: {before})")
 
-    # ---- 4.3 Resultado final ----
     print(f"\n--- Total de máquinas após todos os filtros: {len(machines):,} ---")
 
     if len(machines) == 0:
-        print("\n⚠️ Nenhuma máquina passou pelos filtros. Verifique suas configurações.")
-        print("  - Certifique-se de que os arquivos .ini estão na pasta correta.")
-        print("  - Ajuste os filtros nas abas da GUI.")
+        print("\n⚠️ Nenhuma máquina passou pelos filtros.")
         return
 
-    # ==============================================================
-    # 5. EXPORTAÇÃO PARA DAT
-    # ==============================================================
+    # Gerar torrent para faltantes
+    generate_torrent_script(machines, OUTPUT_DAT.parent)
+
+    # Exportar DAT
     print("\n--- Exportando DAT ---")
     OUTPUT_DAT.parent.mkdir(parents=True, exist_ok=True)
     exporter = DATExporter(machines, OUTPUT_DAT, dat_name="MAME Filtrado")
     exporter.export()
     print(f"DAT exportado: {OUTPUT_DAT}")
 
-    # Fechar conexão
     if hasattr(db, 'close'):
         db.close()
     else:
         conn.close()
-
     print("=" * 60)
     print("Concluído!")
-
 
 if __name__ == "__main__":
     main()

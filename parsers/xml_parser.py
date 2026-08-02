@@ -1,44 +1,28 @@
 import xml.etree.ElementTree as ET
-from core.models import Machine
-from core.database import Database
 import sqlite3
 import time
+from core.models import Machine
+from core.database import Database
 
 class XMLParser:
-    def __init__(self, xml_file, db_path):
-        self.xml_file = xml_file
-        self.db_path = db_path
-        self.conn = sqlite3.connect(db_path)
+    def __init__(self, xml_path, db_path):
+        self.xml_path = xml_path
+        self.db = Database(db_path)
+        self.conn = self.db.conn
         self.cursor = self.conn.cursor()
+        self.batch_size = 1000
 
-    def parse(self):
-        print("Lendo listxml.xml...")
-        tree = ET.parse(self.xml_file)
-        root = tree.getroot()
-        total = 0
-        batch = []
-        start_time = time.time()
-        for elem in root.iter('machine'):
-            machine = self._parse_machine(elem)
-            if machine:
-                batch.append(machine)
-                if len(batch) >= 1000:
-                    self._insert_batch(batch)
-                    total += len(batch)
-                    batch.clear()
-                    elapsed = time.time() - start_time
-                    rate = total / elapsed if elapsed > 0 else 0
-                    print(f"{total} máquinas [{elapsed:.0f}s, {rate:.0f} máquinas/s]")
-        if batch:
-            self._insert_batch(batch)
-            total += len(batch)
-        self.conn.commit()
-        self.conn.close()
-        return total
+    def _parse_boolean(self, value, default=0):
+        if isinstance(value, str):
+            value = value.lower()
+            if value in ('yes', 'true', '1'):
+                return 1
+            if value in ('no', 'false', '0'):
+                return 0
+        return default
 
     def _parse_machine(self, elem):
         name = elem.get('name', '')
-        # A descrição pode estar em <description> ou em atributo?
         description_elem = elem.find('description')
         description = description_elem.text if description_elem is not None else ''
         cloneof = elem.get('cloneof', '')
@@ -48,18 +32,12 @@ class XMLParser:
         year_elem = elem.find('year')
         year = year_elem.text if year_elem is not None else ''
         sourcefile = elem.get('sourcefile', '')
-        runnable = int(elem.get('runnable', 0))
-        isbios = int(elem.get('isbios', 0))
-        isdevice = int(elem.get('isdevice', 0))
-        ismechanical = int(elem.get('ismechanical', 0))
 
-        # Para 'working', o MAME não tem um atributo direto, mas podemos inferir se há driver status
-        # Vamos deixar como 0 e depois atualizar com os INIs.
-        working = 0
-        players = 0
-        # Opcional: extrair número de jogadores de <input>? Não faremos agora.
+        runnable = self._parse_boolean(elem.get('runnable', '0'))
+        isbios = self._parse_boolean(elem.get('isbios', '0'))
+        isdevice = self._parse_boolean(elem.get('isdevice', '0'))
+        ismechanical = self._parse_boolean(elem.get('ismechanical', '0'))
 
-        # Outros campos serão preenchidos pelos INIs
         machine = Machine(
             name=name,
             description=description,
@@ -72,13 +50,14 @@ class XMLParser:
             isbios=isbios,
             isdevice=isdevice,
             ismechanical=ismechanical,
-            working=working,
-            players=players,
-            # Os demais campos ficam vazios ou com valor padrão
+            working=0,
+            players=0
         )
         return machine
 
     def _insert_batch(self, machines):
+        if not machines:
+            return
         sql = """
             INSERT OR REPLACE INTO machine (
                 name, description, cloneof, romof, manufacturer, year,
@@ -98,3 +77,31 @@ class XMLParser:
                 m.working_arcade
             ))
         self.cursor.executemany(sql, values)
+        self.conn.commit()
+
+    def parse(self):
+        print(f"Lendo {self.xml_path}...")
+        start_time = time.time()
+        tree = ET.parse(self.xml_path)
+        root = tree.getroot()
+        machines = []
+        total = 0
+        for elem in root.findall('machine'):
+            machine = self._parse_machine(elem)
+            machines.append(machine)
+            total += 1
+            if len(machines) >= self.batch_size:
+                self._insert_batch(machines)
+                machines.clear()
+                if total % 10000 == 0:
+                    elapsed = time.time() - start_time
+                    rate = total / elapsed if elapsed > 0 else 0
+                    print(f"  {total} máquinas [{elapsed:.1f}s, {rate:.0f} máquinas/s]")
+        if machines:
+            self._insert_batch(machines)
+        elapsed = time.time() - start_time
+        print(f"Total importado: {total:,} em {elapsed:.1f}s")
+        return total
+
+    def close(self):
+        self.conn.close()
