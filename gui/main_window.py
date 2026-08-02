@@ -11,7 +11,7 @@ class MainWindow:
     def __init__(self, root):
         self.root = root
         self.root.title("MAME Set Builder - Configuração e Filtros")
-        self.root.geometry("800x800")
+        self.root.geometry("800x850")
         self.root.resizable(True, True)
 
         self.settings = settings_manager.load_settings()
@@ -61,11 +61,25 @@ class MainWindow:
 
         self.btn_save = tk.Button(btn_frame, text="Salvar Configuração", command=self.save_settings,
                                   bg='#2196F3', fg='white', font=('Arial', 10, 'bold'), padx=15, pady=5)
-        self.btn_save.pack(side='left', padx=10)
+        self.btn_save.pack(side='left', padx=5)
 
-        self.btn_run = tk.Button(btn_frame, text="Executar", command=self.run,
-                                 bg='#4CAF50', fg='white', font=('Arial', 12, 'bold'), padx=20, pady=8)
-        self.btn_run.pack(side='left', padx=10)
+        self.btn_import_xml = tk.Button(btn_frame, text="Importar XML", command=self.run_import_xml,
+                                        bg='#FF9800', fg='white', font=('Arial', 10, 'bold'), padx=15, pady=5)
+        self.btn_import_xml.pack(side='left', padx=5)
+
+        self.btn_import_inis = tk.Button(btn_frame, text="Importar INIs", command=self.run_import_inis,
+                                         bg='#9C27B0', fg='white', font=('Arial', 10, 'bold'), padx=15, pady=5)
+        self.btn_import_inis.pack(side='left', padx=5)
+
+        self.btn_generate = tk.Button(btn_frame, text="Gerar DAT", command=self.run_generate,
+                                      bg='#4CAF50', fg='white', font=('Arial', 12, 'bold'), padx=20, pady=8)
+        self.btn_generate.pack(side='left', padx=5)
+
+        # Botão Parar (inicialmente oculto)
+        self.btn_stop = tk.Button(btn_frame, text="⏹ Parar", command=self.stop_processing,
+                                  bg='#F44336', fg='white', font=('Arial', 10, 'bold'), padx=15, pady=5)
+        self.btn_stop.pack(side='left', padx=5)
+        self.btn_stop.pack_forget()  # oculto por padrão
 
     def log_message(self, message):
         self.log_text.configure(state='normal')
@@ -88,19 +102,11 @@ class MainWindow:
         settings_manager.save_settings(data)
         messagebox.showinfo("Sucesso", "Configurações salvas com sucesso!")
 
-    def run(self):
+    def _update_config_from_gui(self):
         paths = self.paths_tab.get_values()
-        if not paths['mame_exe']:
-            messagebox.showerror("Erro", "Selecione o executável do MAME.")
-            return
-        if not paths['roms_dir']:
-            messagebox.showerror("Erro", "Selecione o diretório de ROMs.")
-            return
-        if not paths['output_dir']:
-            messagebox.showerror("Erro", "Selecione o diretório de saída.")
-            return
-
-        self.save_settings()
+        basic = self.basic_tab.get_values()
+        adv = self.advanced_tab.get_values()
+        torrent = self.torrents_tab.get_values()
 
         config.MAME_EXE = Path(paths['mame_exe'])
         config.ROMS_DIR = Path(paths['roms_dir'])
@@ -108,25 +114,19 @@ class MainWindow:
         config.FOLDERS = Path(paths['ini_folder']) if paths['ini_folder'] else Path("data/input/folders")
         config.DATABASE = Path(paths['db_file']) if paths['db_file'] else Path("data/cache/mame.db")
 
-        # Filtros básicos (listas)
-        basic = self.basic_tab.get_values()
         config.FILTER_WORKING = basic['filter_working']
         config.FILTER_ARCADE = basic['filter_arcade']
         config.FILTER_CLONES = basic['filter_clones']
-        config.FILTER_CONTROLS = basic['controls']      # lista
-        config.FILTER_PLAYERS = basic['players']        # lista
-        config.FILTER_CATEGORIES = basic['category']    # lista
+        config.FILTER_CONTROLS = basic['controls']
+        config.FILTER_PLAYERS = basic['players']
+        config.FILTER_CATEGORIES = basic['category']
 
-        # Filtros avançados
-        adv = self.advanced_tab.get_values()
         config.REMOVE_MECHANICAL = adv['remove_mechanical']
         config.REMOVE_BIOS = adv['remove_bios']
         config.REMOVE_DEVICES = adv['remove_devices']
         config.REMOVE_JUNK = adv['remove_junk']
         config.KEEP_SOFTWARE_BIOS = adv['keep_software_bios']
 
-        # Torrents
-        torrent = self.torrents_tab.get_values()
         config.TORRENT_LINKS = {
             "mame_roms": torrent['torrent_mame'],
             "mame_bios": torrent['torrent_bios'],
@@ -146,35 +146,75 @@ class MainWindow:
         config.QB_USER = torrent.get('qb_user', 'admin')
         config.QB_PASS = torrent.get('qb_pass', 'adminadmin')
 
-        # Limpar log
+    def _run_async(self, target_func, description):
+        paths = self.paths_tab.get_values()
+        if not paths['mame_exe']:
+            messagebox.showerror("Erro", "Selecione o executável do MAME.")
+            return
+        if not paths['roms_dir']:
+            messagebox.showerror("Erro", "Selecione o diretório de ROMs.")
+            return
+        if not paths['output_dir']:
+            messagebox.showerror("Erro", "Selecione o diretório de saída.")
+            return
+
+        self.save_settings()
+        self._update_config_from_gui()
+
         self.log_text.configure(state='normal')
         self.log_text.delete(1.0, tk.END)
         self.log_text.configure(state='disabled')
-        self.update_progress(0, "Iniciando...")
+        self.update_progress(0, f"Iniciando {description}...")
 
-        self.btn_run.config(state='disabled', bg='gray')
-        self.btn_save.config(state='disabled', bg='gray')
+        # Desabilitar botões de ação, habilitar "Parar"
+        for btn in [self.btn_save, self.btn_import_xml, self.btn_import_inis, self.btn_generate]:
+            btn.config(state='disabled', bg='gray')
+        self.btn_stop.pack(side='left', padx=5)  # mostrar botão parar
 
         self.processor = AsyncProcessor(
-            target=main.main,
+            target=target_func,
             log_callback=self.log_message,
             progress_callback=self.update_progress
         )
         self.processor.start()
         self.monitor_thread()
 
+    def stop_processing(self):
+        """Solicita a parada do processamento atual."""
+        if self.processor and self.processor.is_alive():
+            self.processor.stop()
+            self.log_message("\n⏹ Parada solicitada... Aguardando término.")
+            self.btn_stop.config(state='disabled', bg='gray')
+
     def monitor_thread(self):
         if self.processor and self.processor.is_alive():
             self.root.after(100, self.monitor_thread)
         else:
-            self.btn_run.config(state='normal', bg='#4CAF50')
-            self.btn_save.config(state='normal', bg='#2196F3')
+            # Reabilitar botões
+            for btn in [self.btn_save, self.btn_import_xml, self.btn_import_inis, self.btn_generate]:
+                btn.config(state='normal', bg='#2196F3' if btn == self.btn_save else
+                           '#FF9800' if btn == self.btn_import_xml else
+                           '#9C27B0' if btn == self.btn_import_inis else
+                           '#4CAF50')
+            self.btn_stop.pack_forget()  # ocultar botão parar
+            self.btn_stop.config(state='normal', bg='#F44336')
+
             if self.processor and self.processor.exception:
                 self.log_message(f"\nERRO: {self.processor.exception}\n{self.processor.exception_traceback}")
                 self.update_progress(0, "Erro")
             else:
-                self.log_message("\nProcessamento concluído com sucesso!")
+                self.log_message(f"\n{self.processor.result or 'Concluído com sucesso!'}")
                 self.update_progress(100, "Concluído")
+
+    # ---- Ações dos botões ----
+    def run_import_xml(self):
+        self._run_async(main.import_xml_only, "Importação do XML")
+
+    def run_import_inis(self):
+        self._run_async(main.import_inis_only, "Importação dos INIs")
+
+    def run_generate(self):
+        self._run_async(main.generate_dat_only, "Geração do DAT")
 
 if __name__ == "__main__":
     root = tk.Tk()

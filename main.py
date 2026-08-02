@@ -1,13 +1,13 @@
 import subprocess
-import time
 import json
+import time
 from pathlib import Path
 from config import (
     LISTXML, DATABASE, FOLDERS, OUTPUT_DAT, MAME_EXE,
     FILTER_WORKING, FILTER_ARCADE, FILTER_CLONES,
     FILTER_CONTROLS, FILTER_PLAYERS, FILTER_CATEGORIES,
     REMOVE_MECHANICAL, REMOVE_BIOS, REMOVE_DEVICES, REMOVE_JUNK, KEEP_SOFTWARE_BIOS,
-    TORRENT_LINKS, ENABLE_TORRENT, ROM_DIR, CHD_DIR, SOFTWARE_ROM_DIR, SOFTWARE_CHD_DIR,
+    TORRENT_LINKS, ENABLE_TORRENT, ROM_DIR, SOFTWARE_ROM_DIR,
     QB_EXE, QB_HOST, QB_PORT, QB_USER, QB_PASS
 )
 from parsers.xml_parser import XMLParser
@@ -21,6 +21,10 @@ from filters.filters import (
     BooleanFilter, FilterClass
 )
 from exporters.dat_exporter import DATExporter
+
+# ===================================================================
+# FUNÇÕES AUXILIARES
+# ===================================================================
 
 def ensure_listxml():
     if LISTXML.exists():
@@ -80,7 +84,6 @@ def generate_torrent_script(machines, output_dir):
         json.dump(missing_by_category, f, indent=2)
     print(f"Lista de arquivos faltantes salva em: {json_path}")
 
-    # Integração com qBittorrent
     if QB_EXE or (QB_HOST and QB_PORT):
         try:
             from torrent_manager import start_qbittorrent, connect_qbittorrent, add_torrent_with_files
@@ -107,9 +110,14 @@ def generate_torrent_script(machines, output_dir):
     else:
         print("qBittorrent não configurado. Gere o script manualmente.")
 
-def main():
+# ===================================================================
+# FUNÇÕES PRINCIPAIS (com suporte a stop_flag)
+# ===================================================================
+
+def import_xml_only(stop_flag=None):
+    """Apenas importa o XML para o banco (se vazio)."""
     print("=" * 60)
-    print("MAME Set Builder")
+    print("MAME Set Builder - Importação XML")
     print("=" * 60)
 
     ensure_listxml()
@@ -128,16 +136,87 @@ def main():
         total = parser.parse()
         print(f"Total importado: {total:,}")
     else:
-        print(f"Banco já possui {repo.count():,} máquinas.")
+        print(f"Banco já possui {repo.count():,} máquinas. Nenhuma importação necessária.")
+
+    conn.close()
+    return "Importação XML concluída."
+
+def import_inis_only(stop_flag=None):
+    """Apenas lê os arquivos .ini e atualiza o banco, com verificação de parada."""
+    print("=" * 60)
+    print("MAME Set Builder - Importação INIs")
+    print("=" * 60)
+
+    db = Database(DATABASE)
+    conn = get_connection(db)
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA synchronous = OFF")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_machine_name ON machine(name);")
+    conn.commit()
+    run_migrations(db)
+
+    if not FOLDERS.exists():
+        print(f"Pasta de INIs não encontrada: {FOLDERS}")
+        return "Pasta de INIs não encontrada."
 
     print("Lendo arquivos .ini da pasta folders...")
     ini_parser = INIParser(FOLDERS, db)
+
+    # Sobrescrever o método parse_all para verificar stop_flag
+    original_parse_all = ini_parser.parse_all
+
+    def parse_all_with_stop():
+        """Versão modificada que verifica stop_flag entre arquivos."""
+        files = list(FOLDERS.glob("*.ini"))
+        total = len(files)
+        for idx, ini_file in enumerate(files):
+            if stop_flag and getattr(stop_flag, 'stop_flag', False):
+                print("\n⏹ Importação interrompida pelo usuário.")
+                break
+            print(f"Processando {ini_file.name} ({idx+1}/{total})...")
+            ini_parser.parse_file(ini_file)
+            # Opcional: atualizar progresso se houver callback
+            if hasattr(stop_flag, 'progress_callback') and stop_flag.progress_callback:
+                progress = int((idx+1) / total * 100)
+                stop_flag.progress_callback(progress, f"Processando {ini_file.name}")
+        # Atualizar progresso para 100% se concluído
+        if hasattr(stop_flag, 'progress_callback') and stop_flag.progress_callback:
+            stop_flag.progress_callback(100, "Importação de INIs concluída")
+
+    # Substituir método
+    ini_parser.parse_all = parse_all_with_stop
     ini_parser.parse_all()
+
+    conn.close()
+    return "Importação de INIs concluída."
+
+def generate_dat_only(stop_flag=None):
+    """Aplica filtros e gera o DAT, sem reimportar XML/INIs."""
+    print("=" * 60)
+    print("MAME Set Builder - Geração de DAT")
+    print("=" * 60)
+
+    db = Database(DATABASE)
+    conn = get_connection(db)
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA synchronous = OFF")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_machine_name ON machine(name);")
+    conn.commit()
+    run_migrations(db)
+    repo = MachineRepository(db)
+
+    if repo.count() == 0:
+        print("Banco vazio! Execute 'Importar XML' primeiro.")
+        return "Banco vazio. Execute Importar XML primeiro."
 
     machines = repo.get_all()
     print(f"Total de máquinas carregadas: {len(machines):,}")
 
-    # Aplicar filtros básicos
+    # Verificar parada antes de cada etapa
+    if stop_flag and getattr(stop_flag, 'stop_flag', False):
+        print("⏹ Processamento interrompido.")
+        return "Processamento interrompido."
+
     print("\n--- Aplicando filtros básicos ---")
     if FILTER_WORKING:
         machines = working_filter().apply(machines)
@@ -148,27 +227,29 @@ def main():
     if not FILTER_CLONES:
         machines = no_clones_filter().apply(machines)
         print(f"  Após no_clones_filter: {len(machines)}")
+    if stop_flag and getattr(stop_flag, 'stop_flag', False):
+        print("⏹ Processamento interrompido.")
+        return "Processamento interrompido."
 
-    # Filtros com múltipla escolha (OR)
     if FILTER_CONTROLS:
         filters = [ContainsFilter("controls", c) for c in FILTER_CONTROLS]
         control_filter = CompositeFilter(filters, mode="OR")
         machines = control_filter.apply(machines)
         print(f"  Após controles {FILTER_CONTROLS}: {len(machines)}")
-
     if FILTER_PLAYERS:
         filters = [ContainsFilter("players", p) for p in FILTER_PLAYERS]
         players_filter = CompositeFilter(filters, mode="OR")
         machines = players_filter.apply(machines)
         print(f"  Após jogadores {FILTER_PLAYERS}: {len(machines)}")
-
     if FILTER_CATEGORIES:
         filters = [ContainsFilter("category", cat) for cat in FILTER_CATEGORIES]
         category_filter = CompositeFilter(filters, mode="OR")
         machines = category_filter.apply(machines)
         print(f"  Após categorias {FILTER_CATEGORIES}: {len(machines)}")
+    if stop_flag and getattr(stop_flag, 'stop_flag', False):
+        print("⏹ Processamento interrompido.")
+        return "Processamento interrompido."
 
-    # Filtros avançados
     print("\n--- Aplicando filtros avançados (limpeza) ---")
     if REMOVE_MECHANICAL:
         machines = [m for m in machines if m.ismechanical == 0]
@@ -203,29 +284,34 @@ def main():
         else:
             machines = [m for m in machines if m.isbios == 0]
         print(f"  Removidas BIOS: {len(machines)} (antes: {before})")
+    if stop_flag and getattr(stop_flag, 'stop_flag', False):
+        print("⏹ Processamento interrompido.")
+        return "Processamento interrompido."
 
     print(f"\n--- Total de máquinas após todos os filtros: {len(machines):,} ---")
-
     if len(machines) == 0:
         print("\n⚠️ Nenhuma máquina passou pelos filtros.")
-        return
+        return "Nenhuma máquina passou pelos filtros."
 
-    # Gerar torrent para faltantes
     generate_torrent_script(machines, OUTPUT_DAT.parent)
 
-    # Exportar DAT
     print("\n--- Exportando DAT ---")
     OUTPUT_DAT.parent.mkdir(parents=True, exist_ok=True)
     exporter = DATExporter(machines, OUTPUT_DAT, dat_name="MAME Filtrado")
     exporter.export()
     print(f"DAT exportado: {OUTPUT_DAT}")
 
-    if hasattr(db, 'close'):
-        db.close()
-    else:
-        conn.close()
-    print("=" * 60)
-    print("Concluído!")
+    conn.close()
+    return f"DAT gerado com {len(machines):,} máquinas."
+
+# ===================================================================
+# MAIN ORIGINAL (mantido para compatibilidade)
+# ===================================================================
+
+def main():
+    import_xml_only()
+    import_inis_only()
+    generate_dat_only()
 
 if __name__ == "__main__":
     main()

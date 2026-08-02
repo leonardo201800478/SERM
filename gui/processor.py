@@ -1,6 +1,6 @@
 import threading
 import sys
-from io import StringIO
+import time
 
 class AsyncProcessor(threading.Thread):
     def __init__(self, target, args=(), kwargs=None, log_callback=None, progress_callback=None):
@@ -13,20 +13,41 @@ class AsyncProcessor(threading.Thread):
         self.exception = None
         self.result = None
         self.daemon = True
+        self.stop_flag = False
+        self.original_stdout = sys.stdout
+
+    def stop(self):
+        """Solicita a parada da execução."""
+        self.stop_flag = True
 
     def run(self):
-        old_stdout = sys.stdout
-        sys.stdout = StringIO()
+        # Cria um objeto que redireciona stdout para o callback e para o terminal
+        class Tee:
+            def __init__(self, callback, original_stdout):
+                self.callback = callback
+                self.original_stdout = original_stdout
+                self.buffer = ""
+
+            def write(self, message):
+                if message:
+                    self.original_stdout.write(message)
+                    self.original_stdout.flush()
+                    if self.callback:
+                        self.callback(message)
+
+            def flush(self):
+                self.original_stdout.flush()
+
+        sys.stdout = Tee(self.log_callback, self.original_stdout)
+
         try:
+            # Passa a flag de parada como argumento opcional
+            if 'stop_flag' not in self.kwargs:
+                self.kwargs['stop_flag'] = self
             self.result = self.target(*self.args, **self.kwargs)
         except Exception as e:
             self.exception = e
             import traceback
             self.exception_traceback = traceback.format_exc()
         finally:
-            output = sys.stdout.getvalue()
-            sys.stdout = old_stdout
-            if self.log_callback:
-                self.log_callback(output)
-            if self.progress_callback:
-                self.progress_callback(100, "Concluído")
+            sys.stdout = self.original_stdout
