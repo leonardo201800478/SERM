@@ -1,43 +1,24 @@
-from dataclasses import dataclass, field
-
+# core/models.py
+from dataclasses import dataclass
+from typing import Optional
 
 @dataclass
 class Machine:
-
     name: str
-
-    description: str = ""
-
-    cloneof: str | None = None
-
-    romof: str | None = None
-
-    manufacturer: str = ""
-
-    year: str = ""
-
-    sourcefile: str = ""
-
-    runnable: bool = True
-
-    isbios: bool = False
-
-    isdevice: bool = False
-
+    description: Optional[str] = None
+    year: Optional[str] = None
+    manufacturer: Optional[str] = None
+    cloneof: Optional[str] = None
+    working: bool = False
     ismechanical: bool = False
-
-    categories: set = field(default_factory=set)
-
-    genres: set = field(default_factory=set)
-
-    machine_types: set = field(default_factory=set)
-
-    drivers: set = field(default_factory=set)
-
-    languages: set = field(default_factory=set)
-
-    controls: set = field(default_factory=set)
-
-    players: int = 0
-
-    working: bool = True
+    isdevice: bool = False
+    # Novos campos vindos dos .ini
+    category: Optional[str] = None
+    genre: Optional[str] = None
+    genre_ows: Optional[str] = None
+    machine_category: Optional[str] = None
+    machine_type: Optional[str] = None
+    players: Optional[str] = None
+    resolution: Optional[str] = None
+    version: Optional[str] = None
+    working_arcade: Optional[bool] = None

@@ -4,3 +4,8 @@
 *.ini
 *.dat
 data/input/
+data/cache/
+data/output/
+data/reports/
+data/txt/
+data/xml/
