@@ -1,0 +1,2 @@
+[console_scripts]
+mame-set-builder = mame_set_builder.cli:main
