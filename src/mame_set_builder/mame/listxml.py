@@ -1,5 +1,6 @@
 """
-Parser streaming para o XML do MAME -listxml.
+Parser streaming para o XML do MAME -listxml (Fase 2).
+Extrai informações completas: input, display, sound, chip, etc.
 """
 
 import xml.etree.ElementTree as ET
@@ -11,24 +12,17 @@ class ListXMLStream:
         self.executable = executable
 
     def iter_machines(self) -> Iterator[Dict[str, Any]]:
-        """
-        Processa o XML em streaming, gerando dicionários para cada <machine>.
-        Utiliza iterparse para evitar carregar todo o XML na memória.
-        """
         proc = self.executable.generate_listxml()
         context = ET.iterparse(proc.stdout, events=("end",))
         for event, elem in context:
             if elem.tag == "machine":
                 machine_dict = self._parse_machine(elem)
                 yield machine_dict
-                elem.clear()   # libera memória
+                elem.clear()
         proc.stdout.close()
         proc.wait()
 
     def _parse_machine(self, elem: ET.Element) -> Dict[str, Any]:
-        """
-        Extrai os atributos e filhos relevantes de uma <machine>.
-        """
         data = {
             "name": elem.get("name"),
             "description": elem.get("description", ""),
@@ -47,17 +41,122 @@ class ListXMLStream:
             "samples": [],
             "driver": {},
             "device_refs": [],
+            "input": None,
+            "input_ports": [],
+            "dipswitches": [],
+            "configurations": [],
+            "displays": [],
+            "sound": None,
+            "chips": [],
+            "slots": [],
+            "softwarelists": [],
+            "features": [],
+            "ramoptions": [],
         }
+
         for child in elem:
-            if child.tag == "rom":
+            tag = child.tag
+
+            if tag == "rom":
                 data["roms"].append(child.attrib)
-            elif child.tag == "disk":
+            elif tag == "disk":
                 data["disks"].append(child.attrib)
-            elif child.tag == "sample":
+            elif tag == "sample":
                 data["samples"].append(child.attrib.get("name"))
-            elif child.tag == "driver":
+            elif tag == "driver":
                 data["driver"] = child.attrib
-            elif child.tag == "device_ref":
+            elif tag == "device_ref":
                 data["device_refs"].append(child.attrib.get("name"))
-            # outros tags (input, display, etc.) serão adicionados na Fase 2
+
+            elif tag == "input":
+                data["input"] = {
+                    "service": child.get("service", ""),
+                    "tilt": child.get("tilt", ""),
+                    "coin": child.get("coin", ""),
+                }
+                for port in child:
+                    if port.tag == "port":
+                        port_data = {
+                            "tag": port.get("tag", ""),
+                            "type": port.get("type", ""),
+                            "mask": port.get("mask"),
+                            "defvalue": port.get("defvalue"),
+                            "dipswitches": []
+                        }
+                        for sub in port:
+                            if sub.tag == "dipswitch":
+                                port_data["dipswitches"].append({
+                                    "tag": sub.get("tag", ""),
+                                    "name": sub.get("name", ""),
+                                    "mask": sub.get("mask"),
+                                    "defvalue": sub.get("defvalue"),
+                                })
+                            elif sub.tag == "configuration":
+                                data["configurations"].append({
+                                    "tag": sub.get("tag", ""),
+                                    "name": sub.get("name", ""),
+                                    "mask": sub.get("mask"),
+                                    "defvalue": sub.get("defvalue"),
+                                })
+                        data["input_ports"].append(port_data)
+
+            elif tag == "display":
+                data["displays"].append({
+                    "tag": child.get("tag", ""),
+                    "type": child.get("type", ""),
+                    "rotate": child.get("rotate"),
+                    "width": child.get("width"),
+                    "height": child.get("height"),
+                    "refresh": child.get("refresh"),
+                    "pixclock": child.get("pixclock"),
+                    "htotal": child.get("htotal"),
+                    "vtotal": child.get("vtotal"),
+                })
+
+            elif tag == "sound":
+                data["sound"] = {
+                    "channels": child.get("channels"),
+                }
+
+            elif tag == "chip":
+                data["chips"].append({
+                    "tag": child.get("tag", ""),
+                    "type": child.get("type", ""),
+                    "name": child.get("name", ""),
+                    "clock": child.get("clock"),
+                })
+
+            elif tag == "slot":
+                slot_data = {
+                    "name": child.get("name", ""),
+                    "options": []
+                }
+                for opt in child:
+                    if opt.tag == "slotoption":
+                        slot_data["options"].append({
+                            "name": opt.get("name", ""),
+                            "devname": opt.get("devname", ""),
+                            "default": opt.get("default") == "yes",
+                        })
+                data["slots"].append(slot_data)
+
+            elif tag == "softwarelist":
+                data["softwarelists"].append({
+                    "name": child.get("name", ""),
+                    "status": child.get("status", ""),
+                    "filter": child.get("filter", ""),
+                })
+
+            elif tag == "feature":
+                data["features"].append({
+                    "name": child.get("name", ""),
+                    "value": child.get("value", ""),
+                })
+
+            elif tag == "ramoption":
+                data["ramoptions"].append({
+                    "name": child.get("name", ""),
+                    "default": child.get("default", ""),
+                })
+
         return data
