@@ -1,26 +1,43 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 from pathlib import Path
+import logging
 from gui.tabs import PathsTab, BasicFiltersTab, AdvancedFiltersTab, TorrentsTab
 from gui import settings_manager
 from gui.processor import AsyncProcessor
 import config
 import main
 
+# Configurar logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
 class MainWindow:
     def __init__(self, root):
         self.root = root
         self.root.title("MAME Set Builder - Configuração e Filtros")
-        self.root.geometry("800x850")
+        self.root.geometry("850x950")
         self.root.resizable(True, True)
 
+        # Carregar configurações e atualizar config.MAME_EXE
         self.settings = settings_manager.load_settings()
+        if 'mame_exe' in self.settings:
+            config.MAME_EXE = Path(self.settings['mame_exe'])
+            logger.debug(f"Config.MAME_EXE atualizado para: {config.MAME_EXE}")
+
         self.processor = None
         self.create_widgets()
+        self.update_mame_version()
 
     def create_widgets(self):
-        # Título
-        tk.Label(self.root, text="MAME Set Builder - Configuração", font=('Arial', 16, 'bold')).pack(pady=10)
+        # Cabeçalho com versão do MAME
+        header_frame = tk.Frame(self.root)
+        header_frame.pack(fill='x', padx=10, pady=5)
+
+        tk.Label(header_frame, text="MAME Set Builder", font=('Arial', 16, 'bold')).pack(side='left')
+
+        self.version_label = tk.Label(header_frame, text="Versão do MAME: não detectada", font=('Arial', 10), fg='blue')
+        self.version_label.pack(side='right', padx=10)
 
         # Notebook
         notebook = ttk.Notebook(self.root)
@@ -48,10 +65,20 @@ class MainWindow:
         scrollbar.pack(side='right', fill='y')
         self.log_text.configure(yscrollcommand=scrollbar.set)
 
-        # Barra de progresso
+        # Barras de progresso
+        progress_frame = tk.Frame(self.root)
+        progress_frame.pack(fill='x', padx=10, pady=5)
+
+        tk.Label(progress_frame, text="Progresso Total:", font=('Arial', 9)).pack(anchor='w')
         self.progress_var = tk.DoubleVar()
-        self.progress_bar = ttk.Progressbar(self.root, variable=self.progress_var, maximum=100)
-        self.progress_bar.pack(fill='x', padx=10, pady=5)
+        self.progress_bar = ttk.Progressbar(progress_frame, variable=self.progress_var, maximum=100)
+        self.progress_bar.pack(fill='x', pady=(0, 5))
+
+        tk.Label(progress_frame, text="Progresso Parcial:", font=('Arial', 9)).pack(anchor='w')
+        self.progress_partial_var = tk.DoubleVar()
+        self.progress_partial_bar = ttk.Progressbar(progress_frame, variable=self.progress_partial_var, maximum=100)
+        self.progress_partial_bar.pack(fill='x', pady=(0, 5))
+
         self.status_label = tk.Label(self.root, text="Pronto", font=('Arial', 9))
         self.status_label.pack(pady=5)
 
@@ -75,11 +102,33 @@ class MainWindow:
                                       bg='#4CAF50', fg='white', font=('Arial', 12, 'bold'), padx=20, pady=8)
         self.btn_generate.pack(side='left', padx=5)
 
-        # Botão Parar (inicialmente oculto)
         self.btn_stop = tk.Button(btn_frame, text="⏹ Parar", command=self.stop_processing,
                                   bg='#F44336', fg='white', font=('Arial', 10, 'bold'), padx=15, pady=5)
         self.btn_stop.pack(side='left', padx=5)
-        self.btn_stop.pack_forget()  # oculto por padrão
+        self.btn_stop.pack_forget()
+
+    def update_mame_version(self):
+        try:
+            mame_path_str = self.paths_tab.mame_exe.get()
+            if mame_path_str:
+                mame_path = Path(mame_path_str)
+                if mame_path.exists():
+                    version = main.get_mame_version(mame_path)
+                    if version:
+                        self.version_label.config(text=f"Versão do MAME: {version}")
+                        logger.info(f"Versão detectada: {version}")
+                    else:
+                        self.version_label.config(text="Versão do MAME: não detectada")
+                        logger.warning("Versão não detectada")
+                else:
+                    self.version_label.config(text="MAME não encontrado")
+                    logger.warning(f"Arquivo não encontrado: {mame_path}")
+            else:
+                self.version_label.config(text="MAME não configurado")
+                logger.debug("Caminho do MAME vazio")
+        except Exception as e:
+            self.version_label.config(text="Erro ao obter versão")
+            logger.error(f"Erro ao atualizar versão: {e}", exc_info=True)
 
     def log_message(self, message):
         self.log_text.configure(state='normal')
@@ -88,9 +137,19 @@ class MainWindow:
         self.log_text.configure(state='disabled')
         self.root.update_idletasks()
 
-    def update_progress(self, value, status=""):
-        self.progress_var.set(value)
-        self.status_label.config(text=status)
+    def update_progress(self, value=None, status="", partial_value=None):
+        """
+        Atualiza as barras de progresso e o status.
+        - value: progresso total (0-100), se None não altera.
+        - status: texto do status.
+        - partial_value: progresso parcial (0-100), se None não altera.
+        """
+        if value is not None:
+            self.progress_var.set(value)
+        if partial_value is not None:
+            self.progress_partial_var.set(partial_value)
+        if status:
+            self.status_label.config(text=status)
         self.root.update_idletasks()
 
     def save_settings(self):
@@ -100,6 +159,7 @@ class MainWindow:
         data.update(self.advanced_tab.get_values())
         data.update(self.torrents_tab.get_values())
         settings_manager.save_settings(data)
+        self.update_mame_version()
         messagebox.showinfo("Sucesso", "Configurações salvas com sucesso!")
 
     def _update_config_from_gui(self):
@@ -164,12 +224,11 @@ class MainWindow:
         self.log_text.configure(state='normal')
         self.log_text.delete(1.0, tk.END)
         self.log_text.configure(state='disabled')
-        self.update_progress(0, f"Iniciando {description}...")
+        self.update_progress(0, f"Iniciando {description}...", 0)
 
-        # Desabilitar botões de ação, habilitar "Parar"
         for btn in [self.btn_save, self.btn_import_xml, self.btn_import_inis, self.btn_generate]:
             btn.config(state='disabled', bg='gray')
-        self.btn_stop.pack(side='left', padx=5)  # mostrar botão parar
+        self.btn_stop.pack(side='left', padx=5)
 
         self.processor = AsyncProcessor(
             target=target_func,
@@ -180,7 +239,6 @@ class MainWindow:
         self.monitor_thread()
 
     def stop_processing(self):
-        """Solicita a parada do processamento atual."""
         if self.processor and self.processor.is_alive():
             self.processor.stop()
             self.log_message("\n⏹ Parada solicitada... Aguardando término.")
@@ -190,25 +248,74 @@ class MainWindow:
         if self.processor and self.processor.is_alive():
             self.root.after(100, self.monitor_thread)
         else:
-            # Reabilitar botões
             for btn in [self.btn_save, self.btn_import_xml, self.btn_import_inis, self.btn_generate]:
                 btn.config(state='normal', bg='#2196F3' if btn == self.btn_save else
                            '#FF9800' if btn == self.btn_import_xml else
                            '#9C27B0' if btn == self.btn_import_inis else
                            '#4CAF50')
-            self.btn_stop.pack_forget()  # ocultar botão parar
+            self.btn_stop.pack_forget()
             self.btn_stop.config(state='normal', bg='#F44336')
+            self.progress_partial_var.set(0)
 
             if self.processor and self.processor.exception:
                 self.log_message(f"\nERRO: {self.processor.exception}\n{self.processor.exception_traceback}")
-                self.update_progress(0, "Erro")
+                self.update_progress(0, "Erro", 0)
             else:
                 self.log_message(f"\n{self.processor.result or 'Concluído com sucesso!'}")
-                self.update_progress(100, "Concluído")
+                self.update_progress(100, "Concluído", 0)
 
-    # ---- Ações dos botões ----
     def run_import_xml(self):
-        self._run_async(main.import_xml_only, "Importação do XML")
+        # Atualiza o config com os valores da GUI
+        self._update_config_from_gui()
+
+        # Obtém o caminho do executável diretamente da GUI
+        mame_path_str = self.paths_tab.mame_exe.get()
+        if not mame_path_str:
+            messagebox.showerror("Erro", "Selecione o executável do MAME.")
+            return
+
+        mame_path = Path(mame_path_str)
+        if not mame_path.exists():
+            messagebox.showerror("Erro", f"Executável do MAME não encontrado em: {mame_path}")
+            return
+
+        # Obtém a versão do MAME usando o caminho explícito
+        mame_ver = main.get_mame_version(mame_path)
+        if mame_ver is None:
+            messagebox.showerror("Erro", "Não foi possível obter a versão do MAME. Verifique o executável.")
+            return
+
+        # Obtém a versão do XML (se existir)
+        xml_ver = main.get_xml_version()
+
+        if not config.LISTXML.exists():
+            if messagebox.askyesno("XML não encontrado", "O arquivo listxml.xml não existe. Deseja gerá-lo agora?"):
+                status, msg = main.ensure_listxml(force=True)
+                if status == 'error':
+                    messagebox.showerror("Erro", msg)
+                    return
+                self._run_async(main.import_xml_only, "Importação do XML")
+            return
+
+        if xml_ver is None:
+            if messagebox.askyesno("Versão desconhecida",
+                                   f"O XML existente não tem versão identificada. A versão atual do MAME é {mame_ver}. Deseja atualizar?"):
+                main.ensure_listxml(force=True)
+                self._run_async(main.import_xml_only, "Importação do XML")
+            else:
+                messagebox.showinfo("Informação", "Mantendo o XML atual. Nenhuma importação será feita.")
+            return
+
+        if mame_ver == xml_ver:
+            messagebox.showinfo("Versão compatível", f"XML já está na versão {mame_ver} do MAME. Prosseguindo com a importação.")
+            self._run_async(main.import_xml_only, "Importação do XML")
+        else:
+            if messagebox.askyesno("Versão diferente",
+                                   f"Versão do MAME ({mame_ver}) diferente da versão do XML ({xml_ver}). Deseja atualizar o XML?"):
+                main.ensure_listxml(force=True)
+                self._run_async(main.import_xml_only, "Importação do XML")
+            else:
+                messagebox.showinfo("Informação", "Mantendo o XML atual. Nenhuma importação será feita.")
 
     def run_import_inis(self):
         self._run_async(main.import_inis_only, "Importação dos INIs")

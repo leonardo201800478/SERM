@@ -103,5 +103,16 @@ class XMLParser:
         print(f"Total importado: {total:,} em {elapsed:.1f}s")
         return total
 
+    def get_version(self):
+        try:
+            tree = ET.parse(self.xml_path)
+            root = tree.getroot()
+            mame_elem = root.find('mame')
+            if mame_elem is not None:
+                return mame_elem.get('version') or mame_elem.get('build')
+        except Exception:
+            pass
+        return None
+
     def close(self):
         self.conn.close()

@@ -32,7 +32,6 @@ class CompositeFilter(Filter):
             result = []
             for f in self.filters:
                 result.extend(f.apply(machines))
-            # Remove duplicatas (usando nome como chave)
             seen = set()
             unique = []
             for m in result:
@@ -47,7 +46,6 @@ def working_filter():
     return BooleanFilter('working', 1)
 
 def no_clones_filter():
-    # cloneof vazio indica que é um pai
     def apply(machines):
         return [m for m in machines if not m.cloneof]
     return FilterClass(apply)
@@ -63,6 +61,10 @@ def no_mechanical_filter():
 
 def category_contains(substring):
     return ContainsFilter('category', substring)
+
+def machine_category_contains(substring):
+    """Filtra por tipo de máquina (Arcade, Console, Computer, etc.)"""
+    return ContainsFilter('machine_category', substring)
 
 def working_arcade_filter():
     return BooleanFilter('working_arcade', 1)

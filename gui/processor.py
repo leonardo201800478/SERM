@@ -1,6 +1,5 @@
 import threading
 import sys
-import time
 
 class AsyncProcessor(threading.Thread):
     def __init__(self, target, args=(), kwargs=None, log_callback=None, progress_callback=None):
@@ -17,16 +16,13 @@ class AsyncProcessor(threading.Thread):
         self.original_stdout = sys.stdout
 
     def stop(self):
-        """Solicita a parada da execução."""
         self.stop_flag = True
 
     def run(self):
-        # Cria um objeto que redireciona stdout para o callback e para o terminal
         class Tee:
             def __init__(self, callback, original_stdout):
                 self.callback = callback
                 self.original_stdout = original_stdout
-                self.buffer = ""
 
             def write(self, message):
                 if message:
@@ -41,9 +37,10 @@ class AsyncProcessor(threading.Thread):
         sys.stdout = Tee(self.log_callback, self.original_stdout)
 
         try:
-            # Passa a flag de parada como argumento opcional
-            if 'stop_flag' not in self.kwargs:
-                self.kwargs['stop_flag'] = self
+            # Cria um objeto stop_flag que também carrega o callback
+            stop_flag = self
+            stop_flag.progress_callback = self.progress_callback
+            self.kwargs['stop_flag'] = stop_flag
             self.result = self.target(*self.args, **self.kwargs)
         except Exception as e:
             self.exception = e
