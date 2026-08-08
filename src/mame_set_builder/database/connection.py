@@ -10,9 +10,10 @@ class Database:
 
     def connect(self) -> sqlite3.Connection:
         if self._conn is None:
+            # Cria o diretório pai se não existir
+            self.path.parent.mkdir(parents=True, exist_ok=True)
             self._conn = sqlite3.connect(str(self.path))
             self._conn.row_factory = sqlite3.Row
-            # Garantir que a estrutura existe
             init_db(self._conn)
         return self._conn
 

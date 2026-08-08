@@ -8,23 +8,17 @@ class ListXMLStream:
         self.executable = executable
 
     def iter_machines(self) -> Iterator[Dict[str, Any]]:
-        """
-        Processa o XML em streaming, gerando dicionários para cada <machine>.
-        Utiliza iterparse para evitar carregar todo o XML na memória.
-        """
         proc = self.executable.generate_listxml()
-        # iterparse requer um arquivo ou objeto com read() - usamos proc.stdout
         context = ET.iterparse(proc.stdout, events=("end",))
         for event, elem in context:
             if elem.tag == "machine":
                 machine_dict = self._parse_machine(elem)
                 yield machine_dict
-                elem.clear()  # libera memória
+                elem.clear()
         proc.stdout.close()
         proc.wait()
 
     def _parse_machine(self, elem: ET.Element) -> Dict[str, Any]:
-        # Implementação básica - extrai atributos e filhos principais
         data = {
             "name": elem.get("name"),
             "description": elem.get("description", ""),
@@ -55,5 +49,4 @@ class ListXMLStream:
                 data["driver"] = child.attrib
             elif child.tag == "device_ref":
                 data["device_refs"].append(child.attrib.get("name"))
-            # outros tags podem ser adicionados conforme necessário
         return data

@@ -15,33 +15,24 @@ class DatasetBuilder:
         self.dataset_repo = DatasetRepository(self.db)
 
     def build(self) -> None:
-        """Executa todo o fluxo da fase 1."""
         if not self.mame.validate():
             raise ValueError(f"Executável inválido: {self.mame.path}")
 
         version = self.mame.get_version()
         logger.info(f"Versão do MAME detectada: {version}")
 
-        # Verifica se já existe dataset para essa versão
         existing = self.dataset_repo.get_by_version(version)
         if existing:
             logger.info(f"Dataset para versão {version} já existe (id={existing['id']}). Pulando.")
             return
 
-        # Cria o dataset
         dataset_id = self.dataset_repo.create(version, str(self.mame.path))
 
-        # Processa listxml em streaming
         stream = ListXMLStream(self.mame)
         conn = self.db.connect()
-        # Preparamos inserções em lote para performance
-        machines_insert = []
-        roms_insert = []
-        disks_insert = []
-        drivers_insert = []
+        machine_count = 0
 
         for machine_data in stream.iter_machines():
-            # Inserir machine
             cur = conn.execute(
                 """INSERT INTO machine
                 (dataset_id, name, description, year, manufacturer, cloneof, romof,
@@ -65,7 +56,6 @@ class DatasetBuilder:
             )
             machine_id = cur.lastrowid
 
-            # Inserir ROMs
             for rom in machine_data["roms"]:
                 conn.execute(
                     """INSERT INTO rom
@@ -87,7 +77,6 @@ class DatasetBuilder:
                     )
                 )
 
-            # Inserir Disks
             for disk in machine_data["disks"]:
                 conn.execute(
                     """INSERT INTO disk
@@ -106,7 +95,6 @@ class DatasetBuilder:
                     )
                 )
 
-            # Inserir Driver
             driver = machine_data.get("driver", {})
             if driver:
                 conn.execute(
@@ -127,12 +115,13 @@ class DatasetBuilder:
                     )
                 )
 
-            # Commit a cada 100 máquinas para não acumular transação gigante
-            if machine_id % 100 == 0:
+            machine_count += 1
+            if machine_count % 100 == 0:
                 conn.commit()
+                logger.info(f"{machine_count} máquinas inseridas...")
 
         conn.commit()
-        logger.info(f"Dataset para versão {version} finalizado. Máquinas inseridas: {machine_id}")
+        logger.info(f"Dataset para versão {version} finalizado. Máquinas inseridas: {machine_count}")
 
     def close(self):
         self.db.close()
