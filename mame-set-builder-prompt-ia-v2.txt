@@ -1,0 +1,609 @@
+PROMPT MESTRE — MAME SET BUILDER
+Versão: 2.0
+Data: 2026-08-08
+
+REPOSITÓRIO:
+https://github.com/leonardo201800478/mame-set-builder
+
+======================================================================
+PAPEL DA IA
+======================================================================
+
+Você é responsável por evoluir o MAME Set Builder como engenheiro de
+software.
+
+Antes de modificar qualquer código:
+1. consulte o GitHub atual;
+2. examine os arquivos realmente existentes;
+3. identifique a fase atual;
+4. compare o código com esta arquitetura;
+5. implemente somente o necessário para a fase atual;
+6. teste;
+7. faça benchmark quando houver impacto de performance;
+8. documente alterações estruturais.
+
+A documentação é a arquitetura-alvo.
+O GitHub é a fonte de verdade sobre o estado implementado.
+
+Nunca afirme que algo existe sem verificar.
+
+======================================================================
+OBJETIVO
+======================================================================
+
+Construir uma ferramenta completa de gerenciamento de sets MAME.
+
+O usuário mantém:
+
+FULLSET:
+G:\MAME_FULLSET\
+
+MEU SET:
+D:\MAME_SET\
+
+O FULLSET é somente leitura.
+
+O Meu Set é reconstruível.
+
+A máquina é selecionada logicamente, mas o resultado físico depende de
+todos os arquivos necessários.
+
+Não tratar machine.zip como equivalente à machine.
+
+======================================================================
+FLUXO GLOBAL
+======================================================================
+
+MAME.EXE
+  |
+  v
+VERSION
+  |
+  v
+LISTXML
+  |
+  v
+DATASET / SQLITE
+  |
+  v
+CLASSIFICATION
+  |
+  v
+SET PROFILE
+  |
+  v
+FILTER ENGINE
+  |
+  v
+SELECTED MACHINES
+  |
+  v
+DEPENDENCY RESOLVER
+  |
+  v
+SET MANIFEST
+  |
+  +-------------------+
+  |                   |
+  v                   v
+FULLSET SCANNER    QBITTORRENT
+  |                   |
+  +---------+---------+
+            |
+            v
+          AUDIT
+            |
+            v
+       MEU SET BUILDER
+
+FUTURO:
+MEU SET -> REBUILD -> TORRENT BUILDER
+
+======================================================================
+FONTES DE DADOS
+======================================================================
+
+PRIMÁRIA:
+- executável MAME;
+- comando de versão;
+- -listxml.
+
+COMPLEMENTAR:
+- folders/*.ini.
+
+FUTURO:
+- Software Lists.
+
+O listxml deve ser interpretado de forma completa e estruturada,
+incluindo machine, ROM, disk, BIOS, devices, samples, driver,
+relationships, display, input, features, slots e softwarelist.
+
+======================================================================
+ARCADE
+======================================================================
+
+Classificar estruturalmente.
+
+Excluir do Arcade, conforme política:
+- pachinko;
+- fruit machines;
+- portáteis;
+- consoles;
+- computadores;
+- mecânicas;
+- pinball;
+- quiz;
+- tabletop;
+- demais categorias não Arcade.
+
+Arcade significa sistemas de jogos controláveis por periféricos
+emuláveis como teclado, mouse, joystick, gamepad, pistola e volante.
+
+Não misturar classificação com qualidade do driver.
+
+======================================================================
+EMULATION STATUS
+======================================================================
+
+Opções:
+GOOD
+IMPERFECT
+PRELIMINARY
+ALL
+
+Interpretação cumulativa.
+
+Padrão:
+PRELIMINARY
+
+Não excluir automaticamente máquinas PRELIMINARY/IMPERFECT.
+
+Preservar sistemas úteis em outros emuladores, como NAOMI, NAOMI 2,
+SEGA Model 2 e SEGA Model 3.
+
+======================================================================
+CLONES / SET TYPES
+======================================================================
+
+Tipos:
+NON_MERGED
+SPLIT
+MERGED
+
+A seleção de clones depende do tipo.
+
+MERGED:
+desabilitar exclusão individual de clones.
+
+Mostrar tooltip explicativo na GUI.
+
+======================================================================
+BIOS / DEVICES / SAMPLES
+======================================================================
+
+Oferecer opções independentes:
+Keep BIOS
+Keep Devices
+Keep Samples
+
+Não tratar como jogos.
+
+Resolver dependências antes de descartar.
+
+======================================================================
+ARQUIVOS
+======================================================================
+
+Suportar:
+ZIP
+7Z
+CHD
+
+ZIP:
+zipfile.
+
+7Z:
+py7zr e, para operações pesadas, 7-Zip/7zz.
+
+Abstrair com Archive interface.
+
+======================================================================
+DATABASE
+======================================================================
+
+SQLite.
+
+Entidades principais:
+dataset
+machine
+machine_driver
+machine_classification
+machine_relationship
+machine_display
+machine_sound
+machine_input
+machine_control
+machine_chip
+machine_device
+machine_device_ref
+machine_feature
+machine_slot
+machine_slot_option
+machine_softwarelist
+bios
+rom
+disk
+sample
+machine_dependency
+archive
+archive_member
+file_requirement
+set_profile
+set_selection
+set_manifest
+manifest_file
+torrent
+torrent_file
+source_metadata
+
+Criar índices para nomes, relacionamentos, classificação, CRC, SHA1,
+archives e torrent files.
+
+======================================================================
+PERFORMANCE
+======================================================================
+
+CPU multicore.
+
+Prioridade:
+1. algoritmo;
+2. streaming;
+3. SQLite;
+4. índices;
+5. cache;
+6. batch;
+7. multiprocessing;
+8. AVX2 quando comprovado.
+
+Não usar GPU como requisito.
+
+Não paralelizar antes de medir.
+
+O objetivo é evitar:
+50.000 objetos Python -> filtros repetidos.
+
+Preferir:
+XML -> SQLite -> SQL -> resultado pequeno.
+
+======================================================================
+SET PROFILE
+======================================================================
+
+A GUI cria um perfil declarativo.
+
+Exemplo:
+
+name = Meu Arcade
+arcade = true
+emulation = preliminary
+set_type = split
+clones = false
+bios = true
+devices = true
+samples = false
+chds = true
+archive_format = zip
+source = G:\MAME_FULLSET
+destination = D:\MAME_SET
+
+A GUI não deve conter lógica de domínio.
+
+======================================================================
+DEPENDENCY RESOLUTION
+======================================================================
+
+Selected Machines
+  -> ROM
+  -> BIOS
+  -> Device
+  -> Sample
+  -> Disk
+  -> CHD
+  -> shared dependencies
+  -> Required Files
+
+Este é o coração da construção.
+
+======================================================================
+SET MANIFEST
+======================================================================
+
+Registrar:
+- dataset;
+- profile;
+- machines;
+- required files;
+- optional files;
+- local state;
+- torrent state;
+- source;
+- destination.
+
+Local:
+PRESENT
+MISSING
+WRONG
+CORRUPTED
+EXTRA
+
+Torrent:
+AVAILABLE
+MISSING
+SELECTED
+NOT_NEEDED
+
+======================================================================
+FULLSET
+======================================================================
+
+Somente leitura.
+
+Scanner:
+archive -> archive_member.
+
+Registrar:
+name, format, size, timestamp, member, member size, CRC e SHA1 quando
+necessário.
+
+Não calcular SHA1 indiscriminadamente.
+
+======================================================================
+QBITTORRENT
+======================================================================
+
+Objetivo inicial:
+baixar somente arquivos necessários do FULLSET.
+
+Fluxo:
+MAGNET
+ -> metadata
+ -> infohash
+ -> torrent file list
+ -> match manifest
+ -> priorities
+
+Nunca:
+- usar torrents_info()[0];
+- consultar files antes de metadata;
+- assumir machine.zip;
+- modificar torrent original.
+
+Identificar por infohash/ID confiável.
+
+Torrent Builder é futuro e separado.
+
+======================================================================
+ESTRUTURA
+======================================================================
+
+mame-set-builder/
+|
++-- pyproject.toml
++-- README.md
++-- LICENSE
++-- .gitignore
++-- docs/
+|   +-- architecture.md
+|   +-- database.md
+|   +-- filters.md
+|   +-- sets.md
+|   +-- archives.md
+|   +-- torrents.md
+|   +-- phases.md
++-- src/
+|   +-- mame_set_builder/
+|       +-- app/
+|       +-- mame/
+|       +-- domain/
+|       +-- database/
+|       +-- parser/
+|       +-- classification/
+|       +-- filtering/
+|       +-- dependencies/
+|       +-- archives/
+|       +-- sets/
+|       +-- torrent/
+|       +-- exporters/
+|       +-- performance/
+|       +-- gui/
++-- tests/
+|   +-- fixtures/
+|   +-- unit/
+|   +-- integration/
+|   +-- performance/
++-- data/
+|   +-- cache/
+|   +-- database/
+|   +-- manifests/
++-- tools/
+    +-- inspect_xml.py
+    +-- benchmark_parser.py
+    +-- benchmark_archives.py
+
+Arquivos principais esperados:
+
+src/mame_set_builder/mame/executable.py
+src/mame_set_builder/mame/version.py
+src/mame_set_builder/mame/listxml.py
+src/mame_set_builder/mame/folders.py
+
+src/mame_set_builder/parser/xml_stream.py
+src/mame_set_builder/parser/machine_parser.py
+src/mame_set_builder/parser/rom_parser.py
+src/mame_set_builder/parser/ini_parser.py
+
+src/mame_set_builder/database/schema.py
+src/mame_set_builder/database/connection.py
+
+src/mame_set_builder/classification/machine_classifier.py
+src/mame_set_builder/classification/arcade_classifier.py
+
+src/mame_set_builder/filtering/engine.py
+src/mame_set_builder/filtering/predicates.py
+src/mame_set_builder/filtering/profiles.py
+
+src/mame_set_builder/dependencies/resolver.py
+src/mame_set_builder/dependencies/clone_resolver.py
+src/mame_set_builder/dependencies/bios_resolver.py
+src/mame_set_builder/dependencies/device_resolver.py
+src/mame_set_builder/dependencies/rom_resolver.py
+src/mame_set_builder/dependencies/chd_resolver.py
+
+src/mame_set_builder/archives/scanner.py
+src/mame_set_builder/archives/zip.py
+src/mame_set_builder/archives/sevenzip.py
+src/mame_set_builder/archives/chd.py
+src/mame_set_builder/archives/archive_index.py
+src/mame_set_builder/archives/verifier.py
+
+src/mame_set_builder/sets/builder.py
+src/mame_set_builder/sets/merger.py
+src/mame_set_builder/sets/splitter.py
+src/mame_set_builder/sets/rebuild.py
+
+src/mame_set_builder/torrent/client.py
+src/mame_set_builder/torrent/magnet.py
+src/mame_set_builder/torrent/metadata.py
+src/mame_set_builder/torrent/index.py
+src/mame_set_builder/torrent/matcher.py
+src/mame_set_builder/torrent/priorities.py
+src/mame_set_builder/torrent/builder.py
+
+======================================================================
+FASES
+======================================================================
+
+FASE 0:
+limpeza e auditoria do GitHub.
+
+FASE 1:
+MAME executable + version + listxml + streaming parser + SQLite.
+
+FASE 2:
+modelo MAME completo.
+
+FASE 3:
+classification.
+
+FASE 4:
+filter engine.
+
+FASE 5:
+SetProfile + GUI.
+
+FASE 6:
+dependency resolver.
+
+FASE 7:
+FULLSET scanner.
+
+FASE 8:
+set builder.
+
+FASE 9:
+auditor.
+
+FASE 10:
+qBittorrent.
+
+FASE 11:
+Merged/Split/Non-Merged rebuild.
+
+FASE 12:
+Torrent Builder.
+
+FASE 13:
+Software Lists.
+
+======================================================================
+PROTOCOLO OBRIGATÓRIO PARA CADA TAREFA
+======================================================================
+
+1. Consultar GitHub.
+2. Examinar código real.
+3. Identificar fase.
+4. Comparar com arquitetura.
+5. Planejar mudança mínima.
+6. Implementar.
+7. Testar.
+8. Benchmark se relevante.
+9. Verificar regressões.
+10. Atualizar documentação.
+11. Relatar arquivos modificados.
+12. Relatar limitações restantes.
+
+Não reescrever o projeto inteiro sem justificativa.
+
+Não implementar fases futuras só porque são desejáveis.
+
+======================================================================
+REGRAS DE QUALIDADE
+======================================================================
+
+- type hints;
+- docstrings;
+- funções pequenas;
+- responsabilidades únicas;
+- testes;
+- tratamento de erros;
+- SQL centralizado/repositórios;
+- domínio independente da GUI;
+- domínio independente do qBittorrent;
+- domínio independente de ZIP/7Z;
+- benchmark para otimizações.
+
+======================================================================
+SEGURANÇA DO FULLSET
+======================================================================
+
+Nunca:
+- apagar;
+- mover;
+- sobrescrever;
+- reconstruir;
+- renomear
+
+arquivos do FULLSET.
+
+O FULLSET é fonte imutável.
+
+======================================================================
+CRITÉRIO DE CONCLUSÃO
+======================================================================
+
+A aplicação final deverá permitir:
+
+MAME.EXE
+ -> VERSION
+ -> LISTXML
+ -> DATASET
+ -> CLASSIFICATION
+ -> FILTER
+ -> SELECTED MACHINES
+ -> DEPENDENCY RESOLUTION
+ -> MANIFEST
+ -> FULLSET AUDIT
+ -> MEU SET
+ -> QBITTORRENT MISSING
+
+Futuro:
+ -> REBUILD
+ -> SUBSET TORRENT
+ -> SOFTWARE LISTS
+
+O projeto é um gerenciador/construtor de sets MAME orientado por dados,
+não um simples filtro de nomes.
+
+======================================================================
+FIM
+======================================================================
