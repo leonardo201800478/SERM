@@ -1,3 +1,7 @@
+"""
+Repositório para operações na tabela dataset.
+"""
+
 from ..connection import Database
 
 class DatasetRepository:
@@ -5,6 +9,7 @@ class DatasetRepository:
         self.db = db
 
     def create(self, version: str, executable_path: str) -> int:
+        """Insere um novo dataset e retorna o ID gerado."""
         conn = self.db.connect()
         cur = conn.execute(
             "INSERT INTO dataset (version, source_executable) VALUES (?, ?)",
@@ -14,6 +19,7 @@ class DatasetRepository:
         return cur.lastrowid
 
     def get_by_version(self, version: str) -> dict | None:
+        """Busca um dataset pela versão. Retorna None se não existir."""
         conn = self.db.connect()
         row = conn.execute(
             "SELECT * FROM dataset WHERE version = ?", (version,)

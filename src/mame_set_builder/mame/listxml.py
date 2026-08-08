@@ -1,4 +1,7 @@
-# src/mame_set_builder/mame/listxml.py
+"""
+Parser streaming para o XML do MAME -listxml.
+"""
+
 import xml.etree.ElementTree as ET
 from typing import Iterator, Dict, Any
 from .executable import MAMEExecutable
@@ -8,17 +11,24 @@ class ListXMLStream:
         self.executable = executable
 
     def iter_machines(self) -> Iterator[Dict[str, Any]]:
+        """
+        Processa o XML em streaming, gerando dicionários para cada <machine>.
+        Utiliza iterparse para evitar carregar todo o XML na memória.
+        """
         proc = self.executable.generate_listxml()
         context = ET.iterparse(proc.stdout, events=("end",))
         for event, elem in context:
             if elem.tag == "machine":
                 machine_dict = self._parse_machine(elem)
                 yield machine_dict
-                elem.clear()
+                elem.clear()   # libera memória
         proc.stdout.close()
         proc.wait()
 
     def _parse_machine(self, elem: ET.Element) -> Dict[str, Any]:
+        """
+        Extrai os atributos e filhos relevantes de uma <machine>.
+        """
         data = {
             "name": elem.get("name"),
             "description": elem.get("description", ""),
@@ -49,4 +59,5 @@ class ListXMLStream:
                 data["driver"] = child.attrib
             elif child.tag == "device_ref":
                 data["device_refs"].append(child.attrib.get("name"))
+            # outros tags (input, display, etc.) serão adicionados na Fase 2
         return data
