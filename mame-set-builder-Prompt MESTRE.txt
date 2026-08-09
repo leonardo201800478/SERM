@@ -1,0 +1,2226 @@
+MAME SET BUILDER
+ESPECIFICAÇÃO MESTRE DO PROJETO
+Python + GUI
+Versão conceitual: 1.0
+
+======================================================================
+
+1. OBJETIVO
+   ======================================================================
+
+Criar uma aplicação desktop para Windows, desenvolvida em Python, destinada
+ao gerenciamento, filtragem, validação e construção de conjuntos
+personalizados de ROMs para MAME.
+
+O software NÃO deve distribuir ROMs, CHDs, BIOS ou qualquer conteúdo
+protegido.
+
+O software trabalha exclusivamente sobre arquivos que o usuário já possui.
+
+O conceito central é:
+
+FULLSET MAME
+|
+| leitura do listxml + configuração MAME + metadados
+|
+v
+BANCO LOCAL
+|
+| filtros
+v
+MEU SET
+|
+| validação da fonte
+| identificação por nome + CRC + SHA1
+| dependências parent/clone/BIOS/device
+v
+CONSTRUÇÃO
+|
+v
+DIRETÓRIO FINAL DO USUÁRIO
+
+O FULLSET original deve ser considerado somente como FONTE.
+
+O programa nunca deve modificar, mover, renomear ou apagar arquivos da
+fonte durante a construção de um novo set.
+
+A construção ocorre sempre:
+
+SOURCE FULLSET -> DESTINATION MEU SET
+
+Isso elimina a necessidade de backups internos do software e reduz o risco
+de corrupção da fonte original.
+
+======================================================================
+2. PRINCÍPIOS FUNDAMENTAIS
+==========================
+
+2.1. MAME é a autoridade estrutural
+
+O software deve utilizar o próprio MAME como fonte primária das informações.
+
+A principal fonte de dados é:
+
+```
+mame.exe -listxml
+```
+
+O XML contém informações estruturais extremamente importantes, incluindo:
+
+* nome da máquina
+* descrição
+* fabricante
+* ano
+* sourcefile
+* cloneof
+* romof
+* sampleof
+* BIOS
+* devices
+* ROMs
+* tamanho
+* CRC
+* SHA1
+* merge
+* region
+* offset
+* status
+* optional
+* chips
+* displays
+* input
+* controls
+* driver
+* estado de emulação
+* features
+* software lists
+* slots
+* RAM
+* etc.
+
+O programa não deve tentar recriar essas informações manualmente quando
+elas podem ser obtidas diretamente do MAME.
+
+2.2. Versão do MAME
+
+A versão do MAME deve ser descoberta automaticamente a partir do executável
+selecionado pelo usuário.
+
+Nunca assumir:
+
+```
+MAME 0.xxx
+```
+
+O banco de dados deve possuir:
+
+```
+mame_version
+executable_path
+executable_hash
+listxml_generation_date
+```
+
+O banco deve permitir coexistência de bancos provenientes de diferentes
+versões do MAME.
+
+2.3. Fullset como fonte imutável
+
+Exemplo:
+
+```
+D:\MAME_FULLSET\
+```
+
+será tratado como fonte.
+
+O resultado pode ser:
+
+```
+E:\MEU_MAME\
+```
+
+O programa copia somente os arquivos necessários.
+
+Nunca modificar:
+
+```
+D:\MAME_FULLSET\
+```
+
+======================================================================
+3. FORMATOS DE SET
+==================
+
+O programa deve suportar:
+
+NON-MERGED
+SPLIT
+MERGED
+
+NON-MERGED
+
+Cada máquina possui seu conjunto completo de ROMs necessárias.
+
+Exemplo conceitual:
+
+```
+sf2.zip
+sf2ce.zip
+sf2hf.zip
+```
+
+SPLIT
+
+ROMs comuns ficam no parent e clones carregam somente diferenças.
+
+Exemplo:
+
+```
+sf2.zip
+sf2ce.zip
+sf2hf.zip
+```
+
+MERGED
+
+Parent e clones são armazenados juntos em um único arquivo.
+
+Exemplo:
+
+```
+sf2.zip
+```
+
+contendo ROMs do parent e clones.
+
+REGRAS DE INTERFACE
+
+Se o usuário escolher MERGED:
+
+```
+"Remover clones" deve ficar desabilitado.
+```
+
+Tooltip:
+
+```
+"Sets MERGED armazenam parent e clones no mesmo arquivo. A remoção
+ individual de clones não é aplicável durante a construção física
+ do arquivo."
+```
+
+Se NON-MERGED ou SPLIT:
+
+```
+"Remover clones" pode ser habilitado.
+```
+
+======================================================================
+4. ARQUITETURA GERAL
+====================
+
+A aplicação deve ser dividida em camadas:
+
+```
+GUI
+  |
+Application Services
+  |
+Domain
+  |
+Database
+  |
+MAME Integration
+  |
+File System
+  |
+Archive Engine
+  |
+Validation Engine
+  |
+Torrent Engine
+```
+
+Não colocar lógica de negócio diretamente nos widgets da GUI.
+
+======================================================================
+5. ESTRUTURA DE DIRETÓRIOS
+==========================
+
+mame-set-builder/
+│
+├── app/
+│   ├── main.py
+│   │
+│   ├── gui/
+│   │   ├── main_window.py
+│   │   ├── styles/
+│   │   ├── widgets/
+│   │   └── tabs/
+│   │       ├── home_tab.py
+│   │       ├── directories_tab.py
+│   │       ├── filters_tab.py
+│   │       ├── games_tab.py
+│   │       ├── video_tab.py
+│   │       ├── audio_tab.py
+│   │       ├── controls_tab.py
+│   │       ├── batch_mapping_tab.py
+│   │       ├── build_tab.py
+│   │       └── torrent_tab.py
+│   │
+│   ├── core/
+│   │   ├── models/
+│   │   ├── services/
+│   │   ├── filters/
+│   │   ├── validators/
+│   │   └── exceptions/
+│   │
+│   ├── database/
+│   │   ├── database.py
+│   │   ├── models.py
+│   │   ├── repositories/
+│   │   └── migrations/
+│   │
+│   ├── mame/
+│   │   ├── executable.py
+│   │   ├── listxml.py
+│   │   ├── commandline.py
+│   │   ├── ini.py
+│   │   ├── folders.py
+│   │   └── tools.py
+│   │
+│   ├── archives/
+│   │   ├── zip.py
+│   │   ├── sevenzip.py
+│   │   └── manager.py
+│   │
+│   ├── roms/
+│   │   ├── scanner.py
+│   │   ├── matcher.py
+│   │   ├── verifier.py
+│   │   ├── dependency.py
+│   │   └── builder.py
+│   │
+│   ├── chd/
+│   │   └── manager.py
+│   │
+│   ├── torrent/
+│   │   ├── parser.py
+│   │   ├── matcher.py
+│   │   ├── missing.py
+│   │   └── qbittorrent.py
+│   │
+│   ├── config/
+│   │   └── application.py
+│   │
+│   └── workers/
+│       ├── scanner_worker.py
+│       ├── filter_worker.py
+│       ├── build_worker.py
+│       └── torrent_worker.py
+│
+├── data/
+│   ├── database/
+│   ├── cache/
+│   ├── logs/
+│   └── profiles/
+│
+├── exe/
+│   └── [ferramentas auxiliares opcionais]
+│
+├── tests/
+│   ├── unit/
+│   ├── integration/
+│   └── fixtures/
+│
+├── docs/
+│   ├── architecture.txt
+│   ├── database.txt
+│   ├── filters.txt
+│   ├── torrent.txt
+│   └── development.txt
+│
+├── requirements.txt
+├── README.md
+└── prompt.md
+
+======================================================================
+6. GUI
+======
+
+A interface principal deve possuir as seguintes guias:
+
+1. HOME
+2. DIRETÓRIOS
+3. FILTRAGEM DE ROMS
+4. JOGOS DISPONÍVEIS
+5. VÍDEO
+6. SOM
+7. CONTROLES
+8. MAPEAMENTO EM LOTE
+9. CONSTRUÇÃO
+10. TORRENT
+
+======================================================================
+7. GUI - HOME
+=============
+
+Exibir:
+
+* nome do programa
+* versão do programa
+* versão do MAME detectada
+* caminho do executável MAME
+* status do banco de dados
+* data da última importação do listxml
+* quantidade de máquinas conhecidas
+* quantidade de ROMs conhecidas
+
+Botão:
+
+```
+"Site oficial do MAME"
+```
+
+Deve abrir o site oficial do projeto.
+
+Não utilizar sites de ROMs.
+
+======================================================================
+8. GUI - DIRETÓRIOS
+===================
+
+Topo:
+
+```
+[Selecionar executável MAME]
+```
+
+O usuário pode selecionar qualquer arquivo .exe.
+
+Não assumir que o arquivo precisa se chamar:
+
+```
+mame.exe
+```
+
+Após seleção:
+
+```
+executar MAME --version
+```
+
+ou comando equivalente suportado pela versão detectada.
+
+Também executar a geração/leitura do listxml quando necessário.
+
+MAME.INI
+
+Pesquisar:
+
+```
+./mame.ini
+./ini/mame.ini
+```
+
+e demais caminhos compatíveis com a configuração de ini_path.
+
+Se existirem dois mame.ini:
+
+```
+ALERTA:
+
+"Foram encontrados múltiplos arquivos mame.ini. O MAME pode utilizar
+ uma ordem de busca específica. Selecione explicitamente qual arquivo
+ deseja editar."
+```
+
+O programa deve conhecer a configuração:
+
+```
+inipath
+```
+
+A guia deve permitir:
+
+```
+[Arquivo mame.ini ativo]
+
+[Selecionar arquivo]
+
+[Recarregar]
+
+[Salvar]
+```
+
+======================================================================
+9. MAME.INI
+===========
+
+Criar um parser genérico de INI do MAME.
+
+Não implementar apenas:
+
+```
+key=value
+```
+
+O parser deve preservar:
+
+* comentários
+* ordem
+* seções
+* valores
+* espaços
+* linhas desconhecidas
+* configurações futuras
+
+O sistema deve permitir leitura e escrita sem destruir configurações que o
+programa não conhece.
+
+O software deve mapear o máximo possível das configurações do MAME para
+modelos estruturados.
+
+Especialmente:
+
+PATHS
+VIDEO
+AUDIO
+INPUT
+OSD
+CORE
+UI
+DEBUG
+RENDER
+WINDOW
+OPENGL
+BGFX
+SDL
+ETC.
+
+======================================================================
+10. DIRETÓRIOS DO MAME
+======================
+
+A guia deve apresentar:
+
+ROM PATH
+
+Até 5 diretórios configuráveis.
+
+Exemplo:
+
+```
+ROM 1
+ROM 2
+ROM 3
+ROM 4
+ROM 5
+```
+
+Além disso:
+
+```
+samples
+software
+artwork
+cfg
+folders
+hiscore
+ini
+```
+
+Esses valores devem ser carregados do mame.ini.
+
+Se o usuário modificar:
+
+```
+rompath
+samplepath
+swpath/softwarepath
+artpath
+cfg_directory
+etc.
+```
+
+o programa deve atualizar o mame.ini correspondente.
+
+IMPORTANTE:
+
+Não assumir que todos os nomes de opções são idênticos entre versões.
+
+O mapeamento deve ser obtido da configuração efetiva do MAME e/ou de
+showusage/showconfig quando necessário.
+
+======================================================================
+11. BANCO DE DADOS
+==================
+
+SQLite.
+
+Não utilizar arquivos intermediários redundantes para armazenar informações
+que já existem no listxml.
+
+O banco deve representar o modelo estrutural do MAME.
+
+TABELAS PRINCIPAIS:
+
+mame_installation
+
+```
+id
+version
+executable_path
+executable_hash
+detected_at
+```
+
+machine
+
+```
+id
+mame_installation_id
+name
+description
+year
+manufacturer
+sourcefile
+cloneof
+romof
+sampleof
+is_bios
+is_device
+is_mechanical
+runnable
+category
+emulation_status
+driver_status
+savestate
+requires_artwork
+unofficial
+nosoundhardware
+incomplete
+```
+
+rom
+
+```
+id
+machine_id
+name
+size
+crc
+sha1
+merge
+region
+offset
+status
+optional
+bios
+```
+
+disk
+
+```
+id
+machine_id
+name
+sha1
+merge
+region
+index
+writable
+status
+optional
+```
+
+bios
+
+```
+id
+machine_id
+name
+description
+default
+```
+
+device
+
+```
+id
+machine_id
+tag
+name
+```
+
+chip
+
+```
+id
+machine_id
+type
+tag
+name
+clock
+```
+
+display
+
+```
+id
+machine_id
+tag
+type
+rotate
+flipx
+width
+height
+refresh
+```
+
+input
+
+```
+id
+machine_id
+players
+coins
+service
+tilt
+```
+
+control
+
+```
+id
+input_id
+type
+player
+buttons
+minimum
+maximum
+sensitivity
+keydelta
+reverse
+ways
+```
+
+feature
+
+```
+id
+machine_id
+type
+status
+overall
+```
+
+software_list
+
+```
+id
+machine_id
+tag
+name
+status
+filter
+```
+
+slot
+
+```
+id
+machine_id
+name
+```
+
+slot_option
+
+```
+id
+slot_id
+name
+devname
+default
+```
+
+chd_dependency
+
+```
+id
+machine_id
+name
+sha1
+region
+required
+```
+
+category
+
+```
+id
+name
+```
+
+machine_category
+
+```
+machine_id
+category_id
+```
+
+======================================================================
+12. CATEGORIAS
+==============
+
+A GUI deve oferecer:
+
+Arcade
+System
+BIOS
+Devices
+Electromechanical
+Casino
+Mahjong
+Screenless
+Mature
+Driving
+Fighter
+Gambling
+Game Console
+CHD
+Ball & Paddle
+Board Game
+Calculator
+Card Games
+Maze
+Handheld
+Climbing
+Medal Game
+Musical
+Platform
+Shooter
+Slot Machine
+Sports
+Tabletop
+Telephone
+etc.
+
+ATENÇÃO:
+
+Algumas dessas categorias não são necessariamente campos nativos do
+listxml.
+
+Quando a categoria não puder ser derivada diretamente do XML, o sistema
+deve utilizar fontes auxiliares somente quando realmente necessário.
+
+Não inventar categorias silenciosamente.
+
+Toda categoria externa deve registrar sua origem.
+
+======================================================================
+13. ARCADE SYSTEMS
+==================
+
+Criar uma categoria especial:
+
+ARCADE SYSTEM
+
+Inicialmente:
+
+atarisy1
+awbios
+bubsys
+ccfboxa
+cedmag
+chihiro
+coh1000a
+coh1000c
+coh1000t
+coh1000w
+coh1001l
+coh1002e
+coh1002m
+coh1002t
+coh1002v
+coh3002c
+coh3002t
+cregchg
+crysbios
+cubo
+decocass
+gq863
+hikaru
+hng64
+konamigv
+konamigx
+konendev
+kpython
+kpython2
+kviper
+lindbios
+maxaflex
+megaplay
+megatech
+naomi
+naomi2
+naomigd
+neogeo
+ng_mv1
+ng_mv1f
+ng_mv1fz
+ng_mv2f
+ng_mv4f
+nichidvd
+pgm
+playch10
+skns
+snes4sl
+snes4sln
+stvbios
+su2000
+sys246
+sys256
+sys573
+taitotz
+tfupdate
+triforce
+
+Essa lista deve ser configurável e não codificada permanentemente na lógica.
+
+======================================================================
+14. PERFIS RÁPIDOS
+==================
+
+Perfis:
+
+ARCADE
+CONSOLES
+PORTÁTEIS
+COMPUTADORES
+TODOS
+
+Os perfis são apenas presets de filtros.
+
+O usuário pode modificar qualquer filtro após selecionar um preset.
+
+======================================================================
+15. CLONES
+==========
+
+Flag:
+
+```
+[ ] Incluir clones
+```
+
+ou
+[x] Incluir clones
+
+Se set:
+
+```
+NON-MERGED
+SPLIT
+```
+
+a opção é válida.
+
+Se:
+
+```
+MERGED
+```
+
+a opção deve ser bloqueada.
+
+A relação de clone deve vir de:
+
+```
+machine.cloneof
+```
+
+Nunca tentar inferir clone apenas pelo nome.
+
+======================================================================
+16. ESTADO DE EMULAÇÃO
+======================
+
+Criar filtro progressivo:
+
+ALL
+WORKING
+WORKING + IMPERFECT
+IMPERFECT
+IMPERFECT + NOT WORKING
+NOT WORKING
+
+A seleção deve ser progressiva.
+
+Exemplo:
+
+WORKING + IMPERFECT
+
+inclui:
+
+```
+WORKING
+IMPERFECT
+```
+
+IMPERFECT + NOT WORKING
+
+inclui:
+
+```
+WORKING
+IMPERFECT
+NOT WORKING
+```
+
+ALL:
+
+não aplica filtro.
+
+IMPORTANTE:
+
+O estado deve ser baseado no estado reportado pelo MAME.
+
+O projeto NÃO deve afirmar que um sistema "não funciona em nenhum
+emulador" somente porque MAME o classifica como preliminary ou imperfect.
+
+O objetivo é permitir preservar máquinas úteis em outros emuladores.
+
+======================================================================
+17. JOGOS DISPONÍVEIS
+=====================
+
+Guia somente leitura.
+
+Cada linha deve apresentar:
+
+[ÍCONE]
+
+Descrição
+ROM
+Ano
+Fabricante
+Parent
+Categoria
+Estado de emulação
+
+Ícone:
+
+```
+./icons/<romname>.ico
+```
+
+Se não existir:
+
+```
+usar ícone padrão.
+```
+
+Não gerar ícones automaticamente.
+
+======================================================================
+18. VÍDEO
+=========
+
+GUI para editar as configurações relacionadas a vídeo do mame.ini.
+
+Exibir:
+
+* resolução
+* fullscreen
+* window
+* aspect
+* filter
+* prescale
+* video backend
+* bgfx
+* shaders
+* CRT
+* GLSL
+* BGFX
+* opções relacionadas disponíveis na versão instalada
+
+Não criar campos fixos que não existem na versão atual.
+
+A interface deve possuir um modelo de configuração baseado nas opções
+descobertas do MAME.
+
+======================================================================
+19. SOM
+=======
+
+Editar configurações de áudio do MAME.
+
+Exibir somente opções suportadas pela versão detectada.
+
+Organizar por:
+
+* backend
+* volume
+* sample rate
+* latency
+* buffering
+* opções específicas do OSD
+* filtros/effects quando existentes
+
+======================================================================
+20. CONTROLES
+=============
+
+Editar configurações relacionadas a:
+
+* teclado
+* mouse
+* joystick
+* gamepad
+* lightgun
+* multimouse
+* deadzone
+* saturation
+* sensitivity
+* input provider
+* mapas
+* opções relevantes do MAME
+
+A interface deve acompanhar a versão do MAME.
+
+======================================================================
+21. MAPEAMENTO DE BOTÕES EM LOTE
+================================
+
+Objetivo:
+
+Permitir aplicar configurações de controles existentes em:
+
+```
+./cfg
+```
+
+para grupos de jogos.
+
+Exemplos:
+
+NEO GEO
+STREET FIGHTER
+MORTAL KOMBAT
+TEKKEN
+2 BUTTONS
+3 BUTTONS
+4 BUTTONS
+6 BUTTONS
+
+O sistema deve permitir:
+
+1. selecionar um jogo modelo
+2. analisar seu arquivo CFG
+3. identificar o conjunto de bindings
+4. selecionar máquinas destino
+5. aplicar os bindings
+6. criar backup opcional do arquivo individual antes de alterar
+
+IMPORTANTE:
+
+O mapeamento não deve simplesmente copiar cegamente o arquivo CFG.
+
+O sistema precisa analisar a estrutura XML/configuração e adaptar somente
+as entradas compatíveis com o jogo destino.
+
+Registrar todas as operações em log.
+
+======================================================================
+22. GUI - CONSTRUÇÃO
+====================
+
+Essa é a etapa que modifica fisicamente o "MEU SET".
+
+ENTRADAS:
+
+```
+FULLSET SOURCE
++
+FILTROS SALVOS
+```
+
+DESTINO:
+
+```
+MEU SET
+```
+
+O usuário seleciona:
+
+```
+Origem
+Destino
+```
+
+O programa deve verificar os arquivos antes de copiar.
+
+======================================================================
+23. IDENTIFICAÇÃO DE ROM
+========================
+
+NÃO considerar apenas:
+
+```
+nome_do_zip.zip
+```
+
+O ZIP/7Z deve ser aberto e seus arquivos internos analisados.
+
+Exemplo:
+
+```
+mk.zip
+```
+
+pode conter:
+
+```
+sl1_mortal_kombat_u3_sound_rom.u3
+...
+l5_mortal_kombat_t-unit_uj12_game_rom.uj12
+```
+
+Cada entrada deve ser identificada por:
+
+```
+filename
+size
+CRC32
+SHA1
+```
+
+A correspondência ideal será:
+
+```
+machine
+   |
+   +-- rom
+         |
+         +-- filename
+         +-- crc
+         +-- sha1
+         +-- size
+```
+
+O nome do arquivo é um identificador auxiliar.
+
+CRC e SHA1 são identificadores fundamentais.
+
+======================================================================
+24. SCANNER DE ARQUIVOS
+=======================
+
+Scanner deve trabalhar em paralelo.
+
+CPU:
+
+```
+multiprocessing
+ProcessPoolExecutor
+```
+
+ou arquitetura equivalente.
+
+Não utilizar threads Python para tarefas intensivas de hashing como
+estratégia principal quando o GIL representar gargalo.
+
+Threads podem ser utilizadas para I/O.
+
+Processos devem ser utilizados para CPU-bound.
+
+AVX2:
+
+O software deve detectar recursos de CPU.
+
+Se houver implementação nativa/externa de hashing que aproveite AVX2,
+poderá ser utilizada.
+
+Não criar código AVX2 em Python puro apenas para dizer que usa AVX2.
+
+GPU:
+
+Não utilizar GPU para operações que sejam mais lentas ou complexas que CPU.
+
+A primeira prioridade é:
+
+```
+SSD
+leitura sequencial
+multiprocessing
+cache
+banco indexado
+hashing somente quando necessário
+```
+
+======================================================================
+25. ESTRATÉGIA DE SCAN
+======================
+
+Primeira fase:
+
+```
+filename
+size
+```
+
+Segunda:
+
+```
+CRC
+```
+
+Terceira:
+
+```
+SHA1 somente quando necessário.
+```
+
+Se o CRC e tamanho já determinarem uma entrada unívoca no banco:
+
+```
+não calcular SHA1 novamente.
+```
+
+Cache:
+
+file_identity_cache
+
+```
+path
+size
+mtime
+inode/file-id quando disponível
+crc
+sha1
+scan_status
+```
+
+Se o arquivo não mudou:
+
+```
+reutilizar hashes.
+```
+
+======================================================================
+26. ZIP E 7Z
+============
+
+Suportar:
+
+```
+ZIP
+7Z
+```
+
+Usar bibliotecas maduras.
+
+Não extrair todo o arquivo para o disco apenas para validá-lo.
+
+Ler entradas diretamente do archive quando possível.
+
+Para cada archive:
+
+```
+abrir
+enumerar entradas
+obter tamanho
+obter CRC armazenado
+calcular SHA1 apenas quando necessário
+comparar com banco
+classificar:
+```
+
+VALID
+INVALID
+PARTIAL
+UNKNOWN
+MISSING
+EXTRA
+
+======================================================================
+27. CONSTRUÇÃO DO SET
+=====================
+
+Para cada máquina selecionada:
+
+1. determinar parent/clone
+2. determinar BIOS
+3. determinar devices
+4. determinar ROMs necessárias
+5. determinar CHDs
+6. determinar dependências
+7. localizar no FULLSET
+8. validar
+9. copiar para destino
+10. registrar resultado
+
+A construção deve respeitar o tipo:
+
+NON-MERGED
+SPLIT
+MERGED
+
+======================================================================
+28. BIOS E DEVICES
+==================
+
+O software NÃO deve remover BIOS/devices automaticamente.
+
+Deve existir:
+
+```
+[x] Incluir BIOS
+[x] Incluir Devices
+```
+
+Isso é especialmente importante porque máquinas de software lists podem
+depender de sistemas/BIOS/devices externos.
+
+Organização padrão desejada pelo usuário:
+
+```
+MAME/
+    roms/
+        BIOS
+        DEVICES
+        jogos
+        CHDs
+```
+
+Porém o programa deve permitir configuração.
+
+Não confundir:
+
+```
+BIOS
+DEVICE
+SAMPLE
+SOFTWARE
+ARCADE ROM
+```
+
+======================================================================
+29. CHD
+=======
+
+CHDs devem ser tratados como parte do set.
+
+Normalmente:
+
+```
+jogo.zip
+jogo/
+    jogo.chd
+```
+
+O software deve identificar CHDs pelo banco e pelas relações do MAME.
+
+Para validação:
+
+```
+chdman verify
+```
+
+Quando disponível.
+
+Não implementar um parser CHD completo em Python se o chdman puder executar
+a operação de maneira confiável.
+
+======================================================================
+30. FERRAMENTAS EXTERNAS
+========================
+
+O projeto deve detectar automaticamente:
+
+```
+chdman.exe
+romcmp.exe
+castool.exe
+floptool.exe
+imgtool.exe
+jedutil.exe
+ldresample.exe
+ldverify.exe
+nltool.exe
+nlwav.exe
+unidasm.exe
+```
+
+Local padrão:
+
+```
+./exe/
+```
+
+Também permitir localização manual.
+
+USO:
+
+chdman
+validação/manipulação CHD
+
+romcmp
+comparação e hashing de dumps
+
+imgtool
+imagens de disco compatíveis
+
+floptool
+imagens de floppy
+
+castool
+imagens de cassete
+
+jedutil
+PAL/PLA/PLD/GAL
+
+ldverify
+validação de LaserDisc/VHS
+
+ldresample
+processamento de LaserDisc/VHS
+
+nltool/nlwav
+ferramentas de netlist/audio
+
+unidasm
+disassembler
+
+Não chamar ferramentas externas desnecessariamente.
+
+======================================================================
+31. LOG DE CONSTRUÇÃO
+=====================
+
+Exibir:
+
+```
+arquivo atual
+máquina atual
+quantidade total
+quantidade processada
+velocidade
+ETA
+tamanho copiado
+erros
+faltantes
+inválidos
+```
+
+Exemplo:
+
+```
+[████████████████░░░░] 81.3%
+
+Processando:
+    sf2ce.zip
+
+Máquina:
+    Street Fighter II' - Champion Edition
+
+7.82 GB / 9.61 GB
+
+1,842 / 2,301 arquivos
+
+Velocidade:
+    421 MB/s
+
+ETA:
+    00:04:32
+```
+
+======================================================================
+32. MISSING ROMS
+================
+
+Ao final:
+
+```
+missing_roms.json
+missing_roms.txt
+invalid_roms.json
+build_report.json
+```
+
+Cada missing deve possuir:
+
+```
+machine
+filename
+size
+crc
+sha1
+archive
+type
+dependency
+```
+
+======================================================================
+33. TORRENT
+===========
+
+O sistema NÃO deve assumir que um magnet link consegue simplesmente
+"selecionar ROMs".
+
+Magnet link identifica um torrent através de metadados.
+
+A seleção granular depende da estrutura do torrent e da capacidade do
+cliente.
+
+O projeto deve separar:
+
+```
+Torrent Discovery
+Torrent Metadata
+Torrent File Tree
+Missing Matcher
+qBittorrent Integration
+```
+
+Fluxo:
+
+```
+FULLSET esperado
+      |
+      v
+MISSING ROMS
+      |
+      v
+TORRENT
+      |
+      v
+comparar árvore do torrent
+      |
+      v
+identificar arquivos correspondentes
+      |
+      v
+gerar seleção de download
+```
+
+A aplicação deve preferir trabalhar com:
+
+```
+.torrent
+```
+
+quando disponível.
+
+Depois:
+
+```
+magnet + metadata obtida pelo cliente.
+```
+
+O programa NÃO deve tentar modificar um torrent existente.
+
+Recriar um torrent é uma operação futura e separada.
+
+======================================================================
+34. QBITTORRENT
+===============
+
+A integração com qBittorrent deve ser feita por Web API.
+
+O software deve:
+
+1. conectar
+2. adicionar torrent/magnet
+3. obter metadata
+4. listar arquivos
+5. comparar nomes/tamanhos
+6. identificar índices dos arquivos necessários
+7. marcar arquivos selecionados
+8. iniciar download
+
+A seleção deve ocorrer por índice de arquivo do torrent.
+
+Nunca assumir que:
+
+```
+nome da ROM == nome do arquivo torrent
+```
+
+Normalizar caminhos antes de comparar.
+
+======================================================================
+35. RECONSTRUÇÃO DE TORRENT
+===========================
+
+Fase futura.
+
+Somente depois de possuir:
+
+```
+torrent original
+arquivos correspondentes
+validação do set
+```
+
+poderemos criar:
+
+```
+torrent reduzido
+```
+
+O torrent reduzido deve conter somente os arquivos desejados.
+
+Não implementar isso na primeira versão da integração torrent.
+
+======================================================================
+36. FILTROS
+===========
+
+Filtros devem ser combináveis.
+
+Exemplo:
+
+```
+Arcade
+AND
+Working
+AND
+Fighter
+AND
+2 players
+AND
+clone included
+```
+
+O resultado deve ser calculado no banco, não percorrendo XML a cada clique.
+
+A GUI deve atualizar:
+
+```
+total máquinas
+total ROMs
+tamanho estimado
+CHDs
+BIOS
+Devices
+```
+
+em tempo real ou por cálculo assíncrono.
+
+======================================================================
+37. PERFORMANCE
+===============
+
+PRINCÍPIO:
+
+A GUI nunca deve bloquear.
+
+Toda operação pesada deve utilizar worker.
+
+Operações pesadas:
+
+* importação listxml
+* scan de archives
+* hashing
+* construção
+* validação
+* CHD verification
+* torrent matching
+
+A arquitetura deve utilizar:
+
+```
+SQLite
+índices
+cache
+multiprocessing
+I/O paralelo
+leitura incremental
+prepared statements
+batch inserts
+```
+
+Não executar:
+
+```
+SELECT * FROM machine
+```
+
+a cada alteração de filtro.
+
+Os filtros devem ser convertidos em consultas SQL.
+
+======================================================================
+38. ÍNDICES SQLITE
+==================
+
+Criar índices para:
+
+machine.name
+machine.cloneof
+machine.year
+machine.manufacturer
+machine.emulation_status
+machine.driver_status
+machine.sourcefile
+
+rom.name
+rom.crc
+rom.sha1
+rom.size
+rom.machine_id
+
+disk.sha1
+
+machine_category.machine_id
+machine_category.category_id
+
+Índice composto:
+
+rom(crc, size)
+
+rom(sha1)
+
+machine(emulation_status, cloneof)
+
+======================================================================
+39. CACHE
+=========
+
+Cache de:
+
+* listxml
+* versão do MAME
+* mame.ini
+* categorias
+* scanner de archives
+* hashes
+* torrent metadata
+* filtros
+
+O cache deve ser invalidado quando:
+
+```
+versão MAME muda
+listxml muda
+arquivo muda
+configuração muda
+```
+
+======================================================================
+40. TOOLTIP
+===========
+
+TODOS os controles importantes da GUI devem possuir tooltip.
+
+Exemplo:
+
+```
+"Estado de emulação"
+```
+
+Tooltip:
+
+```
+"Define o nível mínimo de qualidade de emulação aceito pelo filtro.
+ A seleção é cumulativa. Ao escolher IMPERFECT, sistemas WORKING e
+ IMPERFECT também serão incluídos."
+```
+
+Outro:
+
+```
+"Split"
+```
+
+Tooltip:
+
+```
+"Cada parent contém ROMs compartilhadas e cada clone contém somente
+ as diferenças necessárias."
+```
+
+Não criar campos sem explicação.
+
+======================================================================
+41. ARQUITETURA DE FILTROS
+==========================
+
+Criar:
+
+FilterDefinition
+FilterGroup
+FilterExpression
+FilterProfile
+FilterResult
+
+Exemplo:
+
+FilterExpression:
+
+```
+category IN (...)
+AND emulation_status IN (...)
+AND clone_condition
+AND bios_condition
+AND device_condition
+```
+
+A GUI apenas constrói a expressão.
+
+O backend executa.
+
+======================================================================
+42. PERFIS
+==========
+
+Permitir salvar:
+
+```
+Meu Arcade
+Meu MAME TV
+Arcade CRT
+Fighting Games
+Neo Geo
+etc.
+```
+
+Formato:
+
+```
+JSON
+```
+
+Exemplo:
+
+profile.json
+
+```
+{
+    "name": "Meu Arcade",
+    "set_type": "split",
+    "include_clones": true,
+    "include_bios": true,
+    "include_devices": true,
+    "emulation": "imperfect",
+    "categories": [...]
+}
+```
+
+======================================================================
+43. SEGURANÇA DE DADOS
+======================
+
+O software deve operar com:
+
+```
+SOURCE READ ONLY
+```
+
+sempre que possível.
+
+Nunca:
+
+```
+apagar
+mover
+renomear
+```
+
+arquivos da fonte durante BUILD.
+
+Destino pode ser:
+
+```
+criado
+atualizado
+reconstruído
+```
+
+======================================================================
+44. ERROS
+=========
+
+Cada erro deve possuir:
+
+```
+código
+arquivo
+máquina
+operação
+mensagem
+exceção original
+```
+
+Exemplo:
+
+ROM_HASH_MISMATCH
+
+ARCHIVE_CORRUPTED
+
+CHD_INVALID
+
+MISSING_PARENT
+
+MISSING_BIOS
+
+MISSING_DEVICE
+
+UNKNOWN_ROM
+
+UNSUPPORTED_FORMAT
+
+PERMISSION_DENIED
+
+======================================================================
+45. TESTES
+==========
+
+Criar fixtures pequenas.
+
+Nunca testar inicialmente contra um FULLSET inteiro.
+
+Testes:
+
+```
+listxml parser
+database import
+filters
+clone logic
+merged/split/nonmerged
+archive scanner
+CRC
+SHA1
+CHD
+missing
+build
+torrent matching
+mame.ini parser
+mame.ini writer
+```
+
+======================================================================
+46. COMPATIBILIDADE
+===================
+
+O software deve funcionar inicialmente em:
+
+```
+Windows 10+
+Windows 11
+```
+
+Arquitetura:
+
+```
+x64
+```
+
+Python:
+
+```
+versão suportada oficialmente pelo projeto.
+```
+
+Evitar dependências que impeçam atualização futura.
+
+======================================================================
+47. REGRA FUNDAMENTAL DE DESENVOLVIMENTO
+========================================
+
+Não reconstruir toda a aplicação a cada fase.
+
+Implementar incrementalmente.
+
+Cada fase deve:
+
+```
+funcionar
+ser testável
+possuir testes
+possuir documentação
+preservar as fases anteriores
+```
+
+======================================================================
+48. FASES
+=========
+
+FASE 1
+Estrutura
+GUI básica
+seleção MAME
+detecção de versão
+
+FASE 2
+listxml
+banco SQLite
+importação
+
+FASE 3
+Diretórios
+mame.ini
+parser/writer
+
+FASE 4
+Filtros
+perfis
+categorias
+
+FASE 5
+Jogos disponíveis
+ícones
+metadados
+
+FASE 6
+Scanner ZIP/7Z
+CRC
+SHA1
+cache
+
+FASE 7
+Construção NON-MERGED
+
+FASE 8
+SPLIT
+
+FASE 9
+MERGED
+
+FASE 10
+BIOS
+Devices
+CHD
+
+FASE 11
+Vídeo
+Som
+Controles
+
+FASE 12
+Mapeamento em lote
+
+FASE 13
+Missing report
+
+FASE 14
+Torrent metadata
+
+FASE 15
+qBittorrent
+
+FASE 16
+reconstrução de torrent
+
+======================================================================
+49. REGRA PARA IA DE DESENVOLVIMENTO
+====================================
+
+Antes de modificar qualquer código:
+
+1. examinar o GitHub atual
+2. identificar a fase atual
+3. examinar estrutura existente
+4. verificar testes
+5. verificar documentação
+6. identificar código legado
+7. não duplicar funcionalidades existentes
+8. propor alteração mínima necessária
+
+Sempre preservar:
+
+```
+separação de responsabilidades
+compatibilidade
+testes
+documentação
+```
+
+Quando houver dúvida sobre comportamento do MAME:
+
+```
+consultar a documentação oficial
+consultar o código-fonte do MAME quando necessário
+não inventar comportamento
+```
+
+======================================================================
+50. FONTE OFICIAL
+=================
+
+A documentação oficial do MAME deve ser considerada fonte primária para
+comportamento do MAME.
+
+Especialmente:
+
+```
+listxml
+command line
+configuration
+paths
+software lists
+CHD
+tools
+```
+
+======================================================================
+51. RESULTADO FINAL
+===================
+
+O produto final deverá ser capaz de:
+
+1. Detectar MAME.
+2. Detectar versão.
+3. Ler listxml.
+4. Criar banco estruturado.
+5. Ler/escrever mame.ini.
+6. Configurar diretórios.
+7. Filtrar máquinas.
+8. Filtrar clones.
+9. Filtrar estado de emulação.
+10. Filtrar categorias.
+11. Manter BIOS.
+12. Manter Devices.
+13. Manter CHDs.
+14. Mostrar jogos.
+15. Mostrar ícones.
+16. Configurar vídeo.
+17. Configurar áudio.
+18. Configurar controles.
+19. Propagar configurações.
+20. Validar ZIP.
+21. Validar 7Z.
+22. Comparar CRC.
+23. Comparar SHA1.
+24. Validar CHD.
+25. Construir NON-MERGED.
+26. Construir SPLIT.
+27. Construir MERGED.
+28. Gerar relatório.
+29. Gerar lista de missing.
+30. Analisar torrent.
+31. Integrar qBittorrent.
+32. Selecionar arquivos faltantes.
+33. Futuramente reconstruir torrents.
+
+O objetivo final é transformar o projeto em uma ferramenta especializada
+de gerenciamento de instalações MAME, combinando:
+
+```
+DAT / ROM Manager
++
+MAME Frontend Metadata Manager
++
+ROM Set Builder
++
+MAME Configuration Manager
++
+ROM Validator
++
+Torrent Missing Manager
+```
+
+sem distribuir conteúdo protegido e sem modificar a fonte original.

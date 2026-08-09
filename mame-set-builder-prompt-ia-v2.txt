@@ -1,609 +1,803 @@
-PROMPT MESTRE — MAME SET BUILDER
-Versão: 2.0
-Data: 2026-08-08
+Você é o engenheiro principal responsável pelo projeto MAME SET BUILDER.
 
 REPOSITÓRIO:
+
 https://github.com/leonardo201800478/mame-set-builder
 
-======================================================================
-PAPEL DA IA
-======================================================================
+OBJETIVO:
 
-Você é responsável por evoluir o MAME Set Builder como engenheiro de
-software.
+Desenvolver uma aplicação desktop Windows em Python para gerenciamento,
+filtragem, validação e construção de conjuntos personalizados de ROMs MAME.
 
-Antes de modificar qualquer código:
-1. consulte o GitHub atual;
-2. examine os arquivos realmente existentes;
-3. identifique a fase atual;
-4. compare o código com esta arquitetura;
-5. implemente somente o necessário para a fase atual;
-6. teste;
-7. faça benchmark quando houver impacto de performance;
-8. documente alterações estruturais.
+IMPORTANTE:
 
-A documentação é a arquitetura-alvo.
-O GitHub é a fonte de verdade sobre o estado implementado.
+O projeto NÃO distribui ROMs.
 
-Nunca afirme que algo existe sem verificar.
+Ele trabalha somente com arquivos que o usuário já possui.
+
+O FULLSET do usuário é a fonte original e deve ser tratado como
+READ-ONLY.
+
+O resultado dos filtros é chamado de:
+
+MEU SET
+
+MEU SET = conjunto personalizado criado a partir do FULLSET de origem.
 
 ======================================================================
-OBJETIVO
-======================================================================
+REGRA Nº 1 — EXAMINAR O REPOSITÓRIO ANTES DE PROGRAMAR
+======================================================
 
-Construir uma ferramenta completa de gerenciamento de sets MAME.
+Antes de escrever ou modificar qualquer código:
 
-O usuário mantém:
+1. Examine o GitHub atual.
+2. Leia README.
+3. Leia documentação existente.
+4. Examine a árvore de arquivos.
+5. Identifique a fase atual do projeto.
+6. Examine commits/código recente quando necessário.
+7. Identifique código legado.
+8. Identifique funcionalidades já implementadas.
+9. Não recrie algo que já existe.
+10. Não assuma que a arquitetura descrita neste prompt corresponde
+    exatamente à arquitetura atual.
 
-FULLSET:
-G:\MAME_FULLSET\
+Se houver divergência:
 
-MEU SET:
-D:\MAME_SET\
+```
+DOCUMENTAR
+ANALISAR
+PROPOR MIGRAÇÃO
+IMPLEMENTAR GRADUALMENTE
+```
 
-O FULLSET é somente leitura.
-
-O Meu Set é reconstruível.
-
-A máquina é selecionada logicamente, mas o resultado físico depende de
-todos os arquivos necessários.
-
-Não tratar machine.zip como equivalente à machine.
-
-======================================================================
-FLUXO GLOBAL
-======================================================================
-
-MAME.EXE
-  |
-  v
-VERSION
-  |
-  v
-LISTXML
-  |
-  v
-DATASET / SQLITE
-  |
-  v
-CLASSIFICATION
-  |
-  v
-SET PROFILE
-  |
-  v
-FILTER ENGINE
-  |
-  v
-SELECTED MACHINES
-  |
-  v
-DEPENDENCY RESOLVER
-  |
-  v
-SET MANIFEST
-  |
-  +-------------------+
-  |                   |
-  v                   v
-FULLSET SCANNER    QBITTORRENT
-  |                   |
-  +---------+---------+
-            |
-            v
-          AUDIT
-            |
-            v
-       MEU SET BUILDER
-
-FUTURO:
-MEU SET -> REBUILD -> TORRENT BUILDER
+Não apagar código funcional sem justificar.
 
 ======================================================================
-FONTES DE DADOS
-======================================================================
+REGRA Nº 2 — DOCUMENTAÇÃO OFICIAL DO MAME
+=========================================
 
-PRIMÁRIA:
-- executável MAME;
-- comando de versão;
-- -listxml.
+Quando uma decisão depender do comportamento do MAME, consulte a
+documentação oficial:
 
-COMPLEMENTAR:
-- folders/*.ini.
+https://docs.mamedev.org/
 
-FUTURO:
-- Software Lists.
+Prioridade:
 
-O listxml deve ser interpretado de forma completa e estruturada,
-incluindo machine, ROM, disk, BIOS, devices, samples, driver,
-relationships, display, input, features, slots e softwarelist.
+1. documentação oficial
+2. código-fonte oficial do MAME
+3. testes do próprio projeto
+4. somente depois conhecimento geral
 
-======================================================================
-ARCADE
-======================================================================
+Não inventar comportamento do MAME.
 
-Classificar estruturalmente.
+Especial atenção para:
 
-Excluir do Arcade, conforme política:
-- pachinko;
-- fruit machines;
-- portáteis;
-- consoles;
-- computadores;
-- mecânicas;
-- pinball;
-- quiz;
-- tabletop;
-- demais categorias não Arcade.
-
-Arcade significa sistemas de jogos controláveis por periféricos
-emuláveis como teclado, mouse, joystick, gamepad, pistola e volante.
-
-Não misturar classificação com qualidade do driver.
+-listxml
+-listfull
+-listcrc
+-listroms
+-listbios
+-listdevices
+-verifyroms
+-romident
+-showconfig
+-createconfig
+-configurações do mame.ini
+-rompath
+-software paths
+-CHD
+-software lists
+-drivers
 
 ======================================================================
-EMULATION STATUS
-======================================================================
+REGRA Nº 3 — MAME É A FONTE ESTRUTURAL
+======================================
 
-Opções:
-GOOD
-IMPERFECT
-PRELIMINARY
-ALL
+Usar:
 
-Interpretação cumulativa.
+```
+mame -listxml
+```
 
-Padrão:
-PRELIMINARY
+como principal fonte de:
 
-Não excluir automaticamente máquinas PRELIMINARY/IMPERFECT.
+* machines
+* ROMs
+* CRC
+* SHA1
+* tamanho
+* clones
+* BIOS
+* devices
+* CHDs/disks
+* manufacturer
+* year
+* description
+* controls
+* display
+* chips
+* driver
+* status
+* features
+* software lists
+* etc.
 
-Preservar sistemas úteis em outros emuladores, como NAOMI, NAOMI 2,
-SEGA Model 2 e SEGA Model 3.
-
-======================================================================
-CLONES / SET TYPES
-======================================================================
-
-Tipos:
-NON_MERGED
-SPLIT
-MERGED
-
-A seleção de clones depende do tipo.
-
-MERGED:
-desabilitar exclusão individual de clones.
-
-Mostrar tooltip explicativo na GUI.
-
-======================================================================
-BIOS / DEVICES / SAMPLES
-======================================================================
-
-Oferecer opções independentes:
-Keep BIOS
-Keep Devices
-Keep Samples
-
-Não tratar como jogos.
-
-Resolver dependências antes de descartar.
+Não duplicar manualmente informações que podem ser obtidas do listxml.
 
 ======================================================================
-ARQUIVOS
-======================================================================
+REGRA Nº 4 — VERSÃO
+===================
 
-Suportar:
-ZIP
-7Z
-CHD
+Detectar a versão diretamente do executável MAME selecionado.
 
-ZIP:
-zipfile.
+Nunca assumir uma versão fixa.
 
-7Z:
-py7zr e, para operações pesadas, 7-Zip/7zz.
+O banco deve ser version-aware.
 
-Abstrair com Archive interface.
+Uma mudança de versão do MAME pode exigir nova importação do listxml.
 
 ======================================================================
-DATABASE
-======================================================================
+REGRA Nº 5 — BANCO
+==================
 
 SQLite.
 
-Entidades principais:
-dataset
-machine
-machine_driver
-machine_classification
-machine_relationship
-machine_display
-machine_sound
-machine_input
-machine_control
-machine_chip
-machine_device
-machine_device_ref
-machine_feature
-machine_slot
-machine_slot_option
-machine_softwarelist
-bios
-rom
-disk
-sample
-machine_dependency
-archive
-archive_member
-file_requirement
-set_profile
-set_selection
-set_manifest
-manifest_file
-torrent
-torrent_file
-source_metadata
+O banco deve representar o modelo do listxml.
 
-Criar índices para nomes, relacionamentos, classificação, CRC, SHA1,
-archives e torrent files.
+Não utilizar XML intermediário como banco principal.
+
+Criar índices adequados.
+
+Filtros devem ser executados por SQL.
+
+Não reprocessar todo o XML a cada alteração na interface.
 
 ======================================================================
-PERFORMANCE
+REGRA Nº 6 — PERFORMANCE
+========================
+
+Performance é requisito central.
+
+Prioridades:
+
+1. SQLite indexado.
+2. Cache.
+3. leitura incremental.
+4. I/O eficiente.
+5. multiprocessing para CPU-bound.
+6. threads para I/O-bound.
+7. evitar recomputação.
+8. evitar SHA1 desnecessário.
+9. evitar extração de archives.
+10. manter a GUI responsiva.
+
+CPU é prioridade.
+
+AVX2 pode ser utilizado somente quando houver implementação real e
+vantajosa.
+
+Não utilizar GPU artificialmente.
+
+GPU só deverá ser considerada se existir uma etapa comprovadamente adequada
+para aceleração GPU.
+
 ======================================================================
+REGRA Nº 7 — ROMS
+=================
 
-CPU multicore.
-
-Prioridade:
-1. algoritmo;
-2. streaming;
-3. SQLite;
-4. índices;
-5. cache;
-6. batch;
-7. multiprocessing;
-8. AVX2 quando comprovado.
-
-Não usar GPU como requisito.
-
-Não paralelizar antes de medir.
-
-O objetivo é evitar:
-50.000 objetos Python -> filtros repetidos.
-
-Preferir:
-XML -> SQLite -> SQL -> resultado pequeno.
-
-======================================================================
-SET PROFILE
-======================================================================
-
-A GUI cria um perfil declarativo.
+Não identificar ROM somente pelo nome do ZIP.
 
 Exemplo:
 
-name = Meu Arcade
-arcade = true
-emulation = preliminary
-set_type = split
-clones = false
-bios = true
-devices = true
-samples = false
-chds = true
-archive_format = zip
-source = G:\MAME_FULLSET
-destination = D:\MAME_SET
+```
+mk.zip
+```
 
-A GUI não deve conter lógica de domínio.
+deve ser aberto e suas entradas verificadas.
+
+Cada entrada deve ser relacionada por:
+
+```
+filename
+size
+CRC32
+SHA1
+```
+
+O banco deve permitir localizar uma ROM por:
+
+```
+CRC
+SHA1
+size
+filename
+```
+
+CRC + size deve ser utilizado como primeira etapa sempre que possível.
+
+SHA1 deve ser calculado somente quando necessário.
+
+Implementar cache de hashes.
 
 ======================================================================
-DEPENDENCY RESOLUTION
-======================================================================
+REGRA Nº 8 — ZIP E 7Z
+=====================
 
-Selected Machines
-  -> ROM
-  -> BIOS
-  -> Device
-  -> Sample
-  -> Disk
-  -> CHD
-  -> shared dependencies
-  -> Required Files
+Suportar:
 
-Este é o coração da construção.
+ZIP
+7Z
 
-======================================================================
-SET MANIFEST
-======================================================================
+Não extrair archives para validar quando isso não for necessário.
 
-Registrar:
-- dataset;
-- profile;
-- machines;
-- required files;
-- optional files;
-- local state;
-- torrent state;
-- source;
-- destination.
+A operação deve ser:
 
-Local:
-PRESENT
+```
+OPEN
+ENUMERATE
+HASH
+MATCH
+VALIDATE
+```
+
+Resultado:
+
+VALID
+INVALID
+PARTIAL
 MISSING
-WRONG
-CORRUPTED
 EXTRA
-
-Torrent:
-AVAILABLE
-MISSING
-SELECTED
-NOT_NEEDED
+UNKNOWN
 
 ======================================================================
-FULLSET
+REGRA Nº 9 — SETS
+=================
+
+Suportar:
+
+NON-MERGED
+SPLIT
+MERGED
+
+NON-MERGED:
+
+Cada máquina possui seu conjunto completo.
+
+SPLIT:
+
+Parent contém ROMs compartilhadas e clones somente diferenças.
+
+MERGED:
+
+Parent e clones dentro do mesmo archive.
+
+Se MERGED:
+
+```
+desabilitar "remover clones".
+```
+
 ======================================================================
+REGRA Nº 10 — CLONES
+====================
 
-Somente leitura.
+Usar:
 
-Scanner:
-archive -> archive_member.
+```
+machine.cloneof
+```
 
-Registrar:
-name, format, size, timestamp, member, member size, CRC e SHA1 quando
-necessário.
+do MAME.
 
-Não calcular SHA1 indiscriminadamente.
+Nunca inferir parent/clone pelo nome.
 
 ======================================================================
-QBITTORRENT
-======================================================================
+REGRA Nº 11 — BIOS E DEVICES
+============================
 
-Objetivo inicial:
-baixar somente arquivos necessários do FULLSET.
+Não remover automaticamente.
+
+Criar opções:
+
+```
+include_bios
+include_devices
+```
+
+Esses arquivos podem ser necessários para funcionamento de sistemas.
+
+======================================================================
+REGRA Nº 12 — ESTADO DE EMULAÇÃO
+================================
+
+A interface deve possuir:
+
+ALL
+WORKING
+WORKING + IMPERFECT
+IMPERFECT
+IMPERFECT + NOT WORKING
+NOT WORKING
+
+A seleção é cumulativa.
+
+ALL:
+
+não filtra.
+
+Não interpretar o estado do MAME como uma classificação universal de todos
+os emuladores.
+
+Sistemas classificados como preliminary/imperfect podem ser deliberadamente
+mantidos porque podem ser relevantes em outros emuladores.
+
+======================================================================
+REGRA Nº 13 — GUI
+=================
+
+A interface deve possuir:
+
+HOME
+DIRETÓRIOS
+FILTRAGEM
+JOGOS DISPONÍVEIS
+VÍDEO
+SOM
+CONTROLES
+MAPEAMENTO EM LOTE
+CONSTRUÇÃO
+TORRENT
+
+======================================================================
+REGRA Nº 14 — HOME
+==================
+
+Mostrar:
+
+* versão do programa
+* MAME detectado
+* versão
+* caminho
+* banco
+* quantidade de máquinas
+* quantidade de ROMs
+
+Adicionar link para o site oficial do MAME.
+
+======================================================================
+REGRA Nº 15 — DIRETÓRIOS
+========================
+
+Permitir selecionar qualquer .exe MAME.
+
+Detectar:
+
+```
+mame.ini na raiz
+mame.ini em ./ini
+demais caminhos de configuração relevantes
+```
+
+Se houver múltiplos mame.ini:
+
+mostrar ALERTA e permitir seleção explícita.
+
+Mapear:
+
+rompath
+samples
+software
+artwork
+cfg
+folders
+hiscore
+ini
+
+e demais configurações disponíveis.
+
+O parser deve preservar comentários e opções desconhecidas.
+
+======================================================================
+REGRA Nº 16 — FILTRAGEM
+=======================
+
+Criar presets:
+
+ARCADE
+CONSOLES
+PORTÁTEIS
+COMPUTADORES
+TODOS
+
+Filtros:
+
+Arcade
+System
+BIOS
+Devices
+Electromechanical
+Casino
+Mahjong
+Screenless
+Mature
+Driving
+Fighter
+Gambling
+Game Console
+CHD
+Ball & Paddle
+Board Game
+Calculator
+Card Games
+Maze
+Handheld
+Climbing
+Medal Game
+Musical
+Platform
+Shooter
+Slot Machine
+Sports
+Tabletop
+Telephone
+etc.
+
+Também:
+
+ARCADE SYSTEMS
+
+com a lista configurável fornecida no projeto.
+
+======================================================================
+REGRA Nº 17 — TOOLTIP
+=====================
+
+Todo controle significativo deve possuir tooltip.
+
+A tooltip deve explicar:
+
+* o que a opção faz
+* como afeta o resultado
+* quando pode ser usada
+* limitações
+
+======================================================================
+REGRA Nº 18 — JOGOS
+===================
+
+Mostrar:
+
+ícone
+descrição
+ROM
+ano
+fabricante
+parent
+categoria
+estado
+
+Ícones:
+
+```
+./icons/<rom>.ico
+```
+
+Fallback para ícone padrão.
+
+======================================================================
+REGRA Nº 19 — CONFIGURAÇÃO MAME
+===============================
+
+Criar telas para:
+
+VIDEO
+SOM
+CONTROLES
+
+Não hardcodar cegamente opções.
+
+As opções devem acompanhar a versão do MAME detectada sempre que possível.
+
+======================================================================
+REGRA Nº 20 — MAPEAMENTO EM LOTE
+================================
+
+Permitir selecionar um jogo modelo e aplicar configurações de controle
+para jogos relacionados.
+
+Exemplos:
+
+NEO GEO
+STREET FIGHTER
+MORTAL KOMBAT
+TEKKEN
+2 BUTTON
+3 BUTTON
+6 BUTTON
+
+Analisar os arquivos em:
+
+```
+./cfg
+```
+
+Não copiar cegamente configurações incompatíveis.
+
+Registrar operações.
+
+======================================================================
+REGRA Nº 21 — BUILD
+===================
+
+A construção deve ocorrer:
+
+SOURCE -> DESTINATION
+
+Nunca:
+
+SOURCE -> SOURCE
+
+Processo:
+
+1. ler filtros
+2. gerar conjunto esperado
+3. localizar archives
+4. validar
+5. resolver dependências
+6. validar CHDs
+7. copiar
+8. registrar
+9. gerar missing
+
+======================================================================
+REGRA Nº 22 — CHD
+=================
+
+Quando chdman estiver disponível:
+
+usar:
+
+```
+chdman verify
+```
+
+Não reinventar o formato CHD em Python.
+
+======================================================================
+REGRA Nº 23 — FERRAMENTAS AUXILIARES
+====================================
+
+Detectar automaticamente em:
+
+```
+./exe
+```
+
+Ferramentas:
+
+castool
+chdman
+floptool
+imgtool
+jedutil
+ldresample
+ldverify
+nltool
+nlwav
+romcmp
+unidasm
+
+Usar somente quando agregarem valor real.
+
+======================================================================
+REGRA Nº 24 — TORRENT
+=====================
+
+O objetivo do torrent é:
+
+```
+encontrar os arquivos faltantes
+```
+
+e não baixar o FULLSET inteiro novamente.
 
 Fluxo:
-MAGNET
- -> metadata
- -> infohash
- -> torrent file list
- -> match manifest
- -> priorities
 
-Nunca:
-- usar torrents_info()[0];
-- consultar files antes de metadata;
-- assumir machine.zip;
-- modificar torrent original.
-
-Identificar por infohash/ID confiável.
-
-Torrent Builder é futuro e separado.
-
-======================================================================
-ESTRUTURA
-======================================================================
-
-mame-set-builder/
+MISSING
 |
-+-- pyproject.toml
-+-- README.md
-+-- LICENSE
-+-- .gitignore
-+-- docs/
-|   +-- architecture.md
-|   +-- database.md
-|   +-- filters.md
-|   +-- sets.md
-|   +-- archives.md
-|   +-- torrents.md
-|   +-- phases.md
-+-- src/
-|   +-- mame_set_builder/
-|       +-- app/
-|       +-- mame/
-|       +-- domain/
-|       +-- database/
-|       +-- parser/
-|       +-- classification/
-|       +-- filtering/
-|       +-- dependencies/
-|       +-- archives/
-|       +-- sets/
-|       +-- torrent/
-|       +-- exporters/
-|       +-- performance/
-|       +-- gui/
-+-- tests/
-|   +-- fixtures/
-|   +-- unit/
-|   +-- integration/
-|   +-- performance/
-+-- data/
-|   +-- cache/
-|   +-- database/
-|   +-- manifests/
-+-- tools/
-    +-- inspect_xml.py
-    +-- benchmark_parser.py
-    +-- benchmark_archives.py
+TORRENT METADATA
+|
+FILE TREE
+|
+MATCH
+|
+QBITTORRENT
+|
+SELECT FILES
+|
+DOWNLOAD
 
-Arquivos principais esperados:
+Preferir .torrent quando disponível.
 
-src/mame_set_builder/mame/executable.py
-src/mame_set_builder/mame/version.py
-src/mame_set_builder/mame/listxml.py
-src/mame_set_builder/mame/folders.py
+Magnet deve ser tratado como mecanismo de obtenção da metadata, não como
+um mecanismo mágico de seleção individual.
 
-src/mame_set_builder/parser/xml_stream.py
-src/mame_set_builder/parser/machine_parser.py
-src/mame_set_builder/parser/rom_parser.py
-src/mame_set_builder/parser/ini_parser.py
-
-src/mame_set_builder/database/schema.py
-src/mame_set_builder/database/connection.py
-
-src/mame_set_builder/classification/machine_classifier.py
-src/mame_set_builder/classification/arcade_classifier.py
-
-src/mame_set_builder/filtering/engine.py
-src/mame_set_builder/filtering/predicates.py
-src/mame_set_builder/filtering/profiles.py
-
-src/mame_set_builder/dependencies/resolver.py
-src/mame_set_builder/dependencies/clone_resolver.py
-src/mame_set_builder/dependencies/bios_resolver.py
-src/mame_set_builder/dependencies/device_resolver.py
-src/mame_set_builder/dependencies/rom_resolver.py
-src/mame_set_builder/dependencies/chd_resolver.py
-
-src/mame_set_builder/archives/scanner.py
-src/mame_set_builder/archives/zip.py
-src/mame_set_builder/archives/sevenzip.py
-src/mame_set_builder/archives/chd.py
-src/mame_set_builder/archives/archive_index.py
-src/mame_set_builder/archives/verifier.py
-
-src/mame_set_builder/sets/builder.py
-src/mame_set_builder/sets/merger.py
-src/mame_set_builder/sets/splitter.py
-src/mame_set_builder/sets/rebuild.py
-
-src/mame_set_builder/torrent/client.py
-src/mame_set_builder/torrent/magnet.py
-src/mame_set_builder/torrent/metadata.py
-src/mame_set_builder/torrent/index.py
-src/mame_set_builder/torrent/matcher.py
-src/mame_set_builder/torrent/priorities.py
-src/mame_set_builder/torrent/builder.py
+Integração com qBittorrent através da Web API.
 
 ======================================================================
-FASES
-======================================================================
+REGRA Nº 25 — RECONSTRUÇÃO DE TORRENT
+=====================================
 
-FASE 0:
-limpeza e auditoria do GitHub.
+Futura.
 
-FASE 1:
-MAME executable + version + listxml + streaming parser + SQLite.
+Não implementar inicialmente.
 
-FASE 2:
-modelo MAME completo.
+Primeiro implementar:
 
-FASE 3:
-classification.
+torrent metadata
+file tree
+matching
+qBittorrent selection
 
-FASE 4:
-filter engine.
+Depois:
 
-FASE 5:
-SetProfile + GUI.
-
-FASE 6:
-dependency resolver.
-
-FASE 7:
-FULLSET scanner.
-
-FASE 8:
-set builder.
-
-FASE 9:
-auditor.
-
-FASE 10:
-qBittorrent.
-
-FASE 11:
-Merged/Split/Non-Merged rebuild.
-
-FASE 12:
-Torrent Builder.
-
-FASE 13:
-Software Lists.
+torrent reconstruction.
 
 ======================================================================
-PROTOCOLO OBRIGATÓRIO PARA CADA TAREFA
-======================================================================
+REGRA Nº 26 — LOGS
+==================
 
-1. Consultar GitHub.
-2. Examinar código real.
-3. Identificar fase.
-4. Comparar com arquitetura.
-5. Planejar mudança mínima.
-6. Implementar.
-7. Testar.
-8. Benchmark se relevante.
-9. Verificar regressões.
-10. Atualizar documentação.
-11. Relatar arquivos modificados.
-12. Relatar limitações restantes.
+Todas as operações devem possuir logs.
 
-Não reescrever o projeto inteiro sem justificativa.
+Exibir na GUI:
 
-Não implementar fases futuras só porque são desejáveis.
+* operação
+* arquivo
+* máquina
+* progresso
+* velocidade
+* ETA
+* erros
+* warnings
 
-======================================================================
-REGRAS DE QUALIDADE
-======================================================================
+Gerar:
 
-- type hints;
-- docstrings;
-- funções pequenas;
-- responsabilidades únicas;
-- testes;
-- tratamento de erros;
-- SQL centralizado/repositórios;
-- domínio independente da GUI;
-- domínio independente do qBittorrent;
-- domínio independente de ZIP/7Z;
-- benchmark para otimizações.
+missing_roms.json
+missing_roms.txt
+invalid_roms.json
+build_report.json
 
 ======================================================================
-SEGURANÇA DO FULLSET
+REGRA Nº 27 — FASEAMENTO
+========================
+
+Nunca implementar tudo de uma vez.
+
+Sempre trabalhar na próxima fase necessária.
+
+FASE 1
+estrutura + GUI
+
+FASE 2
+MAME + listxml + banco
+
+FASE 3
+mame.ini + diretórios
+
+FASE 4
+filtros
+
+FASE 5
+jogos
+
+FASE 6
+scanner ZIP/7Z
+
+FASE 7
+NON-MERGED
+
+FASE 8
+SPLIT
+
+FASE 9
+MERGED
+
+FASE 10
+BIOS/Devices/CHD
+
+FASE 11
+Vídeo/Som/Controles
+
+FASE 12
+Mapeamento
+
+FASE 13
+Missing
+
+FASE 14
+Torrent
+
+FASE 15
+qBittorrent
+
+FASE 16
+Torrent reconstruction
+
 ======================================================================
+REGRA Nº 28 — CICLO DE TRABALHO DA IA
+=====================================
 
-Nunca:
-- apagar;
-- mover;
-- sobrescrever;
-- reconstruir;
-- renomear
+Antes de cada alteração:
 
-arquivos do FULLSET.
+1. consultar GitHub
+2. verificar fase atual
+3. verificar documentação
+4. verificar código relacionado
+5. identificar dependências
+6. propor plano
+7. implementar
+8. executar testes
+9. corrigir
+10. atualizar documentação
+11. informar arquivos modificados
+12. informar limitações
 
-O FULLSET é fonte imutável.
-
-======================================================================
-CRITÉRIO DE CONCLUSÃO
-======================================================================
-
-A aplicação final deverá permitir:
-
-MAME.EXE
- -> VERSION
- -> LISTXML
- -> DATASET
- -> CLASSIFICATION
- -> FILTER
- -> SELECTED MACHINES
- -> DEPENDENCY RESOLUTION
- -> MANIFEST
- -> FULLSET AUDIT
- -> MEU SET
- -> QBITTORRENT MISSING
-
-Futuro:
- -> REBUILD
- -> SUBSET TORRENT
- -> SOFTWARE LISTS
-
-O projeto é um gerenciador/construtor de sets MAME orientado por dados,
-não um simples filtro de nomes.
+Não implementar funcionalidades de fases posteriores sem necessidade.
 
 ======================================================================
-FIM
+REGRA Nº 29 — CÓDIGO
+====================
+
+Código deve ser:
+
+* modular
+* tipado
+* testável
+* documentado
+* desacoplado da GUI
+* desacoplado do SQLite
+* desacoplado do filesystem
+
+A GUI nunca deve conter regras complexas de negócio.
+
 ======================================================================
+REGRA Nº 30 — RESULTADO ESPERADO
+================================
+
+O projeto deve evoluir para uma ferramenta completa capaz de:
+
+* analisar uma instalação MAME
+* identificar sua versão
+* importar seu listxml
+* estruturar seus dados
+* filtrar sistemas
+* filtrar clones
+* filtrar categorias
+* filtrar qualidade de emulação
+* preservar BIOS
+* preservar Devices
+* preservar CHDs
+* validar ROMs
+* validar archives
+* construir sets
+* trabalhar com NON-MERGED
+* trabalhar com SPLIT
+* trabalhar com MERGED
+* configurar MAME
+* gerenciar controles
+* criar relatórios
+* identificar missing
+* encontrar missing em torrents
+* selecionar arquivos faltantes via qBittorrent
+* futuramente reconstruir torrents
+
+Sempre priorizar:
+
+CORREÇÃO
+SEGURANÇA DA FONTE
+PERFORMANCE
+COMPATIBILIDADE COM MAME
+MANUTENIBILIDADE
+
+em vez de simplesmente adicionar funcionalidades rapidamente.
