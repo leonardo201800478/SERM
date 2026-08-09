@@ -1,83 +1,72 @@
-"""
-Lógica de cópia de arquivos do FULLSET para o diretório de destino.
-"""
-
 import shutil
-import os
 import logging
 from pathlib import Path
-from typing import Dict, Optional, List
+from typing import List, Dict, Any, Optional
+
+from ..domain.manifest import FileRequirement, FileType
 from ..archives.scanner import FullsetScanner
 
 logger = logging.getLogger(__name__)
 
-class Copier:
+class FileCopier:
     def __init__(self, scanner: FullsetScanner):
         self.scanner = scanner
 
-    def copy_file(self, file_name: str, source_root: Path, dest_root: Path) -> bool:
-        """
-        Copia um arquivo (ou membro de archive) do FULLSET para o destino.
-        Retorna True se bem-sucedido, False caso contrário.
-        """
-        # Busca o arquivo no índice
-        found = self.scanner.find_file(file_name)
-        if not found:
-            logger.warning(f"Arquivo não encontrado no FULLSET: {file_name}")
-            return False
+    def copy_files(self, requirements: List[FileRequirement],
+                   source_root: Path, dest_root: Path,
+                   progress_callback=None) -> Dict[str, Any]:
+        stats = {"copied": 0, "missing": 0, "errors": 0, "missing_files": [], "error_files": []}
 
-        source_archive = Path(found['path'])
-        member_name = found['name']
-        dest_path = dest_root / member_name
+        (dest_root / "roms").mkdir(parents=True, exist_ok=True)
+        (dest_root / "samples").mkdir(parents=True, exist_ok=True)
+        (dest_root / "software").mkdir(parents=True, exist_ok=True)
 
-        # Se o arquivo já existe no destino, pula (ou sobrescreve? Vamos manter imutável)
-        if dest_path.exists():
-            logger.debug(f"Arquivo já existe no destino: {dest_path}")
-            return True
+        total = len(requirements)
+        for idx, req in enumerate(requirements):
+            if progress_callback:
+                progress_callback(idx + 1, total, req.file_name)
 
-        # Determina o tipo de archive
-        ext = source_archive.suffix.lower()
-        if ext == '.zip' or ext == '.7z':
-            # Extrair membro específico e copiar
-            return self._extract_member(source_archive, member_name, dest_path)
-        else:
-            # Arquivo único (CHD, BIN, etc.) – copiar diretamente
-            try:
-                shutil.copy2(source_archive, dest_path)
-                logger.info(f"Copiado: {source_archive} -> {dest_path}")
-                return True
-            except Exception as e:
-                logger.error(f"Erro ao copiar {source_archive}: {e}")
-                return False
+            found = self.scanner.find_file(req.file_name)
+            if not found and req.logical_name:
+                found = self.scanner.find_file(req.logical_name)
+            if not found and req.crc:
+                found = self._find_by_crc(req.crc)
 
-    def _extract_member(self, archive_path: Path, member_name: str, dest_path: Path) -> bool:
-        """Extrai um membro específico de um ZIP ou 7Z para o destino."""
-        try:
-            # Cria o diretório pai se não existir
+            if not found:
+                stats["missing"] += 1
+                stats["missing_files"].append(req.file_name)
+                continue
+
+            source_path = Path(found["path"])
+            dest_subdir = self._get_dest_subdir(req.file_type)
+            dest_path = dest_root / dest_subdir / found["name"]
+
             dest_path.parent.mkdir(parents=True, exist_ok=True)
-            ext = archive_path.suffix.lower()
-            if ext == '.zip':
-                import zipfile
-                with zipfile.ZipFile(archive_path, 'r') as zf:
-                    zf.extract(member_name, path=dest_path.parent)
-                    # Renomeia se necessário (o extract pode criar subpastas)
-                    extracted = dest_path.parent / member_name
-                    if extracted != dest_path:
-                        extracted.rename(dest_path)
-                logger.info(f"Extraído {member_name} de {archive_path} -> {dest_path}")
-                return True
-            elif ext == '.7z':
-                import py7zr
-                with py7zr.SevenZipFile(archive_path, 'r') as szf:
-                    szf.extract(path=dest_path.parent, targets=[member_name])
-                    extracted = dest_path.parent / member_name
-                    if extracted != dest_path:
-                        extracted.rename(dest_path)
-                logger.info(f"Extraído {member_name} de {archive_path} -> {dest_path}")
-                return True
-            else:
-                logger.warning(f"Formato não suportado para extração: {archive_path}")
-                return False
-        except Exception as e:
-            logger.error(f"Erro ao extrair {member_name} de {archive_path}: {e}")
-            return False
+
+            try:
+                shutil.copy2(source_path, dest_path)
+                stats["copied"] += 1
+            except Exception as e:
+                logger.error(f"Erro ao copiar {source_path}: {e}")
+                stats["errors"] += 1
+                stats["error_files"].append(req.file_name)
+
+        return stats
+
+    def _find_by_crc(self, crc: str) -> Optional[Dict[str, Any]]:
+        cursor = self.scanner.conn.execute("""
+            SELECT a.path, a.format, am.name, am.size, am.crc, am.sha1
+            FROM archive_member am
+            JOIN archive a ON am.archive_id = a.id
+            WHERE am.crc = ?
+            LIMIT 1
+        """, (crc,))
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+    def _get_dest_subdir(self, file_type: FileType) -> str:
+        if file_type in (FileType.ROM, FileType.BIOS, FileType.DEVICE, FileType.CHD, FileType.DISK):
+            return "roms"
+        elif file_type == FileType.SAMPLE:
+            return "samples"
+        return "roms"

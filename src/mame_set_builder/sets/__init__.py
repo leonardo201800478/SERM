@@ -1,5 +1,5 @@
 from .builder import SetBuilder
-from .copier import Copier
-from .auditor import Auditor
+from .copier import FileCopier
+from .validator import SetValidator
 
-__all__ = ["SetBuilder", "Copier", "Auditor"]
+__all__ = ["SetBuilder", "FileCopier", "SetValidator"]

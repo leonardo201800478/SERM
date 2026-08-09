@@ -1,12 +1,10 @@
-"""
-Aba Configuração – com seletor manual do mame.ini e parser robusto.
-"""
-
+import os
 from pathlib import Path
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox,
     QPushButton, QFileDialog, QMessageBox, QScrollArea
 )
+
 from .settings import Settings
 from .mame_ini_parser import MameIniParser
 from .widgets import FileSelector, PathListEditor

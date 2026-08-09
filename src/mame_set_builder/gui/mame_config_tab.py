@@ -1,20 +1,15 @@
-"""
-Aba de Configurações do MAME – edita mame.ini via interface gráfica.
-Integra OSD Video, BGFX, HLSL e GLSL.
-"""
-
 import logging
 from pathlib import Path
 from PyQt6.QtWidgets import (
-    QLineEdit, QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel,
-    QPushButton, QScrollArea, QCheckBox, QMessageBox, QTabWidget
+    QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel,
+    QPushButton, QScrollArea, QCheckBox, QMessageBox, QTabWidget,
+    QLineEdit
 )
 from PyQt6.QtCore import Qt
 
 from .settings import Settings
 from .mame_ini_parser import MameIniParser
 from .widgets import ComboSelector, SliderWithValue
-
 
 logger = logging.getLogger(__name__)
 
