@@ -238,3 +238,55 @@
 2026-08-09 12:01:29,007 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe --version
 2026-08-09 12:01:29,274 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe -version
 2026-08-09 12:01:29,442 - MameExecutable - INFO - Versão detectada via padrão genérico: 0.289
+2026-08-09 12:03:54,640 - MameExecutable - INFO - Inicializando MameExecutable com caminho: G:\LaunchBox\emulators\mame\mame.exe
+2026-08-09 12:03:54,640 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe --version
+2026-08-09 12:03:54,906 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe -version
+2026-08-09 12:03:55,062 - MameExecutable - INFO - Versão detectada via padrão genérico: 0.289
+2026-08-09 12:03:55,067 - MameExecutable - INFO - Inicializando MameExecutable com caminho: G:\LaunchBox\emulators\mame\mame.exe
+2026-08-09 12:03:55,067 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe --version
+2026-08-09 12:03:55,224 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe -version
+2026-08-09 12:03:55,383 - MameExecutable - INFO - Versão detectada via padrão genérico: 0.289
+2026-08-09 12:03:56,920 - MameExecutable - INFO - Inicializando MameExecutable com caminho: G:\LaunchBox\emulators\mame\mame.exe
+2026-08-09 12:03:56,920 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe --version
+2026-08-09 12:03:57,190 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe -version
+2026-08-09 12:03:57,354 - MameExecutable - INFO - Versão detectada via padrão genérico: 0.289
+2026-08-09 12:14:37,713 - MameExecutable - INFO - Inicializando MameExecutable com caminho: G:\LaunchBox\emulators\mame\mame.exe
+2026-08-09 12:14:37,713 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe --version
+2026-08-09 12:14:37,983 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe -version
+2026-08-09 12:14:38,140 - MameExecutable - INFO - Versão detectada via padrão genérico: 0.289
+2026-08-09 12:14:38,146 - MameExecutable - INFO - Inicializando MameExecutable com caminho: G:\LaunchBox\emulators\mame\mame.exe
+2026-08-09 12:14:38,146 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe --version
+2026-08-09 12:14:38,304 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe -version
+2026-08-09 12:14:38,465 - MameExecutable - INFO - Versão detectada via padrão genérico: 0.289
+2026-08-09 12:14:40,882 - MameExecutable - INFO - Inicializando MameExecutable com caminho: G:\LaunchBox\emulators\mame\mame.exe
+2026-08-09 12:14:40,882 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe --version
+2026-08-09 12:14:41,150 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe -version
+2026-08-09 12:14:41,305 - MameExecutable - INFO - Versão detectada via padrão genérico: 0.289
+2026-08-09 12:14:59,777 - MameExecutable - INFO - Inicializando MameExecutable com caminho: G:\LaunchBox\emulators\mame\mame.exe
+2026-08-09 12:14:59,778 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe --version
+2026-08-09 12:15:00,055 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe -version
+2026-08-09 12:15:00,209 - MameExecutable - INFO - Versão detectada via padrão genérico: 0.289
+2026-08-09 12:15:41,268 - MameExecutable - INFO - Inicializando MameExecutable com caminho: G:\LaunchBox\emulators\mame\mame.exe
+2026-08-09 12:15:41,268 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe --version
+2026-08-09 12:15:41,537 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe -version
+2026-08-09 12:15:41,695 - MameExecutable - INFO - Versão detectada via padrão genérico: 0.289
+2026-08-09 12:24:15,936 - MameExecutable - INFO - Inicializando MameExecutable com caminho: G:\LaunchBox\emulators\mame\mame.exe
+2026-08-09 12:24:15,937 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe --version
+2026-08-09 12:24:16,205 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe -version
+2026-08-09 12:24:16,361 - MameExecutable - INFO - Versão detectada via padrão genérico: 0.289
+2026-08-09 12:24:16,367 - MameExecutable - INFO - Inicializando MameExecutable com caminho: G:\LaunchBox\emulators\mame\mame.exe
+2026-08-09 12:24:16,367 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe --version
+2026-08-09 12:24:16,522 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe -version
+2026-08-09 12:24:16,678 - MameExecutable - INFO - Versão detectada via padrão genérico: 0.289
+2026-08-09 12:24:19,328 - MameExecutable - INFO - Inicializando MameExecutable com caminho: G:\LaunchBox\emulators\mame\mame.exe
+2026-08-09 12:24:19,329 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe --version
+2026-08-09 12:24:19,596 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe -version
+2026-08-09 12:24:19,760 - MameExecutable - INFO - Versão detectada via padrão genérico: 0.289
+2026-08-09 12:24:25,572 - MameExecutable - INFO - Inicializando MameExecutable com caminho: G:\LaunchBox\emulators\mame\mame.exe
+2026-08-09 12:24:25,572 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe --version
+2026-08-09 12:24:25,841 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe -version
+2026-08-09 12:24:25,998 - MameExecutable - INFO - Versão detectada via padrão genérico: 0.289
+2026-08-09 12:25:05,784 - MameExecutable - INFO - Inicializando MameExecutable com caminho: G:\LaunchBox\emulators\mame\mame.exe
+2026-08-09 12:25:05,785 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe --version
+2026-08-09 12:25:06,051 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe -version
+2026-08-09 12:25:06,214 - MameExecutable - INFO - Versão detectada via padrão genérico: 0.289

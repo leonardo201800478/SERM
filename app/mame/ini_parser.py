@@ -58,15 +58,14 @@ class MameIniParser:
     - mantém uma lista explícita das modificações.
     """
 
-    # Chave do MAME começa no início da linha e é seguida por pelo menos
-    # um espaço ou tabulação.
+    # Regex captura chave, separador, valor e trailing spaces, incluindo newline
     _OPTION_RE = re.compile(
         r"^(?P<leading>[ \t]*)"
         r"(?P<key>[^\s#;]+)"
         r"(?P<separator>[ \t]+)"
-        r"(?P<value>.*?)"
-        r"(?P<trailing>[ \t]*)"
-        r"(?P<newline>\r\n|\n|\r)?$"
+        r"(?P<value>.*?)"  # valor (non-greedy)
+        r"(?P<trailing>[ \t]*)"  # espaços após o valor
+        r"(?P<newline>\r\n|\n|\r)?$"  # quebra de linha opcional
     )
 
     def __init__(
@@ -235,23 +234,30 @@ class MameIniParser:
 
         key = match.group("key")
         value = match.group("value")
+        leading = match.group("leading")
+        separator = match.group("separator")
+        trailing = match.group("trailing")
+        newline = match.group("newline") or ""
 
         if not key:
             return None
 
         # Evita interpretar fragmentos estranhos como configuração.
-        if value == "" and match.group("separator") == "":
+        if value == "" and separator == "":
             return None
+
+        # Remove trailing spaces do valor (preservados em trailing)
+        value = value.rstrip()
 
         return IniOption(
             key=key,
             value=value,
             line_index=index,
             original_line=line,
-            leading_whitespace=match.group("leading"),
-            separator=match.group("separator"),
-            trailing_whitespace=match.group("trailing"),
-            newline=match.group("newline") or "",
+            leading_whitespace=leading,
+            separator=separator,
+            trailing_whitespace=trailing,
+            newline=newline,
         )
 
     # ========================================================================
@@ -325,7 +331,7 @@ class MameIniParser:
         if key not in self.document.options:
             return False
 
-        value = str(value)
+        value = str(value).strip()
 
         current = self.document.get(key)
 
@@ -417,12 +423,12 @@ class MameIniParser:
 
             index = option.line_index
 
+            # Renderiza a nova linha preservando espaçamento e quebra de linha
             new_lines[index] = option.render(new_value)
 
         self._atomic_write(new_lines)
 
-        # Atualiza o estado interno somente depois de uma gravação
-        # bem-sucedida.
+        # Atualiza o estado interno somente depois de uma gravação bem-sucedida.
         self.document.lines = new_lines
 
         for key, new_value in self.document.modified.items():

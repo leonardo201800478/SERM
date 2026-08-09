@@ -3,6 +3,7 @@
 *.db
 *.ini
 *.dat
+*.log
 data/input/
 data/cache/
 data/output/

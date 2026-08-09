@@ -11,6 +11,7 @@ conhecer detalhes do formato físico do arquivo.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Dict, List, Optional
 
 from app.core.models.ini_models import (
     IniFileInfo,
@@ -118,8 +119,8 @@ class IniService:
     def get(
         self,
         key: str,
-        default: str | None = None,
-    ) -> str | None:
+        default: Optional[str] = None,
+    ) -> Optional[str]:
         """
         Obtém qualquer configuração do MAME.INI.
 
@@ -161,6 +162,27 @@ class IniService:
         )
 
     # ========================================================================
+    # UPDATE (MÚLTIPLAS ALTERAÇÕES)
+    # ========================================================================
+
+    def update(self, changes: Dict[str, str]) -> int:
+        """
+        Aplica múltiplas alterações de uma só vez.
+
+        Args:
+            changes:
+                Dicionário com chave -> novo valor.
+
+        Returns:
+            Número de alterações efetivamente aplicadas.
+        """
+        count = 0
+        for key, value in changes.items():
+            if self.set(key, value):
+                count += 1
+        return count
+
+    # ========================================================================
     # HAS
     # ========================================================================
 
@@ -184,18 +206,18 @@ class IniService:
     # FILE INFORMATION
     # ========================================================================
 
-    def get_file_info(self) -> IniFileInfo | None:
+    def get_file_info(self) -> Optional[IniFileInfo]:
         """
         Retorna informações físicas do MAME.INI.
         """
         return self.parser.get_file_info()
 
     # ========================================================================
-    # DIRECTORIES
+    # MANIPULAÇÃO DE CAMINHOS (pública)
     # ========================================================================
 
     @staticmethod
-    def _split_paths(value: str | None) -> list[str]:
+    def split_paths(value: Optional[str]) -> List[str]:
         """
         Converte uma configuração de múltiplos caminhos em lista.
 
@@ -223,7 +245,7 @@ class IniService:
         ]
 
     @staticmethod
-    def _join_paths(paths: list[str]) -> str:
+    def join_paths(paths: List[str]) -> str:
         """
         Converte uma lista de caminhos para o formato aceito pelo MAME.
 
@@ -240,7 +262,11 @@ class IniService:
             if str(path).strip()
         )
 
-    def get_paths(self, key: str) -> list[str]:
+    # ========================================================================
+    # GET PATHS (lista)
+    # ========================================================================
+
+    def get_paths(self, key: str) -> List[str]:
         """
         Retorna uma opção de caminho como lista.
 
@@ -256,17 +282,21 @@ class IniService:
         value = self.get(key, "")
 
         if key in self.MULTI_PATH_OPTIONS:
-            return self._split_paths(value)
+            return self.split_paths(value)
 
         if value is None or not value.strip():
             return []
 
         return [value.strip()]
 
+    # ========================================================================
+    # SET PATHS (lista)
+    # ========================================================================
+
     def set_paths(
         self,
         key: str,
-        paths: list[str],
+        paths: List[str],
     ) -> bool:
         """
         Define uma configuração de caminhos.
@@ -282,7 +312,7 @@ class IniService:
             True quando a opção existe.
         """
         if key in self.MULTI_PATH_OPTIONS:
-            value = self._join_paths(paths)
+            value = self.join_paths(paths)
         else:
             value = paths[0].strip() if paths else ""
 
