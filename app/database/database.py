@@ -13,7 +13,6 @@ class Database:
 
     def _create_tables(self):
         cursor = self.conn.cursor()
-        # Tabela mame_installation
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS mame_installation (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -23,7 +22,6 @@ class Database:
                 detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
-        # Tabela machine
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS machine (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -50,7 +48,6 @@ class Database:
                 FOREIGN KEY (mame_installation_id) REFERENCES mame_installation(id)
             )
         ''')
-        # Tabela rom
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS rom (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -68,5 +65,4 @@ class Database:
                 FOREIGN KEY (machine_id) REFERENCES machine(id)
             )
         ''')
-        # Demais tabelas serão adicionadas nas fases seguintes
         self.conn.commit()
