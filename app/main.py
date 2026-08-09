@@ -1,12 +1,29 @@
-#!/usr/bin/env python
 import sys
+import logging
 from PySide6.QtWidgets import QApplication
 from app.gui.main_window import MainWindow
 
+# Configuração de logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("mame-set-builder.log", encoding='utf-8'),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
+
 def main():
+    logger.info("=" * 60)
+    logger.info("Iniciando MAME Set Builder...")
+    logger.info(f"Python: {sys.version}")
+    logger.info(f"Platform: {sys.platform}")
+
     app = QApplication(sys.argv)
     window = MainWindow()
     window.show()
+    logger.info("Aplicação iniciada com sucesso.")
     sys.exit(app.exec())
 
 if __name__ == "__main__":
