@@ -253,31 +253,76 @@ class DirectoriesTab(QWidget):
             QMessageBox.critical(self, "Erro", f"Falha ao carregar mame.ini:\n{str(e)}")
 
     def save_ini(self):
+        """
+        Salva somente as configurações alteradas pelo usuário.
+        """
+
         if not self.ini_service:
-            QMessageBox.warning(self, "Erro", "Nenhum mame.ini carregado para salvar.")
+            QMessageBox.warning(
+                self,
+                "Erro",
+                "Nenhum mame.ini carregado."
+            )
             return
 
         try:
-            rom_parts = [edit.text().strip() for edit in self.rom_paths if edit.text().strip()]
-            rompath = ";".join(rom_parts)
 
-            self.ini_service.set_rompath(rompath)
-            self.ini_service.set_samplepath(self.dir_edits['samplepath'].text().strip())
-            self.ini_service.set_artpath(self.dir_edits['artpath'].text().strip())
-            self.ini_service.set_cfgpath(self.dir_edits['cfgpath'].text().strip())
-            self.ini_service.set_nvrampath(self.dir_edits['nvrampath'].text().strip())
-            self.ini_service.set_statepath(self.dir_edits['statepath'].text().strip())
-            self.ini_service.set_snappath(self.dir_edits['snappath'].text().strip())
-            self.ini_service.set_diffpath(self.dir_edits['diffpath'].text().strip())
-            self.ini_service.set_inipath(self.dir_edits['inipath'].text().strip())
+            rom_paths = [
+                edit.text().strip()
+                for edit in self.rom_paths
+                if edit.text().strip()
+            ]
+
+            self.ini_service.set(
+                "rompath",
+                self.ini_service.join_paths(
+                    rom_paths
+                )
+            )
+
+            fields = {
+                "samplepath": self.dir_edits["samplepath"].text(),
+                "artpath": self.dir_edits["artpath"].text(),
+                "cfg_directory": self.dir_edits["cfgpath"].text(),
+                "nvram_directory": self.dir_edits["nvrampath"].text(),
+                "state_directory": self.dir_edits["statepath"].text(),
+                "snapshot_directory": self.dir_edits["snappath"].text(),
+                "diff_directory": self.dir_edits["diffpath"].text(),
+                "inipath": self.dir_edits["inipath"].text(),
+            }
+
+            for key, value in fields.items():
+
+                self.ini_service.set(
+                    key,
+                    value.strip()
+                )
 
             self.ini_service.save()
-            QMessageBox.information(self, "Sucesso", "mame.ini salvo com sucesso.")
+
+            QMessageBox.information(
+                self,
+                "Sucesso",
+                "mame.ini salvo com sucesso."
+            )
+
             self.settings_changed.emit()
+
         except PermissionError:
-            QMessageBox.critical(self, "Erro", "Permissão negada para salvar o arquivo. Verifique se o arquivo não está aberto em outro programa.")
-        except Exception as e:
-            QMessageBox.critical(self, "Erro", f"Falha ao salvar mame.ini:\n{str(e)}")
+
+            QMessageBox.critical(
+                self,
+                "Erro",
+                "Permissão negada para salvar o mame.ini."
+            )
+
+        except Exception as exc:
+
+            QMessageBox.critical(
+                self,
+                "Erro",
+                f"Falha ao salvar mame.ini:\n{exc}"
+            )
 
     def set_ini_fields_enabled(self, enabled: bool):
         for edit in self.rom_paths:
