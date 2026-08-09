@@ -3,23 +3,20 @@ import xml.etree.ElementTree as ET
 import logging
 from app.core.models.machine import Machine
 from app.core.models.rom import Rom
+from app.core.models.disk import Disk
 
 logger = logging.getLogger(__name__)
 
 
 class DatabaseService:
-    def __init__(self, conn=None):
+    def __init__(self, conn):
         self.conn = conn
 
     def import_listxml(self, xml_string: str, executable_path: str, version: str):
-        if self.conn is None:
-            raise ValueError("Conexão com banco não definida.")
-
         cursor = self.conn.cursor()
         logger.info("Iniciando importação do listxml...")
 
         # Registrar instalação
-        logger.info(f"Registrando instalação MAME versão {version} em {executable_path}")
         cursor.execute("SELECT id FROM mame_installation WHERE executable_path = ?", (executable_path,))
         row = cursor.fetchone()
         if row:
@@ -65,8 +62,8 @@ class DatabaseService:
             ))
             machine_id = cursor.lastrowid
 
+            # Remover ROMs antigas
             cursor.execute("DELETE FROM rom WHERE machine_id = ?", (machine_id,))
-
             for rom in machine.roms:
                 cursor.execute("""
                     INSERT INTO rom
@@ -75,6 +72,18 @@ class DatabaseService:
                 """, (
                     machine_id, rom.name, rom.size, rom.crc, rom.sha1, rom.merge,
                     rom.region, rom.offset, rom.status, 1 if rom.optional else 0, rom.bios
+                ))
+
+            # Remover disks antigos
+            cursor.execute("DELETE FROM disk WHERE machine_id = ?", (machine_id,))
+            for disk in machine.disks:
+                cursor.execute("""
+                    INSERT INTO disk
+                    (machine_id, name, sha1, merge, region, idx, writable, status, optional)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    machine_id, disk.name, disk.sha1, disk.merge, disk.region,
+                    disk.index, 1 if disk.writable else 0, disk.status, 1 if disk.optional else 0
                 ))
 
         self.conn.commit()
@@ -123,6 +132,7 @@ class DatabaseService:
             else:
                 machine.emulation_status = 'unknown'
 
+            # ROMs
             roms = []
             for rom_elem in machine_elem.findall('rom'):
                 rom = Rom()
@@ -132,18 +142,41 @@ class DatabaseService:
                 rom.sha1 = rom_elem.get('sha1', '')
                 rom.merge = rom_elem.get('merge', '')
                 rom.region = rom_elem.get('region', '')
-                # Corrige offset: suporta hexadecimal (ex: a000)
+                
                 offset_str = rom_elem.get('offset', '0')
                 try:
-                    rom.offset = int(offset_str, 0)  # base 0 auto-detecta hex e decimal
+                    rom.offset = int(offset_str)  # tenta decimal
                 except ValueError:
-                    rom.offset = 0
-                    logger.warning(f"Offset inválido para ROM {rom.name}: '{offset_str}'. Usando 0.")
+                    try:
+                        rom.offset = int(offset_str, 16)  # tenta hexadecimal
+                    except ValueError:
+                        logger.warning(f"Offset inválido para ROM {rom.name}: '{offset_str}'. Usando 0.")
+                        rom.offset = 0
+                
                 rom.status = rom_elem.get('status', 'good')
                 rom.optional = rom_elem.get('optional', 'no') == 'yes'
                 rom.bios = rom_elem.get('bios', '')
                 roms.append(rom)
             machine.roms = roms
+
+            # Disks (CHDs)
+            disks = []
+            for disk_elem in machine_elem.findall('disk'):
+                disk = Disk()
+                disk.name = disk_elem.get('name', '')
+                disk.sha1 = disk_elem.get('sha1', '')
+                disk.merge = disk_elem.get('merge', '')
+                disk.region = disk_elem.get('region', '')
+                try:
+                    disk.index = int(disk_elem.get('index', '0'))
+                except ValueError:
+                    disk.index = 0
+                disk.writable = disk_elem.get('writable', 'no') == 'yes'
+                disk.status = disk_elem.get('status', 'good')
+                disk.optional = disk_elem.get('optional', 'no') == 'yes'
+                disks.append(disk)
+            machine.disks = disks
+
             machines.append(machine)
 
         return machines

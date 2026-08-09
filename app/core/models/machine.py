@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import List, Optional
 from app.core.models.rom import Rom
+from app.core.models.disk import Disk
 
 @dataclass
 class Machine:
@@ -26,3 +27,4 @@ class Machine:
     nosoundhardware: bool = False
     incomplete: bool = False
     roms: List[Rom] = field(default_factory=list)
+    disks: List[Disk] = field(default_factory=list)

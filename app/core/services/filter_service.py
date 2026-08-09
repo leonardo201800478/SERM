@@ -1,15 +1,26 @@
-"""Serviço central para filtragem de máquinas."""
+"""Serviço central para filtragem de máquinas e importação de categorias."""
 import sqlite3
-from typing import List, Optional, Set, Dict, Any
+import logging
+import re
+from pathlib import Path
+from typing import List, Optional, Dict, Any, Tuple
+
 from app.core.models.filter_profile import FilterCriteria, FilterProfile
 from app.database.repositories.category_repository import CategoryRepository
 from app.database.repositories.filter_profile_repository import FilterProfileRepository
+
+logger = logging.getLogger(__name__)
+
 
 class FilterService:
     def __init__(self, conn: sqlite3.Connection):
         self.conn = conn
         self.category_repo = CategoryRepository(conn)
         self.profile_repo = FilterProfileRepository(conn)
+
+    # ========================================================================
+    # CATEGORIAS
+    # ========================================================================
 
     def get_categories(self) -> List[str]:
         """Retorna lista de nomes de categorias disponíveis."""
@@ -19,30 +30,109 @@ class FilterService:
         """Retorna mapeamento nome -> nome exibido."""
         return {cat.name: cat.display_name for cat in self.category_repo.get_all()}
 
-    def apply_filters(self, criteria: FilterCriteria) -> List[int]:
+    def get_categories_with_counts(self) -> List[Dict[str, Any]]:
+        """Retorna lista de categorias com contagem de máquinas associadas."""
+        cursor = self.conn.execute("""
+            SELECT c.name, c.display_name, COUNT(mc.machine_id) as count
+            FROM category c
+            LEFT JOIN machine_category mc ON mc.category_id = c.id
+            GROUP BY c.id
+            ORDER BY c.display_name
+        """)
+        rows = cursor.fetchall()
+        return [{"name": row[0], "display_name": row[1], "count": row[2]} for row in rows]
+
+    def import_categories_from_ini(self, ini_path: Path) -> Tuple[int, int, List[str]]:
         """
-        Aplica os filtros e retorna uma lista de machine_ids.
+        Importa categorias e associações do arquivo category.ini do MAME.
+        Retorna (categorias_importadas, maquinas_associadas, lista_de_categorias_importadas).
         """
+        if not ini_path.exists():
+            raise FileNotFoundError(f"Arquivo não encontrado: {ini_path}")
+
+        cursor = self.conn.cursor()
+        categorias_count = 0
+        maquinas_count = 0
+        imported_categories = []
+
+        categoria_cache = {}
+
+        def normalize_cat_name(name: str) -> str:
+            name = re.sub(r'[^a-zA-Z0-9 ]', '', name)
+            name = name.strip().lower()
+            name = re.sub(r'\s+', '_', name)
+            return name
+
+        current_section = None
+
+        with open(ini_path, 'r', encoding='utf-8', errors='ignore') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+
+                if line.startswith('[') and line.endswith(']'):
+                    section = line[1:-1].strip()
+                    if section == 'FOLDER_SETTINGS':
+                        current_section = None
+                        continue
+
+                    cat_name = normalize_cat_name(section)
+                    display_name = section
+
+                    cursor.execute("SELECT id FROM category WHERE name = ?", (cat_name,))
+                    row = cursor.fetchone()
+                    if row:
+                        cat_id = row[0]
+                    else:
+                        cursor.execute(
+                            "INSERT INTO category (name, display_name, source) VALUES (?, ?, ?)",
+                            (cat_name, display_name, 'category.ini')
+                        )
+                        cat_id = cursor.lastrowid
+                        categorias_count += 1
+                        imported_categories.append(display_name)
+                        self.conn.commit()
+
+                    categoria_cache[section] = cat_id
+                    current_section = section
+                    continue
+
+                if current_section is None:
+                    continue
+
+                machine_name = line.strip()
+                if not machine_name:
+                    continue
+
+                cat_id = categoria_cache.get(current_section)
+                if cat_id is None:
+                    continue
+
+                cursor.execute("SELECT id FROM machine WHERE name = ?", (machine_name,))
+                row = cursor.fetchone()
+                if row:
+                    machine_id = row[0]
+                    cursor.execute(
+                        "INSERT OR IGNORE INTO machine_category (machine_id, category_id) VALUES (?, ?)",
+                        (machine_id, cat_id)
+                    )
+                    if cursor.rowcount > 0:
+                        maquinas_count += 1
+
+        self.conn.commit()
+        return categorias_count, maquinas_count, imported_categories
+
+    # ========================================================================
+    # CONSTRUÇÃO DA CONSULTA SQL
+    # ========================================================================
+
+    def _build_filter_query(self, criteria: FilterCriteria) -> tuple[str, list]:
         query = "SELECT DISTINCT m.id FROM machine m"
         params = []
         where_clauses = []
 
-        # Filtro por categoria (se houver)
-        if criteria.categories:
-            placeholders = ",".join(["?"] * len(criteria.categories))
-            query += """
-                JOIN machine_category mc ON mc.machine_id = m.id
-                JOIN category c ON c.id = mc.category_id
-            """
-            where_clauses.append(f"c.name IN ({placeholders})")
-            params.extend(criteria.categories)
-
-        # Filtro por estado de emulação (cumulativo)
-        status_map = {
-            "working": "working",
-            "imperfect": "imperfect",
-            "not_working": "not_working"
-        }
+        # 1. Estado de emulação
         if criteria.emulation_status:
             status_list = []
             if "working" in criteria.emulation_status:
@@ -56,86 +146,149 @@ class FilterService:
                 where_clauses.append(f"m.emulation_status IN ({placeholders})")
                 params.extend(status_list)
 
-        # Incluir clones
+        # 2. Opções
         if not criteria.include_clones:
             where_clauses.append("(m.cloneof IS NULL OR m.cloneof = '')")
 
-        # Incluir BIOS
         if not criteria.include_bios:
             where_clauses.append("m.is_bios = 0")
 
-        # Incluir devices
         if not criteria.include_devices:
             where_clauses.append("m.is_device = 0")
 
-        # Incluir CHD (baseado na existência de discos)
-        if criteria.include_chd:
-            # Se `include_chd` for True, não filtra por CHD (mantém todos)
-            pass
-        else:
-            # Excluir máquinas que têm CHD (disks)
-            query += " LEFT JOIN disk d ON d.machine_id = m.id"
-            where_clauses.append("d.id IS NULL")
+        # 3. CHD (exclui máquinas que têm discos)
+        if not criteria.include_chd:
+            where_clauses.append("NOT EXISTS (SELECT 1 FROM disk d WHERE d.machine_id = m.id)")
 
-        # Arcade systems (lista de sistemas considerados arcade)
+        # 4. Categorias
+        if criteria.categories:
+            query += """
+                INNER JOIN machine_category mc ON mc.machine_id = m.id
+                INNER JOIN category c ON c.id = mc.category_id
+            """
+            placeholders = ",".join(["?"] * len(criteria.categories))
+            where_clauses.append(f"c.name IN ({placeholders})")
+            params.extend(criteria.categories)
+
+        # 5. Arcade Systems
         if criteria.arcade_systems:
             placeholders = ",".join(["?"] * len(criteria.arcade_systems))
             where_clauses.append(f"m.name IN ({placeholders})")
             params.extend(criteria.arcade_systems)
 
-        # Monta query final
         if where_clauses:
             query += " WHERE " + " AND ".join(where_clauses)
 
+        return query, params
+
+    # ========================================================================
+    # MÉTODOS PÚBLICOS
+    # ========================================================================
+
+    def apply_filters(self, criteria: FilterCriteria) -> List[int]:
+        query, params = self._build_filter_query(criteria)
         cursor = self.conn.execute(query, params)
         return [row[0] for row in cursor.fetchall()]
 
-    def get_profiles(self) -> List[FilterProfile]:
-        """Retorna todos os perfis salvos."""
-        return self.profile_repo.get_all()
-
-    def save_profile(self, profile: FilterProfile) -> int:
-        """Salva ou atualiza um perfil."""
-        return self.profile_repo.save(profile)
-
-    def delete_profile(self, profile_id: int) -> None:
-        """Remove um perfil."""
-        self.profile_repo.delete(profile_id)
-
-    def set_default_profile(self, profile_id: int) -> None:
-        """Define um perfil como padrão."""
-        self.profile_repo.set_default(profile_id)
-
-    def get_default_profile(self) -> Optional[FilterProfile]:
-        """Retorna o perfil padrão."""
-        return self.profile_repo.get_default()
-
     def get_machine_count(self, criteria: FilterCriteria) -> int:
-        """Retorna o número de máquinas que atendem aos critérios."""
-        machine_ids = self.apply_filters(criteria)
-        return len(machine_ids)
+        query, params = self._build_filter_query(criteria)
+        count_query = query.replace(
+            "SELECT DISTINCT m.id FROM machine m",
+            "SELECT COUNT(DISTINCT m.id) FROM machine m",
+            1
+        )
+        cursor = self.conn.execute(count_query, params)
+        return cursor.fetchone()[0]
 
     def get_rom_count(self, criteria: FilterCriteria) -> int:
-        """Retorna o número total de ROMs das máquinas filtradas."""
-        machine_ids = self.apply_filters(criteria)
-        if not machine_ids:
-            return 0
-        placeholders = ",".join(["?"] * len(machine_ids))
-        query = f"SELECT COUNT(*) FROM rom r WHERE r.machine_id IN ({placeholders})"
-        cursor = self.conn.execute(query, machine_ids)
+        query, params = self._build_filter_query(criteria)
+        count_query = f"""
+            SELECT COUNT(*) FROM rom r
+            WHERE EXISTS (
+                SELECT 1 FROM ({query}) AS filtered_machines
+                WHERE filtered_machines.id = r.machine_id
+            )
+        """
+        cursor = self.conn.execute(count_query, params)
+        return cursor.fetchone()[0]
+
+    def get_chd_count(self, criteria: FilterCriteria) -> int:
+        query, params = self._build_filter_query(criteria)
+        count_query = f"""
+            SELECT COUNT(*) FROM disk d
+            WHERE EXISTS (
+                SELECT 1 FROM ({query}) AS filtered_machines
+                WHERE filtered_machines.id = d.machine_id
+            )
+        """
+        cursor = self.conn.execute(count_query, params)
+        return cursor.fetchone()[0]
+
+    def get_estimated_size(self, criteria: FilterCriteria) -> int:
+        query, params = self._build_filter_query(criteria)
+        size_query = f"""
+            SELECT COALESCE(SUM(r.size), 0) FROM rom r
+            WHERE EXISTS (
+                SELECT 1 FROM ({query}) AS filtered_machines
+                WHERE filtered_machines.id = r.machine_id
+            )
+        """
+        cursor = self.conn.execute(size_query, params)
         result = cursor.fetchone()
         return result[0] if result else 0
 
-    def get_estimated_size(self, criteria: FilterCriteria) -> int:
-        """
-        Estima o tamanho total (em bytes) das ROMs das máquinas filtradas.
-        Aproximação: soma dos tamanhos das ROMs (sem considerar CHDs).
-        """
-        machine_ids = self.apply_filters(criteria)
-        if not machine_ids:
-            return 0
-        placeholders = ",".join(["?"] * len(machine_ids))
-        query = f"SELECT SUM(r.size) FROM rom r WHERE r.machine_id IN ({placeholders})"
-        cursor = self.conn.execute(query, machine_ids)
-        result = cursor.fetchone()
-        return result[0] if result and result[0] else 0
+    # ========================================================================
+    # PERFIS
+    # ========================================================================
+
+    def get_profiles(self) -> List[FilterProfile]:
+        return self.profile_repo.get_all()
+
+    def save_profile(self, profile: FilterProfile) -> int:
+        return self.profile_repo.save(profile)
+
+    def delete_profile(self, profile_id: int) -> None:
+        self.profile_repo.delete(profile_id)
+
+    def set_default_profile(self, profile_id: int) -> None:
+        self.profile_repo.set_default(profile_id)
+
+    def get_default_profile(self) -> Optional[FilterProfile]:
+        return self.profile_repo.get_default()
+
+    def seed_default_categories(self) -> None:
+        from app.core.models.category import Category
+        default_categories = [
+            ("arcade", "Arcade"),
+            ("system", "System"),
+            ("bios", "BIOS"),
+            ("devices", "Devices"),
+            ("electromechanical", "Electromechanical"),
+            ("casino", "Casino"),
+            ("mahjong", "Mahjong"),
+            ("screenless", "Screenless"),
+            ("mature", "Mature"),
+            ("driving", "Driving"),
+            ("fighter", "Fighter"),
+            ("gambling", "Gambling"),
+            ("game_console", "Game Console"),
+            ("chd", "CHD"),
+            ("ball_paddle", "Ball & Paddle"),
+            ("board_game", "Board Game"),
+            ("calculator", "Calculator"),
+            ("card_games", "Card Games"),
+            ("maze", "Maze"),
+            ("handheld", "Handheld"),
+            ("climbing", "Climbing"),
+            ("medal_game", "Medal Game"),
+            ("musical", "Musical"),
+            ("platform", "Platform"),
+            ("shooter", "Shooter"),
+            ("slot_machine", "Slot Machine"),
+            ("sports", "Sports"),
+            ("tabletop", "Tabletop"),
+            ("telephone", "Telephone"),
+        ]
+        for name, display in default_categories:
+            cat = Category(name=name, display_name=display, source="manual")
+            self.category_repo.insert(cat)

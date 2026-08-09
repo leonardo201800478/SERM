@@ -7,6 +7,7 @@ from app.gui.tabs.filters_tab import FiltersTab
 from app.database.database import Database
 from app.config.app_config import AppConfig
 
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -35,3 +36,8 @@ class MainWindow(QMainWindow):
         self.directories_tab.settings_changed.connect(self.home_tab.refresh_status)
         self.directories_tab.settings_changed.connect(self.filters_tab._update_database_info)
         self.filters_tab.database_updated.connect(self.home_tab.refresh_status)
+
+    def closeEvent(self, event):
+        if self.db:
+            self.db.close()
+        event.accept()
