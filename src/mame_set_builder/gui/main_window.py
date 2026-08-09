@@ -1,22 +1,21 @@
 """
-Janela principal da aplicação MAME Set Builder.
+Janela principal com abas.
 """
 
 import sys
 import sqlite3
 from pathlib import Path
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
-    QFileDialog, QMessageBox, QApplication
+    QMainWindow, QTabWidget, QWidget, QVBoxLayout, QMessageBox, QApplication
 )
-from PyQt6.QtCore import Qt
-
-from .filters_panel import FiltersPanel
+from .home_tab import HomeTab
+from .config_tab import ConfigTab
+from .filters_tab import FiltersTab
 from .machines_table import MachinesTable
+from .settings import Settings
 from ..filtering.engine import FilterEngine
-from ..filtering.profiles import arcade_only, all_systems, consoles_only, computers_only, mechanical_only
-from ..domain.set_profile import SetProfile
-
+from ..filtering.profiles import arcade_only
+from .mame_config_tab import MameConfigTab
 class MainWindow(QMainWindow):
     def __init__(self, db_path: str):
         super().__init__()
@@ -24,44 +23,70 @@ class MainWindow(QMainWindow):
         self.conn = sqlite3.connect(db_path)
         self.conn.row_factory = sqlite3.Row
         self.filter_engine = FilterEngine(self.conn)
-        
+
         self.setWindowTitle("MAME Set Builder")
-        self.setMinimumSize(900, 600)
-        
+        self.setMinimumSize(1000, 700)
+
         self._setup_ui()
-        self._connect_signals()
         self._load_initial_profile()
-    
+        self._load_config()
+
     def _setup_ui(self):
         central = QWidget()
         self.setCentralWidget(central)
         layout = QVBoxLayout(central)
-        
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        self.filters_panel = FiltersPanel(self)
-        splitter.addWidget(self.filters_panel)
+
+        self.tab_widget = QTabWidget()
+
+        # Aba Home
+        self.home_tab = HomeTab(self)
+        self.tab_widget.addTab(self.home_tab, "Home")
+
+        # Aba Configuração
+        self.config_tab = ConfigTab(self)
+        self.tab_widget.addTab(self.config_tab, "Configuração")
+
+        # Aba Filtros
+        self.filters_tab = FiltersTab(self)
+        self.tab_widget.addTab(self.filters_tab, "Filtros")
+
+        # Aba Máquinas (tabela)
         self.machines_table = MachinesTable()
-        splitter.addWidget(self.machines_table)
-        splitter.setSizes([300, 600])
-        layout.addWidget(splitter)
-    
-    def _connect_signals(self):
-        self.filters_panel.profile_changed.connect(self.apply_profile)
-    
+        self.tab_widget.addTab(self.machines_table, "Máquinas")
+
+        self.mame_config_tab = MameConfigTab(self)
+        self.tab_widget.addTab(self.mame_config_tab, "Config MAME")
+
+        # Futuras abas: Manifesto, Construção, etc.
+
+        layout.addWidget(self.tab_widget)
+
+    def _load_config(self):
+        """Carrega configurações e atualiza a Home."""
+        config = Settings.load()
+        version = config.get("mame_version", "")
+        if version:
+            self.home_tab.set_version(version)
+
     def _load_initial_profile(self):
+        """Carrega perfil inicial (Arcade Only) e aplica."""
         profile = arcade_only()
         self.apply_profile(profile)
-    
-    def apply_profile(self, profile: SetProfile):
+
+    def apply_profile(self, profile):
         try:
             count = self.filter_engine.count(profile)
-            self.filters_panel.update_count(count)
+            self.filters_tab.update_count(count)
             machines = self.filter_engine.apply(profile)
             self.machines_table.set_machines(machines)
             self.statusBar().showMessage(f"{len(machines)} máquinas exibidas")
         except Exception as e:
             QMessageBox.critical(self, "Erro", f"Erro ao aplicar filtros:\n{str(e)}")
-    
+
+    def get_config(self) -> dict:
+        """Retorna a configuração atual (da aba Configuração)."""
+        return self.config_tab.get_config()
+
     def closeEvent(self, event):
         self.conn.close()
         event.accept()

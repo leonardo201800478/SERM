@@ -1,5 +1,5 @@
 """
-Tabela para exibir as máquinas selecionadas.
+Tabela de máquinas selecionadas.
 """
 
 from PyQt6.QtWidgets import QTableWidget, QTableWidgetItem, QHeaderView
@@ -15,7 +15,7 @@ class MachinesTable(QTableWidget):
         ])
         self.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.setSortingEnabled(True)
-    
+
     def set_machines(self, machines: List[Dict[str, Any]]):
         self.setRowCount(len(machines))
         for row, mach in enumerate(machines):

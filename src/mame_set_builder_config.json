@@ -1,0 +1,13 @@
+{
+    "mame_executable": "G:/LaunchBox/emulators/mame/mame.exe",
+    "mame_version": "0.289",
+    "rom_paths": [
+        "G:\\LaunchBox\\emulators\\mame",
+        "F:\\ROMS\\MAME\\roms"
+    ],
+    "sample_path": "F:\\ROMS\\MAME\\samples",
+    "artwork_path": "artwork",
+    "software_path": "software",
+    "fullset_path": "I:/ROMS/MAME",
+    "folders_path": "ini"
+}

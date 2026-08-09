@@ -23,7 +23,8 @@ dependencies = [
     "qbittorrent-api>=2024.6.0", # Integração com qBittorrent (API REST)
     "requests>=2.31.0",       # Requerido pela qbittorrent-api
     "click>=8.1.0",           # CLI (opcional, mas útil)
-    "tqdm>=4.66.0",           # Progresso nas operações
+    "tqdm>=4.66.0", 
+    "chardet>=5.0.0",          # Progresso nas operações
 ]
 
 [project.optional-dependencies]
