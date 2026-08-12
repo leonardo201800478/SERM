@@ -504,22 +504,25 @@ class FiltersTab(QWidget):
 
         def import_task():
             try:
-                self.progress_signal.emit(10, "Obtendo listxml do MAME...")
+                self.progress_signal.emit(0, "Detectando versão do MAME...")
                 mame = MameExecutable(self.config.mame_path)
-                xml = mame.get_listxml()
                 version = mame.version
 
-                self.progress_signal.emit(30, "Criando conexão com o banco...")
+                self.progress_signal.emit(5, "Criando conexão com o banco...")
                 conn = sqlite3.connect(str(self.config.db_path))
                 conn.row_factory = sqlite3.Row
 
-                self.progress_signal.emit(50, "Importando dados...")
+                def on_progress(count: int, message: str):
+                    # Streaming: total de máquinas só é conhecido ao final,
+                    # então a barra fica "indeterminada" entre 5 e 95.
+                    self.progress_signal.emit(min(95, 5 + count // 200), message)
+
                 service = DatabaseService(conn)
-                service.import_listxml(xml, str(self.config.mame_path), version)
+                total = service.import_from_executable(mame, progress_callback=on_progress)
                 conn.close()
 
                 self.progress_signal.emit(100, "Finalizando...")
-                self.finish_signal.emit(True, f"Banco atualizado! Versão: {version}")
+                self.finish_signal.emit(True, f"Banco atualizado! Versão: {version} ({total} máquinas)")
 
             except Exception as e:
                 logger.error(f"Falha na importação: {e}", exc_info=True)

@@ -13,13 +13,16 @@ class ImportWorker(QThread):
 
     def run(self):
         try:
-            self.progress.emit(0, "Obtendo listxml do MAME...")
             mame = MameExecutable(self.mame_path)
-            xml = mame.get_listxml()
-            version = mame.version
-            self.progress.emit(50, "Importando dados para o banco...")
-            self.db_service.import_listxml(xml, str(self.mame_path), version)
+
+            def on_progress(count: int, message: str):
+                # Reserva 0-100 proporcional a um total desconhecido: como
+                # não sabemos o total de máquinas de antemão (streaming),
+                # reportamos progresso "indeterminado" via contagem bruta.
+                self.progress.emit(min(99, count // 100), message)
+
+            total = self.db_service.import_from_executable(mame, progress_callback=on_progress)
             self.progress.emit(100, "Importação concluída!")
-            self.finished.emit(True, "Importação bem-sucedida.")
+            self.finished.emit(True, f"Importação bem-sucedida: {total} máquinas.")
         except Exception as e:
             self.finished.emit(False, f"Erro: {e}")

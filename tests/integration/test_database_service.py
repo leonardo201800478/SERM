@@ -10,12 +10,21 @@ class TestDatabaseService(unittest.TestCase):
         self.db_path = Path(self.temp_db.name)
         self.db = Database(self.db_path)
         self.db.connect()
-        self.service = DatabaseService(self.db)
+        # DatabaseService espera uma conexão sqlite3, não o wrapper Database.
+        self.service = DatabaseService(self.db.conn)
+
+        # import_listxml calcula o hash SHA-256 do "executável" na primeira
+        # importação, então precisa apontar para um arquivo que existe de
+        # verdade (mesmo que não seja um binário MAME real).
+        self.fake_exe = tempfile.NamedTemporaryFile(suffix='.exe', delete=False)
+        self.fake_exe.write(b"fake mame binary")
+        self.fake_exe.close()
 
     def tearDown(self):
         self.db.conn.close()
         self.temp_db.close()
         self.db_path.unlink()
+        Path(self.fake_exe.name).unlink()
 
     def test_import_listxml(self):
         xml = '''<?xml version="1.0"?>
@@ -27,7 +36,7 @@ class TestDatabaseService(unittest.TestCase):
                 <rom name="test.rom" size="1024" crc="12345678" sha1="..."/>
             </machine>
         </mame>'''
-        self.service.import_listxml(xml, "dummy/mame.exe", "0.289")
+        self.service.import_listxml(xml, self.fake_exe.name, "0.289")
         # Verificar se os dados foram inseridos
         cursor = self.db.conn.cursor()
         cursor.execute("SELECT * FROM machine WHERE name='test'")
