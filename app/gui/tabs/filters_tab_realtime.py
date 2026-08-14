@@ -127,6 +127,7 @@ class FiltersTab(QWidget):
     database_updated = Signal()
     progress_signal = Signal(int, str)
     finish_signal = Signal(bool, str)
+    filter_result_signal = Signal(int, object, object)
 
     def __init__(self, parent=None, db: Database = None):
         super().__init__(parent)
@@ -142,8 +143,22 @@ class FiltersTab(QWidget):
         self._import_running = False
         self.category_chips = {}
 
+        # Controle do recálculo assíncrono dos filtros. As consultas de
+        # categorias podem ser pesadas e não devem bloquear o thread da UI.
+        self._filter_generation = 0
+        self._filter_calculation_running = False
+        self._filter_timer = QTimer(self)
+        self._filter_timer.setSingleShot(True)
+        self._filter_timer.setInterval(50)
+        self._filter_timer.timeout.connect(self._start_filter_calculation)
+        self._pending_filter_criteria = None
+        self._pending_filter_generation = 0
+
         self.progress_signal.connect(self._on_progress_update)
         self.finish_signal.connect(self._on_import_finished)
+        self.filter_result_signal.connect(
+            self._on_filter_calculation_finished
+        )
 
         self._setup_ui()
         self._load_categories()
@@ -507,6 +522,8 @@ class FiltersTab(QWidget):
         """
         excluded_categories = self._get_excluded_categories()
 
+        # Atualiza imediatamente a informação textual. O cálculo pesado das
+        # estatísticas será executado em segundo plano.
         self._update_excluded_categories_info(excluded_categories)
 
         logger.debug(
@@ -813,9 +830,31 @@ class FiltersTab(QWidget):
         self.chk_chd.blockSignals(blocked)
 
     def _on_filters_changed(self) -> None:
-        """Recalcula as estatísticas e notifica os demais componentes."""
-        self._apply_filters()
+        """
+        Atualiza imediatamente o estado lógico da interface e agenda o
+        recálculo das estatísticas sem bloquear o thread principal do Qt.
+
+        A consulta SQLite pode envolver centenas de milhares de registros.
+        Por isso, a mudança visual e o ``current_criteria`` são atualizados
+        primeiro; as estatísticas são calculadas em uma conexão SQLite
+        separada, em uma thread de trabalho.
+        """
+        criteria = self._get_criteria_from_ui()
+
+        self.current_criteria = criteria
+        self._filter_generation += 1
+        self._pending_filter_generation = self._filter_generation
+        self._pending_filter_criteria = criteria
+
+        # Feedback textual é imediato, independentemente do tempo da consulta.
+        self._update_excluded_categories_info(criteria.exclude_categories)
+
+        # Informa imediatamente os demais componentes que o critério mudou.
         self.filters_changed.emit()
+
+        # Debounce curto: vários cliques rápidos geram somente o cálculo mais
+        # recente, evitando iniciar uma consulta para cada clique.
+        self._filter_timer.start()
 
     @staticmethod
     def _format_size(size_bytes: int) -> str:
@@ -831,58 +870,149 @@ class FiltersTab(QWidget):
 
         return f"{size_bytes} B"
 
-    def _apply_filters(self) -> None:
-        """Aplica os critérios atuais e atualiza as estatísticas da GUI."""
-        try:
-            criteria = self._get_criteria_from_ui()
-            self.current_criteria = criteria
+    def _start_filter_calculation(self) -> None:
+        """Inicia o cálculo das estatísticas na thread de trabalho."""
+        if self._filter_calculation_running:
+            # O cálculo atual terminará e verificará se surgiu uma versão mais
+            # nova dos critérios. Não iniciamos duas consultas concorrentes.
+            return
 
-            machine_count = (
-                self.filter_service.get_machine_count(criteria)
-            )
-            rom_count = (
-                self.filter_service.get_rom_count(criteria)
-            )
-            chd_count = (
-                self.filter_service.get_chd_count(criteria)
-            )
-            size_bytes = (
-                self.filter_service.get_estimated_size(criteria)
-            )
-            unscanned_chds = (
-                self.filter_service.get_unscanned_chd_count(criteria)
-            )
+        criteria = self._pending_filter_criteria
+        generation = self._pending_filter_generation
 
-            self.lbl_machines.setText(str(machine_count))
-            self.lbl_roms_filtered.setText(str(rom_count))
-            self.lbl_chds_filtered.setText(str(chd_count))
+        if criteria is None:
+            return
 
-            size_str = self._format_size(size_bytes)
+        self._filter_calculation_running = True
+        self._pending_filter_criteria = None
 
-            if unscanned_chds > 0:
-                size_str += (
-                    "  (⚠ "
-                    f"{unscanned_chds} CHD(s) sem tamanho lido — "
-                    "use 'Escanear tamanho dos CHDs')"
+        # Mostra imediatamente que os números estão sendo recalculados, sem
+        # apagar o restante das informações já disponíveis.
+        self.lbl_machines.setText("Calculando...")
+        self.lbl_roms_filtered.setText("Calculando...")
+        self.lbl_chds_filtered.setText("Calculando...")
+        self.lbl_size.setText("Calculando...")
+
+        def worker() -> None:
+            """Executa as consultas usando uma conexão SQLite própria."""
+            conn = None
+
+            try:
+                # sqlite3.Connection não deve ser compartilhada entre threads.
+                # Abrimos uma conexão independente para o cálculo somente leitura.
+                conn = sqlite3.connect(
+                    str(self.config.db_path),
+                    timeout=30,
+                )
+                conn.execute("PRAGMA busy_timeout = 30000")
+                service = FilterService(conn)
+
+                machine_count = service.get_machine_count(criteria)
+                rom_count = service.get_rom_count(criteria)
+                chd_count = service.get_chd_count(criteria)
+                size_bytes = service.get_estimated_size(criteria)
+                unscanned_chds = service.get_unscanned_chd_count(criteria)
+
+                result = {
+                    "machine_count": machine_count,
+                    "rom_count": rom_count,
+                    "chd_count": chd_count,
+                    "size_bytes": size_bytes,
+                    "unscanned_chds": unscanned_chds,
+                }
+
+                self.filter_result_signal.emit(
+                    generation,
+                    result,
+                    None,
                 )
 
-            self.lbl_size.setText(size_str)
+            except Exception as exc:
+                logger.error(
+                    "Erro no cálculo assíncrono dos filtros: %s",
+                    exc,
+                    exc_info=True,
+                )
+                self.filter_result_signal.emit(
+                    generation,
+                    None,
+                    str(exc),
+                )
 
-            self._update_excluded_categories_info(
-                criteria.exclude_categories
-            )
+            finally:
+                if conn is not None:
+                    conn.close()
 
-        except Exception as e:
-            logger.error(
-                f"Erro ao aplicar filtros: {e}",
-                exc_info=True,
-            )
+        threading.Thread(
+            target=worker,
+            name="filter-stats-worker",
+            daemon=True,
+        ).start()
 
+    def _on_filter_calculation_finished(
+        self,
+        generation: int,
+        result: dict | None,
+        error: str | None,
+    ) -> None:
+        """Aplica ao Qt somente o resultado correspondente ao último filtro."""
+        self._filter_calculation_running = False
+
+        # Se o usuário alterou o filtro enquanto a consulta estava rodando,
+        # este resultado ficou obsoleto e não pode sobrescrever a tela.
+        if generation != self._filter_generation:
+            if self._pending_filter_criteria is not None:
+                self._filter_timer.start()
+            return
+
+        if error is not None or result is None:
+            logger.error("Falha ao calcular estatísticas do filtro: %s", error)
             self.lbl_machines.setText("Erro")
             self.lbl_roms_filtered.setText("Erro")
             self.lbl_chds_filtered.setText("Erro")
             self.lbl_size.setText("Erro")
-            self._update_excluded_categories_info([])
+            self._update_excluded_categories_info(
+                self.current_criteria.exclude_categories
+            )
+            return
+
+        self.lbl_machines.setText(str(result["machine_count"]))
+        self.lbl_roms_filtered.setText(str(result["rom_count"]))
+        self.lbl_chds_filtered.setText(str(result["chd_count"]))
+
+        size_str = self._format_size(result["size_bytes"])
+
+        if result["unscanned_chds"] > 0:
+            size_str += (
+                "  (⚠ "
+                f"{result['unscanned_chds']} CHD(s) sem tamanho lido — "
+                "use 'Escanear tamanho dos CHDs')"
+            )
+
+        self.lbl_size.setText(size_str)
+        self._update_excluded_categories_info(
+            self.current_criteria.exclude_categories
+        )
+
+        # Caso tenha ocorrido outra alteração enquanto o resultado era
+        # aplicado, agenda imediatamente o cálculo da versão mais recente.
+        if self._pending_filter_criteria is not None:
+            self._filter_timer.start()
+
+    def _apply_filters(self) -> None:
+        """
+        Agenda o recálculo das estatísticas a partir do estado atual da UI.
+
+        Este método mantém a API interna existente, mas não bloqueia mais a
+        interface com consultas SQLite demoradas.
+        """
+        criteria = self._get_criteria_from_ui()
+        self.current_criteria = criteria
+        self._filter_generation += 1
+        self._pending_filter_generation = self._filter_generation
+        self._pending_filter_criteria = criteria
+        self._update_excluded_categories_info(criteria.exclude_categories)
+        self._filter_timer.start()
 
     def _get_criteria_from_ui(self) -> FilterCriteria:
         """
