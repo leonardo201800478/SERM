@@ -23,3 +23,157 @@
 2026-08-12 00:26:55,525 - app.database.database - INFO - Conexão estabelecida e tabelas verificadas.
 2026-08-12 00:26:55,769 - app.main - INFO - Aplicação iniciada com sucesso.
 2026-08-12 00:28:52,603 - app.database.database - INFO - Conexão com banco fechada.
+2026-08-12 00:42:17,636 - app.main - INFO - ============================================================
+2026-08-12 00:42:17,636 - app.main - INFO - Iniciando MAME Set Builder...
+2026-08-12 00:42:17,636 - app.main - INFO - Python: 3.14.6 (tags/v3.14.6:c63aec6, Jun 10 2026, 10:26:10) [MSC v.1944 64 bit (AMD64)]
+2026-08-12 00:42:17,636 - app.main - INFO - Platform: win32
+2026-08-12 00:42:17,753 - app.database.database - INFO - Database inicializado com caminho: C:\Users\leost\mame-set-builder\data\database\mame_set_builder.db
+2026-08-12 00:42:17,753 - app.database.database - INFO - Conectando ao banco: C:\Users\leost\mame-set-builder\data\database\mame_set_builder.db
+2026-08-12 00:42:17,754 - app.database.database - WARNING - schema.sql não encontrado em C:\Users\leost\mame-set-builder\app\database\schema.sql. Usando fallback.
+2026-08-12 00:42:17,754 - app.database.database - WARNING - Criando tabelas mínimas (fallback).
+2026-08-12 00:42:17,759 - app.database.database - INFO - Tabelas fallback criadas.
+2026-08-12 00:42:17,759 - app.database.database - INFO - Conexão estabelecida e tabelas verificadas.
+2026-08-12 00:42:17,761 - MameExecutable - INFO - Inicializando MameExecutable com caminho: G:\LaunchBox\emulators\mame\mame.exe
+2026-08-12 00:42:17,762 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe --version
+2026-08-12 00:42:18,064 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe -version
+2026-08-12 00:42:18,230 - MameExecutable - INFO - Versão detectada via padrão genérico: 0.289
+2026-08-12 00:42:18,235 - MameExecutable - INFO - Inicializando MameExecutable com caminho: G:\LaunchBox\emulators\mame\mame.exe
+2026-08-12 00:42:18,236 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe --version
+2026-08-12 00:42:18,423 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe -version
+2026-08-12 00:42:18,588 - MameExecutable - INFO - Versão detectada via padrão genérico: 0.289
+2026-08-12 00:42:20,524 - app.database.database - INFO - Conectando ao banco: C:\Users\leost\mame-set-builder\data\database\mame_set_builder.db
+2026-08-12 00:42:20,524 - app.database.database - WARNING - schema.sql não encontrado em C:\Users\leost\mame-set-builder\app\database\schema.sql. Usando fallback.
+2026-08-12 00:42:20,524 - app.database.database - WARNING - Criando tabelas mínimas (fallback).
+2026-08-12 00:42:20,530 - app.database.database - INFO - Tabelas fallback criadas.
+2026-08-12 00:42:20,530 - app.database.database - INFO - Conexão estabelecida e tabelas verificadas.
+2026-08-12 00:42:20,812 - app.main - INFO - Aplicação iniciada com sucesso.
+2026-08-12 00:43:48,874 - app.main - INFO - ============================================================
+2026-08-12 00:43:48,874 - app.main - INFO - Iniciando MAME Set Builder...
+2026-08-12 00:43:48,875 - app.main - INFO - Python: 3.14.6 (tags/v3.14.6:c63aec6, Jun 10 2026, 10:26:10) [MSC v.1944 64 bit (AMD64)]
+2026-08-12 00:43:48,875 - app.main - INFO - Platform: win32
+2026-08-12 00:43:48,924 - app.database.database - INFO - Database inicializado com caminho: C:\Users\leost\mame-set-builder\data\database\mame_set_builder.db
+2026-08-12 00:43:48,925 - app.database.database - INFO - Conectando ao banco: C:\Users\leost\mame-set-builder\data\database\mame_set_builder.db
+2026-08-12 00:43:48,925 - app.database.database - WARNING - schema.sql não encontrado em C:\Users\leost\mame-set-builder\app\database\schema.sql. Usando fallback.
+2026-08-12 00:43:48,925 - app.database.database - WARNING - Criando tabelas mínimas (fallback).
+2026-08-12 00:43:48,981 - app.database.database - INFO - Tabelas fallback criadas.
+2026-08-12 00:43:48,981 - app.database.database - INFO - Conexão estabelecida e tabelas verificadas.
+2026-08-12 00:43:48,984 - MameExecutable - INFO - Inicializando MameExecutable com caminho: G:\LaunchBox\emulators\mame\mame.exe
+2026-08-12 00:43:48,984 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe --version
+2026-08-12 00:43:49,261 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe -version
+2026-08-12 00:43:49,427 - MameExecutable - INFO - Versão detectada via padrão genérico: 0.289
+2026-08-12 00:43:49,432 - MameExecutable - INFO - Inicializando MameExecutable com caminho: G:\LaunchBox\emulators\mame\mame.exe
+2026-08-12 00:43:49,433 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe --version
+2026-08-12 00:43:49,602 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe -version
+2026-08-12 00:43:49,772 - MameExecutable - INFO - Versão detectada via padrão genérico: 0.289
+2026-08-12 00:43:51,886 - app.database.database - INFO - Conectando ao banco: C:\Users\leost\mame-set-builder\data\database\mame_set_builder.db
+2026-08-12 00:43:51,887 - app.database.database - WARNING - schema.sql não encontrado em C:\Users\leost\mame-set-builder\app\database\schema.sql. Usando fallback.
+2026-08-12 00:43:51,887 - app.database.database - WARNING - Criando tabelas mínimas (fallback).
+2026-08-12 00:43:51,892 - app.database.database - INFO - Tabelas fallback criadas.
+2026-08-12 00:43:51,892 - app.database.database - INFO - Conexão estabelecida e tabelas verificadas.
+2026-08-12 00:43:51,935 - app.main - INFO - Aplicação iniciada com sucesso.
+2026-08-12 00:44:03,080 - MameExecutable - INFO - Inicializando MameExecutable com caminho: G:\LaunchBox\emulators\mame\mame.exe
+2026-08-12 00:44:03,081 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe --version
+2026-08-12 00:44:03,375 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe -version
+2026-08-12 00:44:03,561 - MameExecutable - INFO - Versão detectada via padrão genérico: 0.289
+2026-08-12 00:44:04,363 - app.core.services.database_service - INFO - Nova instalação criada (ID 1)
+2026-08-12 00:44:04,366 - MameExecutable - INFO - Iniciando -listxml em modo streaming...
+2026-08-12 00:44:24,039 - MameExecutable - INFO - listxml (streaming) concluído com sucesso.
+2026-08-12 00:44:24,039 - app.core.services.database_service - INFO - Importação concluída. 50368 máquinas inseridas/atualizadas.
+2026-08-12 00:44:45,691 - app.database.database - INFO - Database inicializado com caminho: C:\Users\leost\mame-set-builder\data\database\mame_set_builder.db
+2026-08-12 00:44:45,691 - app.database.database - INFO - Conectando ao banco: C:\Users\leost\mame-set-builder\data\database\mame_set_builder.db
+2026-08-12 00:44:45,692 - app.database.database - WARNING - schema.sql não encontrado em C:\Users\leost\mame-set-builder\app\database\schema.sql. Usando fallback.
+2026-08-12 00:44:45,692 - app.database.database - WARNING - Criando tabelas mínimas (fallback).
+2026-08-12 00:44:45,745 - app.database.database - INFO - Tabelas fallback criadas.
+2026-08-12 00:44:45,745 - app.database.database - INFO - Conexão estabelecida e tabelas verificadas.
+2026-08-12 00:44:45,746 - MameExecutable - INFO - Inicializando MameExecutable com caminho: G:\LaunchBox\emulators\mame\mame.exe
+2026-08-12 00:44:45,746 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe --version
+2026-08-12 00:44:46,027 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe -version
+2026-08-12 00:44:46,192 - MameExecutable - INFO - Versão detectada via padrão genérico: 0.289
+2026-08-12 00:44:46,407 - app.core.services.database_service - INFO - Nova instalação criada (ID 1)
+2026-08-12 00:44:46,411 - MameExecutable - INFO - Iniciando -listxml em modo streaming...
+2026-08-12 00:45:08,185 - MameExecutable - INFO - listxml (streaming) concluído com sucesso.
+2026-08-12 00:45:08,185 - app.core.services.database_service - INFO - Importação concluída. 50368 máquinas inseridas/atualizadas.
+2026-08-12 23:42:02,856 - app.main - INFO - ============================================================
+2026-08-12 23:42:02,858 - app.main - INFO - Iniciando MAME Set Builder...
+2026-08-12 23:42:02,858 - app.main - INFO - Python: 3.14.6 (tags/v3.14.6:c63aec6, Jun 10 2026, 10:26:10) [MSC v.1944 64 bit (AMD64)]
+2026-08-12 23:42:02,858 - app.main - INFO - Platform: win32
+2026-08-12 23:42:02,942 - app.database.database - INFO - Database inicializado com caminho: C:\Users\leost\mame-set-builder\data\database\mame_set_builder.db
+2026-08-12 23:42:02,942 - app.database.database - INFO - Conectando ao banco: C:\Users\leost\mame-set-builder\data\database\mame_set_builder.db
+2026-08-12 23:42:02,965 - app.database.database - WARNING - schema.sql não encontrado em C:\Users\leost\mame-set-builder\app\database\schema.sql. Usando fallback.
+2026-08-12 23:42:02,965 - app.database.database - WARNING - Criando tabelas mínimas (fallback).
+2026-08-12 23:42:02,992 - app.database.database - INFO - Tabelas fallback criadas.
+2026-08-12 23:42:02,992 - app.database.database - INFO - Conexão estabelecida e tabelas verificadas.
+2026-08-12 23:42:03,002 - MameExecutable - INFO - Inicializando MameExecutable com caminho: G:\LaunchBox\emulators\mame\mame.exe
+2026-08-12 23:42:03,002 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe --version
+2026-08-12 23:42:03,580 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe -version
+2026-08-12 23:42:03,738 - MameExecutable - INFO - Versão detectada via padrão genérico: 0.289
+2026-08-12 23:42:03,752 - MameExecutable - INFO - Inicializando MameExecutable com caminho: G:\LaunchBox\emulators\mame\mame.exe
+2026-08-12 23:42:03,752 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe --version
+2026-08-12 23:42:03,908 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe -version
+2026-08-12 23:42:04,064 - MameExecutable - INFO - Versão detectada via padrão genérico: 0.289
+2026-08-12 23:42:06,091 - app.database.database - INFO - Conectando ao banco: C:\Users\leost\mame-set-builder\data\database\mame_set_builder.db
+2026-08-12 23:42:06,092 - app.database.database - WARNING - schema.sql não encontrado em C:\Users\leost\mame-set-builder\app\database\schema.sql. Usando fallback.
+2026-08-12 23:42:06,092 - app.database.database - WARNING - Criando tabelas mínimas (fallback).
+2026-08-12 23:42:06,098 - app.database.database - INFO - Tabelas fallback criadas.
+2026-08-12 23:42:06,098 - app.database.database - INFO - Conexão estabelecida e tabelas verificadas.
+2026-08-12 23:42:06,293 - app.main - INFO - Aplicação iniciada com sucesso.
+2026-08-12 23:43:26,796 - app.main - INFO - ============================================================
+2026-08-12 23:43:26,796 - app.main - INFO - Iniciando MAME Set Builder...
+2026-08-12 23:43:26,796 - app.main - INFO - Python: 3.14.6 (tags/v3.14.6:c63aec6, Jun 10 2026, 10:26:10) [MSC v.1944 64 bit (AMD64)]
+2026-08-12 23:43:26,797 - app.main - INFO - Platform: win32
+2026-08-12 23:43:26,917 - app.database.database - INFO - Database inicializado com caminho: C:\Users\leost\mame-set-builder\data\database\mame_set_builder.db
+2026-08-12 23:43:26,917 - app.database.database - INFO - Conectando ao banco: C:\Users\leost\mame-set-builder\data\database\mame_set_builder.db
+2026-08-12 23:43:26,917 - app.database.database - WARNING - schema.sql não encontrado em C:\Users\leost\mame-set-builder\app\database\schema.sql. Usando fallback.
+2026-08-12 23:43:26,918 - app.database.database - WARNING - Criando tabelas mínimas (fallback).
+2026-08-12 23:43:26,922 - app.database.database - INFO - Tabelas fallback criadas.
+2026-08-12 23:43:26,922 - app.database.database - INFO - Conexão estabelecida e tabelas verificadas.
+2026-08-12 23:43:26,925 - MameExecutable - INFO - Inicializando MameExecutable com caminho: G:\LaunchBox\emulators\mame\mame.exe
+2026-08-12 23:43:26,925 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe --version
+2026-08-12 23:43:27,080 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe -version
+2026-08-12 23:43:27,242 - MameExecutable - INFO - Versão detectada via padrão genérico: 0.289
+2026-08-12 23:43:27,247 - MameExecutable - INFO - Inicializando MameExecutable com caminho: G:\LaunchBox\emulators\mame\mame.exe
+2026-08-12 23:43:27,248 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe --version
+2026-08-12 23:43:27,409 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe -version
+2026-08-12 23:43:27,565 - MameExecutable - INFO - Versão detectada via padrão genérico: 0.289
+2026-08-12 23:43:29,243 - app.database.database - INFO - Conectando ao banco: C:\Users\leost\mame-set-builder\data\database\mame_set_builder.db
+2026-08-12 23:43:29,243 - app.database.database - WARNING - schema.sql não encontrado em C:\Users\leost\mame-set-builder\app\database\schema.sql. Usando fallback.
+2026-08-12 23:43:29,243 - app.database.database - WARNING - Criando tabelas mínimas (fallback).
+2026-08-12 23:43:29,248 - app.database.database - INFO - Tabelas fallback criadas.
+2026-08-12 23:43:29,248 - app.database.database - INFO - Conexão estabelecida e tabelas verificadas.
+2026-08-12 23:43:29,389 - app.main - INFO - Aplicação iniciada com sucesso.
+2026-08-12 23:43:39,988 - MameExecutable - INFO - Inicializando MameExecutable com caminho: G:\LaunchBox\emulators\mame\mame.exe
+2026-08-12 23:43:39,988 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe --version
+2026-08-12 23:43:40,165 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe -version
+2026-08-12 23:43:40,319 - MameExecutable - INFO - Versão detectada via padrão genérico: 0.289
+2026-08-12 23:43:40,325 - app.core.services.database_service - INFO - Instalação existente atualizada (ID 1)
+2026-08-12 23:43:40,329 - MameExecutable - INFO - Iniciando -listxml em modo streaming...
+2026-08-12 23:44:03,894 - MameExecutable - INFO - listxml (streaming) concluído com sucesso.
+2026-08-12 23:44:03,894 - app.core.services.database_service - INFO - Importação concluída. 50368 máquinas inseridas/atualizadas.
+2026-08-12 23:44:52,600 - app.database.database - INFO - Database inicializado com caminho: C:\Users\leost\mame-set-builder\data\database\mame_set_builder.db
+2026-08-12 23:44:52,601 - app.database.database - INFO - Conectando ao banco: C:\Users\leost\mame-set-builder\data\database\mame_set_builder.db
+2026-08-12 23:44:52,602 - app.database.database - WARNING - schema.sql não encontrado em C:\Users\leost\mame-set-builder\app\database\schema.sql. Usando fallback.
+2026-08-12 23:44:52,603 - app.database.database - WARNING - Criando tabelas mínimas (fallback).
+2026-08-12 23:44:52,657 - app.database.database - INFO - Tabelas fallback criadas.
+2026-08-12 23:44:52,657 - app.database.database - INFO - Conexão estabelecida e tabelas verificadas.
+2026-08-12 23:44:52,658 - MameExecutable - INFO - Inicializando MameExecutable com caminho: G:\LaunchBox\emulators\mame\mame.exe
+2026-08-12 23:44:52,659 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe --version
+2026-08-12 23:44:52,812 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe -version
+2026-08-12 23:44:52,967 - MameExecutable - INFO - Versão detectada via padrão genérico: 0.289
+2026-08-12 23:44:53,777 - app.core.services.database_service - INFO - Nova instalação criada (ID 1)
+2026-08-12 23:44:53,780 - MameExecutable - INFO - Iniciando -listxml em modo streaming...
+2026-08-12 23:45:12,696 - MameExecutable - INFO - listxml (streaming) concluído com sucesso.
+2026-08-12 23:45:12,696 - app.core.services.database_service - INFO - Importação concluída. 50368 máquinas inseridas/atualizadas.
+2026-08-12 23:45:59,025 - app.database.database - INFO - Database inicializado com caminho: C:\Users\leost\mame-set-builder\data\database\mame_set_builder.db
+2026-08-12 23:45:59,025 - app.database.database - INFO - Conectando ao banco: C:\Users\leost\mame-set-builder\data\database\mame_set_builder.db
+2026-08-12 23:45:59,026 - app.database.database - WARNING - schema.sql não encontrado em C:\Users\leost\mame-set-builder\app\database\schema.sql. Usando fallback.
+2026-08-12 23:45:59,026 - app.database.database - WARNING - Criando tabelas mínimas (fallback).
+2026-08-12 23:45:59,078 - app.database.database - INFO - Tabelas fallback criadas.
+2026-08-12 23:45:59,079 - app.database.database - INFO - Conexão estabelecida e tabelas verificadas.
+2026-08-12 23:45:59,080 - MameExecutable - INFO - Inicializando MameExecutable com caminho: G:\LaunchBox\emulators\mame\mame.exe
+2026-08-12 23:45:59,080 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe --version
+2026-08-12 23:45:59,236 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe -version
+2026-08-12 23:45:59,389 - MameExecutable - INFO - Versão detectada via padrão genérico: 0.289
+2026-08-12 23:45:59,598 - app.core.services.database_service - INFO - Nova instalação criada (ID 1)
+2026-08-12 23:45:59,600 - MameExecutable - INFO - Iniciando -listxml em modo streaming...
+2026-08-12 23:46:18,530 - MameExecutable - INFO - listxml (streaming) concluído com sucesso.
+2026-08-12 23:46:18,530 - app.core.services.database_service - INFO - Importação concluída. 50368 máquinas inseridas/atualizadas.
