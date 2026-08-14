@@ -1,0 +1,662 @@
+--- a/app/gui/tabs/filters_tab.py
++++ b/app/gui/tabs/filters_tab.py
+@@ -19,6 +19,8 @@
+ from app.config.app_config import AppConfig
+ from app.mame.executable import MameExecutable
+ from app.core.services.database_service import DatabaseService
++from app.core.services.ini_service import IniService
++from app.mame.chd_scanner import scan_chd_sizes
+ from app.gui.widgets.log_panel import LogPanel
+ 
+ logger = logging.getLogger(__name__)
+@@ -30,17 +32,6 @@
+     progress_signal = Signal(int, str)
+     finish_signal = Signal(bool, str)
+ 
+-    # Lista de categorias permitidas (filtro)
+-    ALLOWED_CATEGORIES = [
+-        "Arcade",
+-        "Coin-OP",
+-        "Coin-OP (NON-GAMES)",
+-        "Computers",
+-        "Consoles",
+-        "Electronic",
+-        "Gambling"
+-    ]
+-
+     def __init__(self, parent=None, db: Database = None):
+         super().__init__(parent)
+         self.main_window = parent
+@@ -107,25 +98,38 @@
+         db_layout.addRow(self.lbl_rom_count)
+         db_layout.addRow(self.lbl_chd_count)
+ 
+-        # Barra de progresso removida (não mostra nada útil)
+-        # self.progress_bar = QProgressBar()
+-        # self.progress_bar.setVisible(False)
+-        # db_layout.addRow(self.progress_bar)
++        # Botões em linha, em vez de um por "row" do QFormLayout (que os
++        # esticava pela largura inteira do formulário).
++        db_buttons_layout = QHBoxLayout()
+ 
+-        btn_import = QPushButton("Importar listxml do MAME")
++        btn_import = QPushButton("Importar listxml")
+         btn_import.clicked.connect(self._import_listxml)
+         btn_import.setToolTip("Recria o banco de dados importando todas as informações do MAME via -listxml.")
+-        db_layout.addRow(btn_import)
++        db_buttons_layout.addWidget(btn_import)
+ 
+-        btn_rebuild = QPushButton("Recriar banco (forçar)")
++        btn_rebuild = QPushButton("Recriar banco")
+         btn_rebuild.clicked.connect(self._rebuild_database)
+         btn_rebuild.setToolTip("Apaga o banco atual e recria do zero a partir do listxml.")
+-        db_layout.addRow(btn_rebuild)
++        db_buttons_layout.addWidget(btn_rebuild)
+ 
+-        btn_import_cat = QPushButton("Importar categorias do MAME")
++        btn_import_cat = QPushButton("Importar categorias (catlist.ini)")
+         btn_import_cat.clicked.connect(self._import_categories)
+-        btn_import_cat.setToolTip("Importa o arquivo category.ini da pasta 'folders' do MAME.")
+-        db_layout.addRow(btn_import_cat)
++        btn_import_cat.setToolTip(
++            "Importa o catlist.ini da pasta 'folders' do MAME, agrupando pelo "
++            "primeiro nível de cada categoria (ex.: 'Arcade: Driving / Race' vira só 'Arcade')."
++        )
++        db_buttons_layout.addWidget(btn_import_cat)
++
++        btn_scan_chd = QPushButton("Escanear tamanho dos CHDs")
++        btn_scan_chd.clicked.connect(self._scan_chd_sizes)
++        btn_scan_chd.setToolTip(
++            "O -listxml do MAME não informa o tamanho de CHDs. Este botão lê o "
++            "tamanho real dos arquivos .chd na pasta configurada como 'rompath' "
++            "no mame.ini, para que 'Tamanho estimado' fique correto."
++        )
++        db_buttons_layout.addWidget(btn_scan_chd)
++
++        db_layout.addRow(db_buttons_layout)
+ 
+         layout.addWidget(grp_db)
+ 
+@@ -157,10 +161,10 @@
+         layout.addWidget(grp_profiles)
+ 
+         # ============================
+-        # GRUPO: ESTADO DE EMULAÇÃO (checkboxes)
++        # GRUPO: ESTADO DE EMULAÇÃO (checkboxes, em linha)
+         # ============================
+         grp_status = QGroupBox("Estado de Emulação")
+-        status_layout = QVBoxLayout()
++        status_layout = QHBoxLayout()
+         grp_status.setLayout(status_layout)
+ 
+         self.status_checkboxes = {}
+@@ -177,18 +181,14 @@
+             self.status_checkboxes[value] = cb
+             status_layout.addWidget(cb)
+ 
+-        btn_all = QPushButton("All (limpar seleção)")
+-        btn_all.setFixedWidth(150)
+-        btn_all.clicked.connect(self._clear_all_status)
+-        status_layout.addWidget(btn_all)
+-
++        status_layout.addStretch()
+         layout.addWidget(grp_status)
+ 
+         # ============================
+-        # GRUPO: OPÇÕES
++        # GRUPO: OPÇÕES (checkboxes, em linha)
+         # ============================
+         grp_options = QGroupBox("Opções")
+-        options_layout = QVBoxLayout()
++        options_layout = QHBoxLayout()
+         grp_options.setLayout(options_layout)
+ 
+         self.chk_clones = QCheckBox("Incluir Clones")
+@@ -212,6 +212,7 @@
+         self.chk_chd.setToolTip("Desmarque para excluir máquinas que possuem CHD.")
+         options_layout.addWidget(self.chk_chd)
+ 
++        options_layout.addStretch()
+         layout.addWidget(grp_options)
+ 
+         # ============================
+@@ -288,39 +289,30 @@
+     # ========================================================================
+ 
+     def _load_categories(self):
+-        """Carrega apenas as categorias permitidas em um grid de checkboxes."""
++        """Carrega todas as categorias existentes no banco em um grid de checkboxes.
++
++        Antes havia uma lista `ALLOWED_CATEGORIES` fixa na GUI tentando
++        adivinhar quais categorias "deveriam" existir — mas ela usava nomes
++        de um esquema diferente (catlist antigo) e não batia com o que
++        `seed_default_categories()` ou a importação de fato criavam no
++        banco, deixando o painel vazio ou incompleto. Agora a importação em
++        si (`import_categories_from_catlist`) já é responsável por criar
++        apenas categorias "limpas" (o primeiro nível do catlist.ini), então
++        a GUI simplesmente mostra o que existe no banco — sem whitelist
++        paralela para manter sincronizada.
++        """
+         for cb in self.category_checkboxes.values():
+             self.cat_grid.removeWidget(cb)
+             cb.deleteLater()
+         self.category_checkboxes.clear()
+ 
+-        # Obtém todas as categorias do banco
+         all_cats = self.filter_service.get_categories_with_counts()
+-        
+-        # Filtra apenas as permitidas
+-        filtered_cats = []
+-        for cat in all_cats:
+-            display_name = cat['display_name']
+-            # Verifica se a categoria está na lista de permitidas
+-            for allowed in self.ALLOWED_CATEGORIES:
+-                if display_name.startswith(allowed) or display_name == allowed:
+-                    filtered_cats.append(cat)
+-                    break
+-
+-        # Se não houver categorias permitidas, adiciona as padrão
+-        if not filtered_cats:
++        if not all_cats:
+             self.filter_service.seed_default_categories()
+             all_cats = self.filter_service.get_categories_with_counts()
+-            for cat in all_cats:
+-                display_name = cat['display_name']
+-                for allowed in self.ALLOWED_CATEGORIES:
+-                    if display_name.startswith(allowed) or display_name == allowed:
+-                        filtered_cats.append(cat)
+-                        break
+ 
+-        # Organiza em colunas (3 colunas)
+         cols = 3
+-        for idx, cat in enumerate(filtered_cats):
++        for idx, cat in enumerate(all_cats):
+             row = idx // cols
+             col = idx % cols
+             cb = QCheckBox(f"{cat['display_name']} ({cat['count']})")
+@@ -353,12 +345,8 @@
+     def _on_status_changed(self):
+         self._on_filters_changed()
+ 
+-    def _clear_all_status(self):
+-        for cb in self.status_checkboxes.values():
+-            cb.setChecked(False)
+-
+     # ========================================================================
+-    # IMPORTAÇÃO DE CATEGORIAS
++    # IMPORTAÇÃO DE CATEGORIAS (catlist.ini)
+     # ========================================================================
+ 
+     def _import_categories(self):
+@@ -366,7 +354,7 @@
+             QMessageBox.warning(self, "Erro", "Selecione o executável MAME primeiro.")
+             return
+ 
+-        default_ini = self.config.mame_path.parent / "folders" / "category.ini"
++        default_ini = self.config.mame_path.parent / "folders" / "catlist.ini"
+         if not default_ini.exists():
+             reply = QMessageBox.question(
+                 self,
+@@ -378,7 +366,7 @@
+                 return
+             file_path, _ = QFileDialog.getOpenFileName(
+                 self,
+-                "Selecionar category.ini",
++                "Selecionar catlist.ini",
+                 "",
+                 "Arquivos INI (*.ini);;Todos os arquivos (*)"
+             )
+@@ -389,12 +377,12 @@
+             ini_path = default_ini
+ 
+         try:
+-            categorias, maquinas, imported = self.filter_service.import_categories_from_ini(ini_path)
++            categorias, maquinas, imported = self.filter_service.import_categories_from_catlist(ini_path)
+             msg = f"Categorias importadas: {categorias}\nMáquinas associadas: {maquinas}\n"
+             if imported:
+-                msg += "\nCategorias criadas:\n" + ", ".join(imported[:10])
+-                if len(imported) > 10:
+-                    msg += f" ... (+{len(imported)-10} outras)"
++                msg += "\nCategorias criadas:\n" + ", ".join(sorted(imported)[:15])
++                if len(imported) > 15:
++                    msg += f" ... (+{len(imported)-15} outras)"
+             QMessageBox.information(self, "Importação concluída", msg)
+             self._load_categories()
+             self._apply_filters()
+@@ -402,6 +390,66 @@
+             QMessageBox.critical(self, "Erro", f"Falha ao importar categorias:\n{str(e)}")
+ 
+     # ========================================================================
++    # ESCANEAR TAMANHO DOS CHDs
++    # ========================================================================
++
++    def _scan_chd_sizes(self):
++        """Lê o tamanho real dos arquivos .chd no rompath configurado no
++        mame.ini e grava em `disk.size`, para que 'Tamanho estimado' pare de
++        ignorar CHDs (ver app.mame.chd_scanner para o porquê disso não vir
++        do -listxml)."""
++        if self._import_running:
++            QMessageBox.warning(self, "Aguarde", "Uma operação já está em andamento.")
++            return
++
++        if not self.config.ini_path or not self.config.ini_path.exists():
++            QMessageBox.warning(
++                self, "Erro",
++                "Selecione o mame.ini na aba Diretórios primeiro "
++                "(é de lá que vem o 'rompath' onde os .chd ficam)."
++            )
++            return
++
++        try:
++            ini_service = IniService(self.config.ini_path)
++            rompaths = ini_service.get_paths("rompath")
++        except Exception as e:
++            QMessageBox.critical(self, "Erro", f"Falha ao ler mame.ini:\n{e}")
++            return
++
++        if not rompaths:
++            QMessageBox.warning(self, "Aviso", "Nenhum 'rompath' configurado no mame.ini.")
++            return
++
++        self._import_running = True
++        self.setEnabled(False)
++        self.progress_signal.emit(0, f"Escaneando CHDs em {len(rompaths)} pasta(s)...")
++
++        def scan_task():
++            try:
++                chd_sizes = scan_chd_sizes(rompaths)
++                self.progress_signal.emit(80, f"{len(chd_sizes)} CHD(s) encontrados, salvando...")
++
++                conn = sqlite3.connect(str(self.config.db_path))
++                conn.row_factory = sqlite3.Row
++                service = DatabaseService(conn)
++                updated = service.update_chd_sizes(chd_sizes)
++                conn.close()
++
++                self.progress_signal.emit(100, "Concluído.")
++                self.finish_signal.emit(
++                    True,
++                    f"Scanner de CHD concluído.\n"
++                    f"{len(chd_sizes)} arquivo(s) .chd encontrados nos rompaths.\n"
++                    f"{updated} registro(s) atualizados no banco."
++                )
++            except Exception as e:
++                logger.error(f"Falha ao escanear CHDs: {e}", exc_info=True)
++                self.finish_signal.emit(False, f"Erro ao escanear CHDs: {e}")
++
++        threading.Thread(target=scan_task, daemon=True).start()
++
++    # ========================================================================
+     # PERFIS
+     # ========================================================================
+ 
+@@ -449,6 +497,16 @@
+         self._apply_filters()
+         self.filters_changed.emit()
+ 
++    @staticmethod
++    def _format_size(size_bytes: int) -> str:
++        if size_bytes >= 1_073_741_824:
++            return f"{size_bytes / 1_073_741_824:.2f} GB"
++        if size_bytes >= 1_048_576:
++            return f"{size_bytes / 1_048_576:.2f} MB"
++        if size_bytes >= 1024:
++            return f"{size_bytes / 1024:.2f} KB"
++        return f"{size_bytes} B"
++
+     def _apply_filters(self):
+         try:
+             criteria = self._get_criteria_from_ui()
+@@ -458,19 +516,17 @@
+             rom_count = self.filter_service.get_rom_count(criteria)
+             chd_count = self.filter_service.get_chd_count(criteria)
+             size_bytes = self.filter_service.get_estimated_size(criteria)
++            unscanned_chds = self.filter_service.get_unscanned_chd_count(criteria)
+ 
+             self.lbl_machines.setText(str(machine_count))
+             self.lbl_roms_filtered.setText(str(rom_count))
+             self.lbl_chds_filtered.setText(str(chd_count))
+ 
+-            if size_bytes >= 1_073_741_824:
+-                size_str = f"{size_bytes / 1_073_741_824:.2f} GB"
+-            elif size_bytes >= 1_048_576:
+-                size_str = f"{size_bytes / 1_048_576:.2f} MB"
+-            elif size_bytes >= 1024:
+-                size_str = f"{size_bytes / 1024:.2f} KB"
+-            else:
+-                size_str = f"{size_bytes} B"
++            size_str = self._format_size(size_bytes)
++            if unscanned_chds > 0:
++                # O -listxml não traz tamanho de CHD; sem rodar o scanner,
++                # esse total fica subestimado. Avisa em vez de fingir precisão.
++                size_str += f"  (⚠ {unscanned_chds} CHD(s) sem tamanho lido — use 'Escanear tamanho dos CHDs')"
+             self.lbl_size.setText(size_str)
+ 
+         except Exception as e:
+--- a/app/core/services/filter_service.py
++++ b/app/core/services/filter_service.py
+@@ -123,6 +123,115 @@
+         self.conn.commit()
+         return categorias_count, maquinas_count, imported_categories
+ 
++    # Seções que não representam categorias de máquinas no catlist.ini.
++    _CATLIST_IGNORED_SECTIONS = frozenset({'FOLDER_SETTINGS', 'ROOT_FOLDER'})
++
++    @staticmethod
++    def _catlist_primary_category(section: str) -> str:
++        """Extrai o "primeiro filtro" de um cabeçalho do catlist.ini.
++
++        Regras observadas no arquivo real do catlist.ini (progetto-snaps):
++        - Seções de Arcade usam ':' como separador do nível principal, ex.:
++          "[Arcade: Driving / Race (chase view)]" -> "Arcade".
++        - Todas as demais usam '/', ex.:
++          "[Tablet / Multi-Functional for Children]" -> "Tablet".
++        - Seções sem nenhum separador são usadas como estão (ex.: "System").
++        """
++        section = section.strip()
++        if ':' in section:
++            return section.split(':', 1)[0].strip()
++        if '/' in section:
++            return section.split('/', 1)[0].strip()
++        return section
++
++    def import_categories_from_catlist(self, catlist_path: Path) -> Tuple[int, int, List[str]]:
++        """
++        Importa categorias a partir do catlist.ini (progetto-snaps), agrupando
++        por apenas o PRIMEIRO nível do cabeçalho de cada seção — ex.:
++        "[Arcade: Driving / Race (chase view)]" vira apenas a categoria
++        "Arcade", e "[Tablet / Multi-Functional for Children]" vira apenas
++        "Tablet". Isso evita a explosão de ~680 subcategorias (uma por seção)
++        e mantém o filtro da GUI em poucas opções realmente úteis.
++
++        Retorna (categorias_importadas, maquinas_associadas, lista_de_categorias_importadas).
++        """
++        if not catlist_path.exists():
++            raise FileNotFoundError(f"Arquivo não encontrado: {catlist_path}")
++
++        cursor = self.conn.cursor()
++        categorias_count = 0
++        maquinas_count = 0
++        imported_categories = []
++
++        def normalize_cat_name(name: str) -> str:
++            name = re.sub(r'[^a-zA-Z0-9 ]', '', name)
++            name = name.strip().lower()
++            name = re.sub(r'\s+', '_', name)
++            return name
++
++        # cat_name normalizado -> id no banco (agrega todas as subseções que
++        # mapeiam para a mesma categoria principal, ex.: as ~383 seções
++        # "Arcade: ..." todas caem no mesmo cat_id de "arcade").
++        categoria_cache: Dict[str, int] = {}
++        current_cat_id = None
++
++        with open(catlist_path, 'r', encoding='utf-8', errors='ignore') as f:
++            for raw_line in f:
++                line = raw_line.strip()
++                if not line or line.startswith(';'):
++                    continue
++
++                if line.startswith('[') and line.endswith(']'):
++                    section = line[1:-1].strip()
++                    if section in self._CATLIST_IGNORED_SECTIONS or not section:
++                        current_cat_id = None
++                        continue
++
++                    primary = self._catlist_primary_category(section)
++                    cat_name = normalize_cat_name(primary)
++                    if not cat_name:
++                        current_cat_id = None
++                        continue
++
++                    if cat_name in categoria_cache:
++                        current_cat_id = categoria_cache[cat_name]
++                        continue
++
++                    cursor.execute("SELECT id FROM category WHERE name = ?", (cat_name,))
++                    row = cursor.fetchone()
++                    if row:
++                        cat_id = row[0]
++                    else:
++                        cursor.execute(
++                            "INSERT INTO category (name, display_name, source) VALUES (?, ?, ?)",
++                            (cat_name, primary, 'catlist.ini')
++                        )
++                        cat_id = cursor.lastrowid
++                        categorias_count += 1
++                        imported_categories.append(primary)
++
++                    categoria_cache[cat_name] = cat_id
++                    current_cat_id = cat_id
++                    continue
++
++                if current_cat_id is None:
++                    continue
++
++                machine_name = line
++                cursor.execute("SELECT id FROM machine WHERE name = ?", (machine_name,))
++                row = cursor.fetchone()
++                if row:
++                    machine_id = row[0]
++                    cursor.execute(
++                        "INSERT OR IGNORE INTO machine_category (machine_id, category_id) VALUES (?, ?)",
++                        (machine_id, current_cat_id)
++                    )
++                    if cursor.rowcount > 0:
++                        maquinas_count += 1
++
++        self.conn.commit()
++        return categorias_count, maquinas_count, imported_categories
++
+     # ========================================================================
+     # CONSTRUÇÃO DA CONSULTA SQL
+     # ========================================================================
+@@ -225,18 +334,56 @@
+         return cursor.fetchone()[0]
+ 
+     def get_estimated_size(self, criteria: FilterCriteria) -> int:
++        """Soma o tamanho estimado (ROMs + CHDs) das máquinas filtradas.
++
++        O tamanho de ROMs vem direto do -listxml. O tamanho de CHDs só é
++        conhecido depois de rodar o scanner (ver
++        ``DatabaseService.update_chd_sizes`` / ``app.mame.chd_scanner``),
++        que lê os arquivos .chd reais no rompath configurado — o listxml
++        não informa esse dado. Enquanto o scanner não roda, `disk.size`
++        fica em 0 e essas máquinas ainda entram na contagem de máquinas/CHDs,
++        mas não somam bytes aqui (ver ``get_unscanned_chd_count`` para saber
++        se isso está subestimando o total).
++        """
+         query, params = self._build_filter_query(criteria)
+         size_query = f"""
+-            SELECT COALESCE(SUM(r.size), 0) FROM rom r
+-            WHERE EXISTS (
+-                SELECT 1 FROM ({query}) AS filtered_machines
+-                WHERE filtered_machines.id = r.machine_id
+-            )
++            SELECT
++                COALESCE((
++                    SELECT SUM(r.size) FROM rom r
++                    WHERE EXISTS (
++                        SELECT 1 FROM ({query}) AS fm WHERE fm.id = r.machine_id
++                    )
++                ), 0)
++                +
++                COALESCE((
++                    SELECT SUM(d.size) FROM disk d
++                    WHERE EXISTS (
++                        SELECT 1 FROM ({query}) AS fm WHERE fm.id = d.machine_id
++                    )
++                ), 0)
+         """
+-        cursor = self.conn.execute(size_query, params)
++        cursor = self.conn.execute(size_query, params + params)
+         result = cursor.fetchone()
+         return result[0] if result else 0
+ 
++    def get_unscanned_chd_count(self, criteria: FilterCriteria) -> int:
++        """Quantos CHDs, dentre as máquinas filtradas, ainda não têm tamanho lido.
++
++        Use para avisar na UI que o "Tamanho estimado" pode estar
++        subestimado até rodar o scanner de CHD.
++        """
++        query, params = self._build_filter_query(criteria)
++        count_query = f"""
++            SELECT COUNT(*) FROM disk d
++            WHERE (d.size IS NULL OR d.size = 0)
++            AND EXISTS (
++                SELECT 1 FROM ({query}) AS filtered_machines
++                WHERE filtered_machines.id = d.machine_id
++            )
++        """
++        cursor = self.conn.execute(count_query, params)
++        return cursor.fetchone()[0]
++
+     # ========================================================================
+     # PERFIS
+     # ========================================================================
+--- a/app/core/services/database_service.py
++++ b/app/core/services/database_service.py
+@@ -67,6 +67,30 @@
+         installation_id = self._upsert_installation(executable_path, version)
+         return self._import_machines(iter_machines(xml_string), installation_id, None)
+ 
++    def update_chd_sizes(self, chd_sizes: dict) -> int:
++        """Persiste tamanhos reais de CHDs (lidos do disco) na tabela `disk`.
++
++        Args:
++            chd_sizes: {(nome_da_maquina, nome_do_disco): tamanho_em_bytes},
++                normalmente vindo de ``app.mame.chd_scanner.scan_chd_sizes``.
++
++        Returns:
++            Quantidade de registros de `disk` efetivamente atualizados.
++        """
++        cursor = self.conn.cursor()
++        updated = 0
++        for (machine_name, disk_name), size in chd_sizes.items():
++            cursor.execute(
++                """
++                UPDATE disk SET size = ?
++                WHERE name = ? AND machine_id = (SELECT id FROM machine WHERE name = ?)
++                """,
++                (size, disk_name, machine_name),
++            )
++            updated += cursor.rowcount
++        self.conn.commit()
++        return updated
++
+     # ------------------------------------------------------------------
+     # Internals
+     # ------------------------------------------------------------------
+--- a/app/database/database.py
++++ b/app/database/database.py
+@@ -23,8 +23,25 @@
+         self.conn = sqlite3.connect(str(self.db_path))
+         self.conn.row_factory = sqlite3.Row
+         self._create_tables()
++        self._migrate_schema()
+         logger.info("Conexão estabelecida e tabelas verificadas.")
+ 
++    def _migrate_schema(self):
++        """Aplica alterações incrementais em bancos criados por versões antigas.
++
++        O MAME -listxml não informa o tamanho de CHDs (diferente de ROMs),
++        então a coluna `disk.size` só existe a partir desta versão e é
++        preenchida por um scanner separado que lê os arquivos .chd reais
++        (ver app/mame/chd_scanner.py). Bancos antigos não têm essa coluna.
++        """
++        cursor = self.conn.cursor()
++        cursor.execute("PRAGMA table_info(disk)")
++        columns = {row[1] for row in cursor.fetchall()}
++        if "size" not in columns:
++            logger.info("Migrando schema: adicionando coluna disk.size")
++            cursor.execute("ALTER TABLE disk ADD COLUMN size INTEGER DEFAULT 0")
++            self.conn.commit()
++
+     def _create_tables(self):
+         """Cria as tabelas a partir do schema.sql ou fallback."""
+         schema_path = Path(__file__).parent / "schema.sql"
+@@ -101,6 +118,7 @@
+                 writable INTEGER DEFAULT 0,
+                 status TEXT DEFAULT 'good',
+                 optional INTEGER DEFAULT 0,
++                size INTEGER DEFAULT 0,
+                 FOREIGN KEY (machine_id) REFERENCES machine(id) ON DELETE CASCADE
+             );
+ 
+--- /dev/null
++++ b/app/mame/chd_scanner.py
+@@ -0,0 +1,74 @@
++"""Leitura do tamanho real de arquivos CHD a partir do disco.
++
++O -listxml do MAME não informa o tamanho de CHDs (ao contrário das ROMs,
++que trazem o atributo ``size``) — o tamanho de um CHD só existe fisicamente
++no arquivo, já que depende da compressão. Por isso o "Tamanho estimado" da
++aba de Filtragem não conseguia contabilizar CHDs: essa informação
++simplesmente não vem do listxml.
++
++Este módulo resolve isso escaneando o(s) diretório(s) configurados em
++``rompath`` no mame.ini — a mesma pasta onde o MAME procura os arquivos
++das máquinas — seguindo a convenção padrão do MAME:
++
++    <rompath>/<nome_da_maquina>/<nome_do_disco>.chd
++
++Cada arquivo encontrado tem seu tamanho real lido via ``Path.stat()`` e
++devolvido para quem chamar persistir no banco (ver
++``DatabaseService.update_chd_sizes``).
++"""
++
++from __future__ import annotations
++
++import logging
++from pathlib import Path
++from typing import Dict, Iterable, Tuple
++
++logger = logging.getLogger(__name__)
++
++
++def scan_chd_sizes(rompaths: Iterable[str]) -> Dict[Tuple[str, str], int]:
++    """Varre os rompaths procurando arquivos .chd e retorna seus tamanhos reais.
++
++    Args:
++        rompaths: caminhos configurados em mame.ini -> rompath (pode ser
++            mais de um; o MAME procura em todos, nessa ordem).
++
++    Returns:
++        Dicionário {(nome_da_maquina, nome_do_disco): tamanho_em_bytes}.
++        Se o mesmo (máquina, disco) aparecer em mais de um rompath, o
++        primeiro encontrado vence (mesma prioridade que o MAME usa).
++    """
++    result: Dict[Tuple[str, str], int] = {}
++
++    for rp in rompaths:
++        root = Path(rp)
++        if not root.is_dir():
++            logger.warning(f"rompath não é um diretório válido, ignorando: {rp}")
++            continue
++
++        try:
++            machine_dirs = [d for d in root.iterdir() if d.is_dir()]
++        except OSError as e:
++            logger.warning(f"Não foi possível listar {root}: {e}")
++            continue
++
++        for machine_dir in machine_dirs:
++            machine_name = machine_dir.name
++            try:
++                chd_files = list(machine_dir.glob("*.chd"))
++            except OSError as e:
++                logger.warning(f"Não foi possível listar {machine_dir}: {e}")
++                continue
++
++            for chd_file in chd_files:
++                disk_name = chd_file.stem
++                key = (machine_name, disk_name)
++                if key in result:
++                    continue  # já encontrado em um rompath de prioridade maior
++                try:
++                    result[key] = chd_file.stat().st_size
++                except OSError as e:
++                    logger.warning(f"Não foi possível ler o tamanho de {chd_file}: {e}")
++
++    logger.info(f"Scanner de CHD: {len(result)} arquivo(s) .chd encontrados em {list(rompaths)}")
++    return result

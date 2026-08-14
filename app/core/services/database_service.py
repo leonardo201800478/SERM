@@ -67,6 +67,30 @@ class DatabaseService:
         installation_id = self._upsert_installation(executable_path, version)
         return self._import_machines(iter_machines(xml_string), installation_id, None)
 
+    def update_chd_sizes(self, chd_sizes: dict) -> int:
+        """Persiste tamanhos reais de CHDs (lidos do disco) na tabela `disk`.
+
+        Args:
+            chd_sizes: {(nome_da_maquina, nome_do_disco): tamanho_em_bytes},
+                normalmente vindo de ``app.mame.chd_scanner.scan_chd_sizes``.
+
+        Returns:
+            Quantidade de registros de `disk` efetivamente atualizados.
+        """
+        cursor = self.conn.cursor()
+        updated = 0
+        for (machine_name, disk_name), size in chd_sizes.items():
+            cursor.execute(
+                """
+                UPDATE disk SET size = ?
+                WHERE name = ? AND machine_id = (SELECT id FROM machine WHERE name = ?)
+                """,
+                (size, disk_name, machine_name),
+            )
+            updated += cursor.rowcount
+        self.conn.commit()
+        return updated
+
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------

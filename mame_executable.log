@@ -177,3 +177,72 @@
 2026-08-12 23:45:59,600 - MameExecutable - INFO - Iniciando -listxml em modo streaming...
 2026-08-12 23:46:18,530 - MameExecutable - INFO - listxml (streaming) concluído com sucesso.
 2026-08-12 23:46:18,530 - app.core.services.database_service - INFO - Importação concluída. 50368 máquinas inseridas/atualizadas.
+2026-08-13 21:44:34,746 - app.main - INFO - ============================================================
+2026-08-13 21:44:34,746 - app.main - INFO - Iniciando MAME Set Builder...
+2026-08-13 21:44:34,746 - app.main - INFO - Python: 3.14.6 (tags/v3.14.6:c63aec6, Jun 10 2026, 10:26:10) [MSC v.1944 64 bit (AMD64)]
+2026-08-13 21:44:34,746 - app.main - INFO - Platform: win32
+2026-08-13 21:44:34,828 - app.database.database - INFO - Database inicializado com caminho: C:\Users\leost\mame-set-builder\data\database\mame_set_builder.db
+2026-08-13 21:44:34,828 - app.database.database - INFO - Conectando ao banco: C:\Users\leost\mame-set-builder\data\database\mame_set_builder.db
+2026-08-13 21:44:34,830 - app.database.database - WARNING - schema.sql não encontrado em C:\Users\leost\mame-set-builder\app\database\schema.sql. Usando fallback.
+2026-08-13 21:44:34,830 - app.database.database - WARNING - Criando tabelas mínimas (fallback).
+2026-08-13 21:44:34,845 - app.database.database - INFO - Tabelas fallback criadas.
+2026-08-13 21:44:34,846 - app.database.database - INFO - Migrando schema: adicionando coluna disk.size
+2026-08-13 21:44:34,850 - app.database.database - INFO - Conexão estabelecida e tabelas verificadas.
+2026-08-13 21:44:34,860 - MameExecutable - INFO - Inicializando MameExecutable com caminho: G:\LaunchBox\emulators\mame\mame.exe
+2026-08-13 21:44:34,861 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe --version
+2026-08-13 21:44:35,558 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe -version
+2026-08-13 21:44:35,718 - MameExecutable - INFO - Versão detectada via padrão genérico: 0.289
+2026-08-13 21:44:35,731 - MameExecutable - INFO - Inicializando MameExecutable com caminho: G:\LaunchBox\emulators\mame\mame.exe
+2026-08-13 21:44:35,731 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe --version
+2026-08-13 21:44:35,891 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe -version
+2026-08-13 21:44:36,049 - MameExecutable - INFO - Versão detectada via padrão genérico: 0.289
+2026-08-13 21:44:37,909 - app.database.database - INFO - Conectando ao banco: C:\Users\leost\mame-set-builder\data\database\mame_set_builder.db
+2026-08-13 21:44:37,909 - app.database.database - WARNING - schema.sql não encontrado em C:\Users\leost\mame-set-builder\app\database\schema.sql. Usando fallback.
+2026-08-13 21:44:37,910 - app.database.database - WARNING - Criando tabelas mínimas (fallback).
+2026-08-13 21:44:37,915 - app.database.database - INFO - Tabelas fallback criadas.
+2026-08-13 21:44:37,915 - app.database.database - INFO - Conexão estabelecida e tabelas verificadas.
+2026-08-13 21:44:38,094 - app.main - INFO - Aplicação iniciada com sucesso.
+2026-08-13 21:44:46,999 - MameExecutable - INFO - Inicializando MameExecutable com caminho: G:\LaunchBox\emulators\mame\mame.exe
+2026-08-13 21:44:46,999 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe --version
+2026-08-13 21:44:47,274 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe -version
+2026-08-13 21:44:47,433 - MameExecutable - INFO - Versão detectada via padrão genérico: 0.289
+2026-08-13 21:44:47,435 - app.core.services.database_service - INFO - Instalação existente atualizada (ID 1)
+2026-08-13 21:44:47,438 - MameExecutable - INFO - Iniciando -listxml em modo streaming...
+2026-08-13 21:45:10,539 - MameExecutable - INFO - listxml (streaming) concluído com sucesso.
+2026-08-13 21:45:10,539 - app.core.services.database_service - INFO - Importação concluída. 50368 máquinas inseridas/atualizadas.
+2026-08-13 21:45:36,061 - app.mame.chd_scanner - WARNING - rompath não é um diretório válido, ignorando: roms
+2026-08-13 21:45:42,693 - app.mame.chd_scanner - INFO - Scanner de CHD: 81 arquivo(s) .chd encontrados em ['roms', 'F:/ROMS/MAME/roms', 'I:/ROMS/MAME']
+2026-08-13 21:46:11,988 - app.mame.chd_scanner - WARNING - rompath não é um diretório válido, ignorando: roms
+2026-08-13 21:46:14,224 - app.mame.chd_scanner - INFO - Scanner de CHD: 81 arquivo(s) .chd encontrados em ['roms', 'F:/ROMS/MAME/roms', 'I:/ROMS/MAME']
+2026-08-13 21:49:13,632 - MameExecutable - INFO - Inicializando MameExecutable com caminho: G:\LaunchBox\emulators\mame\mame.exe
+2026-08-13 21:49:13,633 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe --version
+2026-08-13 21:49:13,907 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe -version
+2026-08-13 21:49:14,068 - MameExecutable - INFO - Versão detectada via padrão genérico: 0.289
+2026-08-13 21:49:18,488 - MameExecutable - INFO - Inicializando MameExecutable com caminho: G:\LaunchBox\emulators\mame\mame.exe
+2026-08-13 21:49:18,488 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe --version
+2026-08-13 21:49:18,764 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe -version
+2026-08-13 21:49:18,921 - MameExecutable - INFO - Versão detectada via padrão genérico: 0.289
+2026-08-13 21:49:20,972 - MameExecutable - INFO - Inicializando MameExecutable com caminho: G:\LaunchBox\emulators\mame\mame.exe
+2026-08-13 21:49:20,972 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe --version
+2026-08-13 21:49:21,243 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe -version
+2026-08-13 21:49:21,399 - MameExecutable - INFO - Versão detectada via padrão genérico: 0.289
+2026-08-13 21:49:33,611 - MameExecutable - INFO - Inicializando MameExecutable com caminho: G:\LaunchBox\emulators\mame\mame.exe
+2026-08-13 21:49:33,611 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe --version
+2026-08-13 21:49:33,884 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe -version
+2026-08-13 21:49:34,045 - MameExecutable - INFO - Versão detectada via padrão genérico: 0.289
+2026-08-13 21:51:21,555 - app.database.database - INFO - Database inicializado com caminho: C:\Users\leost\mame-set-builder\data\database\mame_set_builder.db
+2026-08-13 21:51:21,555 - app.database.database - INFO - Conectando ao banco: C:\Users\leost\mame-set-builder\data\database\mame_set_builder.db
+2026-08-13 21:51:21,556 - app.database.database - WARNING - schema.sql não encontrado em C:\Users\leost\mame-set-builder\app\database\schema.sql. Usando fallback.
+2026-08-13 21:51:21,556 - app.database.database - WARNING - Criando tabelas mínimas (fallback).
+2026-08-13 21:51:21,609 - app.database.database - INFO - Tabelas fallback criadas.
+2026-08-13 21:51:21,609 - app.database.database - INFO - Conexão estabelecida e tabelas verificadas.
+2026-08-13 21:51:21,610 - MameExecutable - INFO - Inicializando MameExecutable com caminho: G:\LaunchBox\emulators\mame\mame.exe
+2026-08-13 21:51:21,611 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe --version
+2026-08-13 21:51:21,884 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe -version
+2026-08-13 21:51:22,047 - MameExecutable - INFO - Versão detectada via padrão genérico: 0.289
+2026-08-13 21:51:22,853 - app.core.services.database_service - INFO - Nova instalação criada (ID 1)
+2026-08-13 21:51:22,856 - MameExecutable - INFO - Iniciando -listxml em modo streaming...
+2026-08-13 21:51:41,236 - MameExecutable - INFO - listxml (streaming) concluído com sucesso.
+2026-08-13 21:51:41,236 - app.core.services.database_service - INFO - Importação concluída. 50368 máquinas inseridas/atualizadas.
+2026-08-13 21:52:22,633 - app.mame.chd_scanner - WARNING - rompath não é um diretório válido, ignorando: roms
+2026-08-13 21:52:24,684 - app.mame.chd_scanner - INFO - Scanner de CHD: 81 arquivo(s) .chd encontrados em ['roms', 'F:/ROMS/MAME/roms', 'I:/ROMS/MAME']

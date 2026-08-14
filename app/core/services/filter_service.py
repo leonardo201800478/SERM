@@ -123,6 +123,115 @@ class FilterService:
         self.conn.commit()
         return categorias_count, maquinas_count, imported_categories
 
+    # Seções que não representam categorias de máquinas no catlist.ini.
+    _CATLIST_IGNORED_SECTIONS = frozenset({'FOLDER_SETTINGS', 'ROOT_FOLDER'})
+
+    @staticmethod
+    def _catlist_primary_category(section: str) -> str:
+        """Extrai o "primeiro filtro" de um cabeçalho do catlist.ini.
+
+        Regras observadas no arquivo real do catlist.ini (progetto-snaps):
+        - Seções de Arcade usam ':' como separador do nível principal, ex.:
+          "[Arcade: Driving / Race (chase view)]" -> "Arcade".
+        - Todas as demais usam '/', ex.:
+          "[Tablet / Multi-Functional for Children]" -> "Tablet".
+        - Seções sem nenhum separador são usadas como estão (ex.: "System").
+        """
+        section = section.strip()
+        if ':' in section:
+            return section.split(':', 1)[0].strip()
+        if '/' in section:
+            return section.split('/', 1)[0].strip()
+        return section
+
+    def import_categories_from_catlist(self, catlist_path: Path) -> Tuple[int, int, List[str]]:
+        """
+        Importa categorias a partir do catlist.ini (progetto-snaps), agrupando
+        por apenas o PRIMEIRO nível do cabeçalho de cada seção — ex.:
+        "[Arcade: Driving / Race (chase view)]" vira apenas a categoria
+        "Arcade", e "[Tablet / Multi-Functional for Children]" vira apenas
+        "Tablet". Isso evita a explosão de ~680 subcategorias (uma por seção)
+        e mantém o filtro da GUI em poucas opções realmente úteis.
+
+        Retorna (categorias_importadas, maquinas_associadas, lista_de_categorias_importadas).
+        """
+        if not catlist_path.exists():
+            raise FileNotFoundError(f"Arquivo não encontrado: {catlist_path}")
+
+        cursor = self.conn.cursor()
+        categorias_count = 0
+        maquinas_count = 0
+        imported_categories = []
+
+        def normalize_cat_name(name: str) -> str:
+            name = re.sub(r'[^a-zA-Z0-9 ]', '', name)
+            name = name.strip().lower()
+            name = re.sub(r'\s+', '_', name)
+            return name
+
+        # cat_name normalizado -> id no banco (agrega todas as subseções que
+        # mapeiam para a mesma categoria principal, ex.: as ~383 seções
+        # "Arcade: ..." todas caem no mesmo cat_id de "arcade").
+        categoria_cache: Dict[str, int] = {}
+        current_cat_id = None
+
+        with open(catlist_path, 'r', encoding='utf-8', errors='ignore') as f:
+            for raw_line in f:
+                line = raw_line.strip()
+                if not line or line.startswith(';'):
+                    continue
+
+                if line.startswith('[') and line.endswith(']'):
+                    section = line[1:-1].strip()
+                    if section in self._CATLIST_IGNORED_SECTIONS or not section:
+                        current_cat_id = None
+                        continue
+
+                    primary = self._catlist_primary_category(section)
+                    cat_name = normalize_cat_name(primary)
+                    if not cat_name:
+                        current_cat_id = None
+                        continue
+
+                    if cat_name in categoria_cache:
+                        current_cat_id = categoria_cache[cat_name]
+                        continue
+
+                    cursor.execute("SELECT id FROM category WHERE name = ?", (cat_name,))
+                    row = cursor.fetchone()
+                    if row:
+                        cat_id = row[0]
+                    else:
+                        cursor.execute(
+                            "INSERT INTO category (name, display_name, source) VALUES (?, ?, ?)",
+                            (cat_name, primary, 'catlist.ini')
+                        )
+                        cat_id = cursor.lastrowid
+                        categorias_count += 1
+                        imported_categories.append(primary)
+
+                    categoria_cache[cat_name] = cat_id
+                    current_cat_id = cat_id
+                    continue
+
+                if current_cat_id is None:
+                    continue
+
+                machine_name = line
+                cursor.execute("SELECT id FROM machine WHERE name = ?", (machine_name,))
+                row = cursor.fetchone()
+                if row:
+                    machine_id = row[0]
+                    cursor.execute(
+                        "INSERT OR IGNORE INTO machine_category (machine_id, category_id) VALUES (?, ?)",
+                        (machine_id, current_cat_id)
+                    )
+                    if cursor.rowcount > 0:
+                        maquinas_count += 1
+
+        self.conn.commit()
+        return categorias_count, maquinas_count, imported_categories
+
     # ========================================================================
     # CONSTRUÇÃO DA CONSULTA SQL
     # ========================================================================
@@ -225,17 +334,55 @@ class FilterService:
         return cursor.fetchone()[0]
 
     def get_estimated_size(self, criteria: FilterCriteria) -> int:
+        """Soma o tamanho estimado (ROMs + CHDs) das máquinas filtradas.
+
+        O tamanho de ROMs vem direto do -listxml. O tamanho de CHDs só é
+        conhecido depois de rodar o scanner (ver
+        ``DatabaseService.update_chd_sizes`` / ``app.mame.chd_scanner``),
+        que lê os arquivos .chd reais no rompath configurado — o listxml
+        não informa esse dado. Enquanto o scanner não roda, `disk.size`
+        fica em 0 e essas máquinas ainda entram na contagem de máquinas/CHDs,
+        mas não somam bytes aqui (ver ``get_unscanned_chd_count`` para saber
+        se isso está subestimando o total).
+        """
         query, params = self._build_filter_query(criteria)
         size_query = f"""
-            SELECT COALESCE(SUM(r.size), 0) FROM rom r
-            WHERE EXISTS (
-                SELECT 1 FROM ({query}) AS filtered_machines
-                WHERE filtered_machines.id = r.machine_id
-            )
+            SELECT
+                COALESCE((
+                    SELECT SUM(r.size) FROM rom r
+                    WHERE EXISTS (
+                        SELECT 1 FROM ({query}) AS fm WHERE fm.id = r.machine_id
+                    )
+                ), 0)
+                +
+                COALESCE((
+                    SELECT SUM(d.size) FROM disk d
+                    WHERE EXISTS (
+                        SELECT 1 FROM ({query}) AS fm WHERE fm.id = d.machine_id
+                    )
+                ), 0)
         """
-        cursor = self.conn.execute(size_query, params)
+        cursor = self.conn.execute(size_query, params + params)
         result = cursor.fetchone()
         return result[0] if result else 0
+
+    def get_unscanned_chd_count(self, criteria: FilterCriteria) -> int:
+        """Quantos CHDs, dentre as máquinas filtradas, ainda não têm tamanho lido.
+
+        Use para avisar na UI que o "Tamanho estimado" pode estar
+        subestimado até rodar o scanner de CHD.
+        """
+        query, params = self._build_filter_query(criteria)
+        count_query = f"""
+            SELECT COUNT(*) FROM disk d
+            WHERE (d.size IS NULL OR d.size = 0)
+            AND EXISTS (
+                SELECT 1 FROM ({query}) AS filtered_machines
+                WHERE filtered_machines.id = d.machine_id
+            )
+        """
+        cursor = self.conn.execute(count_query, params)
+        return cursor.fetchone()[0]
 
     # ========================================================================
     # PERFIS

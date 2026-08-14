@@ -19,6 +19,8 @@ from app.database.database import Database
 from app.config.app_config import AppConfig
 from app.mame.executable import MameExecutable
 from app.core.services.database_service import DatabaseService
+from app.core.services.ini_service import IniService
+from app.mame.chd_scanner import scan_chd_sizes
 from app.gui.widgets.log_panel import LogPanel
 
 logger = logging.getLogger(__name__)
@@ -29,17 +31,6 @@ class FiltersTab(QWidget):
     database_updated = Signal()
     progress_signal = Signal(int, str)
     finish_signal = Signal(bool, str)
-
-    # Lista de categorias permitidas (filtro)
-    ALLOWED_CATEGORIES = [
-        "Arcade",
-        "Coin-OP",
-        "Coin-OP (NON-GAMES)",
-        "Computers",
-        "Consoles",
-        "Electronic",
-        "Gambling"
-    ]
 
     def __init__(self, parent=None, db: Database = None):
         super().__init__(parent)
@@ -107,25 +98,38 @@ class FiltersTab(QWidget):
         db_layout.addRow(self.lbl_rom_count)
         db_layout.addRow(self.lbl_chd_count)
 
-        # Barra de progresso removida (não mostra nada útil)
-        # self.progress_bar = QProgressBar()
-        # self.progress_bar.setVisible(False)
-        # db_layout.addRow(self.progress_bar)
+        # Botões em linha, em vez de um por "row" do QFormLayout (que os
+        # esticava pela largura inteira do formulário).
+        db_buttons_layout = QHBoxLayout()
 
-        btn_import = QPushButton("Importar listxml do MAME")
+        btn_import = QPushButton("Importar listxml")
         btn_import.clicked.connect(self._import_listxml)
         btn_import.setToolTip("Recria o banco de dados importando todas as informações do MAME via -listxml.")
-        db_layout.addRow(btn_import)
+        db_buttons_layout.addWidget(btn_import)
 
-        btn_rebuild = QPushButton("Recriar banco (forçar)")
+        btn_rebuild = QPushButton("Recriar banco")
         btn_rebuild.clicked.connect(self._rebuild_database)
         btn_rebuild.setToolTip("Apaga o banco atual e recria do zero a partir do listxml.")
-        db_layout.addRow(btn_rebuild)
+        db_buttons_layout.addWidget(btn_rebuild)
 
-        btn_import_cat = QPushButton("Importar categorias do MAME")
+        btn_import_cat = QPushButton("Importar categorias (catlist.ini)")
         btn_import_cat.clicked.connect(self._import_categories)
-        btn_import_cat.setToolTip("Importa o arquivo category.ini da pasta 'folders' do MAME.")
-        db_layout.addRow(btn_import_cat)
+        btn_import_cat.setToolTip(
+            "Importa o catlist.ini da pasta 'folders' do MAME, agrupando pelo "
+            "primeiro nível de cada categoria (ex.: 'Arcade: Driving / Race' vira só 'Arcade')."
+        )
+        db_buttons_layout.addWidget(btn_import_cat)
+
+        btn_scan_chd = QPushButton("Escanear tamanho dos CHDs")
+        btn_scan_chd.clicked.connect(self._scan_chd_sizes)
+        btn_scan_chd.setToolTip(
+            "O -listxml do MAME não informa o tamanho de CHDs. Este botão lê o "
+            "tamanho real dos arquivos .chd na pasta configurada como 'rompath' "
+            "no mame.ini, para que 'Tamanho estimado' fique correto."
+        )
+        db_buttons_layout.addWidget(btn_scan_chd)
+
+        db_layout.addRow(db_buttons_layout)
 
         layout.addWidget(grp_db)
 
@@ -157,10 +161,10 @@ class FiltersTab(QWidget):
         layout.addWidget(grp_profiles)
 
         # ============================
-        # GRUPO: ESTADO DE EMULAÇÃO (checkboxes)
+        # GRUPO: ESTADO DE EMULAÇÃO (checkboxes, em linha)
         # ============================
         grp_status = QGroupBox("Estado de Emulação")
-        status_layout = QVBoxLayout()
+        status_layout = QHBoxLayout()
         grp_status.setLayout(status_layout)
 
         self.status_checkboxes = {}
@@ -177,18 +181,14 @@ class FiltersTab(QWidget):
             self.status_checkboxes[value] = cb
             status_layout.addWidget(cb)
 
-        btn_all = QPushButton("All (limpar seleção)")
-        btn_all.setFixedWidth(150)
-        btn_all.clicked.connect(self._clear_all_status)
-        status_layout.addWidget(btn_all)
-
+        status_layout.addStretch()
         layout.addWidget(grp_status)
 
         # ============================
-        # GRUPO: OPÇÕES
+        # GRUPO: OPÇÕES (checkboxes, em linha)
         # ============================
         grp_options = QGroupBox("Opções")
-        options_layout = QVBoxLayout()
+        options_layout = QHBoxLayout()
         grp_options.setLayout(options_layout)
 
         self.chk_clones = QCheckBox("Incluir Clones")
@@ -212,6 +212,7 @@ class FiltersTab(QWidget):
         self.chk_chd.setToolTip("Desmarque para excluir máquinas que possuem CHD.")
         options_layout.addWidget(self.chk_chd)
 
+        options_layout.addStretch()
         layout.addWidget(grp_options)
 
         # ============================
@@ -288,39 +289,30 @@ class FiltersTab(QWidget):
     # ========================================================================
 
     def _load_categories(self):
-        """Carrega apenas as categorias permitidas em um grid de checkboxes."""
+        """Carrega todas as categorias existentes no banco em um grid de checkboxes.
+
+        Antes havia uma lista `ALLOWED_CATEGORIES` fixa na GUI tentando
+        adivinhar quais categorias "deveriam" existir — mas ela usava nomes
+        de um esquema diferente (catlist antigo) e não batia com o que
+        `seed_default_categories()` ou a importação de fato criavam no
+        banco, deixando o painel vazio ou incompleto. Agora a importação em
+        si (`import_categories_from_catlist`) já é responsável por criar
+        apenas categorias "limpas" (o primeiro nível do catlist.ini), então
+        a GUI simplesmente mostra o que existe no banco — sem whitelist
+        paralela para manter sincronizada.
+        """
         for cb in self.category_checkboxes.values():
             self.cat_grid.removeWidget(cb)
             cb.deleteLater()
         self.category_checkboxes.clear()
 
-        # Obtém todas as categorias do banco
         all_cats = self.filter_service.get_categories_with_counts()
-        
-        # Filtra apenas as permitidas
-        filtered_cats = []
-        for cat in all_cats:
-            display_name = cat['display_name']
-            # Verifica se a categoria está na lista de permitidas
-            for allowed in self.ALLOWED_CATEGORIES:
-                if display_name.startswith(allowed) or display_name == allowed:
-                    filtered_cats.append(cat)
-                    break
-
-        # Se não houver categorias permitidas, adiciona as padrão
-        if not filtered_cats:
+        if not all_cats:
             self.filter_service.seed_default_categories()
             all_cats = self.filter_service.get_categories_with_counts()
-            for cat in all_cats:
-                display_name = cat['display_name']
-                for allowed in self.ALLOWED_CATEGORIES:
-                    if display_name.startswith(allowed) or display_name == allowed:
-                        filtered_cats.append(cat)
-                        break
 
-        # Organiza em colunas (3 colunas)
         cols = 3
-        for idx, cat in enumerate(filtered_cats):
+        for idx, cat in enumerate(all_cats):
             row = idx // cols
             col = idx % cols
             cb = QCheckBox(f"{cat['display_name']} ({cat['count']})")
@@ -353,12 +345,8 @@ class FiltersTab(QWidget):
     def _on_status_changed(self):
         self._on_filters_changed()
 
-    def _clear_all_status(self):
-        for cb in self.status_checkboxes.values():
-            cb.setChecked(False)
-
     # ========================================================================
-    # IMPORTAÇÃO DE CATEGORIAS
+    # IMPORTAÇÃO DE CATEGORIAS (catlist.ini)
     # ========================================================================
 
     def _import_categories(self):
@@ -366,7 +354,7 @@ class FiltersTab(QWidget):
             QMessageBox.warning(self, "Erro", "Selecione o executável MAME primeiro.")
             return
 
-        default_ini = self.config.mame_path.parent / "folders" / "category.ini"
+        default_ini = self.config.mame_path.parent / "folders" / "catlist.ini"
         if not default_ini.exists():
             reply = QMessageBox.question(
                 self,
@@ -378,7 +366,7 @@ class FiltersTab(QWidget):
                 return
             file_path, _ = QFileDialog.getOpenFileName(
                 self,
-                "Selecionar category.ini",
+                "Selecionar catlist.ini",
                 "",
                 "Arquivos INI (*.ini);;Todos os arquivos (*)"
             )
@@ -389,17 +377,77 @@ class FiltersTab(QWidget):
             ini_path = default_ini
 
         try:
-            categorias, maquinas, imported = self.filter_service.import_categories_from_ini(ini_path)
+            categorias, maquinas, imported = self.filter_service.import_categories_from_catlist(ini_path)
             msg = f"Categorias importadas: {categorias}\nMáquinas associadas: {maquinas}\n"
             if imported:
-                msg += "\nCategorias criadas:\n" + ", ".join(imported[:10])
-                if len(imported) > 10:
-                    msg += f" ... (+{len(imported)-10} outras)"
+                msg += "\nCategorias criadas:\n" + ", ".join(sorted(imported)[:15])
+                if len(imported) > 15:
+                    msg += f" ... (+{len(imported)-15} outras)"
             QMessageBox.information(self, "Importação concluída", msg)
             self._load_categories()
             self._apply_filters()
         except Exception as e:
             QMessageBox.critical(self, "Erro", f"Falha ao importar categorias:\n{str(e)}")
+
+    # ========================================================================
+    # ESCANEAR TAMANHO DOS CHDs
+    # ========================================================================
+
+    def _scan_chd_sizes(self):
+        """Lê o tamanho real dos arquivos .chd no rompath configurado no
+        mame.ini e grava em `disk.size`, para que 'Tamanho estimado' pare de
+        ignorar CHDs (ver app.mame.chd_scanner para o porquê disso não vir
+        do -listxml)."""
+        if self._import_running:
+            QMessageBox.warning(self, "Aguarde", "Uma operação já está em andamento.")
+            return
+
+        if not self.config.ini_path or not self.config.ini_path.exists():
+            QMessageBox.warning(
+                self, "Erro",
+                "Selecione o mame.ini na aba Diretórios primeiro "
+                "(é de lá que vem o 'rompath' onde os .chd ficam)."
+            )
+            return
+
+        try:
+            ini_service = IniService(self.config.ini_path)
+            rompaths = ini_service.get_paths("rompath")
+        except Exception as e:
+            QMessageBox.critical(self, "Erro", f"Falha ao ler mame.ini:\n{e}")
+            return
+
+        if not rompaths:
+            QMessageBox.warning(self, "Aviso", "Nenhum 'rompath' configurado no mame.ini.")
+            return
+
+        self._import_running = True
+        self.setEnabled(False)
+        self.progress_signal.emit(0, f"Escaneando CHDs em {len(rompaths)} pasta(s)...")
+
+        def scan_task():
+            try:
+                chd_sizes = scan_chd_sizes(rompaths)
+                self.progress_signal.emit(80, f"{len(chd_sizes)} CHD(s) encontrados, salvando...")
+
+                conn = sqlite3.connect(str(self.config.db_path))
+                conn.row_factory = sqlite3.Row
+                service = DatabaseService(conn)
+                updated = service.update_chd_sizes(chd_sizes)
+                conn.close()
+
+                self.progress_signal.emit(100, "Concluído.")
+                self.finish_signal.emit(
+                    True,
+                    f"Scanner de CHD concluído.\n"
+                    f"{len(chd_sizes)} arquivo(s) .chd encontrados nos rompaths.\n"
+                    f"{updated} registro(s) atualizados no banco."
+                )
+            except Exception as e:
+                logger.error(f"Falha ao escanear CHDs: {e}", exc_info=True)
+                self.finish_signal.emit(False, f"Erro ao escanear CHDs: {e}")
+
+        threading.Thread(target=scan_task, daemon=True).start()
 
     # ========================================================================
     # PERFIS
@@ -449,6 +497,16 @@ class FiltersTab(QWidget):
         self._apply_filters()
         self.filters_changed.emit()
 
+    @staticmethod
+    def _format_size(size_bytes: int) -> str:
+        if size_bytes >= 1_073_741_824:
+            return f"{size_bytes / 1_073_741_824:.2f} GB"
+        if size_bytes >= 1_048_576:
+            return f"{size_bytes / 1_048_576:.2f} MB"
+        if size_bytes >= 1024:
+            return f"{size_bytes / 1024:.2f} KB"
+        return f"{size_bytes} B"
+
     def _apply_filters(self):
         try:
             criteria = self._get_criteria_from_ui()
@@ -458,19 +516,17 @@ class FiltersTab(QWidget):
             rom_count = self.filter_service.get_rom_count(criteria)
             chd_count = self.filter_service.get_chd_count(criteria)
             size_bytes = self.filter_service.get_estimated_size(criteria)
+            unscanned_chds = self.filter_service.get_unscanned_chd_count(criteria)
 
             self.lbl_machines.setText(str(machine_count))
             self.lbl_roms_filtered.setText(str(rom_count))
             self.lbl_chds_filtered.setText(str(chd_count))
 
-            if size_bytes >= 1_073_741_824:
-                size_str = f"{size_bytes / 1_073_741_824:.2f} GB"
-            elif size_bytes >= 1_048_576:
-                size_str = f"{size_bytes / 1_048_576:.2f} MB"
-            elif size_bytes >= 1024:
-                size_str = f"{size_bytes / 1024:.2f} KB"
-            else:
-                size_str = f"{size_bytes} B"
+            size_str = self._format_size(size_bytes)
+            if unscanned_chds > 0:
+                # O -listxml não traz tamanho de CHD; sem rodar o scanner,
+                # esse total fica subestimado. Avisa em vez de fingir precisão.
+                size_str += f"  (⚠ {unscanned_chds} CHD(s) sem tamanho lido — use 'Escanear tamanho dos CHDs')"
             self.lbl_size.setText(size_str)
 
         except Exception as e:

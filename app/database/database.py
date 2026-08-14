@@ -23,7 +23,24 @@ class Database:
         self.conn = sqlite3.connect(str(self.db_path))
         self.conn.row_factory = sqlite3.Row
         self._create_tables()
+        self._migrate_schema()
         logger.info("Conexão estabelecida e tabelas verificadas.")
+
+    def _migrate_schema(self):
+        """Aplica alterações incrementais em bancos criados por versões antigas.
+
+        O MAME -listxml não informa o tamanho de CHDs (diferente de ROMs),
+        então a coluna `disk.size` só existe a partir desta versão e é
+        preenchida por um scanner separado que lê os arquivos .chd reais
+        (ver app/mame/chd_scanner.py). Bancos antigos não têm essa coluna.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute("PRAGMA table_info(disk)")
+        columns = {row[1] for row in cursor.fetchall()}
+        if "size" not in columns:
+            logger.info("Migrando schema: adicionando coluna disk.size")
+            cursor.execute("ALTER TABLE disk ADD COLUMN size INTEGER DEFAULT 0")
+            self.conn.commit()
 
     def _create_tables(self):
         """Cria as tabelas a partir do schema.sql ou fallback."""
@@ -101,6 +118,7 @@ class Database:
                 writable INTEGER DEFAULT 0,
                 status TEXT DEFAULT 'good',
                 optional INTEGER DEFAULT 0,
+                size INTEGER DEFAULT 0,
                 FOREIGN KEY (machine_id) REFERENCES machine(id) ON DELETE CASCADE
             );
 
