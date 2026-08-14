@@ -10,7 +10,8 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QGroupBox, QFormLayout, QCheckBox, QComboBox, QListWidget,
     QListWidgetItem, QMessageBox, QScrollArea, QLineEdit,
-    QDialog, QDialogButtonBox, QFileDialog, QGridLayout, QSplitter
+    QDialog, QDialogButtonBox, QFileDialog, QGridLayout, QSplitter,
+    QSizePolicy
 )
 
 from app.core.services.filter_service import FilterService
@@ -27,6 +28,39 @@ logger = logging.getLogger(__name__)
 
 
 class FiltersTab(QWidget):
+    # --- Classe interna para chip de 2 estados (normal/excluir) ---
+    class CategoryChip(QPushButton):
+        STATE_NORMAL = 0
+        STATE_EXCLUDE = 1
+
+        def __init__(self, category_name, display_name, count, parent=None):
+            super().__init__(f"{display_name} ({count})", parent)
+            self.category_name = category_name
+            self.state = self.STATE_NORMAL
+            self.setCheckable(False)
+            self.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Minimum)
+            self.clicked.connect(self.toggle_state)
+            self.update_style()
+
+        def toggle_state(self):
+            # Alterna entre normal e excluído
+            self.state = self.STATE_EXCLUDE if self.state == self.STATE_NORMAL else self.STATE_NORMAL
+            self.update_style()
+            if self.parent() and hasattr(self.parent(), 'on_category_changed'):
+                self.parent().on_category_changed(self.category_name, self.state)
+
+        def update_style(self):
+            # Estilo compacto com altura reduzida (padding 1px 4px, fonte 8pt)
+            base_style = "border: 1px solid #888; border-radius: 3px; padding: 1px 4px; font-size: 8pt;"
+            if self.state == self.STATE_NORMAL:
+                self.setStyleSheet(f"background-color: #e0e0e0; color: black; {base_style}")
+            else:  # EXCLUDE
+                self.setStyleSheet(f"background-color: #ff4d4d; color: white; {base_style}")
+
+        def set_state(self, state):
+            self.state = state
+            self.update_style()
+
     filters_changed = Signal()
     database_updated = Signal()
     progress_signal = Signal(int, str)
@@ -43,6 +77,7 @@ class FiltersTab(QWidget):
         self.current_criteria = FilterCriteria()
         self.profiles = []
         self._import_running = False
+        self.category_chips = {}  # nome -> CategoryChip
 
         self.progress_signal.connect(self._on_progress_update)
         self.finish_signal.connect(self._on_import_finished)
@@ -69,13 +104,6 @@ class FiltersTab(QWidget):
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         container = QWidget()
-        # OBS: antes esta variável se chamava `form_layout` e nunca era
-        # usada — todos os grupos abaixo eram adicionados a um outro layout
-        # (o de `self`, fora da área de rolagem), então a QScrollArea ficava
-        # vazia e a aba inteira não rolava de verdade. Agora `layout` É o
-        # layout do container que fica dentro do scroll, então tudo que é
-        # adicionado a ele (todo o código abaixo, inalterado) passa a rolar
-        # corretamente quando o conteúdo não cabe na tela.
         layout = QVBoxLayout(container)
         layout.setSpacing(15)
 
@@ -98,25 +126,17 @@ class FiltersTab(QWidget):
         db_layout.addRow(self.lbl_rom_count)
         db_layout.addRow(self.lbl_chd_count)
 
-        # Botões em linha, em vez de um por "row" do QFormLayout (que os
-        # esticava pela largura inteira do formulário).
         db_buttons_layout = QHBoxLayout()
 
-        btn_import = QPushButton("Importar listxml")
-        btn_import.clicked.connect(self._import_listxml)
-        btn_import.setToolTip("Recria o banco de dados importando todas as informações do MAME via -listxml.")
-        db_buttons_layout.addWidget(btn_import)
+        btn_sync = QPushButton("Importar/Atualizar Banco")
+        btn_sync.clicked.connect(self._sync_database)
+        btn_sync.setToolTip("Recria ou atualiza o banco com os dados do MAME -listxml")
+        db_buttons_layout.addWidget(btn_sync)
 
-        btn_rebuild = QPushButton("Recriar banco")
-        btn_rebuild.clicked.connect(self._rebuild_database)
-        btn_rebuild.setToolTip("Apaga o banco atual e recria do zero a partir do listxml.")
-        db_buttons_layout.addWidget(btn_rebuild)
-
-        btn_import_cat = QPushButton("Importar categorias (catlist.ini)")
+        btn_import_cat = QPushButton("Importar categorias (catver.ini)")
         btn_import_cat.clicked.connect(self._import_categories)
         btn_import_cat.setToolTip(
-            "Importa o catlist.ini da pasta 'folders' do MAME, agrupando pelo "
-            "primeiro nível de cada categoria (ex.: 'Arcade: Driving / Race' vira só 'Arcade')."
+            "Importa o catver.ini da pasta 'folders' do MAME, agrupando pelo primeiro nível."
         )
         db_buttons_layout.addWidget(btn_import_cat)
 
@@ -130,7 +150,6 @@ class FiltersTab(QWidget):
         db_buttons_layout.addWidget(btn_scan_chd)
 
         db_layout.addRow(db_buttons_layout)
-
         layout.addWidget(grp_db)
 
         # ============================
@@ -161,7 +180,7 @@ class FiltersTab(QWidget):
         layout.addWidget(grp_profiles)
 
         # ============================
-        # GRUPO: ESTADO DE EMULAÇÃO (checkboxes, em linha)
+        # GRUPO: ESTADO DE EMULAÇÃO
         # ============================
         grp_status = QGroupBox("Estado de Emulação")
         status_layout = QHBoxLayout()
@@ -185,7 +204,7 @@ class FiltersTab(QWidget):
         layout.addWidget(grp_status)
 
         # ============================
-        # GRUPO: OPÇÕES (checkboxes, em linha)
+        # GRUPO: OPÇÕES
         # ============================
         grp_options = QGroupBox("Opções")
         options_layout = QHBoxLayout()
@@ -216,30 +235,7 @@ class FiltersTab(QWidget):
         layout.addWidget(grp_options)
 
         # ============================
-        # GRUPO: CATEGORIAS (grid com checkboxes - apenas as permitidas)
-        # ============================
-        grp_cats = QGroupBox("Categorias")
-        cats_layout = QVBoxLayout()
-        grp_cats.setLayout(cats_layout)
-
-        cat_scroll = QScrollArea()
-        cat_scroll.setWidgetResizable(True)
-        cat_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        cat_scroll.setMaximumHeight(300)
-
-        cat_container = QWidget()
-        self.cat_grid = QGridLayout(cat_container)
-        self.cat_grid.setContentsMargins(5, 5, 5, 5)
-        self.cat_grid.setSpacing(5)
-
-        self.category_checkboxes = {}  # name -> QCheckBox
-        cat_scroll.setWidget(cat_container)
-        cats_layout.addWidget(cat_scroll)
-
-        layout.addWidget(grp_cats)
-
-        # ============================
-        # GRUPO: INFORMAÇÕES
+        # GRUPO: INFORMAÇÕES DO FILTRO
         # ============================
         grp_info = QGroupBox("Informações do Filtro")
         info_layout = QFormLayout()
@@ -258,18 +254,37 @@ class FiltersTab(QWidget):
         layout.addWidget(grp_info)
 
         # ============================
-        # BOTÃO APLICAR REMOVIDO (filtros automáticos)
+        # GRUPO: CATEGORIAS (toggle vermelho/cinza)
         # ============================
+        grp_cats = QGroupBox("Categorias")
+        cats_layout = QVBoxLayout()
+        grp_cats.setLayout(cats_layout)
+
+        legend = QLabel("Clique para excluir (vermelho) ou voltar ao normal (cinza)")
+        legend.setAlignment(Qt.AlignCenter)
+        cats_layout.addWidget(legend)
+
+        cat_scroll = QScrollArea()
+        cat_scroll.setWidgetResizable(True)
+        cat_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        cat_scroll.setMinimumHeight(800)
+
+        cat_container = QWidget()
+        self.cat_grid = QGridLayout(cat_container)
+        self.cat_grid.setContentsMargins(2, 2, 2, 2)
+        self.cat_grid.setSpacing(2)
+
+        cat_scroll.setWidget(cat_container)
+        cats_layout.addWidget(cat_scroll)
+
+        layout.addWidget(grp_cats)
 
         layout.addStretch()
         scroll.setWidget(container)
 
         # ============================
-        # SPLITTER: filtros (topo) + log do sistema (rodapé)
+        # SPLITTER
         # ============================
-        # O usuário pode arrastar a divisória para dar mais espaço a um
-        # lado ou outro; tamanhos iniciais dão ~75% para os filtros e
-        # ~25% para o log.
         splitter = QSplitter(Qt.Orientation.Vertical)
         splitter.addWidget(scroll)
 
@@ -289,50 +304,41 @@ class FiltersTab(QWidget):
     # ========================================================================
 
     def _load_categories(self):
-        """Carrega todas as categorias existentes no banco em um grid de checkboxes.
-
-        Antes havia uma lista `ALLOWED_CATEGORIES` fixa na GUI tentando
-        adivinhar quais categorias "deveriam" existir — mas ela usava nomes
-        de um esquema diferente (catlist antigo) e não batia com o que
-        `seed_default_categories()` ou a importação de fato criavam no
-        banco, deixando o painel vazio ou incompleto. Agora a importação em
-        si (`import_categories_from_catlist`) já é responsável por criar
-        apenas categorias "limpas" (o primeiro nível do catlist.ini), então
-        a GUI simplesmente mostra o que existe no banco — sem whitelist
-        paralela para manter sincronizada.
-        """
-        for cb in self.category_checkboxes.values():
-            self.cat_grid.removeWidget(cb)
-            cb.deleteLater()
-        self.category_checkboxes.clear()
+        for chip in self.category_chips.values():
+            self.cat_grid.removeWidget(chip)
+            chip.deleteLater()
+        self.category_chips.clear()
 
         all_cats = self.filter_service.get_categories_with_counts()
         if not all_cats:
             self.filter_service.seed_default_categories()
             all_cats = self.filter_service.get_categories_with_counts()
 
-        cols = 3
+        if not all_cats:
+            return
+
+        cols = 10
         for idx, cat in enumerate(all_cats):
             row = idx // cols
             col = idx % cols
-            cb = QCheckBox(f"{cat['display_name']} ({cat['count']})")
-            cb.setChecked(False)
-            cb.stateChanged.connect(self._on_category_toggled)
-            self.cat_grid.addWidget(cb, row, col)
-            self.category_checkboxes[cat['name']] = cb
+            chip = self.CategoryChip(cat['name'], cat['display_name'], cat['count'], self)
+            self.cat_grid.addWidget(chip, row, col)
+            self.category_chips[cat['name']] = chip
 
-    def _get_selected_categories(self) -> List[str]:
-        selected = []
-        for name, cb in self.category_checkboxes.items():
-            if cb.isChecked():
-                selected.append(name)
-        return selected
+    def _get_excluded_categories(self) -> List[str]:
+        """Retorna lista de categorias marcadas em vermelho (excluídas)."""
+        excluded = []
+        for name, chip in self.category_chips.items():
+            if chip.state == self.CategoryChip.STATE_EXCLUDE:
+                excluded.append(name)
+        return excluded
 
-    def _on_category_toggled(self):
+    def on_category_changed(self, category_name: str, state: int):
+        # Apenas dispara a atualização dos filtros
         self._on_filters_changed()
 
     # ========================================================================
-    # ESTADO DE EMULAÇÃO (checkboxes)
+    # ESTADO DE EMULAÇÃO
     # ========================================================================
 
     def _get_selected_status(self) -> List[str]:
@@ -346,7 +352,7 @@ class FiltersTab(QWidget):
         self._on_filters_changed()
 
     # ========================================================================
-    # IMPORTAÇÃO DE CATEGORIAS (catlist.ini)
+    # IMPORTAÇÃO DE CATEGORIAS (catver.ini)
     # ========================================================================
 
     def _import_categories(self):
@@ -354,19 +360,19 @@ class FiltersTab(QWidget):
             QMessageBox.warning(self, "Erro", "Selecione o executável MAME primeiro.")
             return
 
-        default_ini = self.config.mame_path.parent / "folders" / "catlist.ini"
+        default_ini = self.config.mame_path.parent / "folders" / "catver.ini"
         if not default_ini.exists():
             reply = QMessageBox.question(
                 self,
                 "Arquivo não encontrado",
-                f"O arquivo padrão não foi encontrado em:\n{default_ini}\n\nDeseja selecionar manualmente?",
+                f"O arquivo padrão (catver.ini) não foi encontrado em:\n{default_ini}\n\nDeseja selecionar manualmente?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
             )
             if reply != QMessageBox.StandardButton.Yes:
                 return
             file_path, _ = QFileDialog.getOpenFileName(
                 self,
-                "Selecionar catlist.ini",
+                "Selecionar catver.ini",
                 "",
                 "Arquivos INI (*.ini);;Todos os arquivos (*)"
             )
@@ -377,7 +383,7 @@ class FiltersTab(QWidget):
             ini_path = default_ini
 
         try:
-            categorias, maquinas, imported = self.filter_service.import_categories_from_catlist(ini_path)
+            categorias, maquinas, imported = self.filter_service.import_categories_from_catver(ini_path)
             msg = f"Categorias importadas: {categorias}\nMáquinas associadas: {maquinas}\n"
             if imported:
                 msg += "\nCategorias criadas:\n" + ", ".join(sorted(imported)[:15])
@@ -394,10 +400,6 @@ class FiltersTab(QWidget):
     # ========================================================================
 
     def _scan_chd_sizes(self):
-        """Lê o tamanho real dos arquivos .chd no rompath configurado no
-        mame.ini e grava em `disk.size`, para que 'Tamanho estimado' pare de
-        ignorar CHDs (ver app.mame.chd_scanner para o porquê disso não vir
-        do -listxml)."""
         if self._import_running:
             QMessageBox.warning(self, "Aguarde", "Uma operação já está em andamento.")
             return
@@ -484,8 +486,13 @@ class FiltersTab(QWidget):
         self.chk_devices.setChecked(criteria.include_devices)
         self.chk_chd.setChecked(criteria.include_chd)
 
-        for name, cb in self.category_checkboxes.items():
-            cb.setChecked(name in criteria.categories)
+        # Restaura estado dos chips: vermelho se estiver em exclude_categories
+        exclude_set = set(criteria.exclude_categories)
+        for name, chip in self.category_chips.items():
+            if name in exclude_set:
+                chip.set_state(self.CategoryChip.STATE_EXCLUDE)
+            else:
+                chip.set_state(self.CategoryChip.STATE_NORMAL)
 
         self._apply_filters()
 
@@ -524,8 +531,6 @@ class FiltersTab(QWidget):
 
             size_str = self._format_size(size_bytes)
             if unscanned_chds > 0:
-                # O -listxml não traz tamanho de CHD; sem rodar o scanner,
-                # esse total fica subestimado. Avisa em vez de fingir precisão.
                 size_str += f"  (⚠ {unscanned_chds} CHD(s) sem tamanho lido — use 'Escanear tamanho dos CHDs')"
             self.lbl_size.setText(size_str)
 
@@ -537,48 +542,58 @@ class FiltersTab(QWidget):
             self.lbl_size.setText("Erro")
 
     def _get_criteria_from_ui(self) -> FilterCriteria:
-        categories = self._get_selected_categories()
+        excluded_cats = self._get_excluded_categories()
         emulation_status = self._get_selected_status()
 
         return FilterCriteria(
-            categories=categories,
+            categories=[],  # deprecated
             emulation_status=emulation_status,
             include_clones=self.chk_clones.isChecked(),
             include_bios=self.chk_bios.isChecked(),
             include_devices=self.chk_devices.isChecked(),
             include_chd=self.chk_chd.isChecked(),
-            arcade_systems=[]
+            arcade_systems=[],
+            include_categories=[],  # não usado
+            exclude_categories=excluded_cats
         )
 
     def _apply_current_filters(self):
         self._apply_filters()
 
     # ========================================================================
-    # IMPORTAÇÃO DO LISTXML
+    # IMPORTAÇÃO/REBUILD (unificado)
     # ========================================================================
 
-    def _import_listxml(self):
+    def _sync_database(self):
         if self._import_running:
             QMessageBox.warning(self, "Aguarde", "Uma importação já está em andamento.")
             return
-
         if not self.config.mame_path or not self.config.mame_path.exists():
             QMessageBox.warning(self, "Erro", "Selecione o executável MAME na aba Diretórios primeiro.")
             return
 
         cursor = self.db.conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM machine")
-        if cursor.fetchone()[0] > 0:
+        count = cursor.fetchone()[0]
+        if count > 0:
             reply = QMessageBox.question(
                 self,
                 "Atualizar banco",
-                "O banco já contém dados. Deseja atualizar com o listxml mais recente?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                "O banco já contém dados. Deseja recriar do zero (perderá dados) ou apenas atualizar?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel,
+                defaultButton=QMessageBox.StandardButton.No
             )
-            if reply != QMessageBox.StandardButton.Yes:
+            if reply == QMessageBox.StandardButton.Cancel:
                 return
+            if reply == QMessageBox.StandardButton.Yes:
+                self._rebuild_database()
+                return
+        self._import_listxml()
 
-        # Barra de progresso removida
+    def _import_listxml(self):
+        if self._import_running:
+            return
+
         self._import_running = True
         self.setEnabled(False)
 
@@ -593,8 +608,6 @@ class FiltersTab(QWidget):
                 conn.row_factory = sqlite3.Row
 
                 def on_progress(count: int, message: str):
-                    # Streaming: total de máquinas só é conhecido ao final,
-                    # então a barra fica "indeterminada" entre 5 e 95.
                     self.progress_signal.emit(min(95, 5 + count // 200), message)
 
                 service = DatabaseService(conn)
@@ -609,27 +622,6 @@ class FiltersTab(QWidget):
                 self.finish_signal.emit(False, f"Erro: {str(e)}")
 
         threading.Thread(target=import_task, daemon=True).start()
-
-    def _on_progress_update(self, value: int, message: str):
-        # Barra de progresso removida, apenas status bar
-        if self.main_window and hasattr(self.main_window, 'status_bar'):
-            self.main_window.status_bar.showMessage(message)
-
-    def _on_import_finished(self, success: bool, message: str):
-        self._import_running = False
-        self.setEnabled(True)
-
-        if success:
-            self._update_database_info()
-            self._load_categories()
-            self._load_profiles()
-            try:
-                self._apply_filters()
-            except Exception as e:
-                logger.error(f"Erro ao aplicar filtros após importação: {e}")
-            QMessageBox.information(self, "Sucesso", message)
-        else:
-            QMessageBox.critical(self, "Erro", message)
 
     def _rebuild_database(self):
         if not self.config.mame_path or not self.config.mame_path.exists():
@@ -675,6 +667,26 @@ class FiltersTab(QWidget):
             QMessageBox.critical(self, "Erro", f"Falha ao recriar banco: {str(e)}")
 
     # ========================================================================
+    # CALLBACKS DE PROGRESSO
+    # ========================================================================
+    def _on_progress_update(self, value: int, message: str):
+        if self.main_window and hasattr(self.main_window, 'status_bar'):
+            self.main_window.status_bar.showMessage(message)
+
+    def _on_import_finished(self, success: bool, message: str):
+        self._import_running = False
+        self.setEnabled(True)
+
+        if success:
+            self._update_database_info()
+            self._load_categories()
+            self._load_profiles()
+            self._apply_filters()
+            QMessageBox.information(self, "Sucesso", message)
+        else:
+            QMessageBox.critical(self, "Erro", message)
+
+    # ========================================================================
     # CONTROLES UI
     # ========================================================================
 
@@ -713,8 +725,8 @@ class FiltersTab(QWidget):
         self.chk_bios.setEnabled(enabled)
         self.chk_devices.setEnabled(enabled)
         self.chk_chd.setEnabled(enabled)
-        for cb in self.category_checkboxes.values():
-            cb.setEnabled(enabled)
+        for chip in self.category_chips.values():
+            chip.setEnabled(enabled)
 
     # ========================================================================
     # PERFIS: CRUD

@@ -8,6 +8,8 @@ class FilterCriteria:
     categories: List[str] = field(default_factory=list)
     emulation_status: List[str] = field(default_factory=list)
     include_clones: bool = True
+    include_categories: List[str] = field(default_factory=list)   # verde (forçar inclusão)
+    exclude_categories: List[str] = field(default_factory=list)   # vermelho (forçar exclusão)
     include_bios: bool = True
     include_devices: bool = True
     include_chd: bool = True
@@ -17,6 +19,8 @@ class FilterCriteria:
     def to_dict(self) -> Dict[str, Any]:
         return {
             "categories": self.categories,
+            "include_categories": self.include_categories,
+            "exclude_categories": self.exclude_categories,
             "emulation_status": self.emulation_status,
             "include_clones": self.include_clones,
             "include_bios": self.include_bios,
@@ -28,8 +32,16 @@ class FilterCriteria:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "FilterCriteria":
+        # Migração: se houver 'categories' e não houver 'include_categories', usar categories como include
+        include_cats = data.get("include_categories", [])
+        exclude_cats = data.get("exclude_categories", [])
+        old_categories = data.get("categories", [])
+        if not include_cats and old_categories:
+            include_cats = old_categories
         return cls(
-            categories=data.get("categories", []),
+            categories=old_categories,  # manter para compatibilidade
+            include_categories=include_cats,
+            exclude_categories=exclude_cats,
             emulation_status=data.get("emulation_status", []),
             include_clones=data.get("include_clones", True),
             include_bios=data.get("include_bios", True),

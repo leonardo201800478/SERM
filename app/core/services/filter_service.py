@@ -123,20 +123,129 @@ class FilterService:
         self.conn.commit()
         return categorias_count, maquinas_count, imported_categories
 
-    # Seções que não representam categorias de máquinas no catlist.ini.
+    # ========================================================================
+    # NOVO: IMPORTAÇÃO DO CATVER.INI (com ajustes)
+    # ========================================================================
+    def import_categories_from_catver(self, catver_path: Path) -> Tuple[int, int, List[str]]:
+        """
+        Importa categorias a partir do catver.ini (formato: rom_name=Category / Subcategory).
+        Agrupa pelo primeiro nível (antes do '/' ou ':').
+
+        AJUSTES:
+        - Lê APENAS a seção [Category] (ignora [VerAdded]).
+        - Elimina (não cria) as categorias: CHD, DEVICES, MUSICAL, MATURE, MAHJONG, SCREENLESS, BIOS.
+        """
+        if not catver_path.exists():
+            raise FileNotFoundError(f"Arquivo não encontrado: {catver_path}")
+
+        # Categorias a serem eliminadas (não serão importadas)
+        UNWANTED_CATEGORIES = {
+            'chd', 'devices', 'musical', 'mature',
+            'mahjong', 'screenless', 'bios'
+        }
+
+        cursor = self.conn.cursor()
+        categorias_count = 0
+        maquinas_count = 0
+        imported_categories = []
+
+        def normalize_cat_name(name: str) -> str:
+            name = re.sub(r'[^a-zA-Z0-9 ]', '', name)
+            name = name.strip().lower()
+            name = re.sub(r'\s+', '_', name)
+            return name
+
+        cat_cache = {}  # nome_normalizado -> id
+        in_category_section = False
+
+        with open(catver_path, 'r', encoding='utf-8', errors='ignore') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith(';'):
+                    continue
+
+                # Detecção de seções
+                if line.startswith('[') and line.endswith(']'):
+                    section = line[1:-1].strip()
+                    if section == 'Category':
+                        in_category_section = True
+                        continue
+                    elif section == 'VerAdded':
+                        # Ignora completamente a seção de versões
+                        break
+                    else:
+                        in_category_section = False
+                        continue
+
+                if not in_category_section:
+                    continue
+
+                if '=' not in line:
+                    continue
+
+                rom_name, cat_full = line.split('=', 1)
+                rom_name = rom_name.strip()
+                cat_full = cat_full.strip()
+
+                # Remove sufixo * Mature * se existir
+                if ' * Mature *' in cat_full:
+                    cat_full = cat_full.replace(' * Mature *', '').strip()
+
+                # Extrai categoria principal (antes do primeiro '/' ou ':')
+                if '/' in cat_full:
+                    primary = cat_full.split('/', 1)[0].strip()
+                elif ':' in cat_full:
+                    primary = cat_full.split(':', 1)[0].strip()
+                else:
+                    primary = cat_full
+
+                if not primary:
+                    continue
+
+                cat_name = normalize_cat_name(primary)
+
+                # --- ELIMINA CATEGORIAS INDESEJADAS ---
+                if cat_name in UNWANTED_CATEGORIES:
+                    continue  # não importa esta categoria
+
+                if cat_name not in cat_cache:
+                    cursor.execute("SELECT id FROM category WHERE name = ?", (cat_name,))
+                    row = cursor.fetchone()
+                    if row:
+                        cat_id = row[0]
+                    else:
+                        cursor.execute(
+                            "INSERT INTO category (name, display_name, source) VALUES (?, ?, ?)",
+                            (cat_name, primary, 'catver.ini')
+                        )
+                        cat_id = cursor.lastrowid
+                        categorias_count += 1
+                        imported_categories.append(primary)
+                    cat_cache[cat_name] = cat_id
+
+                cat_id = cat_cache[cat_name]
+
+                cursor.execute("SELECT id FROM machine WHERE name = ?", (rom_name,))
+                row = cursor.fetchone()
+                if row:
+                    machine_id = row[0]
+                    cursor.execute(
+                        "INSERT OR IGNORE INTO machine_category (machine_id, category_id) VALUES (?, ?)",
+                        (machine_id, cat_id)
+                    )
+                    if cursor.rowcount > 0:
+                        maquinas_count += 1
+
+        self.conn.commit()
+        return categorias_count, maquinas_count, imported_categories
+
+    # ========================================================================
+    # COMPATIBILIDADE COM CATLIST (mantido para referência)
+    # ========================================================================
     _CATLIST_IGNORED_SECTIONS = frozenset({'FOLDER_SETTINGS', 'ROOT_FOLDER'})
 
     @staticmethod
     def _catlist_primary_category(section: str) -> str:
-        """Extrai o "primeiro filtro" de um cabeçalho do catlist.ini.
-
-        Regras observadas no arquivo real do catlist.ini (progetto-snaps):
-        - Seções de Arcade usam ':' como separador do nível principal, ex.:
-          "[Arcade: Driving / Race (chase view)]" -> "Arcade".
-        - Todas as demais usam '/', ex.:
-          "[Tablet / Multi-Functional for Children]" -> "Tablet".
-        - Seções sem nenhum separador são usadas como estão (ex.: "System").
-        """
         section = section.strip()
         if ':' in section:
             return section.split(':', 1)[0].strip()
@@ -147,13 +256,7 @@ class FilterService:
     def import_categories_from_catlist(self, catlist_path: Path) -> Tuple[int, int, List[str]]:
         """
         Importa categorias a partir do catlist.ini (progetto-snaps), agrupando
-        por apenas o PRIMEIRO nível do cabeçalho de cada seção — ex.:
-        "[Arcade: Driving / Race (chase view)]" vira apenas a categoria
-        "Arcade", e "[Tablet / Multi-Functional for Children]" vira apenas
-        "Tablet". Isso evita a explosão de ~680 subcategorias (uma por seção)
-        e mantém o filtro da GUI em poucas opções realmente úteis.
-
-        Retorna (categorias_importadas, maquinas_associadas, lista_de_categorias_importadas).
+        por apenas o PRIMEIRO nível do cabeçalho de cada seção.
         """
         if not catlist_path.exists():
             raise FileNotFoundError(f"Arquivo não encontrado: {catlist_path}")
@@ -169,9 +272,6 @@ class FilterService:
             name = re.sub(r'\s+', '_', name)
             return name
 
-        # cat_name normalizado -> id no banco (agrega todas as subseções que
-        # mapeiam para a mesma categoria principal, ex.: as ~383 seções
-        # "Arcade: ..." todas caem no mesmo cat_id de "arcade").
         categoria_cache: Dict[str, int] = {}
         current_cat_id = None
 
@@ -233,7 +333,7 @@ class FilterService:
         return categorias_count, maquinas_count, imported_categories
 
     # ========================================================================
-    # CONSTRUÇÃO DA CONSULTA SQL
+    # CONSTRUÇÃO DA CONSULTA SQL (com três estados)
     # ========================================================================
 
     def _build_filter_query(self, criteria: FilterCriteria) -> tuple[str, list]:
@@ -265,21 +365,31 @@ class FilterService:
         if not criteria.include_devices:
             where_clauses.append("m.is_device = 0")
 
-        # 3. CHD (exclui máquinas que têm discos)
         if not criteria.include_chd:
             where_clauses.append("NOT EXISTS (SELECT 1 FROM disk d WHERE d.machine_id = m.id)")
 
-        # 4. Categorias
-        if criteria.categories:
-            query += """
-                INNER JOIN machine_category mc ON mc.machine_id = m.id
-                INNER JOIN category c ON c.id = mc.category_id
-            """
-            placeholders = ",".join(["?"] * len(criteria.categories))
-            where_clauses.append(f"c.name IN ({placeholders})")
-            params.extend(criteria.categories)
+        # 3. Categorias - três estados (exclude sempre aplicado, include como whitelist)
+        # Exclude (vermelho): remove máquinas que estão nessas categorias
+        if criteria.exclude_categories:
+            placeholders = ",".join(["?"] * len(criteria.exclude_categories))
+            where_clauses.append(
+                f"NOT EXISTS (SELECT 1 FROM machine_category mc "
+                f"JOIN category c ON c.id = mc.category_id "
+                f"WHERE mc.machine_id = m.id AND c.name IN ({placeholders}))"
+            )
+            params.extend(criteria.exclude_categories)
 
-        # 5. Arcade Systems
+        # Include (verde): força inclusão apenas das máquinas nessas categorias
+        if criteria.include_categories:
+            placeholders = ",".join(["?"] * len(criteria.include_categories))
+            where_clauses.append(
+                f"EXISTS (SELECT 1 FROM machine_category mc "
+                f"JOIN category c ON c.id = mc.category_id "
+                f"WHERE mc.machine_id = m.id AND c.name IN ({placeholders}))"
+            )
+            params.extend(criteria.include_categories)
+
+        # 4. Arcade Systems (filtro opcional)
         if criteria.arcade_systems:
             placeholders = ",".join(["?"] * len(criteria.arcade_systems))
             where_clauses.append(f"m.name IN ({placeholders})")
@@ -291,7 +401,7 @@ class FilterService:
         return query, params
 
     # ========================================================================
-    # MÉTODOS PÚBLICOS
+    # MÉTODOS PÚBLICOS DE FILTRO
     # ========================================================================
 
     def apply_filters(self, criteria: FilterCriteria) -> List[int]:
@@ -334,17 +444,7 @@ class FilterService:
         return cursor.fetchone()[0]
 
     def get_estimated_size(self, criteria: FilterCriteria) -> int:
-        """Soma o tamanho estimado (ROMs + CHDs) das máquinas filtradas.
-
-        O tamanho de ROMs vem direto do -listxml. O tamanho de CHDs só é
-        conhecido depois de rodar o scanner (ver
-        ``DatabaseService.update_chd_sizes`` / ``app.mame.chd_scanner``),
-        que lê os arquivos .chd reais no rompath configurado — o listxml
-        não informa esse dado. Enquanto o scanner não roda, `disk.size`
-        fica em 0 e essas máquinas ainda entram na contagem de máquinas/CHDs,
-        mas não somam bytes aqui (ver ``get_unscanned_chd_count`` para saber
-        se isso está subestimando o total).
-        """
+        """Soma o tamanho estimado (ROMs + CHDs) das máquinas filtradas."""
         query, params = self._build_filter_query(criteria)
         size_query = f"""
             SELECT
@@ -367,11 +467,7 @@ class FilterService:
         return result[0] if result else 0
 
     def get_unscanned_chd_count(self, criteria: FilterCriteria) -> int:
-        """Quantos CHDs, dentre as máquinas filtradas, ainda não têm tamanho lido.
-
-        Use para avisar na UI que o "Tamanho estimado" pode estar
-        subestimado até rodar o scanner de CHD.
-        """
+        """Quantos CHDs, dentre as máquinas filtradas, ainda não têm tamanho lido."""
         query, params = self._build_filter_query(criteria)
         count_query = f"""
             SELECT COUNT(*) FROM disk d
@@ -408,18 +504,12 @@ class FilterService:
         default_categories = [
             ("arcade", "Arcade"),
             ("system", "System"),
-            ("bios", "BIOS"),
-            ("devices", "Devices"),
             ("electromechanical", "Electromechanical"),
             ("casino", "Casino"),
-            ("mahjong", "Mahjong"),
-            ("screenless", "Screenless"),
-            ("mature", "Mature"),
             ("driving", "Driving"),
             ("fighter", "Fighter"),
             ("gambling", "Gambling"),
             ("game_console", "Game Console"),
-            ("chd", "CHD"),
             ("ball_paddle", "Ball & Paddle"),
             ("board_game", "Board Game"),
             ("calculator", "Calculator"),
@@ -428,7 +518,6 @@ class FilterService:
             ("handheld", "Handheld"),
             ("climbing", "Climbing"),
             ("medal_game", "Medal Game"),
-            ("musical", "Musical"),
             ("platform", "Platform"),
             ("shooter", "Shooter"),
             ("slot_machine", "Slot Machine"),
