@@ -1,2 +1,4 @@
-from app.gui.tabs.home_tab import HomeTab
-from app.gui.tabs.directories_tab import DirectoriesTab
+from .home_tab import HomeTab
+from .directories_tab import DirectoriesTab
+from .filters_tab import FiltersTab
+from .scan_roms_tab import ScanRomsTab

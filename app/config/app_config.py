@@ -1,3 +1,4 @@
+# app/config/app_config.py
 import json
 from pathlib import Path
 

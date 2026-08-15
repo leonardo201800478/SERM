@@ -1,7 +1,11 @@
 import sys
 import logging
+from pathlib import Path
 from PySide6.QtWidgets import QApplication
 from app.gui.main_window import MainWindow
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 
 # Configuração de logging
 logging.basicConfig(
