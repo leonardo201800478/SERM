@@ -9,10 +9,10 @@ Fluxo típico:
     4. Reconstruir (copiar) os itens válidos para o destino, no modo
        Split/Non-Merged/Merged escolhido.
 
-O scan é executado em uma thread separada para não travar a GUI, e
-qualquer falha isolada (uma ROM corrompida, uma máquina com XML
-inconsistente etc.) é registrada no log e tratada como
-``ScanStatus.CORRUPTED`` — nunca aborta o restante do processo.
+O scan roda em thread separada e NUNCA para no primeiro erro: qualquer
+falha isolada (uma ROM corrompida, uma máquina com XML inconsistente
+etc.) é registrada no log e tratada como ``ScanStatus.CORRUPTED`` —
+o scan sempre prossegue até o fim, relatando os problemas encontrados.
 """
 
 import logging
@@ -54,8 +54,6 @@ from app.mame.rom_scanner import RomScanner
 
 logger = logging.getLogger(__name__)
 
-# Altura padrão/limites do painel de log, em pixels. O usuário pode
-# ajustar livremente através do QSpinBox da toolbar do log.
 _LOG_HEIGHT_DEFAULT = 220
 _LOG_HEIGHT_MIN = 80
 _LOG_HEIGHT_MAX = 900
@@ -92,7 +90,6 @@ class ScanRomsTab(QWidget):
     # ========================================================================
 
     def _setup_ui(self) -> None:
-        """Constrói toda a interface da aba."""
         outer_layout = QVBoxLayout(self)
         outer_layout.setContentsMargins(4, 4, 4, 4)
         outer_layout.setSpacing(4)
@@ -120,17 +117,21 @@ class ScanRomsTab(QWidget):
         # ============================
         # SPLITTER: conteúdo + log
         # ============================
-        splitter = QSplitter(Qt.Orientation.Vertical)
-        splitter.addWidget(content)
-        splitter.addWidget(self._build_log_group())
-        splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 1)
-        splitter.setSizes([650, _LOG_HEIGHT_DEFAULT])
+        # IMPORTANTE: o painel de log NÃO tem altura mínima/máxima fixa
+        # aqui — isso é o que travava o redimensionamento por arraste do
+        # splitter nesta aba (funcionava na aba Filtragem justamente por
+        # não haver essa trava). O QSpinBox abaixo é um atalho que ajusta
+        # os tamanhos do splitter, mas o arraste manual continua livre.
+        self.main_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.main_splitter.addWidget(content)
+        self.main_splitter.addWidget(self._build_log_group())
+        self.main_splitter.setStretchFactor(0, 3)
+        self.main_splitter.setStretchFactor(1, 1)
+        self.main_splitter.setSizes([650, _LOG_HEIGHT_DEFAULT])
 
-        outer_layout.addWidget(splitter)
+        outer_layout.addWidget(self.main_splitter)
 
     def _build_actions_row(self) -> QHBoxLayout:
-        """Botões principais: gerar XML, iniciar/parar scan."""
         top_layout = QHBoxLayout()
 
         self.btn_generate = QPushButton("Gerar LISTXML filtrado")
@@ -143,7 +144,8 @@ class ScanRomsTab(QWidget):
         self.btn_scan = QPushButton("Iniciar escaneamento")
         self.btn_scan.setToolTip(
             "Escaneia as origens configuradas em busca das ROMs/CHDs "
-            "descritos no XML selecionado."
+            "descritos no XML selecionado. Erros isolados são reportados "
+            "no log, mas nunca interrompem o processo."
         )
         self.btn_scan.clicked.connect(self._start_scan)
 
@@ -159,7 +161,6 @@ class ScanRomsTab(QWidget):
         return top_layout
 
     def _build_xml_row(self) -> QHBoxLayout:
-        """Linha com o caminho do XML atual e botão de seleção manual."""
         xml_layout = QHBoxLayout()
         xml_layout.addWidget(QLabel("Arquivo:"))
 
@@ -183,7 +184,6 @@ class ScanRomsTab(QWidget):
         return xml_layout
 
     def _build_profile_group(self) -> QGroupBox:
-        """Seletor do Perfil de Filtro usado para gerar/escanear o set."""
         profile_group = QGroupBox("PERFIL DE FILTRO PARA O SET")
         profile_layout = QHBoxLayout(profile_group)
 
@@ -204,54 +204,72 @@ class ScanRomsTab(QWidget):
         return profile_group
 
     def _build_paths_group(self) -> QGroupBox:
-        """Origens (até 3, independentes de mame.ini), destino e modo de set."""
-        paths_group = QGroupBox("ORIGENS E DESTINO")
+        """Configurações de Pastas: 3 origens lado a lado, destino, layout e modo.
+
+        Renomeado de "ORIGENS E DESTINO" e reorganizado: as 3 origens
+        ficam alinhadas em colunas (Origem 1 | Origem 2 | Origem 3),
+        cada uma com rótulo + campo + botão empilhados verticalmente.
+        """
+        paths_group = QGroupBox("Configurações de Pastas")
         paths_layout = QGridLayout(paths_group)
+        paths_layout.setHorizontalSpacing(12)
+        paths_layout.setVerticalSpacing(6)
 
         self.source_edits: List[QLineEdit] = []
-        for row in range(3):
+        for col in range(3):
+            origem_box = QVBoxLayout()
+            origem_box.addWidget(QLabel(f"Origem {col + 1}:"))
+
             edit = QLineEdit(
-                str(self.config.source_dirs[row]) if row < len(self.config.source_dirs) else ""
+                str(self.config.source_dirs[col]) if col < len(self.config.source_dirs) else ""
             )
+            row_box = QHBoxLayout()
+            row_box.addWidget(edit)
+
             button = QPushButton("Escolher")
             button.clicked.connect(lambda _=False, e=edit: self._choose_directory(e))
-            paths_layout.addWidget(QLabel(f"Origem {row + 1}:"), row, 0)
-            paths_layout.addWidget(edit, row, 1)
-            paths_layout.addWidget(button, row, 2)
+            row_box.addWidget(button)
+
+            origem_box.addLayout(row_box)
+            paths_layout.addLayout(origem_box, 0, col)
             self.source_edits.append(edit)
 
+        # Destino, ocupando as 3 colunas.
+        dest_row = QHBoxLayout()
+        dest_row.addWidget(QLabel("Destino:"))
         self.destination_edit = QLineEdit(
             str(self.config.destination_dir) if self.config.destination_dir else ""
         )
+        dest_row.addWidget(self.destination_edit, stretch=1)
         destination_button = QPushButton("Escolher")
         destination_button.clicked.connect(lambda: self._choose_directory(self.destination_edit))
+        dest_row.addWidget(destination_button)
+        paths_layout.addLayout(dest_row, 1, 0, 1, 3)
 
+        # Organização e Modo MAME lado a lado.
+        options_row = QHBoxLayout()
+        options_row.addWidget(QLabel("Organização:"))
         self.layout_combo = QComboBox()
         self.layout_combo.addItem("Uma pasta", "single")
         self.layout_combo.addItem("Roms / CHD / Devices / Bios", "split")
         self.layout_combo.setCurrentIndex(1 if self.config.output_layout == "split" else 0)
+        options_row.addWidget(self.layout_combo, stretch=1)
 
-        paths_layout.addWidget(QLabel("Destino:"), 3, 0)
-        paths_layout.addWidget(self.destination_edit, 3, 1)
-        paths_layout.addWidget(destination_button, 3, 2)
-        paths_layout.addWidget(QLabel("Organização:"), 4, 0)
-        paths_layout.addWidget(self.layout_combo, 4, 1, 1, 2)
-
+        options_row.addWidget(QLabel("Modo MAME:"))
         self.mode_combo = QComboBox()
         self.mode_combo.addItem("Split — pai separado dos clones", "split")
         self.mode_combo.addItem("Non-merged — cada jogo completo", "non-merged")
         self.mode_combo.addItem("Merged — pai contém os clones", "merged")
-        paths_layout.addWidget(QLabel("Modo MAME:"), 5, 0)
-        paths_layout.addWidget(self.mode_combo, 5, 1, 1, 2)
+        options_row.addWidget(self.mode_combo, stretch=1)
+        paths_layout.addLayout(options_row, 2, 0, 1, 3)
 
         self.btn_reconstruct = QPushButton("Reconstruir válidos")
         self.btn_reconstruct.clicked.connect(self._reconstruct_validated)
-        paths_layout.addWidget(self.btn_reconstruct, 6, 1, 1, 2)
+        paths_layout.addWidget(self.btn_reconstruct, 3, 0, 1, 3)
 
         return paths_group
 
     def _build_summary_group(self) -> QGroupBox:
-        """Resumo numérico do último resultado de scan."""
         summary_group = QGroupBox("RESUMO")
         summary_layout = QGridLayout(summary_group)
 
@@ -277,7 +295,6 @@ class ScanRomsTab(QWidget):
         return summary_group
 
     def _build_tree(self) -> QTreeWidget:
-        """Árvore de máquinas/ROMs escaneadas."""
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(["ROM", "Jogo", "Tamanho", "CRC", "Status"])
         self.tree.setColumnWidth(0, 220)
@@ -289,7 +306,7 @@ class ScanRomsTab(QWidget):
         return self.tree
 
     def _build_log_group(self) -> QWidget:
-        """Painel de log com altura personalizável pelo usuário."""
+        """Painel de log com atalho de altura (spinbox) + arraste livre pelo splitter."""
         log_container = QWidget()
         log_layout = QVBoxLayout(log_container)
         log_layout.setContentsMargins(0, 4, 0, 0)
@@ -303,8 +320,8 @@ class ScanRomsTab(QWidget):
         self.log_height_spin.setSingleStep(20)
         self.log_height_spin.setValue(_LOG_HEIGHT_DEFAULT)
         self.log_height_spin.setToolTip(
-            "Ajusta a altura do painel de log abaixo, entre "
-            f"{_LOG_HEIGHT_MIN} e {_LOG_HEIGHT_MAX} pixels."
+            "Define a altura do painel de log abaixo. Você também pode "
+            "arrastar a divisória entre as seções livremente."
         )
         self.log_height_spin.valueChanged.connect(self._on_log_height_changed)
         log_toolbar.addWidget(self.log_height_spin)
@@ -312,33 +329,25 @@ class ScanRomsTab(QWidget):
         log_layout.addLayout(log_toolbar)
 
         # logger_name="" -> anexa ao logger raiz, capturando logs de toda
-        # a aplicação (scanner, exportação de XML, reconstrução etc.), não
-        # apenas desta aba.
+        # a aplicação (scanner, exportação de XML, reconstrução etc.).
         self.log_panel = LogPanel(self, logger_name="")
         log_layout.addWidget(self.log_panel)
-
-        self._on_log_height_changed(self.log_height_spin.value())
 
         return log_container
 
     def _on_log_height_changed(self, value: int) -> None:
-        """Aplica a altura escolhida pelo usuário ao painel de log."""
-        self.log_panel.setMinimumHeight(value)
-        self.log_panel.setMaximumHeight(value)
+        """Ajusta o splitter para a altura escolhida, sem travar o arraste manual."""
+        total = self.main_splitter.height()
+        if total <= 0:
+            total = 650 + value
+        top = max(150, total - value)
+        self.main_splitter.setSizes([top, value])
 
     # ========================================================================
     # PERFIS DE FILTRO
     # ========================================================================
 
     def _get_db_connection(self):
-        """Retorna ``(conn, owns_connection)``.
-
-        Reaproveita a conexão SQLite da MainWindow (mesma conexão usada
-        pela aba Filtragem) quando disponível, evitando abrir conexões
-        redundantes. Caso não exista (ex.: aba usada isoladamente em
-        testes), abre e devolve uma conexão própria — quem chamar deve
-        fechá-la.
-        """
         main_db = getattr(self.parent, "db", None)
         if main_db is not None and getattr(main_db, "conn", None) is not None:
             return main_db.conn, False
@@ -348,7 +357,6 @@ class ScanRomsTab(QWidget):
         return db.conn, True
 
     def _load_filter_profiles(self) -> None:
-        """Carrega no combo os perfis de filtro salvos na aba Filtragem."""
         current_id = self.profile_combo.currentData() if hasattr(self, "profile_combo") else None
 
         self.profile_combo.blockSignals(True)
@@ -372,8 +380,6 @@ class ScanRomsTab(QWidget):
                 if idx >= 0:
                     self.profile_combo.setCurrentIndex(idx)
         except Exception as e:
-            # Primeira execução / banco ainda sem perfis: mantém apenas a
-            # opção "sem filtro" e não quebra a inicialização da aba.
             logger.warning(f"Não foi possível carregar perfis de filtro: {e}")
         finally:
             self.profile_combo.blockSignals(False)
@@ -381,7 +387,6 @@ class ScanRomsTab(QWidget):
                 conn.close()
 
     def _get_selected_criteria(self) -> FilterCriteria:
-        """Retorna os critérios do perfil selecionado no combo local."""
         profile_id = self.profile_combo.currentData()
         if not profile_id:
             return FilterCriteria()
@@ -403,7 +408,6 @@ class ScanRomsTab(QWidget):
     # ========================================================================
 
     def _update_ui_state(self) -> None:
-        """Habilita/desabilita controles conforme o estado atual."""
         has_xml = self.filtered_xml_path is not None and self.filtered_xml_path.exists()
 
         self.btn_scan.setEnabled(has_xml and not self.scanning)
@@ -412,7 +416,7 @@ class ScanRomsTab(QWidget):
         self.profile_combo.setEnabled(not self.scanning)
         self.btn_reconstruct.setEnabled(bool(self.scan_result) and not self.scanning)
 
-    # Mantido por compatibilidade com quem já referenciava o nome antigo.
+    # Compatibilidade com quem já referenciava o nome antigo.
     update_ui_state = _update_ui_state
 
     def _choose_directory(self, edit: QLineEdit) -> None:
@@ -448,7 +452,6 @@ class ScanRomsTab(QWidget):
         return scans_dir
 
     def _open_scans_dir(self) -> None:
-        """Abre a pasta data/scans no explorador de arquivos do sistema."""
         import os
         import sys
 
@@ -465,9 +468,6 @@ class ScanRomsTab(QWidget):
             QMessageBox.information(self, "Pasta de XMLs", f"Local: {scans_dir}")
 
     def _select_existing_xml(self) -> None:
-        """Permite escolher, dentre os XMLs já gerados em data/scans, qual
-        usar para o escaneamento — sem precisar gerar um novo agora.
-        """
         scans_dir = self._scans_dir()
 
         file_path, _ = QFileDialog.getOpenFileName(
@@ -487,8 +487,6 @@ class ScanRomsTab(QWidget):
         self._set_active_xml(selected, origin="selecionado manualmente")
 
     def _set_active_xml(self, xml_path: Path, *, origin: str) -> None:
-        """Centraliza a atualização do XML ativo, evitando duplicação de
-        lógica entre geração e seleção manual."""
         self.filtered_xml_path = xml_path
         self.xml_label.setText(str(xml_path))
         self.xml_label.setStyleSheet("color: green;")
@@ -497,7 +495,6 @@ class ScanRomsTab(QWidget):
         self._update_ui_state()
 
     def _generate_filtered_xml(self) -> None:
-        """Gera um LISTXML contendo apenas as máquinas do perfil selecionado."""
         self.status_label.setText("Gerando XML filtrado...")
         self.btn_generate.setEnabled(False)
         try:
@@ -592,15 +589,14 @@ class ScanRomsTab(QWidget):
             logger.info("Solicitada a interrupção do scan pelo usuário.")
 
     def _do_scan(self) -> None:
-        """Executa o scan em background.
+        """Executa o scan em background, do início ao fim, sem parar em erros.
 
-        Qualquer falha isolada (uma máquina com XML inconsistente, uma
-        ROM corrompida, um erro de I/O pontual) é registrada no log e
-        tratada como ``ScanStatus.CORRUPTED`` para aquele item — o
-        restante do escaneamento continua normalmente. Apenas uma falha
-        que impeça o carregamento do próprio XML ou das origens configuradas
-        interrompe o processo por completo (e é reportada via
-        ``_show_scan_error``).
+        Qualquer falha isolada — ROM corrompida, item ausente dentro de um
+        ZIP, máquina com XML inconsistente — é registrada no log e tratada
+        como ``ScanStatus.CORRUPTED``/``MISSING`` para aquele item
+        específico. O laço abaixo NUNCA é interrompido por uma exceção de
+        um item isolado: apenas uma falha ao carregar o próprio XML ou ao
+        listar as origens interrompe o processo por completo.
         """
         try:
             logger.info(f"Iniciando scan a partir de: {self.filtered_xml_path}")
@@ -618,6 +614,18 @@ class ScanRomsTab(QWidget):
 
             scanner = RomScanner(rom_paths)
 
+            # Constrói o índice (crc,size) -> candidatos UMA VEZ, antes do
+            # laço. Sem isso, cada ROM ausente/corrompida reabriria todos
+            # os ZIPs das origens do zero em busca de uma cópia
+            # alternativa — o que na prática travava o scan no primeiro
+            # arquivo problemático.
+            self.status_label_safe("Construindo índice de arquivos das origens...")
+            scanner.build_archive_index(
+                progress_callback=lambda done, total, name: logger.debug(
+                    f"Indexando arquivos: {done}/{total} ({name})"
+                )
+            )
+
             total = len(machines)
             logger.info(f"{total} máquina(s) a escanear.")
 
@@ -631,7 +639,7 @@ class ScanRomsTab(QWidget):
                     result = scanner._scan_single_machine(machine)
                 except Exception:
                     # Falha inesperada e isolada nesta máquina: registra e
-                    # segue para a próxima, sem abortar o scan inteiro.
+                    # segue para a próxima. O scan JAMAIS para aqui.
                     logger.exception(
                         f"Falha ao escanear a máquina '{machine_name}'; "
                         "marcada como corrompida e o scan continua."
@@ -660,6 +668,10 @@ class ScanRomsTab(QWidget):
         except Exception as e:
             logger.exception("Falha geral durante o scan (interrompido).")
             QTimer.singleShot(0, lambda: self._show_scan_error(str(e)))
+
+    def status_label_safe(self, text: str) -> None:
+        """Atualiza o status a partir da thread de scan sem travar a GUI."""
+        QTimer.singleShot(0, lambda: self.status_label.setText(text))
 
     def _finish_scan(self) -> None:
         self.scanning = False
@@ -729,12 +741,6 @@ class ScanRomsTab(QWidget):
     # ========================================================================
 
     def _load_machines_from_xml(self, xml_path: Path) -> List[dict]:
-        """Carrega as máquinas de um XML filtrado para uso pelo scanner.
-
-        Usa ``xml.etree.ElementTree.parse`` diretamente (XML filtrado é
-        tipicamente pequeno o suficiente para caber em memória, ao
-        contrário do -listxml completo do MAME).
-        """
         import xml.etree.ElementTree as ET
 
         machines: List[dict] = []
