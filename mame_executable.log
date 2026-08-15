@@ -88,3 +88,30 @@
 2026-08-15 02:34:07,628 - app.database.database - INFO - Conexão estabelecida e tabelas verificadas.
 2026-08-15 02:34:07,732 - app.main - INFO - Aplicação iniciada com sucesso.
 2026-08-15 02:34:24,983 - app.database.database - INFO - Conexão com banco fechada.
+2026-08-15 02:34:47,628 - app.main - INFO - ============================================================
+2026-08-15 02:34:47,629 - app.main - INFO - Iniciando MAME Set Builder...
+2026-08-15 02:34:47,629 - app.main - INFO - Python: 3.14.6 (tags/v3.14.6:c63aec6, Jun 10 2026, 10:26:10) [MSC v.1944 64 bit (AMD64)]
+2026-08-15 02:34:47,629 - app.main - INFO - Platform: win32
+2026-08-15 02:34:47,681 - app.database.database - INFO - Database inicializado com caminho: C:\Users\leost\mame-set-builder\data\database\mame_set_builder.db
+2026-08-15 02:34:47,681 - app.database.database - INFO - Conectando ao banco: C:\Users\leost\mame-set-builder\data\database\mame_set_builder.db
+2026-08-15 02:34:47,688 - app.database.database - INFO - Schema criado com sucesso.
+2026-08-15 02:34:47,688 - app.database.database - INFO - Conexão estabelecida e tabelas verificadas.
+2026-08-15 02:34:47,691 - MameExecutable - INFO - Inicializando MameExecutable com caminho: G:\LaunchBox\emulators\mame\mame.exe
+2026-08-15 02:34:47,691 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe --version
+2026-08-15 02:34:47,977 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe -version
+2026-08-15 02:34:48,136 - MameExecutable - INFO - Versão detectada via padrão genérico: 0.289
+2026-08-15 02:34:48,141 - MameExecutable - INFO - Inicializando MameExecutable com caminho: G:\LaunchBox\emulators\mame\mame.exe
+2026-08-15 02:34:48,142 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe --version
+2026-08-15 02:34:48,298 - MameExecutable - INFO - Tentando: G:\LaunchBox\emulators\mame\mame.exe -version
+2026-08-15 02:34:48,466 - MameExecutable - INFO - Versão detectada via padrão genérico: 0.289
+2026-08-15 02:34:50,311 - app.database.database - INFO - Conectando ao banco: C:\Users\leost\mame-set-builder\data\database\mame_set_builder.db
+2026-08-15 02:34:50,318 - app.database.database - INFO - Schema criado com sucesso.
+2026-08-15 02:34:50,318 - app.database.database - INFO - Conexão estabelecida e tabelas verificadas.
+2026-08-15 02:34:50,408 - app.main - INFO - Aplicação iniciada com sucesso.
+2026-08-15 02:35:00,116 - app.database.database - INFO - Database inicializado com caminho: C:\Users\leost\mame-set-builder\data\database\mame_set_builder.db
+2026-08-15 02:35:00,117 - app.database.database - INFO - Conectando ao banco: C:\Users\leost\mame-set-builder\data\database\mame_set_builder.db
+2026-08-15 02:35:00,123 - app.database.database - INFO - Schema criado com sucesso.
+2026-08-15 02:35:00,123 - app.database.database - INFO - Conexão estabelecida e tabelas verificadas.
+2026-08-15 02:35:00,148 - app.database.database - INFO - Conexão com banco fechada.
+2026-08-15 02:35:00,423 - app.core.services.listxml_export_service - INFO - Executando MAME -listxml para gerar XML filtrado (3629 máquinas).
+2026-08-15 02:35:13,192 - app.core.services.listxml_export_service - INFO - XML filtrado salvo em C:\Users\leost\mame-set-builder\data\scans\mame_0.289_filtered_20260815_023500.xml (3629 máquinas selecionadas de 3629).
