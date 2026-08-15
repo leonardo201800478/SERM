@@ -257,6 +257,22 @@ class FilterService:
         cursor = self.conn.execute(query, params)
         return [row[0] for row in cursor.fetchall()]
 
+    def get_machine_names(self, criteria: FilterCriteria) -> List[str]:
+        """Retorna os nomes (machine.name) das máquinas que atendem aos critérios.
+
+        Usado pela exportação de listxml filtrado, que precisa localizar
+        as máquinas pelo atributo <machine name="..."> do XML original,
+        não pelo id autoincrement do banco.
+        """
+        query, params = self._build_filter_query(criteria)
+        name_query = query.replace(
+            "SELECT DISTINCT m.id FROM machine m",
+            "SELECT DISTINCT m.name FROM machine m",
+            1,
+        )
+        cursor = self.conn.execute(name_query, params)
+        return [row[0] for row in cursor.fetchall()]
+
     def get_machine_count(self, criteria: FilterCriteria) -> int:
         query, params = self._build_filter_query(criteria)
         count_query = query.replace(

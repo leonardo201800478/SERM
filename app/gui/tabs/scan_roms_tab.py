@@ -18,6 +18,12 @@ from app.core.models.scan_result import ScanResult, MachineScanResult, ScanStatu
 from app.core.services.listxml_export_service import ListxmlExportService
 from app.core.services.rom_scan_service import RomScanService
 from app.config.app_config import AppConfig
+from app.core.services.filter_service import FilterService
+from app.core.models.filter_profile import FilterCriteria
+from app.database.database import Database
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class ScanRomsTab(QWidget):
@@ -30,6 +36,7 @@ class ScanRomsTab(QWidget):
         self.filtered_xml_path: Optional[Path] = None
 
         self.setup_ui()
+        self._load_filter_profiles()
         self.update_ui_state()
 
     def setup_ui(self):
@@ -92,6 +99,23 @@ class ScanRomsTab(QWidget):
         self.btn_reconstruct.clicked.connect(self.reconstruct_validated)
         paths_layout.addWidget(self.btn_reconstruct, 6, 1, 1, 2)
         layout.addWidget(paths_group)
+        xml_layout.addWidget(self.xml_label)
+        layout.addLayout(xml_layout)
+        # Perfil de filtro usado para selecionar as máquinas do XML/scan.
+        profile_group = QGroupBox("PERFIL DE FILTRO PARA O SET")
+        profile_layout = QHBoxLayout(profile_group)
+        profile_layout.addWidget(QLabel("Perfil:"))
+        self.profile_combo = QComboBox()
+        self.profile_combo.setToolTip(
+            "Perfil de filtro (criado/salvo na aba Filtragem) usado para "
+            "selecionar quais máquinas entram no XML filtrado e no scan.\n"
+            "'Todas as máquinas' gera o set completo, sem filtro."
+        )
+        profile_layout.addWidget(self.profile_combo, stretch=1)
+        btn_refresh_profiles = QPushButton("Atualizar perfis")
+        btn_refresh_profiles.clicked.connect(self._load_filter_profiles)
+        profile_layout.addWidget(btn_refresh_profiles)
+        layout.addWidget(profile_group)
 
         # Resumo
         summary_group = QGroupBox("RESUMO")
@@ -147,6 +171,56 @@ class ScanRomsTab(QWidget):
         self.config.output_layout = self.layout_combo.currentData()
         self.config.save()
 
+    def _get_db_connection(self):
+        """Retorna (conn, owns_connection)."""
+        main_db = getattr(self.parent, "db", None)
+        if main_db is not None and getattr(main_db, "conn", None) is not None:
+            return main_db.conn, False
+
+        db = Database(self.config.db_path)
+        db.connect()
+        return db.conn, True
+
+    def _load_filter_profiles(self):
+        """Carrega no combo os perfis de filtro salvos na aba Filtragem."""
+        self.profile_combo.clear()
+        self.profile_combo.addItem("Todas as máquinas (sem filtro)", None)
+
+        conn, owns = self._get_db_connection()
+        try:
+            filter_service = FilterService(conn)
+            for profile in filter_service.get_profiles():
+                self.profile_combo.addItem(profile.name, profile.id)
+
+            default = filter_service.get_default_profile()
+            if default:
+                idx = self.profile_combo.findData(default.id)
+                if idx >= 0:
+                    self.profile_combo.setCurrentIndex(idx)
+        except Exception as e:
+            logger.warning(f"Não foi possível carregar perfis de filtro: {e}")
+        finally:
+            if owns:
+                conn.close()
+
+    def _get_selected_criteria(self) -> FilterCriteria:
+        """Retorna os critérios do perfil selecionado no combo local."""
+        profile_id = self.profile_combo.currentData()
+        if not profile_id:
+            return FilterCriteria()
+
+        conn, owns = self._get_db_connection()
+        try:
+            filter_service = FilterService(conn)
+            profile = next(
+                (p for p in filter_service.get_profiles() if p.id == profile_id),
+                None,
+            )
+            return profile.criteria if profile else FilterCriteria()
+        finally:
+            if owns:
+                conn.close()
+
     def update_ui_state(self):
         has_xml = self.filtered_xml_path is not None
         self.btn_scan.setEnabled(has_xml and not self.scanning)
@@ -159,12 +233,8 @@ class ScanRomsTab(QWidget):
         self.btn_generate.setEnabled(False)
         try:
             service = ListxmlExportService(self.config.db_path, self.config.mame_path)
-            filter_criteria = {
-                'working_arcade': True,  # TODO: obter dos filtros da GUI
-                'machine_category': 'Arcade',
-                'no_clones': True,
-            }
-            machine_ids = service.get_machine_ids_from_db(filter_criteria)
+            criteria = self._get_selected_criteria()
+            machine_ids = service.get_machine_ids_from_db(criteria)
             if not machine_ids:
                 QMessageBox.warning(self, "Aviso", "Nenhuma máquina encontrada com os filtros atuais.")
                 return
@@ -178,8 +248,16 @@ class ScanRomsTab(QWidget):
             self.filtered_xml_path = output_path
             self.xml_label.setText(str(output_path))
             self.xml_label.setStyleSheet("color: green;")
-            self.status_label.setText(f"XML gerado: {output_path.name}")
-            QMessageBox.information(self, "Sucesso", f"XML filtrado gerado em:\n{output_path}")
+            self.status_label.setText(
+                f"XML gerado: {output_path.name} ({len(machine_ids)} máquinas)"
+            )
+            QMessageBox.information(
+                self,
+                "Sucesso",
+                f"XML filtrado gerado em:\n{output_path}\n\n"
+                f"{len(machine_ids)} máquina(s) selecionada(s) "
+                f"(perfil: {self.profile_combo.currentText()}).",
+            )
         except Exception as e:
             self.status_label.setText(f"Erro: {e}")
             QMessageBox.critical(self, "Erro", f"Erro ao gerar XML: {e}")

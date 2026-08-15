@@ -41,6 +41,7 @@ class MainWindow(QMainWindow):
             self.directories_tab.settings_changed.connect(self.filters_tab._update_database_info)
         if hasattr(self.filters_tab, 'database_updated'):
             self.filters_tab.database_updated.connect(self.home_tab.refresh_status)
+            self.filters_tab.database_updated.connect(self.scan_tab._load_filter_profiles)
 
     def closeEvent(self, event):
         if self.db:

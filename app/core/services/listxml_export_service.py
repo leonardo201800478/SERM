@@ -10,6 +10,8 @@ from typing import Iterable, List, Optional
 
 from app.config.app_config import AppConfig
 from app.core.database import Database
+from app.core.models.filter_profile import FilterCriteria
+from app.core.services.filter_service import FilterService
 
 
 class ListxmlExportService:
@@ -68,24 +70,15 @@ class ListxmlExportService:
         bad = {m.name for m in scan_result.machines if m.status.value in {"missing", "corrupted", "unavailable", "fixable"}}
         return ListxmlExportService(Path(""), Path("" )).filter_xml(source_xml, bad, output_path)
 
-    def get_machine_ids_from_db(self, filter_criteria: dict = None) -> List[str]:
-        db = Database(self.db_path)
-        conn = db.conn
-        cursor = conn.cursor()
-        query = "SELECT name FROM machine WHERE 1=1"
-        params = []
-        if filter_criteria:
-            if filter_criteria.get("working_arcade"):
-                query += " AND working_arcade = 1"
-            if filter_criteria.get("machine_category"):
-                query += " AND machine_category = ?"
-                params.append(filter_criteria["machine_category"])
-            if filter_criteria.get("no_clones"):
-                query += " AND (cloneof IS NULL OR cloneof = '')"
-        cursor.execute(query, params)
-        results = [row[0] for row in cursor.fetchall()]
-        conn.close()
-        return results
+    def get_machine_ids_from_db(self, criteria: Optional[FilterCriteria] = None) -> List[str]:
+            """Retorna os nomes das máquinas que atendem aos critérios informados."""
+            db = Database(self.db_path)
+            db.connect()
+            try:
+                filter_service = FilterService(db.conn)
+                return filter_service.get_machine_names(criteria or FilterCriteria())
+            finally:
+                db.close()
 
 
 def _xml_escape(value: str) -> str:
