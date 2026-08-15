@@ -51,14 +51,42 @@ class RomScanner:
         return result
 
     def _scan_single_machine(self, machine_data: dict) -> MachineScanResult:
-        name = machine_data.get("name", "")
-        machine_result = MachineScanResult(name=name, description=machine_data.get("description", ""), cloneof=machine_data.get("cloneof"))
-        with ThreadPoolExecutor(max_workers=min(self.workers, max(1, len(machine_data.get("roms", []))))) as pool:
-            futures = [pool.submit(self._scan_rom, rom, name) for rom in machine_data.get("roms", [])]
-            machine_result.roms = [future.result() for future in futures]
-        machine_result.update_status()
-        machine_result.total_size = sum(r.size for r in machine_result.roms if r.status == ScanStatus.OK)
-        return machine_result
+            name = machine_data.get("name", "")
+            machine_result = MachineScanResult(name=name, description=machine_data.get("description", ""), cloneof=machine_data.get("cloneof"))
+            rom_infos = machine_data.get("roms", [])
+
+            if not rom_infos:
+                machine_result.update_status()
+                return machine_result
+
+            with ThreadPoolExecutor(max_workers=min(self.workers, max(1, len(rom_infos)))) as pool:
+                futures = {pool.submit(self._scan_rom, rom_info, name): rom_info for rom_info in rom_infos}
+                for future in as_completed(futures):
+                    rom_info = futures[future]
+                    try:
+                        machine_result.roms.append(future.result())
+                    except Exception:
+                        # Uma ROM com falha (arquivo corrompido, CRC/hex inválido,
+                        # etc.) não pode derrubar o scan inteiro. Registramos o
+                        # erro isoladamente e seguimos para as próximas ROMs e
+                        # máquinas.
+                        logger.exception(
+                            "Falha isolada ao validar ROM '%s' da máquina '%s'",
+                            rom_info.get("name", "?"),
+                            name,
+                        )
+                        machine_result.roms.append(RomFile(
+                            name=rom_info.get("name", ""),
+                            size=int(rom_info.get("size", 0) or 0),
+                            crc=(rom_info.get("crc", "") or "").lower(),
+                            sha1=(rom_info.get("sha1") or "").lower() or None,
+                            merge=rom_info.get("merge"),
+                            status=ScanStatus.CORRUPTED,
+                        ))
+
+            machine_result.update_status()
+            machine_result.total_size = sum(r.size for r in machine_result.roms if r.status == ScanStatus.OK)
+            return machine_result
 
     def _scan_rom(self, rom_info: dict, machine_name: str) -> RomFile:
         expected = RomFile(
