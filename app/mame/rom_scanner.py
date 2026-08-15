@@ -1,335 +1,1330 @@
-"""Scanner de ROMs MAME orientado a I/O e tolerante a fontes ruins."""
+"""
+MAME Set Builder - ROM Scanner
+==============================
+
+Responsável por verificar as ROMs presentes no XML filtrado contra os
+arquivos físicos existentes nas pastas configuradas para o MAME.
+
+Princípios deste scanner:
+
+1. Somente ROMs presentes no XML fornecido são analisadas.
+2. Nenhuma varredura global de todos os arquivos é realizada antes do scan.
+3. ZIPs são abertos somente quando necessários.
+4. Cada ROM analisada gera um evento de progresso.
+5. Cada ROM analisada gera log.
+6. O processo pode ser cancelado pelo usuário.
+7. Um erro em uma ROM não interrompe o restante do scan.
+
+O XML filtrado deve ser a fonte de verdade para determinar quais ROMs
+precisam ser verificadas.
+"""
+
 from __future__ import annotations
 
 import logging
-import os
-import tempfile
 import threading
 import zipfile
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from pathlib import Path
-from typing import Callable, Dict, List, Tuple
 
-from app.core.models.scan_result import ScanResult, MachineScanResult, RomFile, ScanStatus
-from app.mame.integrity import digest_file, digest_stream, matches_digest
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Callable, Iterable
+from concurrent.futures import (
+    ThreadPoolExecutor,
+    as_completed,
+)
 
 logger = logging.getLogger(__name__)
-ProgressCallback = Callable[[int, int, str], None]
 
-# Chave do índice de arquivos: (crc em hex minúsculo de 8 dígitos, tamanho em bytes)
-ArchiveIndexKey = Tuple[str, int]
+
+# ============================================================================
+# RESULTADOS
+# ============================================================================
+
+
+@dataclass
+class RomScanResult:
+    """
+    Resultado da verificação de uma ROM.
+
+    Attributes:
+        machine_name:
+            Nome da máquina no XML.
+
+        rom_name:
+            Nome esperado da ROM.
+
+        expected_size:
+            Tamanho informado pelo XML.
+
+        expected_crc:
+            CRC informado pelo XML.
+
+        found:
+            Indica se a ROM foi encontrada.
+
+        valid:
+            Indica se a ROM encontrada é válida.
+
+        status:
+            Estado final da ROM.
+
+        path:
+            Arquivo físico onde a ROM foi encontrada.
+
+        actual_size:
+            Tamanho real encontrado.
+
+        actual_crc:
+            CRC real encontrado.
+
+        source:
+            Arquivo ZIP ou diretório onde a ROM foi localizada.
+
+        message:
+            Informação adicional sobre o resultado.
+    """
+
+    machine_name: str
+    rom_name: str
+
+    expected_size: int = 0
+    expected_crc: str = ""
+
+    found: bool = False
+    valid: bool = False
+
+    status: str = "missing"
+
+    path: Path | None = None
+
+    actual_size: int = 0
+    actual_crc: str = ""
+
+    source: Path | None = None
+
+    message: str = ""
+
+
+@dataclass
+class MachineScanResult:
+    """
+    Resultado do scan de uma máquina.
+
+    Attributes:
+        machine_name:
+            Nome da máquina.
+
+        roms:
+            Resultados das ROMs da máquina.
+
+        total:
+            Total de ROMs verificadas.
+
+        found:
+            Quantidade de ROMs encontradas.
+
+        valid:
+            Quantidade de ROMs válidas.
+
+        missing:
+            Quantidade de ROMs ausentes.
+
+        bad:
+            Quantidade de ROMs encontradas porém inválidas.
+
+        error:
+            Quantidade de ROMs que apresentaram erro durante a análise.
+    """
+
+    machine_name: str
+
+    roms: list[RomScanResult] = field(default_factory=list)
+
+    total: int = 0
+    found: int = 0
+    valid: int = 0
+    missing: int = 0
+    bad: int = 0
+    error: int = 0
+
+    @property
+    def complete(self) -> bool:
+        """
+        Retorna True quando todas as ROMs da máquina são válidas.
+        """
+        return (
+            self.total > 0
+            and self.valid == self.total
+        )
+
+
+# ============================================================================
+# CALLBACKS
+# ============================================================================
+
+
+ProgressCallback = Callable[
+    [int, int, RomScanResult],
+    None,
+]
+
+LogCallback = Callable[
+    [str],
+    None,
+]
+
+
+# ============================================================================
+# SCANNER
+# ============================================================================
 
 
 class RomScanner:
+    """
+    Scanner de ROMs do MAME.
+
+    O scanner recebe exclusivamente as máquinas provenientes do XML
+    filtrado. Dessa maneira, máquinas e ROMs que não fazem parte do
+    conjunto selecionado não são analisadas.
+
+    Args:
+        rom_paths:
+            Diretórios onde as ROMs do MAME estão armazenadas.
+
+        max_workers:
+            Número máximo de threads utilizadas para o scan.
+
+        progress_callback:
+            Callback chamado após cada ROM analisada.
+
+        log_callback:
+            Callback opcional para exibição das mensagens na interface.
+
+        enable_alternate_search:
+            Mantido por compatibilidade com versões anteriores.
+
+            Quando False, o scanner procura somente nos locais diretamente
+            relacionados à máquina.
+
+            O valor padrão é False para evitar uma varredura global de
+            arquivos que não pertencem ao XML filtrado.
+    """
+
     def __init__(
         self,
-        rom_paths: List[Path],
-        *,
-        workers: int | None = None,
-        chunk_size: int = 1024 * 1024,
-        enable_alternate_search: bool = True,
-    ):
-        self.rom_paths = [Path(p) for p in rom_paths if Path(p).is_dir()]
-        self.workers = max(1, min(workers or (os.cpu_count() or 2), 16))
-        self.chunk_size = chunk_size
-        self.enable_alternate_search = enable_alternate_search
-        self._digest_cache: dict[tuple[str, int, int, bool], object] = {}
-
-        # Índice (crc, size) -> [(archive, member), ...] de todos os ZIPs
-        # das origens, construído UMA ÚNICA VEZ por scan.
-        #
-        # Antes, cada ROM ausente/corrompida disparava _search_alternate()
-        # reabrindo e relendo TODOS os ZIPs da origem do zero. Com milhares
-        # de arquivos isso é lentíssimo e dava a impressão de que o scan
-        # "travava" logo no primeiro erro — na verdade ele continuava
-        # rodando, só que reescaneando o diretório inteiro repetidamente.
-        # Ler apenas o diretório central (infolist) de cada ZIP é rápido
-        # mesmo para dezenas de milhares de arquivos, e feito só uma vez.
-        self._archive_index: Dict[ArchiveIndexKey, List[Tuple[Path, str]]] | None = None
-        self._archive_index_lock = threading.Lock()
-
-    # ------------------------------------------------------------------
-    # ÍNDICE DE ARQUIVOS (construído uma vez, reutilizado por todo o scan)
-    # ------------------------------------------------------------------
-
-    def build_archive_index(
-        self,
-        *,
-        force: bool = False,
+        rom_paths: Iterable[str | Path],
+        max_workers: int = 4,
         progress_callback: ProgressCallback | None = None,
-    ) -> None:
-        """Constrói o índice (crc, size) -> candidatos das origens.
+        log_callback: LogCallback | None = None,
+        enable_alternate_search: bool = False,
+    ):
+        self.rom_paths = [
+            Path(path)
+            for path in rom_paths
+        ]
 
-        Lê apenas o diretório central de cada ZIP (``infolist()``), sem
-        descompactar nada. Chamado automaticamente por ``scan_machines`` e
-        deve ser chamado explicitamente pelo chamador quando o scan é
-        feito máquina-a-máquina (ver ``ScanRomsTab._do_scan``), antes do
-        laço de escaneamento.
-
-        Idempotente: se já foi construído, não refaz o trabalho a menos
-        que ``force=True``.
-        """
-        with self._archive_index_lock:
-            if self._archive_index is not None and not force:
-                return
-
-            index: Dict[ArchiveIndexKey, List[Tuple[Path, str]]] = {}
-            archives: List[Path] = []
-            for root in self.rom_paths:
-                try:
-                    archives.extend(root.glob("*.zip"))
-                except OSError as exc:
-                    logger.warning(f"Não foi possível listar {root}: {exc}")
-
-            total = len(archives)
-            logger.info(f"Construindo índice de {total} arquivo(s) ZIP das origens...")
-
-            for count, archive in enumerate(archives, start=1):
-                try:
-                    with zipfile.ZipFile(archive, "r") as zf:
-                        for info in zf.infolist():
-                            if info.is_dir():
-                                continue
-                            key = (f"{info.CRC & 0xFFFFFFFF:08x}", info.file_size)
-                            index.setdefault(key, []).append((archive, info.filename))
-                except (OSError, zipfile.BadZipFile) as exc:
-                    # Um ZIP corrompido não impede a indexação dos demais.
-                    logger.warning(f"Não foi possível indexar {archive}: {exc}")
-
-                if progress_callback and (count % 200 == 0 or count == total):
-                    progress_callback(count, total, str(archive))
-
-            self._archive_index = index
-            logger.info(
-                f"Índice de arquivos concluído: {len(index)} chave(s) (crc,size) únicas "
-                f"em {total} arquivo(s)."
-            )
-
-    def invalidate_archive_index(self) -> None:
-        """Força a reconstrução do índice na próxima chamada."""
-        with self._archive_index_lock:
-            self._archive_index = None
-
-    # ------------------------------------------------------------------
-    # API PRINCIPAL
-    # ------------------------------------------------------------------
-
-    def scan_machines(
-        self, machines: List[dict], *, progress_callback: ProgressCallback | None = None
-    ) -> ScanResult:
-        self.build_archive_index()
-
-        result = ScanResult(version="unknown")
-        jobs = [(machine, rom_info) for machine in machines for rom_info in machine.get("roms", [])]
-        completed = 0
-        by_machine: dict[str, MachineScanResult] = {
-            m.get("name", ""): MachineScanResult(
-                name=m.get("name", ""), description=m.get("description", ""), cloneof=m.get("cloneof")
-            )
-            for m in machines
-        }
-        with ThreadPoolExecutor(max_workers=self.workers, thread_name_prefix="mame-scan") as pool:
-            futures = {
-                pool.submit(self._scan_rom, rom_info, machine.get("name", "")): (machine.get("name", ""), rom_info)
-                for machine, rom_info in jobs
-            }
-            for future in as_completed(futures):
-                machine_name, rom_info = futures[future]
-                try:
-                    by_machine[machine_name].roms.append(future.result())
-                except Exception:
-                    # Falha isolada em uma ROM não pode derrubar o scan.
-                    logger.exception("Falha isolada ao validar ROM de %s", machine_name)
-                    by_machine[machine_name].roms.append(
-                        self._corrupted_rom_placeholder(rom_info)
-                    )
-                completed += 1
-                if progress_callback:
-                    progress_callback(completed, len(jobs), machine_name)
-
-        result.machines = [by_machine[m.get("name", "")] for m in machines]
-        for machine in result.machines:
-            machine.update_status()
-            machine.total_size = sum(r.size for r in machine.roms if r.status == ScanStatus.OK)
-        result.total_machines = len(result.machines)
-        result.update_summary()
-        return result
-
-    def _scan_single_machine(self, machine_data: dict) -> MachineScanResult:
-        """Escaneia uma única máquina.
-
-        Não constrói o índice de arquivos sozinho — quem chama em laço
-        (ex.: ``ScanRomsTab._do_scan``) deve chamar ``build_archive_index``
-        uma única vez ANTES do laço, para não repetir o trabalho a cada
-        máquina.
-        """
-        name = machine_data.get("name", "")
-        machine_result = MachineScanResult(
-            name=name, description=machine_data.get("description", ""), cloneof=machine_data.get("cloneof")
+        self.max_workers = max(
+            1,
+            int(max_workers),
         )
-        rom_infos = machine_data.get("roms", [])
 
-        if not rom_infos:
-            machine_result.update_status()
-            return machine_result
+        self.progress_callback = progress_callback
+        self.log_callback = log_callback
 
-        with ThreadPoolExecutor(max_workers=min(self.workers, max(1, len(rom_infos)))) as pool:
-            futures = {pool.submit(self._scan_rom, rom_info, name): rom_info for rom_info in rom_infos}
-            for future in as_completed(futures):
-                rom_info = futures[future]
-                try:
-                    machine_result.roms.append(future.result())
-                except Exception:
-                    # Uma ROM com falha (corrompida, XML inconsistente etc.)
-                    # não pode derrubar o scan da máquina, nem do restante
-                    # do set. Registramos e seguimos.
-                    logger.exception(
-                        "Falha isolada ao validar ROM '%s' da máquina '%s'",
-                        rom_info.get("name", "?"),
-                        name,
-                    )
-                    machine_result.roms.append(self._corrupted_rom_placeholder(rom_info))
+        self.enable_alternate_search = (
+            enable_alternate_search
+        )
 
-        machine_result.update_status()
-        machine_result.total_size = sum(r.size for r in machine_result.roms if r.status == ScanStatus.OK)
-        return machine_result
+        self._cancel_event = threading.Event()
+
+        logger.info(
+            "RomScanner inicializado: %d diretório(s), "
+            "%d worker(s), alternate_search=%s",
+            len(self.rom_paths),
+            self.max_workers,
+            self.enable_alternate_search,
+        )
+
+    # =========================================================================
+    # CONTROLE
+    # =========================================================================
+
+    def cancel(self) -> None:
+        """
+        Solicita o cancelamento do scan.
+
+        O cancelamento é cooperativo. A ROM atualmente em processamento
+        pode terminar normalmente, mas novas ROMs não serão iniciadas.
+        """
+        logger.info(
+            "Solicitação de cancelamento recebida."
+        )
+
+        self._cancel_event.set()
+
+    def reset_cancel(self) -> None:
+        """
+        Limpa o estado de cancelamento.
+
+        Deve ser chamado antes de iniciar um novo scan utilizando a mesma
+        instância.
+        """
+        self._cancel_event.clear()
+
+    @property
+    def cancelled(self) -> bool:
+        """
+        Retorna True quando o scan foi cancelado.
+        """
+        return self._cancel_event.is_set()
+
+    # =========================================================================
+    # LOG
+    # =========================================================================
+
+    def _log(
+        self,
+        message: str,
+        *args,
+        level: int = logging.INFO,
+    ) -> None:
+        """
+        Registra uma mensagem no logger e, opcionalmente, envia a mensagem
+        para a interface gráfica.
+        """
+        logger.log(
+            level,
+            message,
+            *args,
+        )
+
+        if self.log_callback is not None:
+            try:
+                formatted = message % args if args else message
+
+                self.log_callback(
+                    formatted
+                )
+
+            except Exception:
+                logger.exception(
+                    "Erro no log_callback."
+                )
+
+    # =========================================================================
+    # NORMALIZAÇÃO
+    # =========================================================================
 
     @staticmethod
-    def _corrupted_rom_placeholder(rom_info: dict) -> RomFile:
-        return RomFile(
-            name=rom_info.get("name", ""),
-            size=int(rom_info.get("size", 0) or 0),
-            crc=(rom_info.get("crc", "") or "").lower(),
-            sha1=(rom_info.get("sha1") or "").lower() or None,
-            merge=rom_info.get("merge"),
-            status=ScanStatus.CORRUPTED,
-        )
+    def _normalize_crc(
+        crc: str | None,
+    ) -> str:
+        """
+        Normaliza um CRC para comparação.
 
-    # ------------------------------------------------------------------
-    # VALIDAÇÃO DE UMA ROM
-    # ------------------------------------------------------------------
+        Remove espaços e converte para letras minúsculas.
+        """
+        if not crc:
+            return ""
 
-    def _scan_rom(self, rom_info: dict, machine_name: str) -> RomFile:
-        expected = RomFile(
-            name=rom_info.get("name", ""),
-            size=int(rom_info.get("size", 0) or 0),
-            crc=(rom_info.get("crc", "") or "").lower(),
-            sha1=(rom_info.get("sha1") or "").lower() or None,
-            merge=rom_info.get("merge"),
-            status=ScanStatus.MISSING,
-        )
-        candidates: list[tuple[str, Path]] = []
-        for root in self.rom_paths:
-            for archive_name in {machine_name, expected.merge} - {None, ""}:
-                archive = root / f"{archive_name}.zip"
-                if archive.is_file():
-                    candidates.append(("zip", archive))
-                archive7z = root / f"{archive_name}.7z"
-                if archive7z.is_file():
-                    candidates.append(("7z", archive7z))
-            loose = root / expected.name
-            if loose.is_file():
-                candidates.append(("file", loose))
+        return str(crc).strip().lower()
 
-        saw_corrupt = False
-        for kind, path in candidates:
-            try:
-                actual = self._validate_candidate(kind, path, expected.name, bool(expected.sha1))
-                if actual is None:
-                    continue
-                expected.found_in = path
-                expected.found_member = expected.name if kind in {"zip", "7z"} else None
-                expected.actual_size, expected.actual_crc, expected.actual_sha1 = (
-                    actual.size,
-                    actual.crc,
-                    actual.sha1,
-                )
-                if matches_digest(actual, size=expected.size, crc=expected.crc, sha1=expected.sha1 or ""):
-                    expected.status = ScanStatus.OK
-                    return expected
-                saw_corrupt = True
-            except (OSError, zipfile.BadZipFile, KeyError, NotImplementedError) as exc:
-                # Candidato específico com problema (item ausente no ZIP,
-                # arquivo corrompido, etc.) — isolado. Tenta o próximo
-                # candidato / a busca alternativa, sem propagar o erro.
-                logger.warning("Falha ao ler candidato %s: %s", path, exc)
-                saw_corrupt = True
+    @staticmethod
+    def _normalize_name(
+        name: str | None,
+    ) -> str:
+        """
+        Normaliza o nome de uma ROM para comparação.
+        """
+        if not name:
+            return ""
 
-        # Segunda etapa: procurar o mesmo conteúdo em outro set ou com
-        # outro nome interno, usando o índice pré-construído — rápido,
-        # sem reabrir todos os ZIPs de novo para cada ROM.
-        alternate = self._search_alternate(expected)
-        if alternate is not None:
-            expected.found_in, expected.found_member = alternate[0], alternate[1]
-            actual = alternate[2]
-            expected.actual_size, expected.actual_crc, expected.actual_sha1 = (
-                actual.size,
-                actual.crc,
-                actual.sha1,
+        return str(name).replace(
+            "\\",
+            "/",
+        ).strip()
+
+    # =========================================================================
+    # CAMINHOS
+    # =========================================================================
+
+    def _machine_candidates(
+        self,
+        machine_name: str,
+    ) -> list[Path]:
+        """
+        Retorna os possíveis arquivos físicos da máquina.
+
+        Para uma máquina 'sf2', por exemplo, serão considerados:
+
+            sf2.zip
+            sf2/
+
+        Não é feita uma busca recursiva por todos os ZIPs existentes.
+
+        Isso é fundamental para manter o scanner rápido em fullsets grandes.
+        """
+        candidates: list[Path] = []
+
+        for base in self.rom_paths:
+            if not base.exists():
+                continue
+
+            candidates.append(
+                base / f"{machine_name}.zip"
             )
-            expected.status = ScanStatus.FIXABLE
-            return expected
 
-        expected.status = ScanStatus.CORRUPTED if saw_corrupt else ScanStatus.MISSING
-        return expected
+            candidates.append(
+                base / machine_name
+            )
 
-    def _search_alternate(self, expected: RomFile):
-        if not self.enable_alternate_search:
-            return None
+        return candidates
 
-        # Índice ainda não construído (chamada avulsa/legada, sem passar
-        # pelo fluxo normal): constrói sob demanda uma única vez, em vez
-        # de escanear tudo de novo a cada ROM.
-        if self._archive_index is None:
-            self.build_archive_index()
+    # =========================================================================
+    # LEITURA DE ZIP
+    # =========================================================================
+
+    def _scan_zip(
+        self,
+        zip_path: Path,
+        machine_name: str,
+        rom_name: str,
+        expected_size: int,
+        expected_crc: str,
+    ) -> RomScanResult | None:
+        """
+        Procura uma ROM dentro de um arquivo ZIP específico.
+
+        Retorna None quando o ZIP não contém uma entrada com o nome
+        solicitado.
+        """
+        try:
+            with zipfile.ZipFile(
+                zip_path,
+                "r",
+            ) as archive:
+
+                normalized_target = self._normalize_name(
+                    rom_name
+                )
+
+                for info in archive.infolist():
+
+                    if info.is_dir():
+                        continue
+
+                    entry_name = self._normalize_name(
+                        info.filename
+                    )
+
+                    if entry_name != normalized_target:
+                        continue
+
+                    actual_size = info.file_size
+
+                    actual_crc = (
+                        f"{info.CRC:08x}"
+                    )
+
+                    normalized_expected_crc = (
+                        self._normalize_crc(
+                            expected_crc
+                        )
+                    )
+
+                    size_ok = (
+                        expected_size <= 0
+                        or actual_size == expected_size
+                    )
+
+                    crc_ok = (
+                        not normalized_expected_crc
+                        or actual_crc
+                        == normalized_expected_crc
+                    )
+
+                    valid = (
+                        size_ok
+                        and crc_ok
+                    )
+
+                    if valid:
+                        status = "good"
+
+                    else:
+                        status = "bad"
+
+                    return RomScanResult(
+                        machine_name=machine_name,
+                        rom_name=rom_name,
+                        expected_size=expected_size,
+                        expected_crc=expected_crc,
+                        found=True,
+                        valid=valid,
+                        status=status,
+                        path=zip_path,
+                        actual_size=actual_size,
+                        actual_crc=actual_crc,
+                        source=zip_path,
+                        message=(
+                            "ROM encontrada no ZIP."
+                            if valid
+                            else (
+                                "ROM encontrada, mas "
+                                "tamanho ou CRC inválido."
+                            )
+                        ),
+                    )
+
+        except zipfile.BadZipFile:
+            self._log(
+                "ZIP inválido: %s",
+                zip_path,
+                level=logging.WARNING,
+            )
+
+        except OSError as exc:
+            self._log(
+                "Erro lendo ZIP %s: %s",
+                zip_path,
+                exc,
+                level=logging.WARNING,
+            )
+
+        except Exception:
+            logger.exception(
+                "Erro inesperado lendo ZIP: %s",
+                zip_path,
+            )
+
+        return None
+
+    # =========================================================================
+    # ROM DESCOMPACTADA
+    # =========================================================================
+
+    def _scan_raw_file(
+        self,
+        file_path: Path,
+        machine_name: str,
+        rom_name: str,
+        expected_size: int,
+        expected_crc: str,
+    ) -> RomScanResult:
+        """
+        Verifica uma ROM armazenada como arquivo descompactado.
+
+        O CRC é calculado apenas quando necessário. Para evitar carregar
+        arquivos enormes inteiramente em memória, o cálculo é realizado
+        em blocos.
+        """
+        import binascii
 
         try:
-            crc_key = f"{int(expected.crc or '0', 16) & 0xFFFFFFFF:08x}"
-        except ValueError:
-            return None
+            actual_size = file_path.stat().st_size
 
-        candidates = self._archive_index.get((crc_key, expected.size), [])
-        for archive, member in candidates:
-            try:
-                with zipfile.ZipFile(archive, "r") as zf:
-                    with zf.open(member, "r") as stream:
-                        actual = digest_stream(
-                            stream, need_sha1=bool(expected.sha1), chunk_size=self.chunk_size
-                        )
-            except (OSError, zipfile.BadZipFile, KeyError) as exc:
-                logger.warning(
-                    "Falha ao ler candidato alternativo %s!%s: %s", archive, member, exc
+            crc_value = 0
+
+            with file_path.open(
+                "rb"
+            ) as file:
+
+                while True:
+                    chunk = file.read(
+                        1024 * 1024
+                    )
+
+                    if not chunk:
+                        break
+
+                    crc_value = binascii.crc32(
+                        chunk,
+                        crc_value,
+                    )
+
+            actual_crc = (
+                f"{crc_value & 0xffffffff:08x}"
+            )
+
+            normalized_expected_crc = (
+                self._normalize_crc(
+                    expected_crc
                 )
-                continue
-            if matches_digest(actual, size=expected.size, crc=expected.crc, sha1=expected.sha1 or ""):
-                return archive, member, actual
-        return None
+            )
 
-    def _validate_candidate(self, kind: str, path: Path, member: str, need_sha1: bool):
-        if kind == "file":
-            return digest_file(path, need_sha1=need_sha1, chunk_size=self.chunk_size)
-        if kind == "zip":
-            with zipfile.ZipFile(path, "r") as archive:
-                info = archive.getinfo(member)
-                with archive.open(info, "r") as stream:
-                    return digest_stream(stream, need_sha1=need_sha1, chunk_size=self.chunk_size)
-        if kind == "7z":
-            try:
-                import py7zr
-            except ImportError as exc:
-                raise NotImplementedError("backend py7zr não instalado") from exc
-            with py7zr.SevenZipFile(path, mode="r") as archive:
-                entries = {entry.filename: entry for entry in archive.list()}
-                entry = entries.get(member)
-                if entry is None:
-                    return None
-                uncompressed = int(getattr(entry, "uncompressed", 0) or 0)
-                if uncompressed > 64 * 1024 * 1024:
-                    raise NotImplementedError("membro 7Z maior que 64 MiB exige backend de streaming")
-                with tempfile.TemporaryDirectory(prefix="mame-7z-") as temp_dir:
-                    archive.extract(path=temp_dir, targets=[member])
-                    extracted = Path(temp_dir) / member
-                    if not extracted.is_file():
-                        return None
-                    return digest_file(extracted, need_sha1=need_sha1, chunk_size=self.chunk_size)
-        return None
+            size_ok = (
+                expected_size <= 0
+                or actual_size == expected_size
+            )
+
+            crc_ok = (
+                not normalized_expected_crc
+                or actual_crc
+                == normalized_expected_crc
+            )
+
+            valid = (
+                size_ok
+                and crc_ok
+            )
+
+            return RomScanResult(
+                machine_name=machine_name,
+                rom_name=rom_name,
+                expected_size=expected_size,
+                expected_crc=expected_crc,
+                found=True,
+                valid=valid,
+                status=(
+                    "good"
+                    if valid
+                    else "bad"
+                ),
+                path=file_path,
+                actual_size=actual_size,
+                actual_crc=actual_crc,
+                source=file_path.parent,
+                message=(
+                    "ROM encontrada."
+                    if valid
+                    else (
+                        "ROM encontrada, mas "
+                        "tamanho ou CRC inválido."
+                    )
+                ),
+            )
+
+        except OSError as exc:
+            return RomScanResult(
+                machine_name=machine_name,
+                rom_name=rom_name,
+                expected_size=expected_size,
+                expected_crc=expected_crc,
+                found=False,
+                valid=False,
+                status="error",
+                path=file_path,
+                source=file_path.parent,
+                message=str(exc),
+            )
+
+    # =========================================================================
+    # ROM INDIVIDUAL
+    # =========================================================================
+
+    def scan_rom(
+        self,
+        machine_name: str,
+        rom: dict,
+    ) -> RomScanResult:
+        """
+        Analisa uma única ROM.
+
+        A busca segue somente os caminhos associados à máquina:
+
+            1. <rom_path>/<machine>.zip
+            2. <rom_path>/<machine>/<rom>
+
+        Não existe busca global pelos demais ZIPs.
+        """
+        rom_name = self._normalize_name(
+            rom.get("name")
+        )
+
+        expected_size = int(
+            rom.get("size") or 0
+        )
+
+        expected_crc = self._normalize_crc(
+            rom.get("crc")
+        )
+
+        if not rom_name:
+            return RomScanResult(
+                machine_name=machine_name,
+                rom_name="",
+                expected_size=expected_size,
+                expected_crc=expected_crc,
+                status="error",
+                message="ROM sem nome no XML.",
+            )
+
+        self._log(
+            "Analisando ROM: máquina=%s | rom=%s | "
+            "size=%d | crc=%s",
+            machine_name,
+            rom_name,
+            expected_size,
+            expected_crc or "-",
+        )
+
+        # ---------------------------------------------------------------------
+        # 1. ZIP DA MÁQUINA
+        # ---------------------------------------------------------------------
+
+        zip_candidates = [
+            path
+            for path in self._machine_candidates(
+                machine_name
+            )
+            if path.is_file()
+            and path.suffix.lower() == ".zip"
+        ]
+
+        for zip_path in zip_candidates:
+
+            if self.cancelled:
+                return RomScanResult(
+                    machine_name=machine_name,
+                    rom_name=rom_name,
+                    expected_size=expected_size,
+                    expected_crc=expected_crc,
+                    status="cancelled",
+                    message="Scan cancelado.",
+                )
+
+            result = self._scan_zip(
+                zip_path=zip_path,
+                machine_name=machine_name,
+                rom_name=rom_name,
+                expected_size=expected_size,
+                expected_crc=expected_crc,
+            )
+
+            if result is not None:
+                self._log_rom_result(
+                    result
+                )
+
+                return result
+
+        # ---------------------------------------------------------------------
+        # 2. DIRETÓRIO DA MÁQUINA
+        # ---------------------------------------------------------------------
+
+        for base in self.rom_paths:
+
+            machine_dir = (
+                base / machine_name
+            )
+
+            if not machine_dir.is_dir():
+                continue
+
+            file_path = (
+                machine_dir
+                / rom_name
+            )
+
+            if not file_path.is_file():
+                continue
+
+            result = self._scan_raw_file(
+                file_path=file_path,
+                machine_name=machine_name,
+                rom_name=rom_name,
+                expected_size=expected_size,
+                expected_crc=expected_crc,
+            )
+
+            self._log_rom_result(
+                result
+            )
+
+            return result
+
+        # ---------------------------------------------------------------------
+        # 3. AUSENTE
+        # ---------------------------------------------------------------------
+
+        result = RomScanResult(
+            machine_name=machine_name,
+            rom_name=rom_name,
+            expected_size=expected_size,
+            expected_crc=expected_crc,
+            found=False,
+            valid=False,
+            status="missing",
+            message="ROM não encontrada.",
+        )
+
+        self._log_rom_result(
+            result
+        )
+
+        return result
+
+    # =========================================================================
+    # LOG DO RESULTADO
+    # =========================================================================
+
+    def _log_rom_result(
+        self,
+        result: RomScanResult,
+    ) -> None:
+        """
+        Registra o resultado de uma ROM.
+
+        Todas as ROMs passam por este método, inclusive as válidas.
+        """
+        status_map = {
+            "good": "OK",
+            "bad": "RUIM",
+            "missing": "AUSENTE",
+            "error": "ERRO",
+            "cancelled": "CANCELADA",
+        }
+
+        status_text = status_map.get(
+            result.status,
+            result.status.upper(),
+        )
+
+        if result.found:
+            self._log(
+                "[ROM] %-10s | máquina=%s | rom=%s | "
+                "esperado=%d bytes/%s | encontrado=%d bytes/%s",
+                status_text,
+                result.machine_name,
+                result.rom_name,
+                result.expected_size,
+                result.expected_crc or "-",
+                result.actual_size,
+                result.actual_crc or "-",
+            )
+
+        else:
+            self._log(
+                "[ROM] %-10s | máquina=%s | rom=%s | "
+                "esperado=%d bytes/%s | %s",
+                status_text,
+                result.machine_name,
+                result.rom_name,
+                result.expected_size,
+                result.expected_crc or "-",
+                result.message,
+            )
+
+    # =========================================================================
+    # MÁQUINA
+    # =========================================================================
+
+    def scan_machine(
+        self,
+        machine: dict,
+    ) -> MachineScanResult:
+        """
+        Analisa todas as ROMs de uma máquina.
+
+        O objeto machine deve representar uma máquina já filtrada pelo
+        XML anterior.
+        """
+        machine_name = str(
+            machine.get("name") or ""
+        )
+
+        roms = machine.get(
+            "roms",
+            [],
+        )
+
+        result = MachineScanResult(
+            machine_name=machine_name
+        )
+
+        if not machine_name:
+            return result
+
+        if not isinstance(
+            roms,
+            (list, tuple),
+        ):
+            roms = list(roms)
+
+        self._log(
+            "Iniciando máquina: %s | %d ROM(s)",
+            machine_name,
+            len(roms),
+        )
+
+        for rom in roms:
+
+            if self.cancelled:
+                break
+
+            rom_result = self.scan_rom(
+                machine_name=machine_name,
+                rom=rom,
+            )
+
+            result.roms.append(
+                rom_result
+            )
+
+            result.total += 1
+
+            if rom_result.status == "good":
+                result.found += 1
+                result.valid += 1
+
+            elif rom_result.status == "bad":
+                result.found += 1
+                result.bad += 1
+
+            elif rom_result.status == "missing":
+                result.missing += 1
+
+            elif rom_result.status == "error":
+                result.error += 1
+
+        self._log(
+            "Máquina concluída: %s | total=%d | "
+            "válidas=%d | ausentes=%d | ruins=%d | erros=%d",
+            machine_name,
+            result.total,
+            result.valid,
+            result.missing,
+            result.bad,
+            result.error,
+        )
+
+        return result
+
+    # =========================================================================
+    # SCAN COMPLETO
+    # =========================================================================
+
+    def scan(
+        self,
+        machines: Iterable[dict],
+    ) -> list[MachineScanResult]:
+        """
+        Executa o scan completo das máquinas do XML filtrado.
+
+        O número total de ROMs é calculado antes do processamento para que
+        a interface possa apresentar uma barra de progresso determinística.
+
+        Args:
+            machines:
+                Iterable contendo somente máquinas provenientes do XML
+                filtrado.
+
+        Returns:
+            Lista de MachineScanResult.
+        """
+        self.reset_cancel()
+
+        machines = list(
+            machines
+        )
+
+        total_roms = sum(
+            len(
+                machine.get(
+                    "roms",
+                    [],
+                )
+            )
+            for machine in machines
+        )
+
+        self._log(
+            "============================================================"
+        )
+
+        self._log(
+            "Iniciando scan de ROMs."
+        )
+
+        self._log(
+            "Máquinas selecionadas: %d",
+            len(machines),
+        )
+
+        self._log(
+            "ROMs a verificar: %d",
+            total_roms,
+        )
+
+        self._log(
+            "Diretórios de ROM: %s",
+            ", ".join(
+                str(path)
+                for path in self.rom_paths
+            ),
+        )
+
+        self._log(
+            "============================================================"
+        )
+
+        if total_roms == 0:
+            self._log(
+                "Nenhuma ROM encontrada no XML filtrado.",
+                level=logging.WARNING,
+            )
+
+            return []
+
+        completed_roms = 0
+
+        results_by_index: dict[
+            int,
+            MachineScanResult,
+        ] = {}
+
+        # ---------------------------------------------------------------------
+        # PROCESSAMENTO
+        # ---------------------------------------------------------------------
+        #
+        # Cada máquina é uma unidade de trabalho.
+        #
+        # A atualização de progresso ocorre por ROM através de
+        # _emit_progress().
+        #
+        # Como cada máquina contém várias ROMs, o callback é disparado
+        # individualmente após cada ROM.
+        #
+        # ---------------------------------------------------------------------
+
+        if self.max_workers == 1:
+
+            for index, machine in enumerate(
+                machines
+            ):
+
+                if self.cancelled:
+                    break
+
+                result = self.scan_machine_with_progress(
+                    machine,
+                    completed_roms,
+                    total_roms,
+                )
+
+                results_by_index[
+                    index
+                ] = result
+
+                completed_roms += result.total
+
+        else:
+
+            # Em execução paralela, cada máquina possui seu próprio worker.
+            #
+            # O callback pode ser chamado por threads diferentes. A GUI deve
+            # tratar o callback adequadamente, preferencialmente através de
+            # sinais Qt ou mecanismo equivalente.
+
+            with ThreadPoolExecutor(
+                max_workers=self.max_workers
+            ) as executor:
+
+                futures = {
+                    executor.submit(
+                        self.scan_machine,
+                        machine,
+                    ): index
+                    for index, machine
+                    in enumerate(machines)
+                    if not self.cancelled
+                }
+
+                for future in as_completed(
+                    futures
+                ):
+
+                    if self.cancelled:
+                        break
+
+                    index = futures[
+                        future
+                    ]
+
+                    try:
+                        result = future.result()
+
+                    except Exception as exc:
+
+                        machine_name = str(
+                            machines[index].get(
+                                "name",
+                                "",
+                            )
+                        )
+
+                        logger.exception(
+                            "Erro escaneando máquina %s",
+                            machine_name,
+                        )
+
+                        result = MachineScanResult(
+                            machine_name=machine_name
+                        )
+
+                    results_by_index[
+                        index
+                    ] = result
+
+                    completed_roms += result.total
+
+                    # scan_machine não envia callbacks individuais no
+                    # processamento paralelo porque isso poderia provocar
+                    # atualizações concorrentes na GUI.
+                    #
+                    # Emitimos o progresso da máquina concluída aqui.
+
+                    if self.progress_callback:
+                        for rom_result in result.roms:
+
+                            try:
+                                self.progress_callback(
+                                    min(
+                                        completed_roms
+                                        - result.total
+                                        + result.roms.index(
+                                            rom_result
+                                        )
+                                        + 1,
+                                        total_roms,
+                                    ),
+                                    total_roms,
+                                    rom_result,
+                                )
+
+                            except Exception:
+                                logger.exception(
+                                    "Erro no progress_callback."
+                                )
+
+        # ---------------------------------------------------------------------
+        # PRESERVAR ORDEM DO XML
+        # ---------------------------------------------------------------------
+
+        ordered_results = [
+            results_by_index[index]
+            for index in sorted(
+                results_by_index
+            )
+        ]
+
+        # ---------------------------------------------------------------------
+        # RESUMO
+        # ---------------------------------------------------------------------
+
+        total_checked = sum(
+            result.total
+            for result in ordered_results
+        )
+
+        total_valid = sum(
+            result.valid
+            for result in ordered_results
+        )
+
+        total_missing = sum(
+            result.missing
+            for result in ordered_results
+        )
+
+        total_bad = sum(
+            result.bad
+            for result in ordered_results
+        )
+
+        total_errors = sum(
+            result.error
+            for result in ordered_results
+        )
+
+        self._log(
+            "============================================================"
+        )
+
+        self._log(
+            "Scan finalizado%s.",
+            " por cancelamento"
+            if self.cancelled
+            else "",
+        )
+
+        self._log(
+            "ROMs processadas: %d/%d",
+            total_checked,
+            total_roms,
+        )
+
+        self._log(
+            "Válidas: %d | Ausentes: %d | "
+            "Ruins: %d | Erros: %d",
+            total_valid,
+            total_missing,
+            total_bad,
+            total_errors,
+        )
+
+        self._log(
+            "============================================================"
+        )
+
+        return ordered_results
+
+    # =========================================================================
+    # SCAN COM PROGRESSO
+    # =========================================================================
+
+    def scan_machine_with_progress(
+        self,
+        machine: dict,
+        completed_before: int,
+        total_roms: int,
+    ) -> MachineScanResult:
+        """
+        Analisa uma máquina e envia o progresso após cada ROM.
+
+        Esta versão é utilizada quando max_workers=1, pois nesse cenário
+        o callback pode ser atualizado diretamente sem risco de concorrência.
+        """
+        machine_name = str(
+            machine.get("name") or ""
+        )
+
+        roms = machine.get(
+            "roms",
+            [],
+        )
+
+        if not isinstance(
+            roms,
+            (list, tuple),
+        ):
+            roms = list(roms)
+
+        result = MachineScanResult(
+            machine_name=machine_name
+        )
+
+        for rom in roms:
+
+            if self.cancelled:
+                break
+
+            rom_result = self.scan_rom(
+                machine_name=machine_name,
+                rom=rom,
+            )
+
+            result.roms.append(
+                rom_result
+            )
+
+            result.total += 1
+
+            if rom_result.status == "good":
+                result.found += 1
+                result.valid += 1
+
+            elif rom_result.status == "bad":
+                result.found += 1
+                result.bad += 1
+
+            elif rom_result.status == "missing":
+                result.missing += 1
+
+            elif rom_result.status == "error":
+                result.error += 1
+
+            current = (
+                completed_before
+                + result.total
+            )
+
+            self._emit_progress(
+                current=current,
+                total=total_roms,
+                result=rom_result,
+            )
+
+        return result
+
+    # =========================================================================
+    # CALLBACK DE PROGRESSO
+    # =========================================================================
+
+    def _emit_progress(
+        self,
+        current: int,
+        total: int,
+        result: RomScanResult,
+    ) -> None:
+        """
+        Envia uma atualização de progresso para a interface.
+
+        Args:
+            current:
+                Número da ROM atualmente concluída.
+
+            total:
+                Número total de ROMs do XML filtrado.
+
+            result:
+                Resultado da ROM recém-processada.
+        """
+        if self.progress_callback is None:
+            return
+
+        try:
+            self.progress_callback(
+                current,
+                total,
+                result,
+            )
+
+        except Exception:
+            logger.exception(
+                "Erro executando progress_callback."
+            )
+
+
+# ============================================================================
+# FUNÇÕES AUXILIARES
+# ============================================================================
+
+
+def create_rom_scanner(
+    rom_paths: Iterable[str | Path],
+    *,
+    max_workers: int = 4,
+    progress_callback: ProgressCallback | None = None,
+    log_callback: LogCallback | None = None,
+) -> RomScanner:
+    """
+    Cria uma instância configurada do RomScanner.
+
+    A busca alternativa é explicitamente desativada para garantir que
+    somente os arquivos relacionados às máquinas do XML filtrado sejam
+    considerados.
+
+    Args:
+        rom_paths:
+            Diretórios de ROMs.
+
+        max_workers:
+            Quantidade máxima de workers.
+
+        progress_callback:
+            Callback de progresso.
+
+        log_callback:
+            Callback de log.
+
+    Returns:
+        Instância configurada de RomScanner.
+    """
+    return RomScanner(
+        rom_paths=rom_paths,
+        max_workers=max_workers,
+        progress_callback=progress_callback,
+        log_callback=log_callback,
+        enable_alternate_search=False,
+    )
