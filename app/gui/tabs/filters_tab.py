@@ -123,6 +123,93 @@ class FiltersTab(QWidget):
             )
             self.update_style()
 
+    class MacroCategoryChip(QPushButton):
+        """Chip que representa um macro-grupo de categorias.
+
+        Ao clicar, alterna de uma só vez o estado (excluir/restaurar) de
+        TODAS as categorias granulares pertencentes ao grupo (ex.: clicar
+        em "System / Non-Games" exclui BIOS, computadores, calculadoras,
+        consoles etc. de uma vez, sem precisar marcar categoria por
+        categoria).
+
+        Possui um terceiro estado visual (MIXED) para indicar quando
+        apenas parte das categorias do grupo está excluída — isso evita
+        que o chip minta visualmente sobre o estado real do filtro.
+        """
+
+        STATE_NORMAL = 0
+        STATE_EXCLUDE = 1
+        STATE_MIXED = 2
+
+        def __init__(self, macro_name: str, count: int, parent=None):
+            super().__init__(f"{macro_name} ({count})", parent)
+
+            self.macro_name = macro_name
+            self.state = self.STATE_NORMAL
+
+            self.setCheckable(False)
+            self.setSizePolicy(
+                QSizePolicy.Policy.Minimum,
+                QSizePolicy.Policy.Fixed,
+            )
+            self.setMinimumHeight(28)
+            self.setMaximumHeight(32)
+            self.setToolTip(
+                f"Macro-grupo: {macro_name}\n"
+                "Clique para excluir TODAS as categorias deste grupo de uma vez.\n"
+                "Clique novamente para restaurá-las.\n"
+                "Laranja = apenas parte das categorias do grupo está excluída."
+            )
+
+            self.clicked.connect(self.toggle_state)
+            self.update_style()
+
+        def toggle_state(self) -> None:
+            """Alterna entre excluir todo o grupo e restaurá-lo por completo.
+
+            Um clique a partir do estado MIXED força a exclusão total do
+            grupo (comportamento mais previsível do que tentar adivinhar
+            a intenção do usuário a partir de um estado parcial).
+            """
+            self.state = (
+                self.STATE_NORMAL
+                if self.state == self.STATE_EXCLUDE
+                else self.STATE_EXCLUDE
+            )
+            self.update_style()
+
+            parent = self.parentWidget()
+            if parent and hasattr(parent, "on_macro_category_changed"):
+                parent.on_macro_category_changed(self.macro_name, self.state)
+
+        def update_style(self) -> None:
+            """Atualiza o estilo do chip conforme seu estado atual."""
+            base_style = (
+                "border: 1px solid #666;"
+                "border-radius: 4px;"
+                "padding: 4px 10px;"
+                "font-weight: bold;"
+                "font-size: 8pt;"
+            )
+
+            if self.state == self.STATE_NORMAL:
+                self.setStyleSheet(
+                    f"background-color: #d0d0d0; color: black; {base_style}"
+                )
+            elif self.state == self.STATE_EXCLUDE:
+                self.setStyleSheet(
+                    f"background-color: #cc0000; color: white; {base_style}"
+                )
+            else:  # STATE_MIXED
+                self.setStyleSheet(
+                    f"background-color: #ffb84d; color: black; {base_style}"
+                )
+
+        def set_state(self, state: int) -> None:
+            """Define o estado do chip sem disparar o callback."""
+            self.state = state
+            self.update_style()
+
     filters_changed = Signal()
     database_updated = Signal()
     progress_signal = Signal(int, str)
@@ -141,12 +228,14 @@ class FiltersTab(QWidget):
         self.profiles = []
         self._import_running = False
         self.category_chips = {}
+        self.macro_chips = {}
 
         self.progress_signal.connect(self._on_progress_update)
         self.finish_signal.connect(self._on_import_finished)
 
         self._setup_ui()
         self._load_categories()
+        self._load_macro_categories()
         self._load_profiles()
         self._update_database_info()
 
@@ -347,6 +436,36 @@ class FiltersTab(QWidget):
         layout.addWidget(grp_info)
 
         # ============================
+        # GRUPO: MACRO CATEGORIAS
+        # ============================
+        grp_macro = QGroupBox("Macro Categorias")
+        macro_layout = QVBoxLayout()
+        macro_layout.setContentsMargins(6, 6, 6, 6)
+        macro_layout.setSpacing(4)
+        grp_macro.setLayout(macro_layout)
+
+        macro_legend = QLabel(
+            "Atalho: exclui/restaura de uma vez todas as categorias "
+            "granulares de um grupo (ex.: excluir 'System / Non-Games' "
+            "remove BIOS, computadores, calculadoras etc. de uma só vez). "
+            "Laranja = grupo parcialmente excluído."
+        )
+        macro_legend.setWordWrap(True)
+        macro_legend.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        macro_layout.addWidget(macro_legend)
+
+        self.macro_grid = QGridLayout()
+        self.macro_grid.setContentsMargins(4, 4, 4, 4)
+        self.macro_grid.setHorizontalSpacing(4)
+        self.macro_grid.setVerticalSpacing(4)
+        self.macro_grid.setAlignment(
+            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft
+        )
+        macro_layout.addLayout(self.macro_grid)
+
+        layout.addWidget(grp_macro)
+
+        # ============================
         # GRUPO: CATEGORIAS
         # ============================
         grp_cats = QGroupBox("Categorias")
@@ -509,11 +628,132 @@ class FiltersTab(QWidget):
 
         self._update_excluded_categories_info(excluded_categories)
 
+        # Mantém os chips de macro-categoria sincronizados com o estado
+        # real das categorias granulares (inclusive quando o usuário
+        # altera uma categoria individualmente em vez de usar o macro chip).
+        self._refresh_macro_chip_states()
+
         logger.debug(
             "Categoria alterada: %s -> %s; excluídas=%s",
             category_name,
             "EXCLUDE" if state == self.CategoryChip.STATE_EXCLUDE else "NORMAL",
             excluded_categories,
+        )
+
+        self._on_filters_changed()
+
+    # ========================================================================
+    # MACRO CATEGORIAS
+    # ========================================================================
+
+    def _load_macro_categories(self) -> None:
+        """Carrega os chips de macro-categoria a partir das categorias atuais.
+
+        Deve ser chamado sempre depois de ``_load_categories()``, já que
+        depende dos ``category_chips`` já existirem para poder sincronizar
+        o estado visual (normal/excluído/misto).
+        """
+        for chip in self.macro_chips.values():
+            self.macro_grid.removeWidget(chip)
+            chip.deleteLater()
+
+        self.macro_chips.clear()
+
+        macro_groups = self.filter_service.get_macro_categories_with_counts()
+
+        cols = 4
+
+        for idx, group in enumerate(macro_groups):
+            row = idx // cols
+            col = idx % cols
+
+            chip = self.MacroCategoryChip(
+                group["macro_name"],
+                group["count"],
+                self,
+            )
+
+            self.macro_grid.addWidget(chip, row, col)
+            self.macro_chips[group["macro_name"]] = chip
+
+        self._refresh_macro_chip_states()
+
+    def _refresh_macro_chip_states(self) -> None:
+        """Sincroniza o estado visual dos chips de macro-categoria.
+
+        Compara, para cada macro-grupo, quantas das suas categorias
+        granulares estão atualmente excluídas:
+            - nenhuma excluída  -> STATE_NORMAL
+            - todas excluídas   -> STATE_EXCLUDE
+            - parte excluída    -> STATE_MIXED
+        """
+        macro_groups = self.filter_service.get_macro_categories_with_counts()
+        macro_categories = {
+            group["macro_name"]: group["categories"] for group in macro_groups
+        }
+
+        for macro_name, chip in self.macro_chips.items():
+            relevant_chips = [
+                self.category_chips[name]
+                for name in macro_categories.get(macro_name, [])
+                if name in self.category_chips
+            ]
+
+            if not relevant_chips:
+                chip.set_state(self.MacroCategoryChip.STATE_NORMAL)
+                continue
+
+            excluded_count = sum(
+                1
+                for c in relevant_chips
+                if c.state == self.CategoryChip.STATE_EXCLUDE
+            )
+
+            if excluded_count == 0:
+                chip.set_state(self.MacroCategoryChip.STATE_NORMAL)
+            elif excluded_count == len(relevant_chips):
+                chip.set_state(self.MacroCategoryChip.STATE_EXCLUDE)
+            else:
+                chip.set_state(self.MacroCategoryChip.STATE_MIXED)
+
+    def on_macro_category_changed(self, macro_name: str, state: int) -> None:
+        """Aplica em lote o novo estado a todas as categorias do macro-grupo.
+
+        Args:
+            macro_name: nome do macro-grupo clicado (ex.: "System / Non-Games").
+            state: novo estado do MacroCategoryChip (NORMAL ou EXCLUDE; o
+                estado MIXED nunca chega aqui, pois o toggle do chip só
+                alterna entre NORMAL e EXCLUDE).
+        """
+        macro_groups = self.filter_service.get_macro_categories_with_counts()
+        category_names = next(
+            (
+                group["categories"]
+                for group in macro_groups
+                if group["macro_name"] == macro_name
+            ),
+            [],
+        )
+
+        target_state = (
+            self.CategoryChip.STATE_EXCLUDE
+            if state == self.MacroCategoryChip.STATE_EXCLUDE
+            else self.CategoryChip.STATE_NORMAL
+        )
+
+        for name in category_names:
+            chip = self.category_chips.get(name)
+            if chip:
+                chip.set_state(target_state)
+
+        self._update_excluded_categories_info(self._get_excluded_categories())
+        self._refresh_macro_chip_states()
+
+        logger.debug(
+            "Macro categoria alterada: %s -> estado=%s; categorias afetadas=%s",
+            macro_name,
+            "EXCLUDE" if target_state == self.CategoryChip.STATE_EXCLUDE else "NORMAL",
+            category_names,
         )
 
         self._on_filters_changed()
@@ -612,6 +852,7 @@ class FiltersTab(QWidget):
             )
 
             self._load_categories()
+            self._load_macro_categories()
             self._apply_filters()
 
         except Exception as e:
@@ -794,6 +1035,8 @@ class FiltersTab(QWidget):
 
         finally:
             self._block_filter_controls(False)
+
+        self._refresh_macro_chip_states()
 
         self.current_criteria = criteria
         self._apply_filters()
@@ -1141,6 +1384,7 @@ class FiltersTab(QWidget):
         if success:
             self._update_database_info()
             self._load_categories()
+            self._load_macro_categories()
             self._load_profiles()
             self._apply_filters()
 
@@ -1247,6 +1491,9 @@ class FiltersTab(QWidget):
         self.chk_chd.setEnabled(enabled)
 
         for chip in self.category_chips.values():
+            chip.setEnabled(enabled)
+
+        for chip in self.macro_chips.values():
             chip.setEnabled(enabled)
 
     # ========================================================================

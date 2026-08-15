@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 
 from app.core.models.filter_profile import FilterCriteria, FilterProfile
+from app.core.constants.macro_categories import get_macro_category, macro_sort_key
 from app.database.repositories.category_repository import CategoryRepository
 from app.database.repositories.filter_profile_repository import FilterProfileRepository
 
@@ -38,6 +39,43 @@ class FilterService:
         """)
         rows = cursor.fetchall()
         return [{"name": row[0], "display_name": row[1], "count": row[2]} for row in rows]
+
+    # ========================================================================
+    # MACRO CATEGORIAS
+    # ========================================================================
+
+    def get_macro_categories_with_counts(self) -> List[Dict[str, Any]]:
+        """Agrupa as categorias granulares em macro-grupos, somando as contagens.
+
+        Cada categoria retornada por ``get_categories_with_counts`` é
+        classificada em um macro-grupo através de
+        ``app.core.constants.macro_categories.get_macro_category``.
+        Categorias sem mapeamento explícito caem em
+        ``UNCLASSIFIED_MACRO`` ("Outras / Não Classificadas") — nunca são
+        descartadas silenciosamente.
+
+        Returns:
+            Lista de dicionários, um por macro-grupo, já ordenada segundo
+            ``MACRO_CATEGORY_ORDER``, cada um contendo:
+                - macro_name: nome do macro-grupo (ex.: "System / Non-Games")
+                - count: soma das contagens de máquinas de todas as
+                  categorias granulares pertencentes ao grupo
+                - categories: lista de nomes normalizados (``category.name``)
+                  das categorias granulares pertencentes ao grupo
+        """
+        granular = self.get_categories_with_counts()
+
+        groups: Dict[str, Dict[str, Any]] = {}
+        for cat in granular:
+            macro_name = get_macro_category(cat["name"])
+            group = groups.setdefault(
+                macro_name,
+                {"macro_name": macro_name, "count": 0, "categories": []},
+            )
+            group["count"] += cat["count"]
+            group["categories"].append(cat["name"])
+
+        return sorted(groups.values(), key=lambda g: macro_sort_key(g["macro_name"]))
 
     def import_categories_from_ini(self, ini_path: Path) -> Tuple[int, int, List[str]]:
         # (mesmo código anterior, mantido)
@@ -189,7 +227,17 @@ class FilterService:
             )
             params.extend(criteria.exclude_categories)
 
-        # 4. Arcade systems (opcional)
+        # 4. Categorias – INCLUIR (forçar) as marcadas em verde
+        if criteria.include_categories:
+            placeholders = ",".join(["?"] * len(criteria.include_categories))
+            where_clauses.append(
+                f"EXISTS (SELECT 1 FROM machine_category mc "
+                f"JOIN category c ON c.id = mc.category_id "
+                f"WHERE mc.machine_id = m.id AND c.name IN ({placeholders}))"
+            )
+            params.extend(criteria.include_categories)
+
+        # 5. Arcade systems (opcional)
         if criteria.arcade_systems:
             placeholders = ",".join(["?"] * len(criteria.arcade_systems))
             where_clauses.append(f"m.name IN ({placeholders})")
