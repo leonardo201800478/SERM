@@ -17,7 +17,6 @@ class Database:
 
     def connect(self):
         """Conecta ao banco, criando o diretório se necessário."""
-        # Garante que o diretório existe
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         logger.info(f"Conectando ao banco: {self.db_path}")
         self.conn = sqlite3.connect(str(self.db_path))
@@ -27,13 +26,7 @@ class Database:
         logger.info("Conexão estabelecida e tabelas verificadas.")
 
     def _migrate_schema(self):
-        """Aplica alterações incrementais em bancos criados por versões antigas.
-
-        O MAME -listxml não informa o tamanho de CHDs (diferente de ROMs),
-        então a coluna `disk.size` só existe a partir desta versão e é
-        preenchida por um scanner separado que lê os arquivos .chd reais
-        (ver app/mame/chd_scanner.py). Bancos antigos não têm essa coluna.
-        """
+        """Aplica alterações incrementais em bancos antigos."""
         cursor = self.conn.cursor()
         cursor.execute("PRAGMA table_info(disk)")
         columns = {row[1] for row in cursor.fetchall()}
@@ -43,14 +36,24 @@ class Database:
             self.conn.commit()
 
     def _create_tables(self):
-        """Cria as tabelas a partir do schema.sql ou fallback."""
-        schema_path = Path(__file__).parent / "schema.sql"
+        """Cria as tabelas a partir do schema.sql."""
+        schema_path = Path(__file__).parent / "migrations" / "schema.sql"
         if not schema_path.exists():
             logger.warning(f"schema.sql não encontrado em {schema_path}. Usando fallback.")
             self._create_schema_fallback()
             return
         with open(schema_path, "r", encoding="utf-8") as f:
-            self.conn.executescript(f.read())
+            content = f.read()
+            # Remove qualquer comentário que comece com # (linhas inteiras)
+            lines = content.split('\n')
+            cleaned_lines = []
+            for line in lines:
+                stripped = line.lstrip()
+                if stripped.startswith('#'):
+                    continue  # ignora linhas de comentário com #
+                cleaned_lines.append(line)
+            cleaned_content = '\n'.join(cleaned_lines)
+            self.conn.executescript(cleaned_content)
         self.conn.commit()
         logger.info("Schema criado com sucesso.")
 
@@ -147,12 +150,9 @@ class Database:
                 is_default INTEGER DEFAULT 0
             );
 
-            -- Índices
             CREATE INDEX IF NOT EXISTS idx_machine_name ON machine(name);
             CREATE INDEX IF NOT EXISTS idx_machine_cloneof ON machine(cloneof);
             CREATE INDEX IF NOT EXISTS idx_machine_emulation_status ON machine(emulation_status);
-            CREATE INDEX IF NOT EXISTS idx_machine_is_bios ON machine(is_bios);
-            CREATE INDEX IF NOT EXISTS idx_machine_is_device ON machine(is_device);
             CREATE INDEX IF NOT EXISTS idx_rom_machine_id ON rom(machine_id);
             CREATE INDEX IF NOT EXISTS idx_rom_crc ON rom(crc);
             CREATE INDEX IF NOT EXISTS idx_rom_sha1 ON rom(sha1);
@@ -160,7 +160,6 @@ class Database:
             CREATE INDEX IF NOT EXISTS idx_machine_category_machine ON machine_category(machine_id);
             CREATE INDEX IF NOT EXISTS idx_machine_category_category ON machine_category(category_id);
 
-            -- Categorias iniciais
             INSERT OR IGNORE INTO category (name, display_name, source) VALUES
                 ('arcade', 'Arcade', 'manual'),
                 ('system', 'System', 'manual'),

@@ -1,14 +1,15 @@
 # app/core/services/rom_scan_service.py
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from app.core.models.scan_result import ScanResult
 from app.mame.rom_scanner import RomScanner
 
+
 class RomScanService:
-    def __init__(self, rom_paths: List[Path]):
+    def __init__(self, rom_paths: List[Path], log_emitter=None):
         self.rom_paths = rom_paths
-        self.scanner = RomScanner(rom_paths)
+        self.scanner = RomScanner(rom_paths, log_emitter=log_emitter)
 
     def scan_machines(self, xml_path: Path) -> ScanResult:
         import xml.etree.ElementTree as ET

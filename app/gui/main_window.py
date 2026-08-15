@@ -28,7 +28,7 @@ class MainWindow(QMainWindow):
         self.home_tab = HomeTab(self)
         self.directories_tab = DirectoriesTab(self)
         self.filters_tab = FiltersTab(self, db=self.db)
-        self.scan_tab = ScanRomsTab(self)
+        self.scan_tab = ScanRomsTab(self, db=self.db)
 
         self.tab_widget.addTab(self.home_tab, "Home")
         self.tab_widget.addTab(self.directories_tab, "Diretórios")

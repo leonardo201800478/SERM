@@ -9,17 +9,41 @@ from app.core.models.scan_result import ScanResult, MachineScanResult, RomFile, 
 
 logger = logging.getLogger(__name__)
 
+
 class RomScanner:
-    def __init__(self, rom_paths: List[Path]):
+    def __init__(self, rom_paths: List[Path], log_emitter=None):
         self.rom_paths = [Path(p) for p in rom_paths if Path(p).exists()]
         self._cache = {}
+        self.log_emitter = log_emitter  # Objeto com métodos log_line.emit() e progress.emit()
+
+    def _log(self, message: str):
+        """Envia mensagem para o emissor de log, se existir."""
+        if self.log_emitter and hasattr(self.log_emitter, 'log_line'):
+            self.log_emitter.log_line.emit(message)
+        else:
+            logger.info(message)
+
+    def _progress(self, value: int, message: str):
+        """Atualiza progresso."""
+        if self.log_emitter and hasattr(self.log_emitter, 'progress'):
+            self.log_emitter.progress.emit(value, message)
 
     def scan_machines(self, machines: List[dict]) -> ScanResult:
+        total = len(machines)
+        self._log(f"Iniciando escaneamento de {total} máquinas.")
         result = ScanResult(version="unknown")
-        for machine_data in machines:
+
+        for idx, machine_data in enumerate(machines):
+            if idx % 10 == 0:
+                self._progress(int(idx / total * 100), f"Escaneando {idx+1}/{total}...")
+            self._log(f"🔄 Escaneando {machine_data.get('name', 'unknown')}...")
             machine_result = self._scan_single_machine(machine_data)
             result.machines.append(machine_result)
+            self._log(f"   ✅ {machine_result.name}: {machine_result.status.label}")
+
+        self._progress(100, "Finalizando...")
         result.update_summary()
+        self._log("Escaneamento concluído.")
         return result
 
     def _scan_single_machine(self, machine_data: dict) -> MachineScanResult:
@@ -32,6 +56,14 @@ class RomScanner:
         for rom_info in machine_data.get('roms', []):
             rom_file = self._scan_rom(rom_info, name)
             machine_result.roms.append(rom_file)
+            status_symbol = {
+                ScanStatus.OK: "✅",
+                ScanStatus.FIXABLE: "🟡",
+                ScanStatus.MISSING: "❌",
+                ScanStatus.UNAVAILABLE: "🔴",
+                ScanStatus.CORRUPTED: "⬛",
+            }.get(rom_file.status, "❓")
+            self._log(f"   {status_symbol} {rom_file.name}: {rom_file.status.label}")
 
         machine_result.update_status()
         machine_result.total_size = sum(r.size for r in machine_result.roms if r.status == ScanStatus.OK)
@@ -53,22 +85,36 @@ class RomScanner:
             status=ScanStatus.MISSING
         )
 
+        found = False
         for rom_path in self.rom_paths:
             # Tenta no ZIP da máquina
             zip_path = rom_path / f"{machine_name}.zip"
-            if zip_path.exists() and self._check_in_zip(zip_path, rom_name, rom_file):
-                return rom_file
+            if zip_path.exists():
+                if self._check_in_zip(zip_path, rom_name, rom_file):
+                    found = True
+                    break
 
             # Tenta no ZIP de merge (ROM compartilhada)
             if merge:
                 merge_zip = rom_path / f"{merge}.zip"
-                if merge_zip.exists() and self._check_in_zip(merge_zip, rom_name, rom_file):
-                    return rom_file
+                if merge_zip.exists():
+                    if self._check_in_zip(merge_zip, rom_name, rom_file):
+                        found = True
+                        break
 
             # Tenta como arquivo avulso
             file_path = rom_path / rom_name
-            if file_path.exists() and self._check_file(file_path, rom_file):
-                return rom_file
+            if file_path.exists():
+                if self._check_file(file_path, rom_file):
+                    found = True
+                    break
+
+        if not found:
+            rom_file.status = ScanStatus.MISSING
+            if rom_file.merge:
+                self._log(f"   ❌ {rom_name} ausente (merge: {rom_file.merge})")
+            else:
+                self._log(f"   ❌ {rom_name} ausente")
 
         return rom_file
 
@@ -94,7 +140,7 @@ class RomScanner:
                         rom_file.status = ScanStatus.CORRUPTED
                     return True
         except Exception as e:
-            logger.warning(f"Erro ao ler ZIP {zip_path}: {e}")
+            self._log(f"   ⚠️ Erro ao ler ZIP {zip_path}: {e}")
         return False
 
     def _check_file(self, file_path: Path, rom_file: RomFile) -> bool:
@@ -116,5 +162,5 @@ class RomScanner:
                 rom_file.status = ScanStatus.CORRUPTED
             return True
         except Exception as e:
-            logger.warning(f"Erro ao ler arquivo {file_path}: {e}")
+            self._log(f"   ⚠️ Erro ao ler arquivo {file_path}: {e}")
         return False
