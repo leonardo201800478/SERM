@@ -1,166 +1,154 @@
-# app/mame/rom_scanner.py
-import zipfile
-import zlib
-from pathlib import Path
-from typing import List, Optional
+"""Scanner de ROMs MAME orientado a I/O e tolerante a fontes ruins."""
+from __future__ import annotations
+
 import logging
+import os
+import zipfile
+import tempfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+from typing import Callable, Iterable, List
 
 from app.core.models.scan_result import ScanResult, MachineScanResult, RomFile, ScanStatus
+from app.mame.integrity import digest_file, digest_stream, matches_digest
 
 logger = logging.getLogger(__name__)
+ProgressCallback = Callable[[int, int, str], None]
 
 
 class RomScanner:
-    def __init__(self, rom_paths: List[Path], log_emitter=None):
-        self.rom_paths = [Path(p) for p in rom_paths if Path(p).exists()]
-        self._cache = {}
-        self.log_emitter = log_emitter  # Objeto com métodos log_line.emit() e progress.emit()
+    def __init__(self, rom_paths: List[Path], *, workers: int | None = None, chunk_size: int = 1024 * 1024):
+        self.rom_paths = [Path(p) for p in rom_paths if Path(p).is_dir()]
+        self.workers = max(1, min(workers or (os.cpu_count() or 2), 16))
+        self.chunk_size = chunk_size
+        self._digest_cache: dict[tuple[str, int, int, bool], object] = {}
 
-    def _log(self, message: str):
-        """Envia mensagem para o emissor de log, se existir."""
-        if self.log_emitter and hasattr(self.log_emitter, 'log_line'):
-            self.log_emitter.log_line.emit(message)
-        else:
-            logger.info(message)
-
-    def _progress(self, value: int, message: str):
-        """Atualiza progresso."""
-        if self.log_emitter and hasattr(self.log_emitter, 'progress'):
-            self.log_emitter.progress.emit(value, message)
-
-    def scan_machines(self, machines: List[dict]) -> ScanResult:
-        total = len(machines)
-        self._log(f"Iniciando escaneamento de {total} máquinas.")
+    def scan_machines(self, machines: List[dict], *, progress_callback: ProgressCallback | None = None) -> ScanResult:
         result = ScanResult(version="unknown")
-
-        for idx, machine_data in enumerate(machines):
-            if idx % 10 == 0:
-                self._progress(int(idx / total * 100), f"Escaneando {idx+1}/{total}...")
-            self._log(f"🔄 Escaneando {machine_data.get('name', 'unknown')}...")
-            machine_result = self._scan_single_machine(machine_data)
-            result.machines.append(machine_result)
-            self._log(f"   ✅ {machine_result.name}: {machine_result.status.label}")
-
-        self._progress(100, "Finalizando...")
+        jobs = [(machine, rom_info) for machine in machines for rom_info in machine.get("roms", [])]
+        completed = 0
+        by_machine: dict[str, MachineScanResult] = {
+            m.get("name", ""): MachineScanResult(name=m.get("name", ""), description=m.get("description", ""), cloneof=m.get("cloneof"))
+            for m in machines
+        }
+        with ThreadPoolExecutor(max_workers=self.workers, thread_name_prefix="mame-scan") as pool:
+            futures = {pool.submit(self._scan_rom, rom_info, machine.get("name", "")): (machine.get("name", ""), rom_info) for machine, rom_info in jobs}
+            for future in as_completed(futures):
+                machine_name, _ = futures[future]
+                try:
+                    by_machine[machine_name].roms.append(future.result())
+                except Exception:
+                    logger.exception("Falha isolada ao validar ROM de %s", machine_name)
+                completed += 1
+                if progress_callback:
+                    progress_callback(completed, len(jobs), machine_name)
+        result.machines = [by_machine[m.get("name", "")] for m in machines]
+        for machine in result.machines:
+            machine.update_status()
+            machine.total_size = sum(r.size for r in machine.roms if r.status == ScanStatus.OK)
+        result.total_machines = len(result.machines)
         result.update_summary()
-        self._log("Escaneamento concluído.")
         return result
 
     def _scan_single_machine(self, machine_data: dict) -> MachineScanResult:
-        name = machine_data.get('name', '')
-        description = machine_data.get('description', '')
-        cloneof = machine_data.get('cloneof')
-
-        machine_result = MachineScanResult(name=name, description=description, cloneof=cloneof)
-
-        for rom_info in machine_data.get('roms', []):
-            rom_file = self._scan_rom(rom_info, name)
-            machine_result.roms.append(rom_file)
-            status_symbol = {
-                ScanStatus.OK: "✅",
-                ScanStatus.FIXABLE: "🟡",
-                ScanStatus.MISSING: "❌",
-                ScanStatus.UNAVAILABLE: "🔴",
-                ScanStatus.CORRUPTED: "⬛",
-            }.get(rom_file.status, "❓")
-            self._log(f"   {status_symbol} {rom_file.name}: {rom_file.status.label}")
-
+        name = machine_data.get("name", "")
+        machine_result = MachineScanResult(name=name, description=machine_data.get("description", ""), cloneof=machine_data.get("cloneof"))
+        with ThreadPoolExecutor(max_workers=min(self.workers, max(1, len(machine_data.get("roms", []))))) as pool:
+            futures = [pool.submit(self._scan_rom, rom, name) for rom in machine_data.get("roms", [])]
+            machine_result.roms = [future.result() for future in futures]
         machine_result.update_status()
         machine_result.total_size = sum(r.size for r in machine_result.roms if r.status == ScanStatus.OK)
         return machine_result
 
     def _scan_rom(self, rom_info: dict, machine_name: str) -> RomFile:
-        rom_name = rom_info.get('name', '')
-        expected_size = rom_info.get('size', 0)
-        expected_crc = rom_info.get('crc', '').lower()
-        expected_sha1 = rom_info.get('sha1', '').lower()
-        merge = rom_info.get('merge')
-
-        rom_file = RomFile(
-            name=rom_name,
-            size=expected_size,
-            crc=expected_crc,
-            sha1=expected_sha1 if expected_sha1 else None,
-            merge=merge,
-            status=ScanStatus.MISSING
+        expected = RomFile(
+            name=rom_info.get("name", ""), size=int(rom_info.get("size", 0) or 0),
+            crc=(rom_info.get("crc", "") or "").lower(),
+            sha1=(rom_info.get("sha1") or "").lower() or None,
+            merge=rom_info.get("merge"), status=ScanStatus.MISSING,
         )
+        candidates: list[tuple[str, Path]] = []
+        for root in self.rom_paths:
+            for archive_name in {machine_name, expected.merge} - {None, ""}:
+                archive = root / f"{archive_name}.zip"
+                if archive.is_file():
+                    candidates.append(("zip", archive))
+                archive7z = root / f"{archive_name}.7z"
+                if archive7z.is_file():
+                    candidates.append(("7z", archive7z))
+            loose = root / expected.name
+            if loose.is_file():
+                candidates.append(("file", loose))
+        saw_corrupt = False
+        for kind, path in candidates:
+            try:
+                actual = self._validate_candidate(kind, path, expected.name, bool(expected.sha1))
+                if actual is None:
+                    continue
+                expected.found_in = path
+                expected.found_member = expected.name if kind in {"zip", "7z"} else None
+                expected.actual_size, expected.actual_crc, expected.actual_sha1 = actual.size, actual.crc, actual.sha1
+                if matches_digest(actual, size=expected.size, crc=expected.crc, sha1=expected.sha1 or ""):
+                    expected.status = ScanStatus.OK
+                    return expected
+                saw_corrupt = True
+            except (OSError, zipfile.BadZipFile, KeyError, NotImplementedError) as exc:
+                logger.warning("Falha ao ler candidato %s: %s", path, exc)
+                saw_corrupt = True
+        # Segunda etapa: procurar o mesmo conteúdo em outro set ou com outro
+        # nome interno. O CRC/tamanho do diretório ZIP fazem a triagem; SHA-1
+        # é calculado apenas para candidatos que já passaram nessa triagem.
+        alternate = self._search_alternate(expected)
+        if alternate is not None:
+            expected.found_in, expected.found_member = alternate[0], alternate[1]
+            actual = alternate[2]
+            expected.actual_size, expected.actual_crc, expected.actual_sha1 = actual.size, actual.crc, actual.sha1
+            expected.status = ScanStatus.FIXABLE
+            return expected
+        expected.status = ScanStatus.CORRUPTED if saw_corrupt else ScanStatus.MISSING
+        return expected
 
-        found = False
-        for rom_path in self.rom_paths:
-            # Tenta no ZIP da máquina
-            zip_path = rom_path / f"{machine_name}.zip"
-            if zip_path.exists():
-                if self._check_in_zip(zip_path, rom_name, rom_file):
-                    found = True
-                    break
+    def _search_alternate(self, expected: RomFile):
+        for root in self.rom_paths:
+            for archive in root.glob("*.zip"):
+                try:
+                    with zipfile.ZipFile(archive, "r") as zf:
+                        for info in zf.infolist():
+                            if info.is_dir() or info.file_size != expected.size or info.CRC != int(expected.crc or "0", 16):
+                                continue
+                            with zf.open(info, "r") as stream:
+                                actual = digest_stream(stream, need_sha1=bool(expected.sha1), chunk_size=self.chunk_size)
+                            if matches_digest(actual, size=expected.size, crc=expected.crc, sha1=expected.sha1 or ""):
+                                return archive, info.filename, actual
+                except (OSError, zipfile.BadZipFile):
+                    continue
+        return None
 
-            # Tenta no ZIP de merge (ROM compartilhada)
-            if merge:
-                merge_zip = rom_path / f"{merge}.zip"
-                if merge_zip.exists():
-                    if self._check_in_zip(merge_zip, rom_name, rom_file):
-                        found = True
-                        break
-
-            # Tenta como arquivo avulso
-            file_path = rom_path / rom_name
-            if file_path.exists():
-                if self._check_file(file_path, rom_file):
-                    found = True
-                    break
-
-        if not found:
-            rom_file.status = ScanStatus.MISSING
-            if rom_file.merge:
-                self._log(f"   ❌ {rom_name} ausente (merge: {rom_file.merge})")
-            else:
-                self._log(f"   ❌ {rom_name} ausente")
-
-        return rom_file
-
-    def _check_in_zip(self, zip_path: Path, rom_name: str, rom_file: RomFile) -> bool:
-        try:
-            with zipfile.ZipFile(zip_path, 'r') as zf:
-                if rom_name in zf.namelist():
-                    info = zf.getinfo(rom_name)
-                    actual_size = info.file_size
-                    with zf.open(rom_name) as f:
-                        data = f.read()
-                        actual_crc = format(zlib.crc32(data) & 0xFFFFFFFF, '08x')
-
-                    rom_file.found_in = zip_path
-                    rom_file.actual_size = actual_size
-                    rom_file.actual_crc = actual_crc
-
-                    if actual_size == rom_file.size and actual_crc == rom_file.crc:
-                        rom_file.status = ScanStatus.OK
-                    elif actual_crc == rom_file.crc:
-                        rom_file.status = ScanStatus.FIXABLE
-                    else:
-                        rom_file.status = ScanStatus.CORRUPTED
-                    return True
-        except Exception as e:
-            self._log(f"   ⚠️ Erro ao ler ZIP {zip_path}: {e}")
-        return False
-
-    def _check_file(self, file_path: Path, rom_file: RomFile) -> bool:
-        try:
-            actual_size = file_path.stat().st_size
-            with open(file_path, 'rb') as f:
-                data = f.read()
-                actual_crc = format(zlib.crc32(data) & 0xFFFFFFFF, '08x')
-
-            rom_file.found_in = file_path.parent
-            rom_file.actual_size = actual_size
-            rom_file.actual_crc = actual_crc
-
-            if actual_size == rom_file.size and actual_crc == rom_file.crc:
-                rom_file.status = ScanStatus.OK
-            elif actual_crc == rom_file.crc:
-                rom_file.status = ScanStatus.FIXABLE
-            else:
-                rom_file.status = ScanStatus.CORRUPTED
-            return True
-        except Exception as e:
-            self._log(f"   ⚠️ Erro ao ler arquivo {file_path}: {e}")
-        return False
+    def _validate_candidate(self, kind: str, path: Path, member: str, need_sha1: bool):
+        if kind == "file":
+            return digest_file(path, need_sha1=need_sha1, chunk_size=self.chunk_size)
+        if kind == "zip":
+            with zipfile.ZipFile(path, "r") as archive:
+                info = archive.getinfo(member)
+                with archive.open(info, "r") as stream:
+                    return digest_stream(stream, need_sha1=need_sha1, chunk_size=self.chunk_size)
+        if kind == "7z":
+            try:
+                import py7zr
+            except ImportError as exc:
+                raise NotImplementedError("backend py7zr não instalado") from exc
+            with py7zr.SevenZipFile(path, mode="r") as archive:
+                entries = {entry.filename: entry for entry in archive.list()}
+                entry = entries.get(member)
+                if entry is None:
+                    return None
+                uncompressed = int(getattr(entry, "uncompressed", 0) or 0)
+                if uncompressed > 64 * 1024 * 1024:
+                    raise NotImplementedError("membro 7Z maior que 64 MiB exige backend de streaming")
+                with tempfile.TemporaryDirectory(prefix="mame-7z-") as temp_dir:
+                    archive.extract(path=temp_dir, targets=[member])
+                    extracted = Path(temp_dir) / member
+                    if not extracted.is_file():
+                        return None
+                    return digest_file(extracted, need_sha1=need_sha1, chunk_size=self.chunk_size)
+        return None

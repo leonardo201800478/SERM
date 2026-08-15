@@ -48,14 +48,17 @@ class RomFile:
     region: Optional[str] = None
     status: ScanStatus = ScanStatus.NOT_SCANNED
     found_in: Optional[Path] = None
+    found_member: Optional[str] = None
     expected_path: Optional[Path] = None
     actual_crc: Optional[str] = None
+    actual_sha1: Optional[str] = None
     actual_size: Optional[int] = None
 
     def is_valid(self) -> bool:
         return (self.status == ScanStatus.OK and
                 self.crc == self.actual_crc and
-                self.size == self.actual_size)
+                self.size == self.actual_size and
+                (not self.sha1 or self.sha1 == self.actual_sha1))
 
 
 @dataclass
@@ -74,21 +77,24 @@ class MachineScanResult:
 
     def update_status(self):
         if not self.roms:
-            self.status = ScanStatus.NOT_SCANNED
+            self.status = ScanStatus.MISSING
             return
         statuses = [r.status for r in self.roms]
-        if all(s == ScanStatus.OK for s in statuses):
-            self.status = ScanStatus.OK
-        elif any(s == ScanStatus.CORRUPTED for s in statuses):
+        if any(s == ScanStatus.CORRUPTED for s in statuses):
+            # Preto: existe um candidato, mas seu conteúdo está corrompido
+            # ou não pôde ser identificado com segurança.
             self.status = ScanStatus.CORRUPTED
-        elif any(s == ScanStatus.UNAVAILABLE for s in statuses):
-            self.status = ScanStatus.UNAVAILABLE
-        elif any(s == ScanStatus.FIXABLE for s in statuses):
+        elif all(s == ScanStatus.OK for s in statuses):
+            self.status = ScanStatus.OK
+        elif any(s == ScanStatus.FIXABLE for s in statuses) and all(s in {ScanStatus.OK, ScanStatus.FIXABLE} for s in statuses):
+            # Amarelo: todos os itens podem ser resolvidos por rename/merge.
             self.status = ScanStatus.FIXABLE
         elif all(s == ScanStatus.MISSING for s in statuses):
+            # Cinza: nenhuma evidência física foi encontrada.
             self.status = ScanStatus.MISSING
         else:
-            self.status = ScanStatus.NOT_SCANNED
+            # Vermelho: há conteúdo ausente e não há rota de reconstrução.
+            self.status = ScanStatus.UNAVAILABLE
 
 
 @dataclass
@@ -118,7 +124,7 @@ class ScanResult:
         self.unavailable_count = 0
         self.corrupted_count = 0
         for machine in self.machines:
-            self.roms_total += 1
+            self.roms_total += len(machine.roms)
             if machine.status == ScanStatus.OK:
                 self.ok_count += 1
             elif machine.status == ScanStatus.FIXABLE:

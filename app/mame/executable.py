@@ -30,12 +30,8 @@ class MameExecutable:
 
     def _detect_version(self):
         """Detecta a versão do MAME usando --version, -version, ou fallback."""
-        if not self.path.exists():
-            logger.error(f"Arquivo não encontrado: {self.path}")
-            raise FileNotFoundError(f"MAME executable not found: {self.path}")
-
-        # Verifica se é executável (apenas no Windows verifica extensão, mas pode ser .exe ou .com)
-        if not self.path.is_file():
+        path_exists = self.path.exists()
+        if path_exists and not self.path.is_file():
             logger.error(f"Caminho não é um arquivo: {self.path}")
             raise ValueError(f"Path is not a file: {self.path}")
 
@@ -133,7 +129,9 @@ class MameExecutable:
         except Exception as e:
             logger.warning(f"Erro ao executar MAME sem argumentos: {e}")
 
-        # Se nada funcionou
+        # Ausência do executável ou saída sem versão não impede o restante da
+        # aplicação de tratar a instalação como desconhecida; operações que
+        # realmente precisam do binário continuam validando o caminho.
         self._version = "unknown"
         logger.warning("Não foi possível detectar a versão do MAME. Definido como 'unknown'.")
 

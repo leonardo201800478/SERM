@@ -71,11 +71,10 @@ CREATE TABLE IF NOT EXISTS disk (
     sha1 TEXT,
     merge TEXT,
     region TEXT,
-    idx INTEGER DEFAULT 0,
+    index INTEGER DEFAULT 0,
     writable INTEGER DEFAULT 0,
     status TEXT DEFAULT 'good',
     optional INTEGER DEFAULT 0,
-    size INTEGER DEFAULT 0,
     FOREIGN KEY (machine_id) REFERENCES machine(id) ON DELETE CASCADE
 );
 
