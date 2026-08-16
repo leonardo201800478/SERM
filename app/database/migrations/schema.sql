@@ -10,6 +10,33 @@
 -- IMPORTANTE:
 --   O database.py carrega este arquivo automaticamente.
 --
+-- Estrutura:
+--
+--   mame_installation
+--       |
+--       +-- machine
+--              |
+--              +-- rom
+--              +-- disk
+--              +-- bios
+--              +-- device
+--              +-- chip
+--              +-- display
+--              +-- input
+--              |     |
+--              |     +-- control
+--              +-- feature
+--              +-- software_list
+--              +-- slot
+--              |     |
+--              |     +-- slot_option
+--              +-- chd_dependency
+--              +-- machine_category
+--
+--   category
+--
+--   filter_profile
+--
 -- ========================================================================
 
 
@@ -128,11 +155,11 @@ CREATE TABLE IF NOT EXISTS rom (
 --
 -- IMPORTANTE:
 --
--- A coluna "size" foi adicionada para armazenar o tamanho real do
--- arquivo CHD encontrado pelo scanner.
+-- A coluna "size" armazena o tamanho real do arquivo CHD encontrado
+-- pelo scanner.
 --
--- O MAME -listxml não fornece necessariamente o tamanho físico do
--- CHD, portanto essa informação é preenchida pelo scanner de arquivos.
+-- O MAME -listxml não fornece necessariamente o tamanho físico do CHD.
+-- Essa informação é obtida durante o Scan ROMs.
 --
 -- A coluna "disk_index" substitui a antiga coluna "index".
 --
@@ -740,6 +767,16 @@ CREATE INDEX IF NOT EXISTS
 
 -- ========================================================================
 -- CATEGORIAS INICIAIS
+-- ========================================================================
+--
+-- Essas categorias são a base utilizada pela camada de filtros.
+--
+-- O parser pode posteriormente associar máquinas às categorias
+-- conforme os dados presentes no LISTXML e/ou regras do projeto.
+--
+-- INSERT OR IGNORE garante que a inicialização do schema seja
+-- idempotente.
+--
 -- ========================================================================
 
 INSERT OR IGNORE INTO category

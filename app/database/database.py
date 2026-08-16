@@ -1,6 +1,57 @@
+"""
+MAME Set Builder - Database
+===========================
+
+Gerenciamento centralizado do banco SQLite da aplicação.
+
+Responsabilidades
+-----------------
+- Criar o diretório do banco;
+- Abrir e configurar a conexão SQLite;
+- Carregar o schema oficial;
+- Executar migrações de bancos antigos;
+- Garantir integridade referencial;
+- Disponibilizar operações SQL auxiliares;
+- Gerenciar transações;
+- Fechar corretamente a conexão.
+
+Schema oficial
+--------------
+
+    app/database/migrations/schema.sql
+
+IMPORTANTE
+----------
+O banco SQLite é a fonte persistente do dataset MAME utilizado pela aplicação.
+
+A estrutura do banco deve permanecer compatível com:
+
+    listxml_parser
+        |
+        v
+    database
+        |
+        +--> filter_service
+        |
+        +--> listxml_export_service
+        |
+        +--> rom_scanner
+        |
+        +--> reconstruction_service
+
+O schema oficial possui as entidades principais do dataset MAME,
+incluindo máquinas, ROMs, disks/CHDs, BIOS, devices, chips,
+displays, inputs, controls, features, software lists, slots,
+slot options, dependências de CHD e categorias.
+"""
+
+from __future__ import annotations
+
 import logging
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Any, Iterable, Iterator, Sequence
 
 from app.config.app_config import AppConfig
 
@@ -9,36 +60,102 @@ logger = logging.getLogger(__name__)
 
 class Database:
     """
-    Gerencia a conexão SQLite do MAME Set Builder.
+    Gerenciador de conexão e operações SQLite do MAME Set Builder.
 
-    Responsabilidades:
-    - Criar o diretório do banco quando necessário;
-    - Abrir a conexão SQLite;
-    - Carregar o schema oficial de app/database/schema.sql;
-    - Aplicar migrações de bancos antigos;
-    - Manter um fallback mínimo caso o schema.sql realmente não exista.
+    A classe mantém uma única conexão por instância.
+
+    Exemplo
+    -------
+    ::
+
+        db = Database()
+        conn = db.connect()
+
+        rows = db.fetchall(
+            "SELECT * FROM machine LIMIT 10"
+        )
+
+        db.close()
+
+    Também pode ser utilizada com context manager:
+
+    ::
+
+        with Database() as db:
+            rows = db.fetchall(
+                "SELECT * FROM machine"
+            )
     """
 
-    def __init__(self, db_path: Path | None = None):
+    # ------------------------------------------------------------------
+    # CONFIGURAÇÃO
+    # ------------------------------------------------------------------
+
+    SCHEMA_VERSION = 1
+
+    REQUIRED_TABLES = (
+        "mame_installation",
+        "machine",
+        "rom",
+        "disk",
+        "bios",
+        "device",
+        "chip",
+        "display",
+        "input",
+        "control",
+        "feature",
+        "software_list",
+        "slot",
+        "slot_option",
+        "chd_dependency",
+        "category",
+        "machine_category",
+        "filter_profile",
+    )
+
+    def __init__(
+        self,
+        db_path: Path | str | None = None,
+    ) -> None:
         """
         Inicializa o gerenciador do banco.
 
         Args:
-            db_path: Caminho opcional para o arquivo SQLite.
-                     Quando não informado, utiliza o caminho definido
-                     em AppConfig.
+            db_path:
+                Caminho opcional para o banco SQLite.
+
+                Quando não informado, o caminho definido por
+                ``AppConfig.db_path`` será utilizado.
         """
+
         if db_path is None:
             app_config = AppConfig()
             db_path = app_config.db_path
 
         self.db_path = Path(db_path)
+
         self.conn: sqlite3.Connection | None = None
 
         logger.info(
-            "Database inicializado com caminho: %s",
+            "Database inicializado: %s",
             self.db_path,
         )
+
+    # ------------------------------------------------------------------
+    # PROPRIEDADES
+    # ------------------------------------------------------------------
+
+    @property
+    def is_connected(self) -> bool:
+        """
+        Informa se existe uma conexão SQLite ativa.
+
+        Returns:
+            ``True`` quando conectado.
+        """
+
+        return self.conn is not None
 
     # ------------------------------------------------------------------
     # CONEXÃO
@@ -46,80 +163,102 @@ class Database:
 
     def connect(self) -> sqlite3.Connection:
         """
-        Abre a conexão com o banco SQLite.
+        Abre e inicializa a conexão SQLite.
+
+        O método é idempotente: chamadas posteriores retornam a mesma
+        conexão enquanto ela estiver aberta.
 
         Returns:
-            A conexão SQLite aberta.
+            Conexão SQLite configurada.
 
         Raises:
-            sqlite3.Error: Caso não seja possível abrir ou inicializar
-                           o banco.
+            sqlite3.Error:
+                Caso ocorra erro durante a abertura, criação ou migração
+                do banco.
+            RuntimeError:
+                Caso o schema oficial esteja ausente ou inválido.
         """
+
         if self.conn is not None:
             return self.conn
 
         try:
-            # Garante que o diretório do banco exista.
             self.db_path.parent.mkdir(
                 parents=True,
                 exist_ok=True,
             )
 
             logger.info(
-                "Conectando ao banco: %s",
+                "Abrindo banco SQLite: %s",
                 self.db_path,
             )
 
             self.conn = sqlite3.connect(
                 str(self.db_path),
+                timeout=30.0,
             )
 
-            # Permite acessar colunas pelo nome.
             self.conn.row_factory = sqlite3.Row
 
-            # Garante que Foreign Keys sejam respeitadas pelo SQLite.
-            self.conn.execute(
-                "PRAGMA foreign_keys = ON"
-            )
+            self._configure_connection()
 
-            # Melhora o comportamento de concorrência entre leitura
-            # e escrita.
-            self.conn.execute(
-                "PRAGMA journal_mode = WAL"
-            )
-
-            # Cria/verifica as tabelas.
-            self._create_tables()
-
-            # Aplica migrações de versões anteriores.
-            self._migrate_schema()
+            self._initialize_schema()
 
             logger.info(
-                "Conexão estabelecida e tabelas verificadas."
+                "Banco SQLite inicializado com sucesso."
             )
 
             return self.conn
 
-        except sqlite3.Error:
+        except Exception:
             logger.exception(
-                "Erro ao inicializar o banco SQLite: %s",
+                "Falha ao inicializar banco SQLite: %s",
                 self.db_path,
             )
 
-            if self.conn is not None:
-                try:
-                    self.conn.rollback()
-                except sqlite3.Error:
-                    pass
-
-                try:
-                    self.conn.close()
-                except sqlite3.Error:
-                    pass
-
-                self.conn = None
+            self._close_connection_safely()
 
             raise
+
+    def _configure_connection(self) -> None:
+        """
+        Configura pragmas e propriedades da conexão SQLite.
+
+        Configurações utilizadas:
+
+        - foreign_keys:
+          garante integridade referencial;
+
+        - journal_mode=WAL:
+          melhora comportamento de leitura/escrita;
+
+        - synchronous=NORMAL:
+          equilíbrio entre desempenho e segurança;
+
+        - busy_timeout:
+          evita falhas imediatas em situações de concorrência.
+        """
+
+        if self.conn is None:
+            raise RuntimeError(
+                "Banco não conectado."
+            )
+
+        self.conn.execute(
+            "PRAGMA foreign_keys = ON"
+        )
+
+        self.conn.execute(
+            "PRAGMA journal_mode = WAL"
+        )
+
+        self.conn.execute(
+            "PRAGMA synchronous = NORMAL"
+        )
+
+        self.conn.execute(
+            "PRAGMA busy_timeout = 30000"
+        )
 
     # ------------------------------------------------------------------
     # SCHEMA
@@ -127,33 +266,39 @@ class Database:
 
     def _get_schema_path(self) -> Path:
         """
-        Retorna o caminho absoluto do schema.sql oficial.
+        Retorna o caminho do schema oficial.
 
-        O arquivo deve estar em:
+        Estrutura esperada:
 
             app/
                 database/
                     database.py
-                    schema.sql
+                    migrations/
+                        schema.sql
 
         Returns:
-            Caminho absoluto do schema.sql.
+            Caminho absoluto do ``schema.sql``.
         """
-        return (
-            Path(__file__)
-            .resolve()
-            .parent
+
+        schema_path = (
+            Path(__file__).resolve().parent
+            / "migrations"
             / "schema.sql"
         )
 
-    def _create_tables(self) -> None:
-        """
-        Cria as tabelas utilizando o schema.sql oficial.
+        return schema_path
 
-        O fallback somente é utilizado quando o schema.sql não existe.
-        Se o arquivo existir mas apresentar erro SQL, a exceção é
-        propagada para evitar mascarar problemas no banco.
+    def _initialize_schema(self) -> None:
         """
+        Carrega o schema oficial e executa as migrações.
+
+        O schema utiliza ``CREATE TABLE IF NOT EXISTS`` e pode ser
+        executado sobre um banco já existente.
+
+        Entretanto, alterações de estrutura de tabelas existentes
+        precisam ser tratadas explicitamente por migrações.
+        """
+
         if self.conn is None:
             raise RuntimeError(
                 "Banco não conectado."
@@ -161,54 +306,55 @@ class Database:
 
         schema_path = self._get_schema_path()
 
-        logger.debug(
-            "Procurando schema SQL em: %s",
+        logger.info(
+            "Schema SQLite: %s",
             schema_path,
         )
 
         if not schema_path.is_file():
-            logger.error(
-                "schema.sql não encontrado em: %s",
-                schema_path,
+            raise FileNotFoundError(
+                "Schema oficial do banco não encontrado: "
+                f"{schema_path}"
             )
-
-            logger.warning(
-                "O schema oficial não está disponível. "
-                "Utilizando fallback de emergência."
-            )
-
-            self._create_schema_fallback()
-            return
-
-        logger.info(
-            "Carregando schema oficial: %s",
-            schema_path,
-        )
 
         try:
             schema_sql = schema_path.read_text(
                 encoding="utf-8",
             )
 
-            if not schema_sql.strip():
-                raise RuntimeError(
-                    f"schema.sql está vazio: {schema_path}"
-                )
+        except OSError as exc:
+            raise RuntimeError(
+                "Não foi possível ler o schema SQLite: "
+                f"{schema_path}"
+            ) from exc
 
-            self.conn.executescript(schema_sql)
+        if not schema_sql.strip():
+            raise RuntimeError(
+                f"Schema SQLite vazio: {schema_path}"
+            )
+
+        try:
+            self.conn.executescript(
+                schema_sql
+            )
+
+            self._migrate_schema()
+
+            self._validate_schema()
+
+            self.conn.execute(
+                f"PRAGMA user_version = {self.SCHEMA_VERSION}"
+            )
+
             self.conn.commit()
 
-            logger.info(
-                "Schema oficial carregado com sucesso."
-            )
-
-        except (OSError, sqlite3.Error, RuntimeError):
-            logger.exception(
-                "Erro ao carregar schema.sql: %s",
-                schema_path,
-            )
-
+        except Exception:
             self.conn.rollback()
+
+            logger.exception(
+                "Erro ao inicializar schema SQLite."
+            )
+
             raise
 
     # ------------------------------------------------------------------
@@ -217,405 +363,561 @@ class Database:
 
     def _migrate_schema(self) -> None:
         """
-        Aplica alterações incrementais em bancos criados por versões antigas.
+        Executa migrações necessárias para bancos antigos.
 
-        O MAME -listxml não informa o tamanho dos CHDs. A coluna disk.size
-        é utilizada pelo CHD scanner para armazenar o tamanho real do arquivo.
+        A versão do projeto introduziu mudanças importantes na tabela
+        ``disk``:
 
-        Bancos antigos podem não possuir essa coluna, portanto ela é criada
-        automaticamente durante a inicialização.
+        Versão antiga:
+
+            disk.index
+
+        Versão atual:
+
+            disk.disk_index
+            disk.size
+
+        Também garantimos aqui que estruturas essenciais existam.
+
+        A função é deliberadamente conservadora: não remove dados
+        existentes.
         """
+
         if self.conn is None:
             raise RuntimeError(
                 "Banco não conectado."
             )
 
-        cursor = self.conn.cursor()
+        self._migrate_disk_table()
 
-        try:
-            cursor.execute(
-                "PRAGMA table_info(disk)"
-            )
-
-            columns = {
-                row["name"]
-                for row in cursor.fetchall()
-            }
-
-            # Caso a tabela disk ainda não exista, o schema oficial deveria
-            # tê-la criado. Esta proteção evita erro obscuro em instalações
-            # incompletas.
-            if not columns:
-                logger.warning(
-                    "Tabela 'disk' não encontrada durante a migração."
-                )
-                return
-
-            if "size" not in columns:
-                logger.info(
-                    "Migrando schema: adicionando coluna disk.size"
-                )
-
-                cursor.execute(
-                    """
-                    ALTER TABLE disk
-                    ADD COLUMN size INTEGER DEFAULT 0
-                    """
-                )
-
-                self.conn.commit()
-
-                logger.info(
-                    "Migração disk.size concluída."
-                )
-
-        except sqlite3.Error:
-            self.conn.rollback()
-
-            logger.exception(
-                "Erro durante a migração do schema."
-            )
-
-            raise
-
-    # ------------------------------------------------------------------
-    # FALLBACK
-    # ------------------------------------------------------------------
-
-    def _create_schema_fallback(self) -> None:
-        """
-        Cria um schema mínimo de emergência.
-
-        Este método não deve ser utilizado em uma instalação normal.
-        O arquivo app/database/schema.sql deve sempre acompanhar o projeto.
-
-        O fallback existe somente para evitar que a aplicação fique
-        completamente inutilizável caso o schema seja removido ou não seja
-        incluído durante uma instalação/empacotamento.
-        """
-        if self.conn is None:
-            raise RuntimeError(
-                "Banco não conectado."
-            )
-
-        logger.warning(
-            "Criando tabelas mínimas usando FALLBACK."
+        # O schema oficial cria todas as demais tabelas.
+        # Esta chamada serve apenas para registrar o estado atual
+        # durante o processo de migração.
+        logger.debug(
+            "Migração de schema concluída."
         )
 
-        try:
-            self.conn.executescript(
+    def _migrate_disk_table(self) -> None:
+        """
+        Migra a estrutura antiga de ``disk``.
+
+        Alterações suportadas:
+
+        ``index`` -> ``disk_index``
+
+        e:
+
+        adiciona ``size`` quando ausente.
+
+        A migração não elimina registros existentes.
+        """
+
+        if self.conn is None:
+            raise RuntimeError(
+                "Banco não conectado."
+            )
+
+        columns = self._get_table_columns(
+            "disk"
+        )
+
+        if not columns:
+            logger.warning(
+                "Tabela disk não encontrada durante migração."
+            )
+            return
+
+        # --------------------------------------------------------------
+        # index -> disk_index
+        # --------------------------------------------------------------
+
+        has_old_index = "index" in columns
+        has_new_index = "disk_index" in columns
+
+        if has_old_index and not has_new_index:
+            logger.info(
+                "Migrando disk.index -> disk.disk_index."
+            )
+
+            try:
+                self.conn.execute(
+                    """
+                    ALTER TABLE disk
+                    RENAME COLUMN "index" TO disk_index
+                    """
+                )
+
+                columns = self._get_table_columns(
+                    "disk"
+                )
+
+            except sqlite3.OperationalError as exc:
+                logger.error(
+                    "Não foi possível renomear "
+                    "disk.index para disk.disk_index: %s",
+                    exc,
+                )
+
+                raise
+
+        # --------------------------------------------------------------
+        # disk.size
+        # --------------------------------------------------------------
+
+        if "size" not in columns:
+            logger.info(
+                "Adicionando coluna disk.size."
+            )
+
+            self.conn.execute(
                 """
-                CREATE TABLE IF NOT EXISTS mame_installation (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    version TEXT NOT NULL,
-                    executable_path TEXT UNIQUE NOT NULL,
-                    executable_hash TEXT NOT NULL,
-                    detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-
-                CREATE TABLE IF NOT EXISTS machine (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    mame_installation_id INTEGER NOT NULL,
-                    name TEXT UNIQUE NOT NULL,
-                    description TEXT,
-                    year TEXT,
-                    manufacturer TEXT,
-                    sourcefile TEXT,
-                    cloneof TEXT,
-                    romof TEXT,
-                    sampleof TEXT,
-                    is_bios INTEGER DEFAULT 0,
-                    is_device INTEGER DEFAULT 0,
-                    is_mechanical INTEGER DEFAULT 0,
-                    runnable INTEGER DEFAULT 1,
-                    emulation_status TEXT,
-                    driver_status TEXT,
-                    savestate INTEGER DEFAULT 0,
-                    requires_artwork INTEGER DEFAULT 0,
-                    unofficial INTEGER DEFAULT 0,
-                    nosoundhardware INTEGER DEFAULT 0,
-                    incomplete INTEGER DEFAULT 0,
-
-                    FOREIGN KEY (
-                        mame_installation_id
-                    )
-                    REFERENCES mame_installation(id)
-                    ON DELETE CASCADE
-                );
-
-                CREATE TABLE IF NOT EXISTS rom (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    machine_id INTEGER NOT NULL,
-                    name TEXT NOT NULL,
-                    size INTEGER,
-                    crc TEXT,
-                    sha1 TEXT,
-                    merge TEXT,
-                    region TEXT,
-                    offset INTEGER DEFAULT 0,
-                    status TEXT DEFAULT 'good',
-                    optional INTEGER DEFAULT 0,
-                    bios TEXT,
-
-                    FOREIGN KEY (
-                        machine_id
-                    )
-                    REFERENCES machine(id)
-                    ON DELETE CASCADE
-                );
-
-                CREATE TABLE IF NOT EXISTS disk (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    machine_id INTEGER NOT NULL,
-                    name TEXT NOT NULL,
-                    sha1 TEXT,
-                    merge TEXT,
-                    region TEXT,
-                    idx INTEGER DEFAULT 0,
-                    writable INTEGER DEFAULT 0,
-                    status TEXT DEFAULT 'good',
-                    optional INTEGER DEFAULT 0,
-                    size INTEGER DEFAULT 0,
-
-                    FOREIGN KEY (
-                        machine_id
-                    )
-                    REFERENCES machine(id)
-                    ON DELETE CASCADE
-                );
-
-                CREATE TABLE IF NOT EXISTS category (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT UNIQUE NOT NULL,
-                    display_name TEXT NOT NULL,
-                    source TEXT DEFAULT 'manual'
-                );
-
-                CREATE TABLE IF NOT EXISTS machine_category (
-                    machine_id INTEGER NOT NULL,
-                    category_id INTEGER NOT NULL,
-
-                    PRIMARY KEY (
-                        machine_id,
-                        category_id
-                    ),
-
-                    FOREIGN KEY (
-                        machine_id
-                    )
-                    REFERENCES machine(id)
-                    ON DELETE CASCADE,
-
-                    FOREIGN KEY (
-                        category_id
-                    )
-                    REFERENCES category(id)
-                    ON DELETE CASCADE
-                );
-
-                CREATE TABLE IF NOT EXISTS filter_profile (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL,
-                    description TEXT,
-                    profile_data TEXT NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    is_default INTEGER DEFAULT 0
-                );
-
-                -- Índices de machine
-                CREATE INDEX IF NOT EXISTS
-                    idx_machine_name
-                    ON machine(name);
-
-                CREATE INDEX IF NOT EXISTS
-                    idx_machine_cloneof
-                    ON machine(cloneof);
-
-                CREATE INDEX IF NOT EXISTS
-                    idx_machine_romof
-                    ON machine(romof);
-
-                CREATE INDEX IF NOT EXISTS
-                    idx_machine_sourcefile
-                    ON machine(sourcefile);
-
-                CREATE INDEX IF NOT EXISTS
-                    idx_machine_emulation_status
-                    ON machine(emulation_status);
-
-                CREATE INDEX IF NOT EXISTS
-                    idx_machine_is_bios
-                    ON machine(is_bios);
-
-                CREATE INDEX IF NOT EXISTS
-                    idx_machine_is_device
-                    ON machine(is_device);
-
-                CREATE INDEX IF NOT EXISTS
-                    idx_machine_is_mechanical
-                    ON machine(is_mechanical);
-
-                -- Índices de ROM
-                CREATE INDEX IF NOT EXISTS
-                    idx_rom_machine_id
-                    ON rom(machine_id);
-
-                CREATE INDEX IF NOT EXISTS
-                    idx_rom_name
-                    ON rom(name);
-
-                CREATE INDEX IF NOT EXISTS
-                    idx_rom_crc
-                    ON rom(crc);
-
-                CREATE INDEX IF NOT EXISTS
-                    idx_rom_sha1
-                    ON rom(sha1);
-
-                CREATE INDEX IF NOT EXISTS
-                    idx_rom_merge
-                    ON rom(merge);
-
-                -- Índices de disk
-                CREATE INDEX IF NOT EXISTS
-                    idx_disk_machine_id
-                    ON disk(machine_id);
-
-                CREATE INDEX IF NOT EXISTS
-                    idx_disk_sha1
-                    ON disk(sha1);
-
-                -- Índices de categorias
-                CREATE INDEX IF NOT EXISTS
-                    idx_machine_category_machine
-                    ON machine_category(machine_id);
-
-                CREATE INDEX IF NOT EXISTS
-                    idx_machine_category_category
-                    ON machine_category(category_id);
-
-                -- Categorias padrão
-                INSERT OR IGNORE INTO category
-                    (name, display_name, source)
-                VALUES
-                    ('arcade', 'Arcade', 'manual'),
-                    ('system', 'System', 'manual'),
-                    ('bios', 'BIOS', 'manual'),
-                    ('devices', 'Devices', 'manual'),
-                    (
-                        'electromechanical',
-                        'Electromechanical',
-                        'manual'
-                    ),
-                    ('casino', 'Casino', 'manual'),
-                    ('mahjong', 'Mahjong', 'manual'),
-                    ('screenless', 'Screenless', 'manual'),
-                    ('mature', 'Mature', 'manual'),
-                    ('driving', 'Driving', 'manual'),
-                    ('fighter', 'Fighter', 'manual'),
-                    ('gambling', 'Gambling', 'manual'),
-                    (
-                        'game_console',
-                        'Game Console',
-                        'manual'
-                    ),
-                    ('chd', 'CHD', 'manual'),
-                    (
-                        'ball_paddle',
-                        'Ball & Paddle',
-                        'manual'
-                    ),
-                    (
-                        'board_game',
-                        'Board Game',
-                        'manual'
-                    ),
-                    (
-                        'calculator',
-                        'Calculator',
-                        'manual'
-                    ),
-                    (
-                        'card_games',
-                        'Card Games',
-                        'manual'
-                    ),
-                    ('maze', 'Maze', 'manual'),
-                    (
-                        'handheld',
-                        'Handheld',
-                        'manual'
-                    ),
-                    (
-                        'climbing',
-                        'Climbing',
-                        'manual'
-                    ),
-                    (
-                        'medal_game',
-                        'Medal Game',
-                        'manual'
-                    ),
-                    (
-                        'musical',
-                        'Musical',
-                        'manual'
-                    ),
-                    (
-                        'platform',
-                        'Platform',
-                        'manual'
-                    ),
-                    (
-                        'shooter',
-                        'Shooter',
-                        'manual'
-                    ),
-                    (
-                        'slot_machine',
-                        'Slot Machine',
-                        'manual'
-                    ),
-                    ('sports', 'Sports', 'manual'),
-                    (
-                        'tabletop',
-                        'Tabletop',
-                        'manual'
-                    ),
-                    (
-                        'telephone',
-                        'Telephone',
-                        'manual'
-                    );
+                ALTER TABLE disk
+                ADD COLUMN size INTEGER DEFAULT 0
                 """
             )
 
+    # ------------------------------------------------------------------
+    # INSPEÇÃO DO SCHEMA
+    # ------------------------------------------------------------------
+
+    def _get_table_columns(
+        self,
+        table_name: str,
+    ) -> set[str]:
+        """
+        Retorna os nomes das colunas de uma tabela.
+
+        Args:
+            table_name:
+                Nome da tabela.
+
+        Returns:
+            Conjunto com os nomes das colunas.
+        """
+
+        if self.conn is None:
+            raise RuntimeError(
+                "Banco não conectado."
+            )
+
+        cursor = self.conn.execute(
+            f'PRAGMA table_info("{table_name}")'
+        )
+
+        return {
+            str(row["name"])
+            for row in cursor.fetchall()
+        }
+
+    def table_exists(
+        self,
+        table_name: str,
+    ) -> bool:
+        """
+        Verifica se uma tabela existe.
+
+        Args:
+            table_name:
+                Nome da tabela.
+
+        Returns:
+            ``True`` quando a tabela existe.
+        """
+
+        if self.conn is None:
+            raise RuntimeError(
+                "Banco não conectado."
+            )
+
+        row = self.conn.execute(
+            """
+            SELECT 1
+            FROM sqlite_master
+            WHERE type = 'table'
+              AND name = ?
+            LIMIT 1
+            """,
+            (table_name,),
+        ).fetchone()
+
+        return row is not None
+
+    def _validate_schema(self) -> None:
+        """
+        Valida a presença das tabelas essenciais.
+
+        Raises:
+            RuntimeError:
+                Quando uma ou mais tabelas obrigatórias estão ausentes.
+        """
+
+        missing = [
+            table
+            for table in self.REQUIRED_TABLES
+            if not self.table_exists(table)
+        ]
+
+        if missing:
+            raise RuntimeError(
+                "Schema SQLite incompleto. "
+                "Tabelas ausentes: "
+                + ", ".join(missing)
+            )
+
+        logger.info(
+            "Schema validado: %d tabelas principais.",
+            len(self.REQUIRED_TABLES),
+        )
+
+    def get_table_columns(
+        self,
+        table_name: str,
+    ) -> set[str]:
+        """
+        Retorna as colunas de uma tabela.
+
+        Método público para serviços que precisam verificar
+        compatibilidade do schema.
+
+        Args:
+            table_name:
+                Nome da tabela.
+
+        Returns:
+            Conjunto de nomes das colunas.
+        """
+
+        if self.conn is None:
+            self.connect()
+
+        return self._get_table_columns(
+            table_name
+        )
+
+    # ------------------------------------------------------------------
+    # SQL
+    # ------------------------------------------------------------------
+
+    def execute(
+        self,
+        sql: str,
+        parameters: Sequence[Any] = (),
+    ) -> sqlite3.Cursor:
+        """
+        Executa uma instrução SQL.
+
+        Args:
+            sql:
+                SQL a executar.
+
+            parameters:
+                Parâmetros posicionais da instrução.
+
+        Returns:
+            Cursor SQLite.
+
+        Raises:
+            sqlite3.Error:
+                Em caso de erro SQL.
+        """
+
+        if self.conn is None:
+            self.connect()
+
+        assert self.conn is not None
+
+        return self.conn.execute(
+            sql,
+            parameters,
+        )
+
+    def executemany(
+        self,
+        sql: str,
+        parameters: Iterable[Sequence[Any]],
+    ) -> sqlite3.Cursor:
+        """
+        Executa uma instrução SQL para múltiplos registros.
+
+        Ideal para ingestão em lote do listxml.
+
+        Args:
+            sql:
+                Instrução SQL parametrizada.
+
+            parameters:
+                Iterable de conjuntos de parâmetros.
+
+        Returns:
+            Cursor SQLite.
+        """
+
+        if self.conn is None:
+            self.connect()
+
+        assert self.conn is not None
+
+        return self.conn.executemany(
+            sql,
+            parameters,
+        )
+
+    def executescript(
+        self,
+        sql_script: str,
+    ) -> None:
+        """
+        Executa um script SQL completo.
+
+        Args:
+            sql_script:
+                Script SQL.
+        """
+
+        if self.conn is None:
+            self.connect()
+
+        assert self.conn is not None
+
+        self.conn.executescript(
+            sql_script
+        )
+
+    # ------------------------------------------------------------------
+    # CONSULTAS
+    # ------------------------------------------------------------------
+
+    def fetchone(
+        self,
+        sql: str,
+        parameters: Sequence[Any] = (),
+    ) -> sqlite3.Row | None:
+        """
+        Executa uma consulta e retorna a primeira linha.
+
+        Args:
+            sql:
+                Consulta SQL.
+
+            parameters:
+                Parâmetros da consulta.
+
+        Returns:
+            ``sqlite3.Row`` ou ``None``.
+        """
+
+        cursor = self.execute(
+            sql,
+            parameters,
+        )
+
+        return cursor.fetchone()
+
+    def fetchall(
+        self,
+        sql: str,
+        parameters: Sequence[Any] = (),
+    ) -> list[sqlite3.Row]:
+        """
+        Executa uma consulta e retorna todas as linhas.
+
+        Args:
+            sql:
+                Consulta SQL.
+
+            parameters:
+                Parâmetros da consulta.
+
+        Returns:
+            Lista de ``sqlite3.Row``.
+        """
+
+        cursor = self.execute(
+            sql,
+            parameters,
+        )
+
+        return cursor.fetchall()
+
+    def fetch_value(
+        self,
+        sql: str,
+        parameters: Sequence[Any] = (),
+        default: Any = None,
+    ) -> Any:
+        """
+        Executa uma consulta e retorna o primeiro valor da primeira linha.
+
+        Args:
+            sql:
+                Consulta SQL.
+
+            parameters:
+                Parâmetros da consulta.
+
+            default:
+                Valor retornado quando nenhuma linha é encontrada.
+
+        Returns:
+            Primeiro valor encontrado ou ``default``.
+        """
+
+        row = self.fetchone(
+            sql,
+            parameters,
+        )
+
+        if row is None:
+            return default
+
+        return row[0]
+
+    # ------------------------------------------------------------------
+    # TRANSAÇÕES
+    # ------------------------------------------------------------------
+
+    def commit(self) -> None:
+        """
+        Confirma a transação atual.
+        """
+
+        if self.conn is None:
+            return
+
+        self.conn.commit()
+
+    def rollback(self) -> None:
+        """
+        Desfaz a transação atual.
+        """
+
+        if self.conn is None:
+            return
+
+        self.conn.rollback()
+
+    @contextmanager
+    def transaction(self) -> Iterator[sqlite3.Connection]:
+        """
+        Executa operações dentro de uma transação.
+
+        Em caso de sucesso:
+
+            COMMIT
+
+        Em caso de exceção:
+
+            ROLLBACK
+
+        Exemplo:
+
+        ::
+
+            with db.transaction() as conn:
+                conn.execute(...)
+                conn.execute(...)
+        """
+
+        if self.conn is None:
+            self.connect()
+
+        assert self.conn is not None
+
+        try:
+            yield self.conn
             self.conn.commit()
 
-            logger.info(
-                "Tabelas fallback criadas."
-            )
-
-        except sqlite3.Error:
+        except Exception:
             self.conn.rollback()
 
             logger.exception(
-                "Erro ao criar schema fallback."
+                "Transação SQLite revertida."
             )
 
             raise
+
+    # ------------------------------------------------------------------
+    # UTILITÁRIOS
+    # ------------------------------------------------------------------
+
+    def last_insert_id(
+        self,
+        cursor: sqlite3.Cursor,
+    ) -> int:
+        """
+        Retorna o ID gerado pela última inserção.
+
+        Args:
+            cursor:
+                Cursor retornado por ``execute``.
+
+        Returns:
+            ID inserido.
+        """
+
+        return int(
+            cursor.lastrowid
+            or 0
+        )
+
+    def get_user_version(self) -> int:
+        """
+        Retorna a versão interna do schema SQLite.
+
+        Returns:
+            Número da versão.
+        """
+
+        return int(
+            self.fetch_value(
+                "PRAGMA user_version",
+                default=0,
+            )
+        )
+
+    # ------------------------------------------------------------------
+    # CONTEXT MANAGER
+    # ------------------------------------------------------------------
+
+    def __enter__(self) -> Database:
+        """
+        Abre o banco ao entrar em um context manager.
+
+        Returns:
+            A própria instância de ``Database``.
+        """
+
+        self.connect()
+
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: Any,
+    ) -> None:
+        """
+        Fecha o banco ao sair do context manager.
+
+        Se uma exceção ocorrer dentro do bloco, a transação pendente
+        é revertida antes do fechamento.
+        """
+
+        if exc_type is not None:
+            self.rollback()
+
+        self.close()
 
     # ------------------------------------------------------------------
     # FECHAMENTO
     # ------------------------------------------------------------------
 
-    def close(self) -> None:
+    def _close_connection_safely(self) -> None:
         """
-        Fecha a conexão SQLite.
+        Fecha a conexão sem propagar exceções.
+        """
 
-        É seguro chamar o método mesmo quando a conexão já estiver fechada.
-        """
         if self.conn is None:
             return
 
@@ -624,12 +926,35 @@ class Database:
 
         except sqlite3.Error:
             logger.exception(
-                "Erro ao fechar conexão com banco."
+                "Erro ao fechar conexão SQLite."
             )
 
         finally:
             self.conn = None
 
+    def close(self) -> None:
+        """
+        Fecha a conexão SQLite.
+
+        É seguro chamar o método mesmo quando o banco já estiver fechado.
+        """
+
+        if self.conn is None:
+            return
+
+        try:
+            self.conn.commit()
+
+        except sqlite3.Error:
+            logger.warning(
+                "Não foi possível confirmar transação "
+                "antes de fechar o banco."
+            )
+
+        finally:
+            self._close_connection_safely()
+
             logger.info(
-                "Conexão com banco fechada."
+                "Conexão SQLite encerrada: %s",
+                self.db_path,
             )
