@@ -44,7 +44,8 @@ logger = logging.getLogger(__name__)
 
 class FiltersTab(QWidget):
     """Interface principal para configuração e aplicação dos filtros do MAME."""
-
+    class FiltersTab(QWidget):
+        profile_saved = Signal()
     class CategoryChip(QPushButton):
         """
         Botão compacto que alterna uma categoria entre normal e excluída.
@@ -1867,6 +1868,8 @@ class FiltersTab(QWidget):
         )
 
         self.filter_service.save_profile(profile)
+
+        self.profile_saved.emit()
 
         self._load_profiles()
 

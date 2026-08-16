@@ -1,5 +1,5 @@
 """
-MAME Set Builder - Database
+MAME Set Builder - Database app/database/database.py
 ===========================
 
 Gerenciamento centralizado do banco SQLite da aplicação.

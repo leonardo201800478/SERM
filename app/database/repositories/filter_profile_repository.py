@@ -29,6 +29,27 @@ class FilterProfileRepository:
             profiles.append(profile)
         return profiles
 
+    def get_by_id(self, profile_id: int) -> Optional[FilterProfile]:
+        cursor = self.conn.execute(
+            "SELECT id, name, description, profile_data, created_at, updated_at, is_default "
+            "FROM filter_profile WHERE id = ?",
+            (profile_id,)
+        )
+        row = cursor.fetchone()
+        if row:
+            data = json.loads(row[3])
+            criteria = FilterCriteria.from_dict(data)
+            return FilterProfile(
+                id=row[0],
+                name=row[1],
+                description=row[2],
+                criteria=criteria,
+                created_at=row[4],
+                updated_at=row[5],
+                is_default=bool(row[6])
+            )
+        return None
+
     def get_default(self) -> Optional[FilterProfile]:
         cursor = self.conn.execute(
             "SELECT id, name, description, profile_data, created_at, updated_at, is_default FROM filter_profile WHERE is_default = 1 LIMIT 1"

@@ -225,7 +225,7 @@ class DatabaseService:
             cursor.executemany(
                 """
                 INSERT INTO disk
-                (machine_id, name, sha1, merge, region, idx, writable, status, optional)
+                (machine_id, name, sha1, merge, region, disk_index, writable, status, optional)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 disk_rows,

@@ -34,13 +34,10 @@ A apresentação pertence a:
 
 from __future__ import annotations
 
-from dataclasses import (
-    dataclass,
-    field,
-)
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 
 # ============================================================================
@@ -62,69 +59,37 @@ class ScanStatus(str, Enum):
     """
 
     VALID = "valid"
-
     MISSING = "missing"
-
     INVALID = "invalid"
-
     ERROR = "error"
-
     CANCELLED = "cancelled"
-
     UNKNOWN = "unknown"
 
     @property
     def is_success(self) -> bool:
-        """
-        Indica se o item foi encontrado e validado corretamente.
-
-        Returns:
-            ``True`` somente para ``VALID``.
-        """
-
+        """Indica se o item foi encontrado e validado corretamente."""
         return self is ScanStatus.VALID
 
     @property
     def is_missing(self) -> bool:
-        """
-        Indica se o item não foi encontrado.
-
-        Returns:
-            ``True`` para ``MISSING``.
-        """
-
+        """Indica se o item não foi encontrado."""
         return self is ScanStatus.MISSING
 
     @property
     def is_error(self) -> bool:
-        """
-        Indica se ocorreu erro durante a verificação.
-
-        Returns:
-            ``True`` para ``ERROR``.
-        """
-
+        """Indica se ocorreu erro durante a verificação."""
         return self is ScanStatus.ERROR
 
     @property
     def is_problem(self) -> bool:
-        """
-        Indica se o item não está em estado válido.
-
-        Returns:
-            ``True`` para qualquer estado diferente de ``VALID``.
-        """
-
+        """Indica se o item não está em estado válido."""
         return self is not ScanStatus.VALID
 
 
 class ScanItemType(str, Enum):
-    """
-    Tipo de arquivo referenciado pelo LISTXML.
-    """
+    """Tipo de arquivo referenciado pelo LISTXML."""
 
     ROM = "rom"
-
     DISK = "disk"
 
 
@@ -138,93 +103,49 @@ class RomScanResult:
     """
     Resultado da verificação de uma ROM ou CHD individual.
 
-    O objeto representa uma única entrada do LISTXML.
-
     Attributes:
-        machine_name:
-            Nome da máquina à qual o item pertence.
-
-        rom_name:
-            Nome da ROM/CHD conforme definido no XML.
-
-        status:
-            Resultado da validação.
-
-        expected_size:
-            Tamanho esperado em bytes.
-
-        actual_size:
-            Tamanho encontrado em bytes.
-
-        expected_crc:
-            CRC esperado.
-
-        actual_crc:
-            CRC encontrado.
-
-        expected_sha1:
-            SHA1 esperado.
-
-        actual_sha1:
-            SHA1 encontrado.
-
-        path:
-            Caminho do arquivo encontrado.
-
-        archive_path:
-            Caminho do ZIP que contém a ROM, quando aplicável.
-
-        archive_member:
-            Nome do arquivo dentro do ZIP.
-
-        item_type:
-            Tipo do item: ROM ou disk.
-
-        merge:
-            Valor do atributo ``merge`` do LISTXML.
-
-        optional:
-            Indica se a ROM foi marcada como opcional.
-
-        message:
-            Mensagem adicional do scanner.
-
-        error:
-            Mensagem de erro, quando existente.
+        machine_name: Nome da máquina à qual o item pertence.
+        rom_name: Nome da ROM/CHD conforme definido no XML.
+        status: Resultado da validação.
+        expected_size: Tamanho esperado em bytes.
+        actual_size: Tamanho encontrado em bytes.
+        expected_crc: CRC esperado.
+        actual_crc: CRC encontrado.
+        expected_sha1: SHA1 esperado.
+        actual_sha1: SHA1 encontrado.
+        path: Caminho do arquivo encontrado.
+        archive_path: Caminho do ZIP que contém a ROM, quando aplicável.
+        archive_member: Nome do arquivo dentro do ZIP.
+        item_type: Tipo do item: ROM ou disk.
+        merge: Valor do atributo ``merge`` do LISTXML.
+        optional: Indica se a ROM foi marcada como opcional.
+        message: Mensagem adicional do scanner.
+        error: Mensagem de erro, quando existente.
     """
 
     machine_name: str
-
     rom_name: str
 
     status: ScanStatus = ScanStatus.UNKNOWN
 
     expected_size: int = 0
-
     actual_size: int = 0
 
     expected_crc: str = ""
-
     actual_crc: str = ""
 
     expected_sha1: str = ""
-
     actual_sha1: str = ""
 
     path: Path | None = None
-
     archive_path: Path | None = None
-
     archive_member: str | None = None
 
     item_type: ScanItemType = ScanItemType.ROM
-
     merge: str | None = None
-
     optional: bool = False
 
     message: str = ""
-
     error: str | None = None
 
     # ------------------------------------------------------------------------
@@ -233,204 +154,76 @@ class RomScanResult:
 
     @property
     def found(self) -> bool:
-        """
-        Indica se o item foi encontrado.
-
-        Um item é considerado encontrado quando está em qualquer estado
-        que represente uma verificação efetivamente realizada.
-
-        Returns:
-            ``True`` se o arquivo foi localizado.
-        """
-
-        return self.status not in (
-            ScanStatus.MISSING,
-            ScanStatus.UNKNOWN,
-        )
+        """Indica se o item foi encontrado."""
+        return self.status not in (ScanStatus.MISSING, ScanStatus.UNKNOWN)
 
     @property
     def valid(self) -> bool:
-        """
-        Indica se o item está correto.
-
-        Returns:
-            ``True`` quando o status é ``VALID``.
-        """
-
+        """Indica se o item está correto."""
         return self.status is ScanStatus.VALID
 
     @property
     def invalid(self) -> bool:
-        """
-        Indica se o item foi encontrado, mas não corresponde ao esperado.
-
-        Returns:
-            ``True`` quando o status é ``INVALID``.
-        """
-
+        """Indica se o item foi encontrado, mas não corresponde ao esperado."""
         return self.status is ScanStatus.INVALID
 
     @property
     def missing(self) -> bool:
-        """
-        Indica se o item não foi encontrado.
-
-        Returns:
-            ``True`` quando o status é ``MISSING``.
-        """
-
+        """Indica se o item não foi encontrado."""
         return self.status is ScanStatus.MISSING
 
     @property
     def has_error(self) -> bool:
-        """
-        Indica se houve erro durante o processamento.
-
-        Returns:
-            ``True`` quando o status é ``ERROR`` ou existe mensagem
-            explícita de erro.
-        """
-
-        return (
-            self.status is ScanStatus.ERROR
-            or bool(self.error)
-        )
+        """Indica se houve erro durante o processamento."""
+        return self.status is ScanStatus.ERROR or bool(self.error)
 
     @property
     def filename(self) -> str:
-        """
-        Retorna o nome do arquivo encontrado.
-
-        Returns:
-            Nome do arquivo ou string vazia.
-        """
-
+        """Retorna o nome do arquivo encontrado."""
         if self.path is not None:
             return self.path.name
-
         if self.archive_member:
-            return Path(
-                self.archive_member
-            ).name
-
+            return Path(self.archive_member).name
         return self.rom_name
 
     @property
     def location(self) -> Path | None:
-        """
-        Retorna a localização física mais relevante do item.
-
-        Para ROMs dentro de ZIP, retorna o ZIP.
-
-        Returns:
-            Caminho físico ou ``None``.
-        """
-
+        """Retorna a localização física mais relevante do item."""
         if self.archive_path is not None:
             return self.archive_path
-
         return self.path
 
     @property
     def expected_hash(self) -> str:
-        """
-        Retorna o hash esperado prioritário.
-
-        CRC é priorizado porque é o identificador principal das ROMs
-        no fluxo do MAME.
-
-        Returns:
-            CRC, SHA1 ou string vazia.
-        """
-
-        if self.expected_crc:
-            return self.expected_crc
-
-        return self.expected_sha1
+        """Retorna o hash esperado prioritário (CRC > SHA1)."""
+        return self.expected_crc or self.expected_sha1
 
     @property
     def actual_hash(self) -> str:
-        """
-        Retorna o hash encontrado prioritário.
-
-        Returns:
-            CRC, SHA1 ou string vazia.
-        """
-
-        if self.actual_crc:
-            return self.actual_crc
-
-        return self.actual_sha1
+        """Retorna o hash encontrado prioritário (CRC > SHA1)."""
+        return self.actual_crc or self.actual_sha1
 
     @property
     def size_matches(self) -> bool:
-        """
-        Verifica se o tamanho encontrado corresponde ao esperado.
-
-        Returns:
-            ``True`` quando os tamanhos são iguais.
-
-        Observação:
-            Quando o tamanho esperado é zero, a comparação é considerada
-            inconclusiva e retorna ``False``.
-        """
-
+        """Verifica se o tamanho encontrado corresponde ao esperado."""
         if self.expected_size <= 0:
             return False
-
-        return (
-            self.expected_size
-            == self.actual_size
-        )
+        return self.expected_size == self.actual_size
 
     @property
     def crc_matches(self) -> bool:
-        """
-        Verifica correspondência de CRC.
-
-        Returns:
-            ``True`` quando ambos existem e são iguais.
-        """
-
-        if not self.expected_crc:
-            return False
-
-        if not self.actual_crc:
-            return False
-
-        return (
-            self.expected_crc.lower()
-            == self.actual_crc.lower()
-        )
+        """Verifica correspondência de CRC."""
+        return bool(self.expected_crc and self.actual_crc and
+                    self.expected_crc.lower() == self.actual_crc.lower())
 
     @property
     def sha1_matches(self) -> bool:
-        """
-        Verifica correspondência de SHA1.
-
-        Returns:
-            ``True`` quando ambos existem e são iguais.
-        """
-
-        if not self.expected_sha1:
-            return False
-
-        if not self.actual_sha1:
-            return False
-
-        return (
-            self.expected_sha1.lower()
-            == self.actual_sha1.lower()
-        )
+        """Verifica correspondência de SHA1."""
+        return bool(self.expected_sha1 and self.actual_sha1 and
+                    self.expected_sha1.lower() == self.actual_sha1.lower())
 
     def to_dict(self) -> dict[str, Any]:
-        """
-        Converte o resultado para dicionário.
-
-        Returns:
-            Dicionário serializável.
-        """
-
+        """Converte o resultado para dicionário."""
         return {
             "machine_name": self.machine_name,
             "rom_name": self.rom_name,
@@ -441,16 +234,8 @@ class RomScanResult:
             "actual_crc": self.actual_crc,
             "expected_sha1": self.expected_sha1,
             "actual_sha1": self.actual_sha1,
-            "path": (
-                str(self.path)
-                if self.path
-                else None
-            ),
-            "archive_path": (
-                str(self.archive_path)
-                if self.archive_path
-                else None
-            ),
+            "path": str(self.path) if self.path else None,
+            "archive_path": str(self.archive_path) if self.archive_path else None,
             "archive_member": self.archive_member,
             "item_type": self.item_type.value,
             "merge": self.merge,
@@ -471,37 +256,19 @@ class MachineScanResult:
     Resultado agregado do escaneamento de uma máquina.
 
     Attributes:
-        machine_name:
-            Nome da máquina conforme o LISTXML.
-
-        description:
-            Descrição amigável da máquina.
-
-        cloneof:
-            Nome da máquina pai, quando for clone.
-
-        roms:
-            Resultados individuais das ROMs/CHDs.
-
-        started:
-            Indica se a máquina chegou a ser processada.
-
-        error:
-            Erro geral da máquina, caso exista.
+        machine_name: Nome da máquina conforme o LISTXML.
+        description: Descrição amigável da máquina.
+        cloneof: Nome da máquina pai, quando for clone.
+        roms: Resultados individuais das ROMs/CHDs.
+        started: Indica se a máquina chegou a ser processada.
+        error: Erro geral da máquina, caso exista.
     """
 
     machine_name: str
-
     description: str = ""
-
     cloneof: str | None = None
-
-    roms: list[RomScanResult] = field(
-        default_factory=list
-    )
-
+    roms: list[RomScanResult] = field(default_factory=list)
     started: bool = False
-
     error: str | None = None
 
     # ------------------------------------------------------------------------
@@ -510,133 +277,48 @@ class MachineScanResult:
 
     @property
     def total(self) -> int:
-        """
-        Retorna a quantidade total de itens.
-
-        Returns:
-            Número de ROMs/CHDs.
-        """
-
-        return len(
-            self.roms
-        )
+        """Quantidade total de itens."""
+        return len(self.roms)
 
     @property
     def found(self) -> int:
-        """
-        Retorna a quantidade de itens encontrados.
-
-        Returns:
-            Quantidade encontrada.
-        """
-
-        return sum(
-            1
-            for result in self.roms
-            if result.found
-        )
+        """Quantidade de itens encontrados."""
+        return sum(1 for r in self.roms if r.found)
 
     @property
     def valid(self) -> int:
-        """
-        Retorna a quantidade de itens válidos.
-
-        Returns:
-            Quantidade válida.
-        """
-
-        return sum(
-            1
-            for result in self.roms
-            if result.valid
-        )
+        """Quantidade de itens válidos."""
+        return sum(1 for r in self.roms if r.valid)
 
     @property
     def missing(self) -> int:
-        """
-        Retorna a quantidade de itens ausentes.
-
-        Returns:
-            Quantidade ausente.
-        """
-
-        return sum(
-            1
-            for result in self.roms
-            if result.missing
-        )
-
-    @property
-    def bad(self) -> int:
-        """
-        Retorna a quantidade de itens inválidos.
-
-        ``bad`` é mantido como alias semântico para ``invalid``,
-        porque essa nomenclatura é usada pela GUI e pelos relatórios
-        de auditoria.
-
-        Returns:
-            Quantidade inválida.
-        """
-
-        return self.invalid
+        """Quantidade de itens ausentes."""
+        return sum(1 for r in self.roms if r.missing)
 
     @property
     def invalid(self) -> int:
-        """
-        Retorna a quantidade de itens inválidos.
+        """Quantidade de itens inválidos."""
+        return sum(1 for r in self.roms if r.invalid)
 
-        Returns:
-            Quantidade inválida.
-        """
-
-        return sum(
-            1
-            for result in self.roms
-            if result.invalid
-        )
+    @property
+    def bad(self) -> int:
+        """Alias para invalid (usado pela GUI)."""
+        return self.invalid
 
     @property
     def error_count(self) -> int:
-        """
-        Retorna a quantidade de itens com erro.
-
-        Returns:
-            Quantidade de erros.
-        """
-
-        return sum(
-            1
-            for result in self.roms
-            if result.has_error
-        )
+        """Quantidade de itens com erro."""
+        return sum(1 for r in self.roms if r.has_error)
 
     @property
     def error(self) -> int:
-        """
-        Alias numérico utilizado pela GUI.
-
-        Returns:
-            Quantidade de itens com erro.
-        """
-
+        """Alias para error_count."""
         return self.error_count
 
     @property
     def cancelled(self) -> int:
-        """
-        Retorna a quantidade de itens cancelados.
-
-        Returns:
-            Quantidade de itens cancelados.
-        """
-
-        return sum(
-            1
-            for result in self.roms
-            if result.status
-            is ScanStatus.CANCELLED
-        )
+        """Quantidade de itens cancelados."""
+        return sum(1 for r in self.roms if r.status is ScanStatus.CANCELLED)
 
     # ------------------------------------------------------------------------
     # STATUS AGREGADO
@@ -644,69 +326,33 @@ class MachineScanResult:
 
     @property
     def is_complete(self) -> bool:
-        """
-        Indica se todos os itens foram processados.
-
-        Returns:
-            ``True`` quando não existem itens desconhecidos.
-        """
-
-        return all(
-            result.status
-            is not ScanStatus.UNKNOWN
-            for result in self.roms
-        )
+        """Indica se todos os itens foram processados."""
+        return all(r.status is not ScanStatus.UNKNOWN for r in self.roms)
 
     @property
     def is_valid(self) -> bool:
-        """
-        Indica se todos os itens da máquina são válidos.
-
-        Uma máquina sem ROMs não é considerada válida.
-
-        Returns:
-            ``True`` quando todos os itens são válidos.
-        """
-
-        return (
-            self.total > 0
-            and self.valid == self.total
-        )
+        """Indica se todos os itens da máquina são válidos."""
+        return self.total > 0 and self.valid == self.total
 
     @property
     def status(self) -> ScanStatus:
-        """
-        Calcula o status agregado da máquina.
-
-        A prioridade é:
-
-            ERROR
-            INVALID
-            MISSING
-            CANCELLED
-            VALID
-            UNKNOWN
-
-        Returns:
-            Status agregado.
-        """
-
+        """Calcula o status agregado da máquina."""
         if self.error_count > 0:
             return ScanStatus.ERROR
-
         if self.invalid > 0:
             return ScanStatus.INVALID
-
         if self.missing > 0:
             return ScanStatus.MISSING
-
         if self.cancelled > 0:
             return ScanStatus.CANCELLED
-
         if self.valid == self.total and self.total > 0:
             return ScanStatus.VALID
-
         return ScanStatus.UNKNOWN
+
+    @property
+    def has_problems(self) -> bool:
+        """Indica se a máquina possui algum item com problema."""
+        return any(r.status.is_problem for r in self.roms)
 
     # ------------------------------------------------------------------------
     # TAMANHOS
@@ -714,66 +360,24 @@ class MachineScanResult:
 
     @property
     def expected_size(self) -> int:
-        """
-        Retorna o tamanho total esperado.
-
-        Returns:
-            Bytes esperados.
-        """
-
-        return sum(
-            max(
-                0,
-                result.expected_size,
-            )
-            for result in self.roms
-        )
+        """Tamanho total esperado em bytes."""
+        return sum(max(0, r.expected_size) for r in self.roms)
 
     @property
     def actual_size(self) -> int:
-        """
-        Retorna o tamanho total encontrado.
-
-        Returns:
-            Bytes encontrados.
-        """
-
-        return sum(
-            max(
-                0,
-                result.actual_size,
-            )
-            for result in self.roms
-        )
+        """Tamanho total encontrado em bytes."""
+        return sum(max(0, r.actual_size) for r in self.roms)
 
     # ------------------------------------------------------------------------
     # MÉTODOS
     # ------------------------------------------------------------------------
 
-    def add_result(
-        self,
-        result: RomScanResult,
-    ) -> None:
-        """
-        Adiciona um resultado individual à máquina.
-
-        Args:
-            result:
-                Resultado da ROM/CHD.
-        """
-
-        self.roms.append(
-            result
-        )
+    def add_result(self, result: RomScanResult) -> None:
+        """Adiciona um resultado individual à máquina."""
+        self.roms.append(result)
 
     def to_dict(self) -> dict[str, Any]:
-        """
-        Converte a máquina para dicionário.
-
-        Returns:
-            Dicionário com a máquina e seus resultados.
-        """
-
+        """Converte a máquina para dicionário."""
         return {
             "machine_name": self.machine_name,
             "description": self.description,
@@ -788,10 +392,7 @@ class MachineScanResult:
             "error": self.error_count,
             "expected_size": self.expected_size,
             "actual_size": self.actual_size,
-            "roms": [
-                result.to_dict()
-                for result in self.roms
-            ],
+            "roms": [r.to_dict() for r in self.roms],
             "error_message": self.error,
         }
 
@@ -806,40 +407,20 @@ class ScanResult:
     """
     Resultado completo de uma execução do RomScanner.
 
-    Este é o objeto de nível superior para representar uma execução.
-
     Attributes:
-        machines:
-            Resultados agregados das máquinas.
-
-        xml_path:
-            LISTXML utilizado como fonte.
-
-        started_at:
-            Momento de início.
-
-        finished_at:
-            Momento de término.
-
-        cancelled:
-            Indica se o processo foi cancelado.
-
-        error:
-            Erro geral da execução.
+        machines: Resultados agregados das máquinas.
+        xml_path: LISTXML utilizado como fonte.
+        started_at: Momento de início.
+        finished_at: Momento de término.
+        cancelled: Indica se o processo foi cancelado.
+        error: Erro geral da execução.
     """
 
-    machines: list[MachineScanResult] = field(
-        default_factory=list
-    )
-
+    machines: list[MachineScanResult] = field(default_factory=list)
     xml_path: Path | None = None
-
     started_at: Any = None
-
     finished_at: Any = None
-
     cancelled: bool = False
-
     error: str | None = None
 
     # ------------------------------------------------------------------------
@@ -848,248 +429,98 @@ class ScanResult:
 
     @property
     def machine_count(self) -> int:
-        """
-        Retorna a quantidade de máquinas.
-
-        Returns:
-            Número de máquinas.
-        """
-
-        return len(
-            self.machines
-        )
+        """Número de máquinas."""
+        return len(self.machines)
 
     @property
     def total(self) -> int:
-        """
-        Retorna a quantidade total de itens.
-
-        Returns:
-            Total de ROMs/CHDs.
-        """
-
-        return sum(
-            machine.total
-            for machine in self.machines
-        )
+        """Total de itens (ROMs + CHDs)."""
+        return sum(m.total for m in self.machines)
 
     @property
     def found(self) -> int:
-        """
-        Retorna a quantidade de itens encontrados.
-
-        Returns:
-            Quantidade encontrada.
-        """
-
-        return sum(
-            machine.found
-            for machine in self.machines
-        )
+        """Itens encontrados."""
+        return sum(m.found for m in self.machines)
 
     @property
     def valid(self) -> int:
-        """
-        Retorna a quantidade de itens válidos.
-
-        Returns:
-            Quantidade válida.
-        """
-
-        return sum(
-            machine.valid
-            for machine in self.machines
-        )
+        """Itens válidos."""
+        return sum(m.valid for m in self.machines)
 
     @property
     def missing(self) -> int:
-        """
-        Retorna a quantidade de itens ausentes.
-
-        Returns:
-            Quantidade ausente.
-        """
-
-        return sum(
-            machine.missing
-            for machine in self.machines
-        )
+        """Itens ausentes."""
+        return sum(m.missing for m in self.machines)
 
     @property
     def bad(self) -> int:
-        """
-        Retorna a quantidade de itens inválidos.
-
-        Returns:
-            Quantidade inválida.
-        """
-
-        return sum(
-            machine.bad
-            for machine in self.machines
-        )
+        """Itens inválidos."""
+        return sum(m.bad for m in self.machines)
 
     @property
     def error_count(self) -> int:
-        """
-        Retorna a quantidade de erros.
-
-        Returns:
-            Quantidade de erros.
-        """
-
-        return sum(
-            machine.error
-            for machine in self.machines
-        )
-
-    @property
-    def error_count_total(self) -> int:
-        """
-        Alias explícito para ``error_count``.
-
-        Returns:
-            Quantidade total de erros.
-        """
-
-        return self.error_count
-
-    @property
-    def is_complete(self) -> bool:
-        """
-        Indica se o scan terminou sem cancelamento/erro.
-
-        Returns:
-            ``True`` quando o resultado está completo.
-        """
-
-        return (
-            not self.cancelled
-            and self.error is None
-            and self.finished_at is not None
-        )
-
-    @property
-    def is_valid(self) -> bool:
-        """
-        Indica se todos os itens encontrados estão válidos.
-
-        Returns:
-            ``True`` quando não há ausentes, inválidos ou erros.
-        """
-
-        return (
-            self.total > 0
-            and self.valid == self.total
-        )
-
-    # ------------------------------------------------------------------------
-    # TAMANHOS
-    # ------------------------------------------------------------------------
+        """Erros."""
+        return sum(m.error_count for m in self.machines)
 
     @property
     def expected_size(self) -> int:
-        """
-        Retorna o tamanho esperado total.
-
-        Returns:
-            Bytes esperados.
-        """
-
-        return sum(
-            machine.expected_size
-            for machine in self.machines
-        )
+        """Tamanho total esperado em bytes."""
+        return sum(m.expected_size for m in self.machines)
 
     @property
     def actual_size(self) -> int:
-        """
-        Retorna o tamanho encontrado total.
+        """Tamanho total encontrado em bytes."""
+        return sum(m.actual_size for m in self.machines)
 
-        Returns:
-            Bytes encontrados.
-        """
+    @property
+    def is_complete(self) -> bool:
+        """Indica se o scan terminou sem cancelamento/erro."""
+        return not self.cancelled and self.error is None and self.finished_at is not None
 
-        return sum(
-            machine.actual_size
-            for machine in self.machines
-        )
+    @property
+    def is_valid(self) -> bool:
+        """Indica se todos os itens encontrados estão válidos."""
+        return self.total > 0 and self.valid == self.total
 
     # ------------------------------------------------------------------------
-    # MÉTODOS
+    # MÉTODOS AUXILIARES
     # ------------------------------------------------------------------------
 
-    def add_machine(
-        self,
-        machine: MachineScanResult,
-    ) -> None:
+    def problem_machines(self) -> Iterator[MachineScanResult]:
         """
-        Adiciona o resultado de uma máquina.
+        Gera as máquinas que possuem pelo menos um item com problema.
 
-        Args:
-            machine:
-                Resultado da máquina.
+        Um problema é definido como:
+            - ausente (MISSING)
+            - inválido (INVALID)
+            - erro (ERROR)
+
+        Máquinas com todos os itens válidos não são incluídas.
+
+        Yields:
+            MachineScanResult para cada máquina com problemas.
         """
-
-        self.machines.append(
-            machine
-        )
-
-    def get_machine(
-        self,
-        machine_name: str,
-    ) -> MachineScanResult | None:
-        """
-        Procura uma máquina pelo nome.
-
-        Args:
-            machine_name:
-                Nome da máquina.
-
-        Returns:
-            MachineScanResult ou ``None``.
-        """
-
         for machine in self.machines:
+            if machine.has_problems:
+                yield machine
 
-            if (
-                machine.machine_name
-                == machine_name
-            ):
+    def add_machine(self, machine: MachineScanResult) -> None:
+        """Adiciona o resultado de uma máquina."""
+        self.machines.append(machine)
+
+    def get_machine(self, machine_name: str) -> MachineScanResult | None:
+        """Procura uma máquina pelo nome."""
+        for machine in self.machines:
+            if machine.machine_name == machine_name:
                 return machine
-
         return None
 
     def to_dict(self) -> dict[str, Any]:
-        """
-        Converte o resultado completo para dicionário.
-
-        Returns:
-            Dicionário serializável.
-        """
-
+        """Converte o resultado completo para dicionário."""
         return {
-            "xml_path": (
-                str(self.xml_path)
-                if self.xml_path
-                else None
-            ),
-            "started_at": (
-                self.started_at.isoformat()
-                if hasattr(
-                    self.started_at,
-                    "isoformat",
-                )
-                else self.started_at
-            ),
-            "finished_at": (
-                self.finished_at.isoformat()
-                if hasattr(
-                    self.finished_at,
-                    "isoformat",
-                )
-                else self.finished_at
-            ),
+            "xml_path": str(self.xml_path) if self.xml_path else None,
+            "started_at": self.started_at.isoformat() if hasattr(self.started_at, "isoformat") else self.started_at,
+            "finished_at": self.finished_at.isoformat() if hasattr(self.finished_at, "isoformat") else self.finished_at,
             "cancelled": self.cancelled,
             "error": self.error,
             "machine_count": self.machine_count,
@@ -1101,10 +532,7 @@ class ScanResult:
             "error_count": self.error_count,
             "expected_size": self.expected_size,
             "actual_size": self.actual_size,
-            "machines": [
-                machine.to_dict()
-                for machine in self.machines
-            ],
+            "machines": [m.to_dict() for m in self.machines],
         }
 
 
@@ -1112,14 +540,8 @@ class ScanResult:
 # ALIASES DE COMPATIBILIDADE
 # ============================================================================
 
-# Alguns componentes antigos do projeto utilizavam nomes diferentes.
-# Estes aliases permitem que a migração aconteça gradualmente sem criar
-# uma segunda implementação do modelo.
-
 RomResult = RomScanResult
-
 MachineResult = MachineScanResult
-
 ScanSummary = ScanResult
 
 

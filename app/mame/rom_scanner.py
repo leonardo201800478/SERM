@@ -96,6 +96,7 @@ from typing import (
 from app.core.models.scan_result import (
     MachineScanResult,
     RomScanResult,
+    ScanStatus,
 )
 
 
@@ -833,32 +834,26 @@ class RomScanner:
             )
 
             status = (
-                "good"
+                ScanStatus.VALID
                 if valid
-                else "bad"
+                else ScanStatus.INVALID
             )
 
             if valid:
-
                 message = (
                     "ROM encontrada e válida "
                     "no ZIP."
                 )
-
             else:
-
                 problems: list[str] = []
-
                 if not size_ok:
                     problems.append(
                         "tamanho inválido"
                     )
-
                 if not crc_ok:
                     problems.append(
                         "CRC inválido"
                     )
-
                 message = (
                     "ROM encontrada, mas "
                     + " e ".join(
@@ -871,14 +866,13 @@ class RomScanner:
                 machine_name=machine_name,
                 rom_name=rom_name,
                 expected_size=expected_size,
+                actual_size=actual_size,
                 expected_crc=expected_crc,
-                found=True,
-                valid=valid,
+                actual_crc=actual_crc,
                 status=status,
                 path=zip_path,
-                actual_size=actual_size,
-                actual_crc=actual_crc,
-                source=zip_path,
+                archive_path=zip_path,
+                archive_member=info.filename,
                 message=message,
             )
 
@@ -895,11 +889,9 @@ class RomScanner:
                 rom_name=rom_name,
                 expected_size=expected_size,
                 expected_crc=expected_crc,
-                found=True,
-                valid=False,
-                status="error",
+                status=ScanStatus.ERROR,
                 path=zip_path,
-                source=zip_path,
+                archive_path=zip_path,
                 message=str(exc),
             )
 
@@ -1070,22 +1062,21 @@ class RomScanner:
                 and crc_ok
             )
 
+            status = (
+                ScanStatus.VALID
+                if valid
+                else ScanStatus.INVALID
+            )
+
             return RomScanResult(
                 machine_name=machine_name,
                 rom_name=rom_name,
                 expected_size=expected_size,
-                expected_crc=expected_crc,
-                found=True,
-                valid=valid,
-                status=(
-                    "good"
-                    if valid
-                    else "bad"
-                ),
-                path=path,
                 actual_size=actual_size,
+                expected_crc=expected_crc,
                 actual_crc=actual_crc,
-                source=path.parent,
+                status=status,
+                path=path,
                 message=(
                     "ROM encontrada e válida."
                     if valid
@@ -1103,9 +1094,8 @@ class RomScanner:
                 rom_name=rom_name,
                 expected_size=expected_size,
                 expected_crc=expected_crc,
-                status="cancelled",
+                status=ScanStatus.CANCELLED,
                 path=path,
-                source=path.parent,
                 message="Scan cancelado.",
             )
 
@@ -1116,9 +1106,8 @@ class RomScanner:
                 rom_name=rom_name,
                 expected_size=expected_size,
                 expected_crc=expected_crc,
-                status="error",
+                status=ScanStatus.ERROR,
                 path=path,
-                source=path.parent,
                 message=str(exc),
             )
 
@@ -1134,9 +1123,8 @@ class RomScanner:
                 rom_name=rom_name,
                 expected_size=expected_size,
                 expected_crc=expected_crc,
-                status="error",
+                status=ScanStatus.ERROR,
                 path=path,
-                source=path.parent,
                 message=str(exc),
             )
 
@@ -1201,7 +1189,7 @@ class RomScanner:
                 rom_name="",
                 expected_size=expected_size,
                 expected_crc=expected_crc,
-                status="error",
+                status=ScanStatus.ERROR,
                 message="ROM sem nome.",
             )
 
@@ -1222,7 +1210,7 @@ class RomScanner:
                 rom_name=rom_name,
                 expected_size=expected_size,
                 expected_crc=expected_crc,
-                status="cancelled",
+                status=ScanStatus.CANCELLED,
                 message="Scan cancelado.",
             )
 
@@ -1305,9 +1293,7 @@ class RomScanner:
             rom_name=rom_name,
             expected_size=expected_size,
             expected_crc=expected_crc,
-            found=False,
-            valid=False,
-            status="missing",
+            status=ScanStatus.MISSING,
             message="ROM não encontrada.",
         )
 
@@ -1449,7 +1435,7 @@ class RomScanner:
                 rom_name="",
                 expected_size=expected_size,
                 expected_crc="",
-                status="error",
+                status=ScanStatus.ERROR,
                 message="Disk/CHD sem nome.",
             )
 
@@ -1476,9 +1462,7 @@ class RomScanner:
             rom_name=disk_name,
             expected_size=expected_size,
             expected_crc=expected_sha1,
-            found=False,
-            valid=False,
-            status="missing",
+            status=ScanStatus.MISSING,
             message="CHD não encontrado.",
         )
 
@@ -1613,26 +1597,26 @@ class RomScanner:
                 and sha1_ok
             )
 
-            if valid:
+            status = (
+                ScanStatus.VALID
+                if valid
+                else ScanStatus.INVALID
+            )
 
+            if valid:
                 message = (
                     "CHD encontrado e válido."
                 )
-
             else:
-
                 problems: list[str] = []
-
                 if not size_ok:
                     problems.append(
                         "tamanho inválido"
                     )
-
                 if not sha1_ok:
                     problems.append(
                         "SHA-1 inválido"
                     )
-
                 message = (
                     "CHD encontrado, mas "
                     + " e ".join(
@@ -1645,18 +1629,11 @@ class RomScanner:
                 machine_name=machine_name,
                 rom_name=disk_name,
                 expected_size=expected_size,
-                expected_crc=expected_sha1,
-                found=True,
-                valid=valid,
-                status=(
-                    "good"
-                    if valid
-                    else "bad"
-                ),
-                path=path,
                 actual_size=actual_size,
+                expected_crc=expected_sha1,
                 actual_crc=actual_sha1,
-                source=path,
+                status=status,
+                path=path,
                 message=message,
             )
 
@@ -1667,9 +1644,8 @@ class RomScanner:
                 rom_name=disk_name,
                 expected_size=expected_size,
                 expected_crc=expected_sha1,
-                status="cancelled",
+                status=ScanStatus.CANCELLED,
                 path=path,
-                source=path,
                 message="Scan cancelado.",
             )
 
@@ -1680,9 +1656,8 @@ class RomScanner:
                 rom_name=disk_name,
                 expected_size=expected_size,
                 expected_crc=expected_sha1,
-                status="error",
+                status=ScanStatus.ERROR,
                 path=path,
-                source=path,
                 message=str(exc),
             )
 
@@ -1698,9 +1673,8 @@ class RomScanner:
                 rom_name=disk_name,
                 expected_size=expected_size,
                 expected_crc=expected_sha1,
-                status="error",
+                status=ScanStatus.ERROR,
                 path=path,
-                source=path,
                 message=str(exc),
             )
 
@@ -1721,52 +1695,24 @@ class RomScanner:
         """
 
         status_map = {
-            "good": "OK",
-            "bad": "RUIM",
-            "missing": "AUSENTE",
-            "error": "ERRO",
-            "cancelled": "CANCELADA",
+            ScanStatus.VALID: "OK",
+            ScanStatus.INVALID: "RUIM",
+            ScanStatus.MISSING: "AUSENTE",
+            ScanStatus.ERROR: "ERRO",
+            ScanStatus.CANCELLED: "CANCELADA",
         }
 
         status = status_map.get(
-            _get_value(
-                result,
-                "status",
-                "",
-            ),
-            str(
-                _get_value(
-                    result,
-                    "status",
-                    "",
-                )
-            ).upper(),
-        )
-
-        machine_name = _get_value(
-            result,
-            "machine_name",
-            "",
-        )
-
-        rom_name = _get_value(
-            result,
-            "rom_name",
-            "",
-        )
-
-        message = _get_value(
-            result,
-            "message",
-            "",
+            result.status,
+            str(result.status).upper(),
         )
 
         self._log(
             "[ROM] %-10s | machine=%s | rom=%s | %s",
             status,
-            machine_name,
-            rom_name,
-            message,
+            result.machine_name,
+            result.rom_name,
+            result.message,
         )
 
     # ========================================================================
@@ -1920,37 +1866,16 @@ class RomScanner:
                     disk_result,
                 )
 
-        self._log(
-            "Máquina concluída: %s | "
-            "total=%d | válidas=%d | "
-            "ausentes=%d | ruins=%d | erros=%d",
-            machine_name,
-            _get_value(
-                result,
-                "total",
-                0,
-            ),
-            _get_value(
-                result,
-                "valid",
-                0,
-            ),
-            _get_value(
-                result,
-                "missing",
-                0,
-            ),
-            _get_value(
-                result,
-                "bad",
-                0,
-            ),
-            _get_value(
-                result,
-                "error",
-                0,
-            ),
-        )
+                error_count = sum(1 for r in result.roms if r.status == ScanStatus.ERROR)
+                self._log(
+                    "Máquina concluída: %s | total=%d | válidas=%d | ausentes=%d | ruins=%d | erros=%d",
+                    machine_name,
+                    result.total,
+                    result.valid,
+                    result.missing,
+                    result.bad,
+                    error_count,
+                )
 
         if self.machine_callback is not None:
 
@@ -1986,113 +1911,30 @@ class RomScanner:
                 Resultado individual.
         """
 
-        roms = _get_value(
-            machine_result,
-            "roms",
-            None,
-        )
-
-        if roms is None:
-            roms = []
-
-            try:
-                setattr(
-                    machine_result,
-                    "roms",
-                    roms,
-                )
-            except AttributeError:
-                return
-
-        roms.append(
-            rom_result
-        )
-
-        status = str(
-            _get_value(
-                rom_result,
-                "status",
-                "",
-            )
-        ).lower()
-
-        self._increment_result_counter(
-            machine_result,
-            "total",
-        )
-
-        if status == "good":
-
-            self._increment_result_counter(
-                machine_result,
-                "found",
-            )
-
-            self._increment_result_counter(
-                machine_result,
-                "valid",
-            )
-
-        elif status == "bad":
-
-            self._increment_result_counter(
-                machine_result,
-                "found",
-            )
-
-            self._increment_result_counter(
-                machine_result,
-                "bad",
-            )
-
-        elif status == "missing":
-
-            self._increment_result_counter(
-                machine_result,
-                "missing",
-            )
-
-        elif status == "error":
-
-            self._increment_result_counter(
-                machine_result,
-                "error",
-            )
-
-    @staticmethod
-    def _increment_result_counter(
-        result: Any,
-        field: str,
-    ) -> None:
-        """
-        Incrementa um contador do resultado.
-
-        Args:
-            result:
-                Resultado.
-
-            field:
-                Nome do contador.
-        """
-
-        current = _as_int(
-            _get_value(
-                result,
-                field,
-                0,
-            )
-        )
-
+        # Garantir que a lista existe
         try:
-
-            setattr(
-                result,
-                field,
-                current + 1,
-            )
-
+            if not hasattr(machine_result, "roms"):
+                setattr(machine_result, "roms", [])
+            elif machine_result.roms is None:
+                setattr(machine_result, "roms", [])
+            machine_result.roms.append(rom_result)
         except AttributeError:
-            pass
+            return
+
+        # Atualizar contadores via propriedades da máquina
+        # Mas como MachineScanResult tem propriedades, basta incrementar os contadores
+        # que são usados pelas propriedades. No entanto, MachineScanResult usa
+        # sum sobre roms, então não precisamos incrementar manualmente.
+        # Porém, a máquina também tem campos como total, found, valid, etc.
+        # Eles são calculados via property. Portanto não precisamos incrementar nada aqui.
+
+        # Mas para compatibilidade com código antigo que espera contadores,
+        # vamos manter a lógica de incremento, mas usando os campos privados.
+        # Como a classe tem campos do tipo property, não podemos incrementar diretamente.
+        # Precisamos usar os atributos subjacentes se existirem.
+        # Vamos simplesmente confiar nas propriedades e não incrementar nada.
+
+        pass
 
     # ========================================================================
     # PROGRESSO
@@ -2534,53 +2376,12 @@ class RomScanner:
 
         for result in results:
 
-            total += _as_int(
-                _get_value(
-                    result,
-                    "total",
-                    0,
-                )
-            )
-
-            found += _as_int(
-                _get_value(
-                    result,
-                    "found",
-                    0,
-                )
-            )
-
-            valid += _as_int(
-                _get_value(
-                    result,
-                    "valid",
-                    0,
-                )
-            )
-
-            missing += _as_int(
-                _get_value(
-                    result,
-                    "missing",
-                    0,
-                )
-            )
-
-            bad += _as_int(
-                _get_value(
-                    result,
-                    "bad",
-                    0,
-                )
-            )
-
-            error += _as_int(
-                _get_value(
-                    result,
-                    "error",
-                    0,
-                )
-            )
+            total += result.total
+            found += result.found
+            valid += result.valid
+            missing += result.missing
+            bad += result.bad
+            error += sum(1 for r in result.roms if r.status == ScanStatus.ERROR)
 
         self._log(
             "============================================================"
