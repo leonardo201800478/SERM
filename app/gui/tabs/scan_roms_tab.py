@@ -874,11 +874,15 @@ class ScanRomsTab(QWidget):
             results = scanner.scan(machines)
             self.scan_results = results
 
+            logger.info("Scan finalizado, enfileirando atualizações da UI.")
+            self._queue_ui(lambda: logger.info("Iniciando _populate_tree..."))
             self._queue_ui(self._populate_tree)
+            self._queue_ui(lambda: logger.info("Iniciando _update_summary_from_results..."))
             self._queue_ui(self._update_summary_from_results)
 
             cancelled = scanner.cancelled
             self._queue_ui(lambda: self._finish_scan(cancelled=cancelled))
+            logger.info("Todas as atualizações da UI foram enfileiradas.")
 
         except Exception as exc:
             logger.exception("Erro geral durante o scan.")
@@ -1014,24 +1018,28 @@ class ScanRomsTab(QWidget):
     # ========================================================================
 
     def _finish_scan(self, *, cancelled: bool) -> None:
+        logger.info("=== INÍCIO _finish_scan (cancelled=%s) ===", cancelled)
         self.scanning = False
         self.scanner = None
-        self._update_summary_from_results()
 
-        if cancelled:
-            percentage = int(self.progress_current * 100 / self.progress_total) if self.progress_total > 0 else 0
-            self.progress_bar.setValue(percentage)
-            self.progress_bar.setFormat(f"{self.progress_current}/{self.progress_total} itens — {percentage}%")
-            self.status_label.setText("Escaneamento interrompido.")
-        else:
-            self.progress_bar.setValue(100)
-            self.progress_bar.setFormat(f"{self.progress_total}/{self.progress_total} itens — 100%")
-            elapsed = 0.0
-            if self.scan_start_time:
-                elapsed = time.monotonic() - self.scan_start_time
-            self.status_label.setText(f"Escaneamento concluído em {elapsed:.2f}s.")
-
-        self._update_ui_state()
+        try:
+            self._update_summary_from_results()
+            if cancelled:
+                percentage = int(self.progress_current * 100 / self.progress_total) if self.progress_total > 0 else 0
+                self.progress_bar.setValue(percentage)
+                self.progress_bar.setFormat(f"{self.progress_current}/{self.progress_total} itens — {percentage}%")
+                self.status_label.setText("Escaneamento interrompido.")
+            else:
+                self.progress_bar.setValue(100)
+                self.progress_bar.setFormat(f"{self.progress_total}/{self.progress_total} itens — 100%")
+                elapsed = 0.0
+                if self.scan_start_time:
+                    elapsed = time.monotonic() - self.scan_start_time
+                self.status_label.setText(f"Escaneamento concluído em {elapsed:.2f}s.")
+            self._update_ui_state()
+            logger.info("=== FIM _finish_scan ===")
+        except Exception as e:
+            logger.exception("Erro em _finish_scan: %s", e)
 
     def _show_no_machines(self) -> None:
         self.scanning = False
@@ -1057,33 +1065,59 @@ class ScanRomsTab(QWidget):
             label.setText("0")
 
     def _update_summary_from_results(self) -> None:
-        machines = len(self.scan_results)
-        total = found = valid = missing = bad = error = 0
+        logger.info("=== INÍCIO _update_summary_from_results ===")
+        try:
+            machines = len(self.scan_results)
+            total = found = valid = missing = bad = error = 0
 
-        for machine in self.scan_results:
-            total += _as_int(_value(machine, "total", 0))
-            found += _as_int(_value(machine, "found", 0))
-            valid += _as_int(_value(machine, "valid", 0))
-            missing += _as_int(_value(machine, "missing", 0))
-            bad += _as_int(_value(machine, "bad", 0))
-            error += _as_int(_value(machine, "error", 0))
+            for machine in self.scan_results:
+                total += _as_int(_value(machine, "total", 0))
+                found += _as_int(_value(machine, "found", 0))
+                valid += _as_int(_value(machine, "valid", 0))
+                missing += _as_int(_value(machine, "missing", 0))
+                bad += _as_int(_value(machine, "bad", 0))
+                error += _as_int(_value(machine, "error", 0))
 
-        self.summary_labels["machines"].setText(str(machines))
-        self.summary_labels["total"].setText(str(total))
-        self.summary_labels["found"].setText(str(found))
-        self.summary_labels["valid"].setText(str(valid))
-        self.summary_labels["missing"].setText(str(missing))
-        self.summary_labels["bad"].setText(str(bad))
-        self.summary_labels["error"].setText(str(error))
+            self.summary_labels["machines"].setText(str(machines))
+            self.summary_labels["total"].setText(str(total))
+            self.summary_labels["found"].setText(str(found))
+            self.summary_labels["valid"].setText(str(valid))
+            self.summary_labels["missing"].setText(str(missing))
+            self.summary_labels["bad"].setText(str(bad))
+            self.summary_labels["error"].setText(str(error))
+
+            logger.info("Resumo atualizado: máquinas=%d, total=%d, válidos=%d", machines, total, valid)
+            logger.info("=== FIM _update_summary_from_results ===")
+        except Exception as e:
+            logger.exception("Erro ao atualizar resumo: %s", e)
 
     # ========================================================================
     # ÁRVORE
     # ========================================================================
 
     def _populate_tree(self) -> None:
-        self.tree.clear()
-        for machine in self.scan_results:
-            self._add_machine_to_tree(machine)
+        logger.info("=== INÍCIO _populate_tree() ===")
+        start_time = time.monotonic()
+        try:
+            self.tree.clear()
+            self.tree.setUpdatesEnabled(False)   # Evita redesenho a cada inserção
+
+            total_machines = len(self.scan_results)
+            logger.info("Populando %d máquinas...", total_machines)
+
+            for idx, machine in enumerate(self.scan_results):
+                self._add_machine_to_tree(machine)
+                if (idx + 1) % 50 == 0:
+                    logger.debug("Árvore: %d máquinas adicionadas", idx + 1)
+
+            self.tree.setUpdatesEnabled(True)
+            elapsed = time.monotonic() - start_time
+            logger.info("=== _populate_tree concluído em %.2f segundos ===", elapsed)
+        except Exception as e:
+            logger.exception("Erro ao popular a árvore: %s", e)
+            # Se der erro, reabilita as atualizações para não travar a GUI
+            self.tree.setUpdatesEnabled(True)
+            raise   # Relança para que a exceção seja visível no log
 
     def _add_machine_to_tree(self, machine: Any) -> None:
         name = str(_value(machine, "machine_name", ""))
