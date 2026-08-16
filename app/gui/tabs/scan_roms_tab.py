@@ -4,66 +4,36 @@ MAME Set Builder
 
 Aba "Scan Roms".
 
-Responsabilidades da aba (orquestração)
-----------------------------------------
-1. Gerar o LISTXML filtrado.
+Orquestração do fluxo de escaneamento de ROMs/CHDs a partir de um LISTXML filtrado.
+
+Responsabilidades
+-----------------
+1. Gerar o LISTXML filtrado a partir dos critérios atuais.
 2. Selecionar um LISTXML filtrado existente.
 3. Ler exclusivamente as máquinas presentes no XML.
 4. Enviar as máquinas/ROMs para o RomScanner.
 5. Executar o scanner fora da thread principal do Qt.
 6. Exibir progresso em tempo real.
-7. Permitir cancelamento.
+7. Permitir cancelamento cooperativo.
 8. Exibir resumo do scan.
 9. Exibir máquinas e ROMs em árvore.
 10. Exibir detalhes dos resultados.
 11. Preservar os resultados do último scan em memória.
 12. Permitir selecionar um perfil de filtro específico para geração do XML.
-
-Toda a apresentação (XML/perfil/diretórios, progresso/contadores e
-árvore de resultados) vive em widgets dedicados em
-``app/gui/widgets/scan/``. Esta classe cuida apenas da fiação entre
-eles, da integração com banco/filtros e da execução do scan em thread
-separada — ela não conhece detalhes de layout desses blocos.
+13. Exportar relatório de ROMs problemáticas.
 
 Regra fundamental
-------------------
-O XML filtrado é a fonte de verdade.
-
-Esta aba NÃO deve:
-
+-----------------
+O XML filtrado é a fonte de verdade. Esta aba NÃO deve:
     * consultar o banco para decidir quais ROMs serão escaneadas;
     * varrer todos os ZIPs existentes;
     * criar um índice global de ROMs;
     * procurar ROMs que não estejam no XML.
-
-Fluxo
------
-    ScanControlWidget (perfil/XML)
-       |
-       v
-    LISTXML filtrado
-       |
-       v
-    leitura do XML
-       |
-       v
-    Machine / ROM / Disk
-       |
-       v
-    RomScanner
-       |
-       v
-    resultados
-       |
-       +---- ScanSummaryWidget (resumo/progresso)
-       |
-       +---- RomTreeWidget (árvore/reparo)
-       |
-       +---- LogPanel (log)
 """
 
 from __future__ import annotations
 
+import csv
 import logging
 import os
 import re
@@ -71,12 +41,11 @@ import subprocess
 import threading
 import time
 import xml.etree.ElementTree as ET
-
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QThread, Signal
 from PySide6.QtWidgets import (
     QFileDialog,
     QGroupBox,
@@ -90,15 +59,15 @@ from PySide6.QtWidgets import (
 )
 
 from app.config.app_config import AppConfig
-
+from app.core.models.filter_profile import FilterCriteria
 from app.core.services.filter_service import FilterService
 from app.core.services.listxml_export_service import ListxmlExportService
 from app.database.database import Database
-from app.gui.widgets.log_panel import LogPanel
 from app.gui.widgets import ScanControlWidget, ScanSummaryWidget, RomTreeWidget
+from app.gui.widgets.log_panel import LogPanel
 from app.gui.widgets.rom_tree_widget import value_of, as_int
 from app.mame.rom_scanner import RomScanner
-
+from app.mame.scan_manifest import ScanManifestReader
 
 logger = logging.getLogger(__name__)
 
@@ -114,47 +83,130 @@ DEFAULT_MAME_VERSION = "0.289"
 
 
 # ============================================================================
-# ABA (ORQUESTRADORA)
+# WORKER PARA CARREGAR MANIFESTO EM THREAD SEPARADA
+# ============================================================================
+
+class LoadManifestWorker(QThread):
+    """Carrega um manifesto JSONL em background e emite progresso."""
+    progress = Signal(int, int, str)  # atual, total, mensagem
+    finished = Signal(object)         # scan_results (lista de MachineScanResult)
+    error = Signal(str)
+
+    def __init__(self, manifest_path: Path):
+        super().__init__()
+        self.manifest_path = manifest_path
+
+    def run(self) -> None:
+        try:
+            from app.core.models.scan_result import MachineScanResult, RomScanResult, ScanStatus
+
+            reader = ScanManifestReader(self.manifest_path)
+            # Primeira passagem: contar registros de ROM (para progresso)
+            total_roms = sum(1 for _ in reader.iter_roms())
+            if total_roms == 0:
+                self.error.emit("O manifesto não contém registros de ROM.")
+                return
+
+            # Segunda passagem: carregar dados
+            reader = ScanManifestReader(self.manifest_path)
+            machines_dict: dict[str, MachineScanResult] = {}
+            rom_count = 0
+
+            for rom_record in reader.iter_roms():
+                machine_name = rom_record.get("machine", "")
+                if not machine_name:
+                    continue
+
+                if machine_name not in machines_dict:
+                    machines_dict[machine_name] = MachineScanResult(machine_name=machine_name)
+
+                status_str = rom_record.get("status", "missing")
+                status_map = {
+                    "valid": ScanStatus.VALID,
+                    "missing": ScanStatus.MISSING,
+                    "corrupted": ScanStatus.INVALID,
+                    "invalid": ScanStatus.INVALID,
+                    "error": ScanStatus.ERROR,
+                    "cancelled": ScanStatus.CANCELLED,
+                    "ok": ScanStatus.VALID,
+                }
+                status = status_map.get(status_str, ScanStatus.MISSING)
+
+                source = rom_record.get("source") or {}
+                archive_path = source.get("archive") if source else None
+                archive_member = source.get("member") if source else None
+
+                rom_result = RomScanResult(
+                    machine_name=machine_name,
+                    rom_name=rom_record.get("rom_name", ""),
+                    expected_size=rom_record.get("expected_size", 0),
+                    actual_size=rom_record.get("actual_size"),
+                    expected_crc=rom_record.get("expected_crc", ""),
+                    actual_crc=rom_record.get("actual_crc"),
+                    expected_sha1=rom_record.get("expected_sha1"),
+                    actual_sha1=rom_record.get("actual_sha1"),
+                    status=status,
+                    path=archive_path,
+                    archive_path=archive_path,
+                    archive_member=archive_member,
+                    merge=rom_record.get("merge"),
+                    optional=rom_record.get("optional", False),
+                    message=rom_record.get("error") or "",
+                    error=rom_record.get("error"),
+                )
+                machines_dict[machine_name].roms.append(rom_result)
+                rom_count += 1
+
+                if rom_count % 100 == 0:
+                    self.progress.emit(rom_count, total_roms, f"Carregando {rom_count}/{total_roms} ROMs...")
+
+            self.progress.emit(rom_count, total_roms, "Carregamento concluído.")
+            self.finished.emit(list(machines_dict.values()))
+
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+# ============================================================================
+# ABA PRINCIPAL
 # ============================================================================
 
 class ScanRomsTab(QWidget):
+    """Orquestradora do fluxo de escaneamento de ROMs."""
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+
         self.parent_widget = parent
         self.config = AppConfig()
 
-        # ------------------------------------------------------------------
-        # ESTADO DO XML
-        # ------------------------------------------------------------------
+        # ---- Estado do XML ----
         self.filtered_xml_path: Path | None = None
 
-        # ------------------------------------------------------------------
-        # ESTADO DO SCAN
-        # ------------------------------------------------------------------
+        # ---- Estado do scan ----
         self.scanning = False
         self.scanner: RomScanner | None = None
         self.scan_thread: threading.Thread | None = None
         self.scan_results: list[Any] = []
         self.scan_start_time: float | None = None
         self.progress_current = 0
-        self.scan_stats = {"valid": 0, "missing": 0, "invalid": 0, "error": 0}
         self.progress_total = 0
         self.total_machines = 0
+        self.scan_stats = {"valid": 0, "missing": 0, "invalid": 0, "error": 0}
 
-        # ------------------------------------------------------------------
-        # SERVIÇO DE FILTRO (para obter perfis)
-        # ------------------------------------------------------------------
-        self._filter_service = None
+        # ---- Serviço de filtro ----
+        self._filter_service: FilterService | None = None
         self._ensure_filter_service()
 
-        # ------------------------------------------------------------------
-        # UI
-        # ------------------------------------------------------------------
+        # ---- UI ----
         self._build_ui()
         self._wire_signals()
         self._load_paths_from_config()
         self._load_profiles()
         self._update_ui_state()
+
+        # ---- Carregar último scan após a UI estar pronta ----
+        QTimer.singleShot(200, self._delayed_load_scan)
 
     # ========================================================================
     # INICIALIZAÇÃO DO FILTER SERVICE
@@ -184,7 +236,7 @@ class ScanRomsTab(QWidget):
         outer.setContentsMargins(4, 4, 4, 4)
         outer.setSpacing(6)
 
-        splitter = QSplitter(Qt.Orientation.Vertical)
+        self.main_splitter = QSplitter(Qt.Orientation.Vertical)
 
         content = QWidget()
         layout = QVBoxLayout(content)
@@ -200,14 +252,13 @@ class ScanRomsTab(QWidget):
         self.tree = RomTreeWidget()
         layout.addWidget(self.tree)
 
-        splitter.addWidget(content)
-        splitter.addWidget(self._build_log_group())
-        splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 1)
-        splitter.setSizes([650, DEFAULT_LOG_HEIGHT])
+        self.main_splitter.addWidget(content)
+        self.main_splitter.addWidget(self._build_log_group())
+        self.main_splitter.setStretchFactor(0, 3)
+        self.main_splitter.setStretchFactor(1, 1)
+        self.main_splitter.setSizes([650, DEFAULT_LOG_HEIGHT])
 
-        outer.addWidget(splitter)
-        self.main_splitter = splitter
+        outer.addWidget(self.main_splitter)
 
     def _build_log_group(self) -> QGroupBox:
         group = QGroupBox("Log")
@@ -246,6 +297,7 @@ class ScanRomsTab(QWidget):
         self.control_widget.start_scan_requested.connect(self._start_scan)
         self.control_widget.stop_scan_requested.connect(self._stop_scan)
         self.control_widget.profile_changed.connect(self._on_profile_combo_changed)
+        self.control_widget.export_report_requested.connect(self._export_report)
 
         self.tree.population_finished.connect(self._finish_tree_population)
         self.tree.repair_requested.connect(self._on_repair_requested)
@@ -281,7 +333,7 @@ class ScanRomsTab(QWidget):
     # OBTENÇÃO DOS CRITÉRIOS
     # ========================================================================
 
-    def _get_selected_criteria(self) -> Any:
+    def _get_selected_criteria(self) -> FilterCriteria:
         self._ensure_filter_service()
 
         selected_id = self.control_widget.current_profile_id()
@@ -296,7 +348,6 @@ class ScanRomsTab(QWidget):
             if criteria is not None:
                 return criteria
 
-        from app.core.models.filter_profile import FilterCriteria
         return FilterCriteria()
 
     # ========================================================================
@@ -342,17 +393,9 @@ class ScanRomsTab(QWidget):
     # ========================================================================
 
     def _scans_dir(self) -> Path:
-        configured = getattr(self.config, "scans_dir", None)
-        if configured:
-            path = Path(configured)
-        else:
-            destination_text = self.control_widget.get_destination()
-            if destination_text:
-                path = Path(destination_text) / "scans"
-            else:
-                path = Path.cwd() / "data" / "scans"
-        path.mkdir(parents=True, exist_ok=True)
-        return path
+        base = Path(__file__).resolve().parents[3] / "data" / "database" / "scan"
+        base.mkdir(parents=True, exist_ok=True)
+        return base
 
     # ========================================================================
     # XML
@@ -533,7 +576,7 @@ class ScanRomsTab(QWidget):
             self.scanner.cancel()
 
     # ========================================================================
-    # EXECUÇÃO DO SCAN
+    # EXECUÇÃO DO SCAN (THREAD)
     # ========================================================================
 
     def _do_scan(self) -> None:
@@ -662,7 +705,7 @@ class ScanRomsTab(QWidget):
         return machines
 
     # ========================================================================
-    # CALLBACK ROM
+    # CALLBACKS DE PROGRESSO (executados na thread do scanner)
     # ========================================================================
 
     def _on_rom_progress(self, current: int, total: int, result: Any) -> None:
@@ -686,16 +729,25 @@ class ScanRomsTab(QWidget):
         self._queue_ui(self._update_summary_from_stats)
         self._queue_ui(self._update_mainwindow_status)
 
-    def _update_summary_from_stats(self) -> None:
-        found = self.scan_stats["valid"] + self.scan_stats["invalid"] + self.scan_stats["error"]
-        self.summary_widget.update_counts({
-            "valid": self.scan_stats["valid"],
-            "missing": self.scan_stats["missing"],
-            "bad": self.scan_stats["invalid"],
-            "error": self.scan_stats["error"],
-            "total": self.progress_total,
-            "found": found,
-        })
+    def _on_machine_complete(self, result: Any) -> None:
+        machine_name = str(value_of(result, "machine_name", ""))
+        total = as_int(value_of(result, "total", 0))
+        valid = as_int(value_of(result, "valid", 0))
+        missing = as_int(value_of(result, "missing", 0))
+        bad = as_int(value_of(result, "bad", 0))
+
+        self._queue_status(
+            f"Máquina concluída: {machine_name} — "
+            f"{valid}/{total} válidas, {missing} ausentes, {bad} inválidas."
+        )
+        self._queue_ui(self._update_summary_from_stats)
+
+    def _on_scanner_log(self, message: str) -> None:
+        logger.info("%s", message)
+
+    # ========================================================================
+    # ATUALIZAÇÃO DA UI (executada na thread principal)
+    # ========================================================================
 
     def _update_progress_ui(self, current: int, total: int, machine_name: str, rom_name: str, status: str) -> None:
         percentage = int(current * 100 / total) if total > 0 else 0
@@ -715,7 +767,6 @@ class ScanRomsTab(QWidget):
         )
 
     def _update_mainwindow_status(self) -> None:
-        """Atualiza a barra de status da janela principal com o progresso."""
         if self.parent_widget and hasattr(self.parent_widget, 'status_bar'):
             stats_text = (
                 f"Válidas: {self.scan_stats['valid']} | "
@@ -726,63 +777,25 @@ class ScanRomsTab(QWidget):
             message = f"Escaneando {self.progress_current}/{self.progress_total} ROMs — {stats_text}"
             self.parent_widget.status_bar.showMessage(message)
 
-    # ========================================================================
-    # CALLBACK MÁQUINA
-    # ========================================================================
+    def _update_summary_from_stats(self) -> None:
+        found = self.scan_stats["valid"] + self.scan_stats["invalid"] + self.scan_stats["error"]
+        self.summary_widget.update_counts({
+            "valid": self.scan_stats["valid"],
+            "missing": self.scan_stats["missing"],
+            "bad": self.scan_stats["invalid"],
+            "error": self.scan_stats["error"],
+            "total": self.progress_total,
+            "found": found,
+        })
 
-    def _on_machine_complete(self, result: Any) -> None:
-        machine_name = str(value_of(result, "machine_name", ""))
-        total = as_int(value_of(result, "total", 0))
-        valid = as_int(value_of(result, "valid", 0))
-        missing = as_int(value_of(result, "missing", 0))
-        bad = as_int(value_of(result, "bad", 0))
-
-        self._queue_status(
-            f"Máquina concluída: {machine_name} — "
-            f"{valid}/{total} válidas, {missing} ausentes, {bad} inválidas."
-        )
-        self._queue_ui(self._update_summary_from_stats)
-
-    # ========================================================================
-    # LOG
-    # ========================================================================
-
-    def _on_scanner_log(self, message: str) -> None:
-        logger.info("%s", message)
+    def _reset_summary(self) -> None:
+        self.scan_stats = {"valid": 0, "missing": 0, "invalid": 0, "error": 0}
+        self.summary_widget.reset()
+        if self.parent_widget and hasattr(self.parent_widget, 'status_bar'):
+            self.parent_widget.status_bar.showMessage("Pronto")
 
     # ========================================================================
-    # REPARO
-    # ========================================================================
-
-    def _on_repair_requested(self, payload: dict) -> None:
-        """Recebe o pedido de reparo emitido pela árvore.
-
-        A resolução automática de dependências/fontes alternativas
-        pertence a fases futuras do projeto (ver REGRA Nº 24/25 do
-        prompt mestre); aqui apenas confirmamos o pedido e registramos
-        no log, sem prometer uma ação que ainda não existe.
-        """
-        rom = payload.get("rom")
-        machine = payload.get("machine")
-        rom_name = str(value_of(rom, "rom_name", ""))
-        machine_name = str(value_of(machine, "machine_name", ""))
-
-        logger.info("Reparo solicitado: machine=%s rom=%s", machine_name, rom_name)
-
-        QMessageBox.information(
-            self,
-            "Reparo",
-            (
-                f"Máquina: {machine_name}\n"
-                f"ROM: {rom_name}\n\n"
-                "A busca automática por uma fonte alternativa ainda não "
-                "está implementada nesta fase do projeto. Este pedido foi "
-                "registrado no log."
-            ),
-        )
-
-    # ========================================================================
-    # UI THREAD
+    # ENFILEIRAMENTO NA UI THREAD
     # ========================================================================
 
     def _queue_ui(self, callback) -> None:
@@ -797,7 +810,7 @@ class ScanRomsTab(QWidget):
         self._queue_ui(update)
 
     # ========================================================================
-    # FINALIZAÇÃO
+    # FINALIZAÇÃO DO SCAN
     # ========================================================================
 
     def _finish_scan(self, *, cancelled: bool) -> None:
@@ -858,14 +871,53 @@ class ScanRomsTab(QWidget):
         QMessageBox.critical(self, "Erro no escaneamento", f"Ocorreu um erro durante o scan:\n\n{error}")
 
     # ========================================================================
-    # RESUMO
+    # CARREGAMENTO DE SCAN ANTERIOR (ASSÍNCRONO)
     # ========================================================================
 
-    def _reset_summary(self) -> None:
-        self.scan_stats = {"valid": 0, "missing": 0, "invalid": 0, "error": 0}
-        self.summary_widget.reset()
-        if self.parent_widget and hasattr(self.parent_widget, 'status_bar'):
-            self.parent_widget.status_bar.showMessage("Pronto")
+    def _delayed_load_scan(self) -> None:
+        logger.info("Tentando carregar scan anterior após inicialização...")
+        manifest_path = self._scans_dir() / "current_scan.jsonl"
+        if not manifest_path.is_file():
+            logger.info("Nenhum manifesto encontrado.")
+            return
+
+        self.summary_widget.set_progress(0, "Carregando scan anterior...")
+        self.summary_widget.set_status("Carregando manifesto...")
+
+        self.worker = LoadManifestWorker(manifest_path)
+        self.worker.progress.connect(self._on_load_progress)
+        self.worker.finished.connect(self._on_load_finished)
+        self.worker.error.connect(self._on_load_error)
+        self.worker.start()
+
+    def _on_load_progress(self, current: int, total: int, message: str) -> None:
+        if total > 0:
+            progress = int(current * 100 / total)
+            self.summary_widget.set_progress(progress, message)
+        else:
+            self.summary_widget.set_progress(0, message)
+
+    def _on_load_finished(self, scan_results: list) -> None:
+        if not scan_results:
+            self.summary_widget.set_progress(0, "Nenhum dado carregado.")
+            self.summary_widget.set_status("Falha ao carregar scan.")
+            return
+
+        self.scan_results = scan_results
+        self._update_summary_from_results()
+        self._populate_tree()
+        self.summary_widget.set_status(f"Scan anterior carregado com {len(scan_results)} máquinas.")
+        self.summary_widget.set_progress(100, "Carregado.")
+        logger.info("Scan anterior carregado com sucesso: %d máquinas.", len(scan_results))
+
+    def _on_load_error(self, error: str) -> None:
+        logger.error(f"Erro ao carregar manifesto: {error}")
+        self.summary_widget.set_status(f"Erro: {error}")
+        self.summary_widget.set_progress(0, "Erro no carregamento.")
+
+    # ========================================================================
+    # RESUMO (após resultados carregados)
+    # ========================================================================
 
     def _update_summary_from_results(self) -> None:
         logger.info("=== INÍCIO _update_summary_from_results ===")
@@ -897,7 +949,7 @@ class ScanRomsTab(QWidget):
             logger.exception("Erro ao atualizar resumo: %s", e)
 
     # ========================================================================
-    # ÁRVORE
+    # ÁRVORE DE RESULTADOS
     # ========================================================================
 
     def _populate_tree(self) -> None:
@@ -929,7 +981,77 @@ class ScanRomsTab(QWidget):
         logger.info("=== FIM _finish_tree_population ===")
 
     # ========================================================================
-    # PERFIL ATIVO (mantido para compatibilidade com a MainWindow)
+    # EXPORTAÇÃO DE RELATÓRIO
+    # ========================================================================
+
+    def _export_report(self) -> None:
+        """Exporta um relatório CSV com ROMs ausentes/inválidas."""
+        if not self.scan_results:
+            QMessageBox.warning(self, "Nenhum dado", "Execute um scan primeiro ou carregue um manifesto.")
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Salvar relatório",
+            f"relatorio_roms_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            "CSV (*.csv);;Todos os arquivos (*)"
+        )
+        if not file_path:
+            return
+
+        try:
+            with open(file_path, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow([
+                    "Máquina", "ROM", "Status", "CRC Esperado", "CRC Real",
+                    "Tamanho Esperado", "Tamanho Real", "Caminho"
+                ])
+                for machine in self.scan_results:
+                    machine_name = value_of(machine, "machine_name", "")
+                    for rom in value_of(machine, "roms", []):
+                        status = str(value_of(rom, "status", ""))
+                        if status.lower() in ("missing", "invalid", "bad", "error"):
+                            writer.writerow([
+                                machine_name,
+                                value_of(rom, "rom_name", ""),
+                                status,
+                                value_of(rom, "expected_crc", ""),
+                                value_of(rom, "actual_crc", ""),
+                                value_of(rom, "expected_size", 0),
+                                value_of(rom, "actual_size", 0),
+                                value_of(rom, "path", "")
+                            ])
+            QMessageBox.information(self, "Sucesso", f"Relatório salvo em:\n{file_path}")
+        except Exception as e:
+            logger.exception("Falha ao exportar relatório.")
+            QMessageBox.critical(self, "Erro", f"Falha ao exportar: {e}")
+
+    # ========================================================================
+    # REPARO (placeholder)
+    # ========================================================================
+
+    def _on_repair_requested(self, payload: dict) -> None:
+        rom = payload.get("rom")
+        machine = payload.get("machine")
+        rom_name = str(value_of(rom, "rom_name", ""))
+        machine_name = str(value_of(machine, "machine_name", ""))
+
+        logger.info("Reparo solicitado: machine=%s rom=%s", machine_name, rom_name)
+
+        QMessageBox.information(
+            self,
+            "Reparo",
+            (
+                f"Máquina: {machine_name}\n"
+                f"ROM: {rom_name}\n\n"
+                "A busca automática por uma fonte alternativa ainda não "
+                "está implementada nesta fase do projeto. Este pedido foi "
+                "registrado no log."
+            ),
+        )
+
+    # ========================================================================
+    # PERFIL ATIVO (compatibilidade com MainWindow)
     # ========================================================================
 
     def set_active_profile_name(self, name: str | None) -> None:
@@ -954,9 +1076,6 @@ class ScanRomsTab(QWidget):
     def closeEvent(self, event) -> None:
         if self.scanning and self.scanner is not None:
             self.scanner.cancel()
-        # Sem isso, o QtLogHandler de LogPanel permanece registrado no
-        # logger raiz apontando para um QPlainTextEdit já destruído,
-        # arriscando RuntimeError do Qt no próximo log emitido.
         if hasattr(self, "log_panel"):
             self.log_panel.detach()
         event.accept()

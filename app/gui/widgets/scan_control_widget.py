@@ -1,16 +1,5 @@
-"""Widget de controle do Scan Roms.
-
-Responsabilidades:
-    * seleção/exibição do LISTXML ativo;
-    * seleção de perfil de filtro;
-    * origens (até 3) e destino das ROMs;
-    * workers e opções (busca alternativa, verificar CHDs);
-    * botões de ação (gerar XML, iniciar/parar scan).
-
-Este widget NÃO conhece RomScanner, threads, banco de dados ou o XML
-em si — apenas coleta o que o usuário configurou e emite sinais para
-que quem orquestra (``ScanRomsTab``) decida o que fazer.
-"""
+# app/gui/widgets/scan_control_widget.py
+"""Widget de controle do Scan Roms com persistência e seletor de set type."""
 
 from __future__ import annotations
 
@@ -18,7 +7,7 @@ import os
 from pathlib import Path
 from typing import Any, Iterable
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal   # <-- adicionado o Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -35,20 +24,25 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.config.app_config import AppConfig
+
 
 class ScanControlWidget(QWidget):
-    """Controles de entrada do scan: XML, perfil, diretórios e opções."""
+    """Controles de entrada do scan: XML, perfil, diretórios, opções e set type."""
 
     generate_xml_requested = Signal()
     select_xml_requested = Signal()
     open_folder_requested = Signal()
     start_scan_requested = Signal()
     stop_scan_requested = Signal()
+    export_report_requested = Signal()
     profile_changed = Signal(int)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._config = AppConfig()
         self._build_ui()
+        self._load_from_config()
 
     # ========================================================================
     # CONSTRUÇÃO DA UI
@@ -68,9 +62,7 @@ class ScanControlWidget(QWidget):
         row = QHBoxLayout()
 
         self.btn_generate = QPushButton("Gerar LISTXML filtrado")
-        self.btn_generate.setToolTip(
-            "Gera o LISTXML contendo somente as máquinas selecionadas pelos filtros."
-        )
+        self.btn_generate.setToolTip("Gera o LISTXML contendo somente as máquinas selecionadas pelos filtros.")
         self.btn_generate.clicked.connect(self.generate_xml_requested.emit)
 
         self.profile_combo = QComboBox()
@@ -84,9 +76,7 @@ class ScanControlWidget(QWidget):
         )
 
         self.btn_scan = QPushButton("Iniciar escaneamento")
-        self.btn_scan.setToolTip(
-            "Escaneia somente as máquinas e ROMs presentes no XML selecionado."
-        )
+        self.btn_scan.setToolTip("Escaneia somente as máquinas e ROMs presentes no XML selecionado.")
         self.btn_scan.clicked.connect(self.start_scan_requested.emit)
 
         self.btn_stop = QPushButton("Parar")
@@ -94,11 +84,16 @@ class ScanControlWidget(QWidget):
         self.btn_stop.clicked.connect(self.stop_scan_requested.emit)
         self.btn_stop.setEnabled(False)
 
+        self.btn_export = QPushButton("Exportar Relatório")
+        self.btn_export.setToolTip("Exporta um CSV com as ROMs ausentes/inválidas.")
+        self.btn_export.clicked.connect(self.export_report_requested.emit)
+
         row.addWidget(self.btn_generate)
         row.addWidget(QLabel("Perfil:"))
         row.addWidget(self.profile_combo)
         row.addWidget(self.btn_scan)
         row.addWidget(self.btn_stop)
+        row.addWidget(self.btn_export)
         row.addStretch()
         return row
 
@@ -157,13 +152,42 @@ class ScanControlWidget(QWidget):
         group = QGroupBox("Opções do escaneamento")
         layout = QHBoxLayout(group)
 
+        # Workers
         layout.addWidget(QLabel("Workers:"))
         self.worker_spin = QSpinBox()
         self.worker_spin.setRange(1, max(1, os.cpu_count() or 1))
-        self.worker_spin.setValue(1)
-        self.worker_spin.setToolTip("Quantidade de máquinas processadas simultaneamente.")
+        self.worker_spin.setValue(self._config.scan_workers)
+        self.worker_spin.setToolTip(
+            f"Quantidade de máquinas processadas simultaneamente. (Máximo: {self.worker_spin.maximum()})"
+        )
+        self.worker_spin.valueChanged.connect(self._save_workers)
         layout.addWidget(self.worker_spin)
 
+        # Set type
+        layout.addWidget(QLabel("Set:"))
+        self.set_type_combo = QComboBox()
+        self.set_type_combo.addItem("Split", "split")
+        self.set_type_combo.addItem("Non-Merged", "non-merged")
+        self.set_type_combo.addItem("Merged", "merged")
+        self.set_type_combo.setToolTip(
+            "Tipo de set a ser gerado:\n"
+            "- Split: Cada máquina tem seus próprios arquivos, sem compartilhamento.\n"
+            "- Non-Merged: Cada máquina tem todos os arquivos necessários, inclusive os compartilhados.\n"
+            "- Merged: Todos os arquivos de um mesmo driver são reunidos em um único arquivo."
+        )
+        # Set tooltip por item
+        self.set_type_combo.setItemData(0, "Split: arquivos separados por máquina (tamanho total maior).", Qt.ToolTipRole)
+        self.set_type_combo.setItemData(1, "Non-Merged: cada máquina possui sua própria cópia dos arquivos compartilhados.", Qt.ToolTipRole)
+        self.set_type_combo.setItemData(2, "Merged: todos os arquivos de um mesmo driver são mesclados em um só.", Qt.ToolTipRole)
+
+        # Carrega o valor salvo
+        index = self.set_type_combo.findData(self._config.output_layout)
+        if index >= 0:
+            self.set_type_combo.setCurrentIndex(index)
+        self.set_type_combo.currentIndexChanged.connect(self._save_set_type)
+        layout.addWidget(self.set_type_combo)
+
+        # Checkboxes
         self.alternate_search_checkbox = QCheckBox("Busca alternativa")
         self.alternate_search_checkbox.setToolTip(
             "Permite procurar uma ROM pelo nome dentro do diretório da própria máquina."
@@ -176,6 +200,29 @@ class ScanControlWidget(QWidget):
 
         layout.addStretch()
         return group
+
+    # ========================================================================
+    # PERSISTÊNCIA
+    # ========================================================================
+
+    def _load_from_config(self) -> None:
+        """Carrega workers e set type do AppConfig."""
+        self.worker_spin.blockSignals(True)
+        self.worker_spin.setValue(self._config.scan_workers)
+        self.worker_spin.blockSignals(False)
+
+        index = self.set_type_combo.findData(self._config.output_layout)
+        if index >= 0:
+            self.set_type_combo.setCurrentIndex(index)
+
+    def _save_workers(self, value: int) -> None:
+        self._config.scan_workers = value
+        self._config.save()
+
+    def _save_set_type(self, index: int) -> None:
+        value = self.set_type_combo.currentData()
+        self._config.output_layout = value
+        self._config.save()
 
     # ========================================================================
     # DIRETÓRIOS
@@ -193,8 +240,6 @@ class ScanControlWidget(QWidget):
     # ========================================================================
 
     def display_xml(self, path: Path) -> None:
-        """Atualiza o rótulo do XML ativo. O estado real (o Path em si)
-        permanece na aba orquestradora — este widget só exibe."""
         self.xml_label.setText(str(path))
         self.xml_label.setToolTip(str(path))
         self.xml_label.setStyleSheet("color: green;")
@@ -253,6 +298,9 @@ class ScanControlWidget(QWidget):
     def worker_count(self) -> int:
         return max(1, self.worker_spin.value())
 
+    def set_type(self) -> str:
+        return self.set_type_combo.currentData()
+
     def alternate_search_enabled(self) -> bool:
         return self.alternate_search_checkbox.isChecked()
 
@@ -268,7 +316,6 @@ class ScanControlWidget(QWidget):
             self.destination_edit.setText(str(destination))
 
     def collect_paths_for_save(self) -> tuple[list[str], str]:
-        """Retorna (origens preenchidas, destino) para persistência externa."""
         paths = [edit.text().strip() for edit in self.source_edits if edit.text().strip()]
         destination = self.destination_edit.text().strip()
         return paths, destination
@@ -281,7 +328,9 @@ class ScanControlWidget(QWidget):
         self.btn_generate.setEnabled(not scanning)
         self.btn_scan.setEnabled(not scanning and xml_ready)
         self.btn_stop.setEnabled(scanning)
+        self.btn_export.setEnabled(not scanning)
         self.worker_spin.setEnabled(not scanning)
+        self.set_type_combo.setEnabled(not scanning)
         self.alternate_search_checkbox.setEnabled(not scanning)
         self.include_chds_checkbox.setEnabled(not scanning)
         for edit in self.source_edits:

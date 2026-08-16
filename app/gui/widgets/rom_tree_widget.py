@@ -1,17 +1,4 @@
-"""Widget de árvore de resultados do Scan Roms.
-
-Responsabilidades:
-    * exibir machines e suas ROMs/CHDs em árvore;
-    * mostrar origem física, tamanho, CRC/SHA1 e status;
-    * popular a árvore em lotes, sem travar a GUI, para scans grandes;
-    * menu contextual de reparo sobre ROMs com problema.
-
-Este widget não decide COMO reparar uma ROM — não conhece RomScanner,
-outros sets nem o filesystem além do necessário para exibição. Ele
-apenas identifica o item selecionado e emite ``repair_requested`` com
-os dados da ROM/máquina, deixando a ação real para quem orquestra o
-scan (``ScanRomsTab``).
-"""
+"""Widget de árvore de resultados do Scan Roms com filtro, ordenação e detalhes."""
 
 from __future__ import annotations
 
@@ -20,8 +7,18 @@ from typing import Any, Callable, Optional
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QTreeWidget, QTreeWidgetItem
-
+from PySide6.QtWidgets import (
+    QApplication,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMenu,
+    QMessageBox,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
 STATUS_COLORS = {
     "good": "#008000",
@@ -43,17 +40,10 @@ STATUS_LABELS = {
     "cancelled": "CANCELADA",
 }
 
-# ROMs nesses status são candidatas a reparo; ROMs válidas não exibem o menu.
 _REPAIRABLE_STATUSES = {"missing", "invalid", "bad", "error"}
 
 
 def value_of(obj: Any, name: str, default: Any = None) -> Any:
-    """Lê um atributo de objeto ou uma chave de dicionário, com fallback.
-
-    Permite que o widget trate uniformemente tanto os dataclasses do
-    RomScanner (``MachineScanResult``/``RomScanResult``) quanto os
-    dicionários lidos diretamente de um LISTXML filtrado em disco.
-    """
     if obj is None:
         return default
     if isinstance(obj, dict):
@@ -81,41 +71,69 @@ def format_size(value: Any) -> str:
     return f"{size / (1024 ** 4):.2f} TB"
 
 
-class RomTreeWidget(QTreeWidget):
-    """Árvore de máquinas/ROMs com origem física, hash, status e reparo."""
+class RomTreeWidget(QWidget):
+    """Árvore de máquinas/ROMs com filtro, ordenação, detalhes e reparo."""
 
-    # Emitido quando o usuário escolhe "Tentar reparar" no menu contextual.
-    # payload: {"kind": "rom", "machine": <machine>, "rom": <rom>}
     repair_requested = Signal(dict)
-
-    # Emitido ao concluir populate_async(); argumento = segundos decorridos.
     population_finished = Signal(float)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self.setColumnCount(5)
-        self.setHeaderLabels([
-            "ROM / Máquina",
-            "Descrição / Caminho",
-            "Tamanho",
-            "CRC / SHA1",
-            "Status",
-        ])
-        self.setAlternatingRowColors(True)
-        self.setUniformRowHeights(True)
-        self.itemDoubleClicked.connect(self._on_double_click)
 
-        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.customContextMenuRequested.connect(self._on_context_menu)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+
+        # Barra de filtro
+        filter_layout = QHBoxLayout()
+        filter_layout.addWidget(QLabel("Filtrar:"))
+        self.filter_edit = QLineEdit()
+        self.filter_edit.setPlaceholderText("Digite o nome da máquina...")
+        self.filter_edit.textChanged.connect(self.filter_items)
+        filter_layout.addWidget(self.filter_edit)
+        layout.addLayout(filter_layout)
+
+        # Árvore
+        self.tree = QTreeWidget()
+        self.tree.setColumnCount(5)
+        self.tree.setHeaderLabels(["ROM / Máquina", "Descrição / Caminho", "Tamanho", "CRC / SHA1", "Status"])
+        self.tree.setAlternatingRowColors(True)
+        self.tree.setUniformRowHeights(True)
+        self.tree.setSortingEnabled(True)
+        self.tree.sortByColumn(0, Qt.SortOrder.AscendingOrder)
+
+        self.tree.itemDoubleClicked.connect(self._on_double_click)
+        self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self._on_context_menu)
+
+        layout.addWidget(self.tree)
 
         self._machine_results: list[Any] = []
         self._populate_index = 0
         self._populate_batch_size = 50
         self._populating = False
 
-    # ========================================================================
-    # POPULAÇÃO EM LOTE
-    # ========================================================================
+    # --- Redirecionamentos para a tree interna ---
+    def clear(self) -> None:
+        self.tree.clear()
+
+    def topLevelItem(self, index: int) -> QTreeWidgetItem | None:
+        return self.tree.topLevelItem(index)
+
+    def topLevelItemCount(self) -> int:
+        return self.tree.topLevelItemCount()
+
+    def itemAt(self, pos) -> QTreeWidgetItem | None:
+        return self.tree.itemAt(pos)
+
+    def setContextMenuPolicy(self, policy) -> None:
+        self.tree.setContextMenuPolicy(policy)
+
+    @property
+    def populating(self) -> bool:
+        return self._populating
+
+    # --- Métodos principais ---
 
     def populate_async(
         self,
@@ -124,38 +142,28 @@ class RomTreeWidget(QTreeWidget):
         batch_size: int = 50,
         on_progress: Optional[Callable[[int, int], None]] = None,
     ) -> None:
-        """Popula a árvore em lotes, sem travar a GUI.
-
-        Emite ``population_finished(elapsed_seconds)`` ao concluir,
-        inclusive quando ``machine_results`` está vazio.
-        """
-        print(f"[DEBUG] populate_async chamado com {len(machine_results)} máquinas")
         start_time = time.monotonic()
-
         self._populating = True
-        self.clear()
-        self.setUpdatesEnabled(False)
-
+        self.tree.clear()
+        self.tree.setUpdatesEnabled(False)
         self._machine_results = machine_results
         self._populate_index = 0
         self._populate_batch_size = max(1, batch_size)
-
         total = len(machine_results)
 
         if total == 0:
-            self.setUpdatesEnabled(True)
+            self.tree.setUpdatesEnabled(True)
             self._populating = False
             self.population_finished.emit(0.0)
             return
 
         def process_batch() -> None:
-            print(f"[DEBUG] process_batch: índice {self._populate_index}/{total}")
             if self._populate_index >= total:
-                self.setUpdatesEnabled(True)
+                self.tree.setUpdatesEnabled(True)
                 elapsed = time.monotonic() - start_time
                 self._populating = False
-                if self.topLevelItemCount() > 0:
-                    self.topLevelItem(0).setExpanded(True)
+                if self.tree.topLevelItemCount() > 0:
+                    self.tree.topLevelItem(0).setExpanded(True)
                 self.population_finished.emit(elapsed)
                 return
 
@@ -174,19 +182,24 @@ class RomTreeWidget(QTreeWidget):
 
         QTimer.singleShot(0, process_batch)
 
-    @property
-    def populating(self) -> bool:
-        return self._populating
+    def filter_items(self, text: str) -> None:
+        """Filtra as máquinas pelo nome (case-insensitive)."""
+        text = text.strip().lower()
+        for i in range(self.tree.topLevelItemCount()):
+            item = self.tree.topLevelItem(i)
+            if text:
+                show = text in item.text(0).lower()
+                item.setHidden(not show)
+            else:
+                item.setHidden(False)
 
-    # ========================================================================
-    # CONSTRUÇÃO DOS ITENS
-    # ========================================================================
+    # --- Construção dos itens ---
 
     def _add_machine(self, machine: Any) -> None:
         name = str(value_of(machine, "machine_name", ""))
         status = self._machine_status(machine)
 
-        item = QTreeWidgetItem(self)
+        item = QTreeWidgetItem(self.tree)
         item.setText(0, f"📁 {name}")
         item.setText(1, "")
         item.setText(2, self._format_machine_size(machine))
@@ -254,28 +267,50 @@ class RomTreeWidget(QTreeWidget):
         color = STATUS_COLORS.get(status, "#000000")
         item.setForeground(4, QColor(color))
 
-    # ========================================================================
-    # INTERAÇÃO
-    # ========================================================================
+    # --- Interação ---
 
     def _on_double_click(self, item: QTreeWidgetItem, column: int) -> None:
-        details = [
-            f"Item: {item.text(0)}",
-            f"Descrição/caminho: {item.text(1)}",
-            f"Tamanho: {item.text(2)}",
-            f"CRC/SHA1: {item.text(3)}",
-            f"Status: {item.text(4)}",
-        ]
-        QMessageBox.information(self, "Detalhes do item", "\n".join(details))
+        data = item.data(0, Qt.ItemDataRole.UserRole) or {}
+        kind = data.get("kind")
+
+        if kind == "machine":
+            machine = data.get("machine")
+            if machine:
+                total = as_int(value_of(machine, "total", 0))
+                valid = as_int(value_of(machine, "valid", 0))
+                missing = as_int(value_of(machine, "missing", 0))
+                bad = as_int(value_of(machine, "bad", 0))
+                error = as_int(value_of(machine, "error", 0))
+                msg = (
+                    f"Máquina: {value_of(machine, 'machine_name', '')}\n"
+                    f"Descrição: {value_of(machine, 'description', '')}\n"
+                    f"Clone de: {value_of(machine, 'cloneof', 'N/A')}\n\n"
+                    f"Total de ROMs: {total}\n"
+                    f"Válidas: {valid}\n"
+                    f"Ausentes: {missing}\n"
+                    f"Inválidas: {bad}\n"
+                    f"Erros: {error}"
+                )
+                QMessageBox.information(self, "Detalhes da Máquina", msg)
+        else:
+            # ROM item
+            details = [
+                f"Item: {item.text(0)}",
+                f"Descrição/caminho: {item.text(1)}",
+                f"Tamanho: {item.text(2)}",
+                f"CRC/SHA1: {item.text(3)}",
+                f"Status: {item.text(4)}",
+            ]
+            QMessageBox.information(self, "Detalhes do item", "\n".join(details))
 
     def _on_context_menu(self, position) -> None:
-        item = self.itemAt(position)
+        item = self.tree.itemAt(position)
         if item is None:
             return
 
         data = item.data(0, Qt.ItemDataRole.UserRole) or {}
         if data.get("kind") != "rom":
-            return  # reparo só se aplica a itens de ROM/CHD, não a machines
+            return
 
         rom = data.get("rom")
         status = str(value_of(rom, "status", "")).lower()
@@ -286,7 +321,7 @@ class RomTreeWidget(QTreeWidget):
         if status in _REPAIRABLE_STATUSES:
             action_repair = menu.addAction("Tentar reparar esta ROM...")
 
-        chosen = menu.exec(self.viewport().mapToGlobal(position))
+        chosen = menu.exec(self.tree.viewport().mapToGlobal(position))
         if chosen is None:
             return
 
