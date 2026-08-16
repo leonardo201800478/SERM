@@ -1,12 +1,317 @@
-*.xml
-*.cvs
-*.db
-*.ini
-*.dat
-*.log
+# ============================================================
+# Projeto MAME Set Builder
+# ============================================================
+
+# Diretórios de dados (arquivos grandes/grandes)
 data/input/
 data/cache/
 data/output/
 data/reports/
 data/txt/
 data/xml/
+data/database/*.db
+data/database/*.db-journal
+data/database/*.db-wal
+data/database/*.db-shm
+
+# Arquivos gerados pelo projeto
+*.xml
+*.cvs
+*.db
+*.ini
+*.dat
+*.log
+mame_executable.log
+mame-set-builder.log
+
+# Arquivos de configuração sensíveis
+*.json
+!config.json.example  # Exemplo de configuração pode ser versionado
+
+# ============================================================
+# Python
+# ============================================================
+
+# Byte-compiled / optimized / DLL files
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribuições / empacotamento
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Instaladores
+*.msi
+*.msix
+*.exe
+
+# Logs e bancos de dados
+*.log
+*.sqlite
+*.sqlite3
+
+# ============================================================
+# Ambientes virtuais
+# ============================================================
+
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+.venv.bak/
+virtualenv/
+virtualenvs/
+.virtualenvs/
+venv-*/
+.venv-*/
+pipenv/
+pipenvs/
+.venv/
+venv/
+
+# ============================================================
+# IDE / Editores
+# ============================================================
+
+# Visual Studio Code
+.vscode/
+*.code-workspace
+
+# PyCharm
+.idea/
+*.iml
+*.iws
+*.ipr
+.idea_modules/
+.idea/workspace.xml
+.idea/tasks.xml
+.idea/dictionaries/
+.idea/vcs.xml
+.idea/jsLibraryMappings.xml
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+.sublime/
+
+# Vim
+*.swp
+*.swo
+*.swn
+*~
+*.un~
+Session.vim
+.vim/
+
+# Emacs
+*~
+\#*#
+.\#*
+
+# Qt Creator
+*.user
+*.user.*
+*.creator.user*
+*.creator.user.*
+*.autosave
+
+# Spyder
+.spyderproject
+.spyproject
+.ropeproject
+settings.py
+*.spyproject
+
+# ============================================================
+# Ferramentas de build e testes
+# ============================================================
+
+# Coverage
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+.pytest_cache/
+test-reports/
+
+# MyPy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre
+.pyre/
+
+# Pytype
+.pytype/
+
+# Profiling
+*.prof
+*.gcda
+*.gcno
+
+# ============================================================
+# Sistema operacional
+# ============================================================
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.lnk
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+*.icloud
+*.swp
+
+# Linux
+*~
+.directory
+*~
+
+# ============================================================
+# Logs e arquivos temporários do MAME
+# ============================================================
+
+*.tmp
+*.temp
+*.bak
+*.backup
+*.old
+*.orig
+*.rej
+*.patch
+*.diff
+
+# ============================================================
+# Arquivos específicos do projeto MAME Set Builder
+# ============================================================
+
+# Arquivos de scanner
+scanner_cache/
+rom_scanner_cache/
+chd_scanner_cache/
+
+# Relatórios de scan
+reports/
+scan_reports/
+*.report
+*.summary
+
+# Arquivos de exportação
+exports/
+*.filtered.xml
+!sample_filtered.xml  # Exemplo pode ser versionado
+
+# Arquivos de filtros
+profiles/
+filter_profiles/
+*.profile
+
+# ============================================================
+# Dependências e pacotes
+# ============================================================
+
+# Pipenv
+Pipfile.lock
+
+# Poetry
+poetry.lock
+
+# Conda
+environment.yml
+environment.yaml
+conda.recipe/
+conda-env.yml
+
+# ============================================================
+# Arquivos de configuração local
+# ============================================================
+
+config.local.json
+config.local.yaml
+config.local.yml
+secrets.json
+secrets.yaml
+secrets.yml
+.env
+.env.local
+.env.*.local
+*.local
+
+# ============================================================
+# Documentação gerada
+# ============================================================
+
+docs/_build/
+docs/api/
+site/
+apidocs/
+
+# ============================================================
+# Arquivos grandes / binários
+# ============================================================
+
+# MAME ROMs (NUNCA versionar)
+*.zip
+*.7z
+*.rar
+*.chd
+*.rom
+*.bin
+*.iso
+*.img
+*.mds
+*.mdf
+*.nrg
+
+# ============================================================
+# Docker
+# ============================================================
+
+.dockerignore
+Dockerfile
+docker-compose.override.yml
+docker-compose.*.yml
+*.dockerfile
+*.container
