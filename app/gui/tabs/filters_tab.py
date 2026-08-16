@@ -44,8 +44,14 @@ logger = logging.getLogger(__name__)
 
 class FiltersTab(QWidget):
     """Interface principal para configuração e aplicação dos filtros do MAME."""
-    class FiltersTab(QWidget):
-        profile_saved = Signal()
+
+    # Sinais da classe
+    profile_saved = Signal()
+    filters_changed = Signal()
+    database_updated = Signal()
+    progress_signal = Signal(int, str)
+    finish_signal = Signal(bool, str)
+
     class CategoryChip(QPushButton):
         """
         Botão compacto que alterna uma categoria entre normal e excluída.
@@ -297,10 +303,9 @@ class FiltersTab(QWidget):
 
             self.update_style()
 
-    filters_changed = Signal()
-    database_updated = Signal()
-    progress_signal = Signal(int, str)
-    finish_signal = Signal(bool, str)
+    # ----------------------------------------------------------------------
+    # Construtor e inicialização
+    # ----------------------------------------------------------------------
 
     def __init__(self, parent=None, db: Database = None):
         super().__init__(parent)
@@ -327,6 +332,10 @@ class FiltersTab(QWidget):
         self._update_database_info()
 
         QTimer.singleShot(100, self._apply_current_filters)
+
+    # ----------------------------------------------------------------------
+    # Configuração da interface
+    # ----------------------------------------------------------------------
 
     def _setup_ui(self) -> None:
         """Cria todos os controles visuais da aba de filtros."""
@@ -910,7 +919,6 @@ class FiltersTab(QWidget):
             macro_name,
             state,
         )
-
 
     def on_macro_category_changed(
         self,
@@ -1655,7 +1663,7 @@ class FiltersTab(QWidget):
             self.main_window.status_bar.showMessage(
                 message
             )
-            
+
     def _on_category_chip_changed(
         self,
         category_name: str,

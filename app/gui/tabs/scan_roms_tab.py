@@ -207,8 +207,8 @@ class ScanRomsTab(QWidget):
         # ------------------------------------------------------------------
         # SERVIÇO DE FILTRO (para obter perfis)
         # ------------------------------------------------------------------
-        self._filter_service: Optional[FilterService] = None
-        self._init_filter_service()
+        self._filter_service = None
+        self._ensure_filter_service()
 
         # ------------------------------------------------------------------
         # UI
@@ -336,7 +336,12 @@ class ScanRomsTab(QWidget):
     # ========================================================================
 
     def _load_profiles(self) -> None:
-        if not self._filter_service:
+        if self._filter_service is None:
+            self.profile_combo.blockSignals(True)
+            self.profile_combo.clear()
+            self.profile_combo.addItem("(usar perfil da aba Filters)", None)
+            self.profile_combo.blockSignals(False)
+            self._update_profile_label()
             return
 
         self.profile_combo.blockSignals(True)
@@ -347,7 +352,6 @@ class ScanRomsTab(QWidget):
         for p in profiles:
             self.profile_combo.addItem(p.name, p.id)
 
-        # Tenta definir o perfil ativo da aba Filters como selecionado
         default_profile = self._filter_service.get_default_profile()
         if default_profile:
             idx = self.profile_combo.findData(default_profile.id)
@@ -369,6 +373,7 @@ class ScanRomsTab(QWidget):
             self.profile_label.setText(f"Perfil ativo: {name}")
 
     def refresh_profiles(self) -> None:
+        self._ensure_filter_service()
         self._load_profiles()
 
     # ========================================================================
@@ -376,9 +381,10 @@ class ScanRomsTab(QWidget):
     # ========================================================================
 
     def _get_selected_criteria(self) -> Any:
+        self._ensure_filter_service()   # conexão atual
+
         selected_id = self.profile_combo.currentData()
         if selected_id is not None and self._filter_service is not None:
-            # Busca o perfil pelo ID usando o repositório
             profile = self._filter_service.profile_repo.get_by_id(selected_id)
             if profile:
                 return profile.criteria
@@ -486,6 +492,22 @@ class ScanRomsTab(QWidget):
     # RESUMO
     # ========================================================================
 
+    def _ensure_filter_service(self) -> None:
+        """Recria o FilterService com a conexão atual do banco, se necessário."""
+        try:
+            conn = self._get_db_connection()
+            if conn is None:
+                self._filter_service = None
+                return
+            # Se o serviço já existe e usa a mesma conexão, não recria
+            if (self._filter_service is not None and
+                hasattr(self._filter_service, 'conn') and
+                self._filter_service.conn is conn):
+                return
+            self._filter_service = FilterService(conn)
+        except Exception:
+            self._filter_service = None
+    
     def _build_summary_group(self) -> QGroupBox:
         group = QGroupBox("Resumo")
         layout = QGridLayout(group)
