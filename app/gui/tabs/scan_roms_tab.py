@@ -95,8 +95,8 @@ from app.core.services.filter_service import FilterService
 from app.core.services.listxml_export_service import ListxmlExportService
 from app.database.database import Database
 from app.gui.widgets.log_panel import LogPanel
-from app.gui.widgets.scan import ScanControlWidget, ScanSummaryWidget, RomTreeWidget
-from app.gui.widgets.scan.rom_tree_widget import value_of, as_int
+from app.gui.widgets import ScanControlWidget, ScanSummaryWidget, RomTreeWidget
+from app.gui.widgets.rom_tree_widget import value_of, as_int
 from app.mame.rom_scanner import RomScanner
 
 
@@ -701,7 +701,7 @@ class ScanRomsTab(QWidget):
         percentage = int(current * 100 / total) if total > 0 else 0
         self.summary_widget.set_progress(percentage, f"{current}/{total} ROMs — {percentage}%")
 
-        from app.gui.widgets.scan.rom_tree_widget import STATUS_LABELS
+        from app.gui.widgets.rom_tree_widget import STATUS_LABELS
         status_text = STATUS_LABELS.get(status, status.upper() if status else "PROCESSANDO")
         stats_text = (
             f"✓ {self.scan_stats['valid']} | "

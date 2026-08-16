@@ -3,7 +3,7 @@ from PySide6.QtCore import Qt
 
 from app.gui.tabs.home_tab import HomeTab
 from app.gui.tabs.directories_tab import DirectoriesTab
-from app.gui.tabs.filters_tab import FiltersTab
+from app.gui.tabs.filters_tab_realtime import FiltersTab
 from app.gui.tabs.scan_roms_tab import ScanRomsTab
 from app.database.database import Database
 from app.config.app_config import AppConfig

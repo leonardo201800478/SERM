@@ -129,6 +129,7 @@ class RomTreeWidget(QTreeWidget):
         Emite ``population_finished(elapsed_seconds)`` ao concluir,
         inclusive quando ``machine_results`` está vazio.
         """
+        print(f"[DEBUG] populate_async chamado com {len(machine_results)} máquinas")
         start_time = time.monotonic()
 
         self._populating = True
@@ -148,6 +149,7 @@ class RomTreeWidget(QTreeWidget):
             return
 
         def process_batch() -> None:
+            print(f"[DEBUG] process_batch: índice {self._populate_index}/{total}")
             if self._populate_index >= total:
                 self.setUpdatesEnabled(True)
                 elapsed = time.monotonic() - start_time
