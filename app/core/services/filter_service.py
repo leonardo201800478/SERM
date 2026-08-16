@@ -1,12 +1,12 @@
 """Serviço central para filtragem de máquinas e importação de categorias."""
+import re
 import sqlite3
 import logging
-import re
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 
-from app.core.models.filter_profile import FilterCriteria, FilterProfile
 from app.core.constants.macro_categories import get_macro_category, macro_sort_key
+from app.core.models.filter_profile import FilterCriteria, FilterProfile
 from app.database.repositories.category_repository import CategoryRepository
 from app.database.repositories.filter_profile_repository import FilterProfileRepository
 
@@ -45,102 +45,76 @@ class FilterService:
     # ========================================================================
 
     def get_macro_categories_with_counts(self) -> List[Dict[str, Any]]:
-        """Agrupa as categorias granulares em macro-grupos, somando as contagens.
-
-        Cada categoria retornada por ``get_categories_with_counts`` é
-        classificada em um macro-grupo através de
-        ``app.core.constants.macro_categories.get_macro_category``.
-        Categorias sem mapeamento explícito caem em
-        ``UNCLASSIFIED_MACRO`` ("Outras / Não Classificadas") — nunca são
-        descartadas silenciosamente.
-
-        Returns:
-            Lista de dicionários, um por macro-grupo, já ordenada segundo
-            ``MACRO_CATEGORY_ORDER``, cada um contendo:
-                - macro_name: nome do macro-grupo (ex.: "System / Non-Games")
-                - count: soma das contagens de máquinas de todas as
-                  categorias granulares pertencentes ao grupo
-                - categories: lista de nomes normalizados (``category.name``)
-                  das categorias granulares pertencentes ao grupo
-        """
+        """Agrupa as categorias granulares em macro-grupos, somando as
+        contagens. Categorias sem mapeamento explícito caem em
+        ``UNCLASSIFIED_MACRO`` — nunca são descartadas silenciosamente."""
         granular = self.get_categories_with_counts()
-
         groups: Dict[str, Dict[str, Any]] = {}
         for cat in granular:
             macro_name = get_macro_category(cat["name"])
             group = groups.setdefault(
-                macro_name,
-                {"macro_name": macro_name, "count": 0, "categories": []},
+                macro_name, {"macro_name": macro_name, "count": 0, "categories": []},
             )
             group["count"] += cat["count"]
             group["categories"].append(cat["name"])
-
         return sorted(groups.values(), key=lambda g: macro_sort_key(g["macro_name"]))
 
     def import_categories_from_ini(self, ini_path: Path) -> Tuple[int, int, List[str]]:
-        # (mesmo código anterior, mantido)
-        pass
+        """Ponto de entrada genérico. Nesta fase do projeto, o único
+        formato de INI de categorias suportado é o ``catver.ini``, então
+        delega diretamente para ele em vez de retornar ``None``."""
+        return self.import_categories_from_catver(ini_path)
 
     # ========================================================================
     # IMPORTAÇÃO DO CATVER.INI (com remoção de categorias indesejadas)
     # ========================================================================
+
     def import_categories_from_catver(self, catver_path: Path) -> Tuple[int, int, List[str]]:
         if not catver_path.exists():
             raise FileNotFoundError(f"Arquivo não encontrado: {catver_path}")
 
-        UNWANTED_CATEGORIES = {
-            'chd', 'devices', 'musical', 'mature',
-            'mahjong', 'screenless', 'bios'
-        }
+        UNWANTED_CATEGORIES = {"chd", "devices", "musical", "mature", "mahjong", "screenless", "bios"}
 
         cursor = self.conn.cursor()
         categorias_count = 0
         maquinas_count = 0
-        imported_categories = []
+        imported_categories: List[str] = []
 
         def normalize_cat_name(name: str) -> str:
-            name = re.sub(r'[^a-zA-Z0-9 ]', '', name)
+            name = re.sub(r"[^a-zA-Z0-9 ]", "", name)
             name = name.strip().lower()
-            name = re.sub(r'\s+', '_', name)
-            return name
+            return re.sub(r"\s+", "_", name)
 
-        cat_cache = {}
+        cat_cache: Dict[str, int] = {}
         in_category_section = False
 
-        with open(catver_path, 'r', encoding='utf-8', errors='ignore') as f:
+        with open(catver_path, "r", encoding="utf-8", errors="ignore") as f:
             for line in f:
                 line = line.strip()
-                if not line or line.startswith(';'):
+                if not line or line.startswith(";"):
                     continue
 
-                if line.startswith('[') and line.endswith(']'):
+                if line.startswith("[") and line.endswith("]"):
                     section = line[1:-1].strip()
-                    if section == 'Category':
+                    if section == "Category":
                         in_category_section = True
                         continue
-                    elif section == 'VerAdded':
+                    if section == "VerAdded":
                         break
-                    else:
-                        in_category_section = False
-                        continue
-
-                if not in_category_section:
+                    in_category_section = False
                     continue
 
-                if '=' not in line:
+                if not in_category_section or "=" not in line:
                     continue
 
-                rom_name, cat_full = line.split('=', 1)
+                rom_name, cat_full = line.split("=", 1)
                 rom_name = rom_name.strip()
-                cat_full = cat_full.strip()
+                cat_full = cat_full.strip().replace(" * Mature *", "").strip()
 
-                if ' * Mature *' in cat_full:
-                    cat_full = cat_full.replace(' * Mature *', '').strip()
-
-                if '/' in cat_full:
-                    primary = cat_full.split('/', 1)[0].strip()
-                elif ':' in cat_full:
-                    primary = cat_full.split(':', 1)[0].strip()
+                if "/" in cat_full:
+                    primary = cat_full.split("/", 1)[0].strip()
+                elif ":" in cat_full:
+                    primary = cat_full.split(":", 1)[0].strip()
                 else:
                     primary = cat_full
 
@@ -148,8 +122,6 @@ class FilterService:
                     continue
 
                 cat_name = normalize_cat_name(primary)
-
-                # Pula categorias indesejadas
                 if cat_name in UNWANTED_CATEGORIES:
                     continue
 
@@ -161,7 +133,7 @@ class FilterService:
                     else:
                         cursor.execute(
                             "INSERT INTO category (name, display_name, source) VALUES (?, ?, ?)",
-                            (cat_name, primary, 'catver.ini')
+                            (cat_name, primary, "catver.ini"),
                         )
                         cat_id = cursor.lastrowid
                         categorias_count += 1
@@ -169,14 +141,13 @@ class FilterService:
                     cat_cache[cat_name] = cat_id
 
                 cat_id = cat_cache[cat_name]
-
                 cursor.execute("SELECT id FROM machine WHERE name = ?", (rom_name,))
                 row = cursor.fetchone()
                 if row:
                     machine_id = row[0]
                     cursor.execute(
                         "INSERT OR IGNORE INTO machine_category (machine_id, category_id) VALUES (?, ?)",
-                        (machine_id, cat_id)
+                        (machine_id, cat_id),
                     )
                     if cursor.rowcount > 0:
                         maquinas_count += 1
@@ -185,29 +156,21 @@ class FilterService:
         return categorias_count, maquinas_count, imported_categories
 
     # ========================================================================
-    # CONSTRUÇÃO DA CONSULTA SQL (com exclusão de categorias)
+    # CONSTRUÇÃO DA CONSULTA SQL
     # ========================================================================
 
     def _build_filter_query(self, criteria: FilterCriteria) -> tuple[str, list]:
         query = "SELECT DISTINCT m.id FROM machine m"
-        params = []
-        where_clauses = []
+        params: list = []
+        where_clauses: list = []
 
-        # 1. Emulation status
         if criteria.emulation_status:
-            status_list = []
-            if "working" in criteria.emulation_status:
-                status_list.append("working")
-            if "imperfect" in criteria.emulation_status:
-                status_list.append("imperfect")
-            if "not_working" in criteria.emulation_status:
-                status_list.append("not_working")
+            status_list = [s for s in ("working", "imperfect", "not_working") if s in criteria.emulation_status]
             if status_list:
                 placeholders = ",".join(["?"] * len(status_list))
                 where_clauses.append(f"m.emulation_status IN ({placeholders})")
                 params.extend(status_list)
 
-        # 2. Opções
         if not criteria.include_clones:
             where_clauses.append("(m.cloneof IS NULL OR m.cloneof = '')")
         if not criteria.include_bios:
@@ -217,7 +180,6 @@ class FilterService:
         if not criteria.include_chd:
             where_clauses.append("NOT EXISTS (SELECT 1 FROM disk d WHERE d.machine_id = m.id)")
 
-        # 3. Categorias – EXCLUIR as marcadas em vermelho
         if criteria.exclude_categories:
             placeholders = ",".join(["?"] * len(criteria.exclude_categories))
             where_clauses.append(
@@ -227,7 +189,6 @@ class FilterService:
             )
             params.extend(criteria.exclude_categories)
 
-        # 4. Categorias – INCLUIR (forçar) as marcadas em verde
         if criteria.include_categories:
             placeholders = ",".join(["?"] * len(criteria.include_categories))
             where_clauses.append(
@@ -237,7 +198,6 @@ class FilterService:
             )
             params.extend(criteria.include_categories)
 
-        # 5. Arcade systems (opcional)
         if criteria.arcade_systems:
             placeholders = ",".join(["?"] * len(criteria.arcade_systems))
             where_clauses.append(f"m.name IN ({placeholders})")
@@ -258,17 +218,12 @@ class FilterService:
         return [row[0] for row in cursor.fetchall()]
 
     def get_machine_names(self, criteria: FilterCriteria) -> List[str]:
-        """Retorna os nomes (machine.name) das máquinas que atendem aos critérios.
-
-        Usado pela exportação de listxml filtrado, que precisa localizar
-        as máquinas pelo atributo <machine name="..."> do XML original,
-        não pelo id autoincrement do banco.
-        """
+        """Nomes (``machine.name``) das máquinas filtradas — usados pela
+        exportação de listxml, que localiza máquinas pelo atributo
+        ``<machine name="...">``, não pelo id autoincrement do banco."""
         query, params = self._build_filter_query(criteria)
         name_query = query.replace(
-            "SELECT DISTINCT m.id FROM machine m",
-            "SELECT DISTINCT m.name FROM machine m",
-            1,
+            "SELECT DISTINCT m.id FROM machine m", "SELECT DISTINCT m.name FROM machine m", 1,
         )
         cursor = self.conn.execute(name_query, params)
         return [row[0] for row in cursor.fetchall()]
@@ -276,9 +231,7 @@ class FilterService:
     def get_machine_count(self, criteria: FilterCriteria) -> int:
         query, params = self._build_filter_query(criteria)
         count_query = query.replace(
-            "SELECT DISTINCT m.id FROM machine m",
-            "SELECT COUNT(DISTINCT m.id) FROM machine m",
-            1
+            "SELECT DISTINCT m.id FROM machine m", "SELECT COUNT(DISTINCT m.id) FROM machine m", 1,
         )
         cursor = self.conn.execute(count_query, params)
         return cursor.fetchone()[0]
@@ -287,10 +240,7 @@ class FilterService:
         query, params = self._build_filter_query(criteria)
         count_query = f"""
             SELECT COUNT(*) FROM rom r
-            WHERE EXISTS (
-                SELECT 1 FROM ({query}) AS filtered_machines
-                WHERE filtered_machines.id = r.machine_id
-            )
+            WHERE EXISTS (SELECT 1 FROM ({query}) AS fm WHERE fm.id = r.machine_id)
         """
         cursor = self.conn.execute(count_query, params)
         return cursor.fetchone()[0]
@@ -299,10 +249,7 @@ class FilterService:
         query, params = self._build_filter_query(criteria)
         count_query = f"""
             SELECT COUNT(*) FROM disk d
-            WHERE EXISTS (
-                SELECT 1 FROM ({query}) AS filtered_machines
-                WHERE filtered_machines.id = d.machine_id
-            )
+            WHERE EXISTS (SELECT 1 FROM ({query}) AS fm WHERE fm.id = d.machine_id)
         """
         cursor = self.conn.execute(count_query, params)
         return cursor.fetchone()[0]
@@ -311,19 +258,11 @@ class FilterService:
         query, params = self._build_filter_query(criteria)
         size_query = f"""
             SELECT
-                COALESCE((
-                    SELECT SUM(r.size) FROM rom r
-                    WHERE EXISTS (
-                        SELECT 1 FROM ({query}) AS fm WHERE fm.id = r.machine_id
-                    )
-                ), 0)
+                COALESCE((SELECT SUM(r.size) FROM rom r
+                    WHERE EXISTS (SELECT 1 FROM ({query}) AS fm WHERE fm.id = r.machine_id)), 0)
                 +
-                COALESCE((
-                    SELECT SUM(d.size) FROM disk d
-                    WHERE EXISTS (
-                        SELECT 1 FROM ({query}) AS fm WHERE fm.id = d.machine_id
-                    )
-                ), 0)
+                COALESCE((SELECT SUM(d.size) FROM disk d
+                    WHERE EXISTS (SELECT 1 FROM ({query}) AS fm WHERE fm.id = d.machine_id)), 0)
         """
         cursor = self.conn.execute(size_query, params + params)
         result = cursor.fetchone()
@@ -334,10 +273,7 @@ class FilterService:
         count_query = f"""
             SELECT COUNT(*) FROM disk d
             WHERE (d.size IS NULL OR d.size = 0)
-            AND EXISTS (
-                SELECT 1 FROM ({query}) AS filtered_machines
-                WHERE filtered_machines.id = d.machine_id
-            )
+            AND EXISTS (SELECT 1 FROM ({query}) AS fm WHERE fm.id = d.machine_id)
         """
         cursor = self.conn.execute(count_query, params)
         return cursor.fetchone()[0]
@@ -363,66 +299,28 @@ class FilterService:
 
     def seed_default_categories(self) -> None:
         from app.core.models.category import Category
-        # Remove as indesejadas da semente também
         default_categories = [
-            ("arcade", "Arcade"),
-            ("system", "System"),
-            ("electromechanical", "Electromechanical"),
-            ("casino", "Casino"),
-            ("driving", "Driving"),
-            ("fighter", "Fighter"),
-            ("gambling", "Gambling"),
-            ("game_console", "Game Console"),
-            ("ball_paddle", "Ball & Paddle"),
-            ("board_game", "Board Game"),
-            ("calculator", "Calculator"),
-            ("card_games", "Card Games"),
-            ("maze", "Maze"),
-            ("handheld", "Handheld"),
-            ("climbing", "Climbing"),
-            ("medal_game", "Medal Game"),
-            ("platform", "Platform"),
-            ("shooter", "Shooter"),
-            ("slot_machine", "Slot Machine"),
-            ("sports", "Sports"),
-            ("tabletop", "Tabletop"),
-            ("telephone", "Telephone"),
-            ("multigame", "MultiGame"),
-            ("music_player", "Music Player"),
-            ("computer", "Computer"),
-            ("multiplay", "Multiplay"),
-            ("puzzle", "Puzzle"),
-            ("misc", "Misc."),
-            ("utilities", "Utilities"),
-            ("quiz", "Quiz"),
-            ("musical_instrument_accessory", "Musical Instrument Accessory"),
-            ("redemption_game", "Redemption Game"),
-            ("musical_instrument", "Musical Instrument"),
-            ("robot", "Robot"),
-            ("whacamole", "Whac-A-Mole"),
-            ("ttl_shooter", "TTL * Shooter"),
-            ("road_indicator", "Road Indicator"),
-            ("music_game", "Music Game"),
-            ("ttl_sports", "TTL * Sports"),
-            ("ttl_ball_paddle", "TTL * Ball & Paddle"),
-            ("radio", "Radio"),
-            ("medical_equipment", "Medical Equipment"),
-            ("bartop", "Bartop"),
-            ("ttl_driving", "TTL * Driving"),
-            ("digital_simulator", "Digital Simulator"),
-            ("printer", "Printer"),
-            ("tv_bundle", "TV Bundle"),
-            ("simulation", "Simulation"),
-            ("computer_graphic_workstation", "Computer Graphic Workstation"),
-            ("non_arcade", "Non Arcade"),
-            ("tablet", "Tablet"),
-            ("digital_camera", "Digital Camera"),
-            ("player", "Player"),
-            ("watch", "Watch"),
-            ("touchscreen", "Touchscreen"),
-            ("ttl_maze", "TTL * Maze"),
+            ("arcade", "Arcade"), ("system", "System"), ("electromechanical", "Electromechanical"),
+            ("casino", "Casino"), ("driving", "Driving"), ("fighter", "Fighter"), ("gambling", "Gambling"),
+            ("game_console", "Game Console"), ("ball_paddle", "Ball & Paddle"), ("board_game", "Board Game"),
+            ("calculator", "Calculator"), ("card_games", "Card Games"), ("maze", "Maze"),
+            ("handheld", "Handheld"), ("climbing", "Climbing"), ("medal_game", "Medal Game"),
+            ("platform", "Platform"), ("shooter", "Shooter"), ("slot_machine", "Slot Machine"),
+            ("sports", "Sports"), ("tabletop", "Tabletop"), ("telephone", "Telephone"),
+            ("multigame", "MultiGame"), ("music_player", "Music Player"), ("computer", "Computer"),
+            ("multiplay", "Multiplay"), ("puzzle", "Puzzle"), ("misc", "Misc."), ("utilities", "Utilities"),
+            ("quiz", "Quiz"), ("musical_instrument_accessory", "Musical Instrument Accessory"),
+            ("redemption_game", "Redemption Game"), ("musical_instrument", "Musical Instrument"),
+            ("robot", "Robot"), ("whacamole", "Whac-A-Mole"), ("ttl_shooter", "TTL * Shooter"),
+            ("road_indicator", "Road Indicator"), ("music_game", "Music Game"), ("ttl_sports", "TTL * Sports"),
+            ("ttl_ball_paddle", "TTL * Ball & Paddle"), ("radio", "Radio"),
+            ("medical_equipment", "Medical Equipment"), ("bartop", "Bartop"),
+            ("ttl_driving", "TTL * Driving"), ("digital_simulator", "Digital Simulator"),
+            ("printer", "Printer"), ("tv_bundle", "TV Bundle"), ("simulation", "Simulation"),
+            ("computer_graphic_workstation", "Computer Graphic Workstation"), ("non_arcade", "Non Arcade"),
+            ("tablet", "Tablet"), ("digital_camera", "Digital Camera"), ("player", "Player"),
+            ("watch", "Watch"), ("touchscreen", "Touchscreen"), ("ttl_maze", "TTL * Maze"),
             ("ttl_quiz", "TTL * Quiz"),
         ]
         for name, display in default_categories:
-            cat = Category(name=name, display_name=display, source="manual")
-            self.category_repo.insert(cat)
+            self.category_repo.insert(Category(name=name, display_name=display, source="manual"))
