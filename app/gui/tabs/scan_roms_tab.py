@@ -200,6 +200,7 @@ class ScanRomsTab(QWidget):
         self.scan_thread: threading.Thread | None = None
         self.scan_results: list[Any] = []
         self.scan_start_time: float | None = None
+        self.scan_stats = {"valid": 0, "missing": 0, "invalid": 0, "error": 0}
         self.progress_current = 0
         self._populating_tree = False 
         self.progress_total = 0
@@ -822,6 +823,7 @@ class ScanRomsTab(QWidget):
         self.progress_total = 0
         self.total_machines = 0
         self.scan_start_time = time.monotonic()
+        self.scan_stats = {"valid": 0, "missing": 0, "invalid": 0, "error": 0}
 
         self.tree.clear()
         self._reset_summary()
@@ -996,20 +998,46 @@ class ScanRomsTab(QWidget):
         self.progress_total = total
 
         status = str(_value(result, "status", "")).lower()
+        # Atualizar estatísticas
+        if status == "valid":
+            self.scan_stats["valid"] += 1
+        elif status == "missing":
+            self.scan_stats["missing"] += 1
+        elif status == "invalid":
+            self.scan_stats["invalid"] += 1
+        elif status == "error":
+            self.scan_stats["error"] += 1
+
         machine_name = str(_value(result, "machine_name", ""))
         rom_name = str(_value(result, "rom_name", ""))
 
         self._queue_ui(
             lambda: self._update_progress_ui(current, total, machine_name, rom_name, status)
         )
+        # Atualizar resumo em tempo real também
+        self._queue_ui(self._update_summary_from_stats)
+
+    def _update_summary_from_stats(self) -> None:
+        """Atualiza os labels de resumo com as estatísticas em tempo real."""
+        self.summary_labels["valid"].setText(str(self.scan_stats["valid"]))
+        self.summary_labels["missing"].setText(str(self.scan_stats["missing"]))
+        self.summary_labels["bad"].setText(str(self.scan_stats["invalid"]))
+        self.summary_labels["error"].setText(str(self.scan_stats["error"]))
+        # O total de itens processados é o progress_current, mas deixamos o label "total" com o total planejado
+        self.summary_labels["total"].setText(str(self.progress_total))
+        # O label "found" pode ser calculado como valid + invalid + error (todos encontrados, mesmo inválidos)
+        found = self.scan_stats["valid"] + self.scan_stats["invalid"] + self.scan_stats["error"]
+        self.summary_labels["found"].setText(str(found))
 
     def _update_progress_ui(self, current: int, total: int, machine_name: str, rom_name: str, status: str) -> None:
         percentage = int(current * 100 / total) if total > 0 else 0
         self.progress_bar.setValue(percentage)
-        self.progress_bar.setFormat(f"{current}/{total} itens — {percentage}%")
+        self.progress_bar.setFormat(f"{current}/{total} ROMs — {percentage}%")
         status_text = STATUS_LABELS.get(status, status.upper() if status else "PROCESSANDO")
+        # Adiciona contadores ao status
         self.status_label.setText(
-            f"Escaneando {current}/{total}: {machine_name} — {rom_name} [{status_text}]"
+            f"Escaneando {current}/{total}: {machine_name} — {rom_name} [{status_text}]  "
+            f"✓ {self.scan_stats['valid']} | ✗ {self.scan_stats['missing']} | ⚠ {self.scan_stats['invalid']} | ! {self.scan_stats['error']}"
         )
 
     # ========================================================================
@@ -1027,6 +1055,8 @@ class ScanRomsTab(QWidget):
             f"Máquina concluída: {machine_name} — "
             f"{valid}/{total} válidas, {missing} ausentes, {bad} inválidas."
         )
+        # Atualizar resumo em tempo real
+        self._queue_ui(self._update_summary_from_stats)
 
     # ========================================================================
     # LOG
@@ -1063,7 +1093,8 @@ class ScanRomsTab(QWidget):
         try:
             # Atualiza o resumo rapidamente (operações leves)
             self._update_summary_from_results()
-            
+            self._update_summary_from_stats()
+
             if cancelled:
                 # Cancelado: não precisa popular a árvore completamente
                 percentage = int(self.progress_current * 100 / self.progress_total) if self.progress_total > 0 else 0
@@ -1118,6 +1149,7 @@ class ScanRomsTab(QWidget):
     # ========================================================================
 
     def _reset_summary(self) -> None:
+        self.scan_stats = {"valid": 0, "missing": 0, "invalid": 0, "error": 0}
         for label in self.summary_labels.values():
             label.setText("0")
 
