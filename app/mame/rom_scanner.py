@@ -93,6 +93,12 @@ from typing import (
     Iterator,
 )
 
+from app.mame.scan_manifest import (
+    ScanMachineRecord,
+    ScanManifestWriter,
+    ScanRomRecord,
+    ScanSource,
+)
 from app.core.models.scan_result import (
     MachineScanResult,
     RomScanResult,
@@ -134,6 +140,9 @@ LogCallback = Callable[
     [str],
     None,
 ]
+
+ResultCallback = Callable[[RomScanResult], None]
+
 
 
 # ============================================================================
@@ -382,11 +391,17 @@ class RomScanner:
         enable_alternate_search: bool = False,
         chunk_size: int = DEFAULT_CHUNK_SIZE,
         include_chds: bool = True,
+        result_callback: ResultCallback | None = None,
+        scan_manifest_writer: ScanManifestWriter | None = None,
+        workers: int | None = None,
     ) -> None:
 
         self.rom_paths = self._normalize_paths(
             rom_paths
         )
+
+        if workers is not None:
+            max_workers = workers
 
         self.max_workers = max(
             1,
@@ -395,6 +410,8 @@ class RomScanner:
                 DEFAULT_MAX_WORKERS,
             ),
         )
+        # Compatibilidade com código que usa o nome ``workers``.
+        self.workers = self.max_workers
 
         self.progress_callback = (
             progress_callback
@@ -407,6 +424,15 @@ class RomScanner:
         self.log_callback = (
             log_callback
         )
+
+        self.result_callback = result_callback
+        self.scan_manifest_writer = scan_manifest_writer
+        self._owns_manifest_writer = scan_manifest_writer is None
+        self._scan_log_handle = None
+        self._scan_log_lock = threading.RLock()
+        self._archive_index: dict[tuple[str, int], list[tuple[Path, str, int]]] = {}
+        self._archive_index_built = False
+        self._archive_index_lock = threading.RLock()
 
         self.enable_alternate_search = (
             bool(
@@ -514,6 +540,13 @@ class RomScanner:
             *args,
         )
 
+        try:
+            formatted = message % args if args else message
+        except Exception:
+            formatted = str(message)
+
+        self._write_scan_log(formatted, level)
+
         if self.log_callback is None:
             return
 
@@ -532,6 +565,35 @@ class RomScanner:
             logger.exception(
                 "Erro executando log_callback."
             )
+
+    def _write_scan_log(self, message: str, level: int = logging.INFO) -> None:
+        """Grava uma linha no log físico da execução, quando disponível."""
+        with self._scan_log_lock:
+            if self._scan_log_handle is None:
+                return
+            try:
+                timestamp = __import__("datetime").datetime.now().strftime("%Y-%m-%d %H:%M:%S,%f")[:-3]
+                level_name = logging.getLevelName(level)
+                self._scan_log_handle.write(f"{timestamp} | {level_name:<8} | {message}\n")
+                self._scan_log_handle.flush()
+            except Exception:
+                logger.exception("Falha gravando log físico do scan.")
+
+    def _open_scan_log(self, path: Path) -> None:
+        """Abre o arquivo de log exclusivo da execução atual."""
+        with self._scan_log_lock:
+            self._close_scan_log()
+            self._scan_log_handle = path.open("a", encoding="utf-8", newline="\n")
+
+    def _close_scan_log(self) -> None:
+        """Fecha o log físico da execução atual."""
+        with self._scan_log_lock:
+            if self._scan_log_handle is not None:
+                try:
+                    self._scan_log_handle.flush()
+                    self._scan_log_handle.close()
+                finally:
+                    self._scan_log_handle = None
 
     # ========================================================================
     # PATHS
@@ -642,6 +704,103 @@ class RomScanner:
             )
 
     # ========================================================================
+    # ÍNDICE GLOBAL DE ARQUIVOS
+    # ========================================================================
+
+    def build_archive_index(self, force: bool = False) -> int:
+        """Constrói índice global ``(CRC, tamanho) -> arquivos ZIP``.
+
+        O índice consulta somente os diretórios centrais dos ZIPs; nenhuma ROM
+        é descompactada. Ele é usado para localizar uma ROM válida dentro de
+        outro set quando ela não existe no ZIP esperado da machine.
+
+        Returns
+        -------
+        int
+            Quantidade de membros indexados.
+        """
+        with self._archive_index_lock:
+            if self._archive_index_built and not force:
+                return sum(len(v) for v in self._archive_index.values())
+
+            self._archive_index.clear()
+            indexed = 0
+            seen: set[str] = set()
+
+            self._log("Construindo índice global de ZIPs para busca alternativa...")
+
+            for base in self.rom_paths:
+                if not base.exists() or not base.is_dir():
+                    self._log("Diretório de ROM inexistente: %s", base, level=logging.WARNING)
+                    continue
+
+                try:
+                    candidates = base.rglob("*.zip")
+                except OSError as exc:
+                    self._log("Erro enumerando ZIPs em %s: %s", base, exc, level=logging.WARNING)
+                    continue
+
+                for zip_path in candidates:
+                    if self.cancelled:
+                        break
+                    key_path = os.path.normcase(os.path.abspath(str(zip_path)))
+                    if key_path in seen:
+                        continue
+                    seen.add(key_path)
+
+                    try:
+                        with zipfile.ZipFile(zip_path, "r") as archive:
+                            for info in archive.infolist():
+                                if info.is_dir():
+                                    continue
+                                key = (f"{info.CRC & 0xffffffff:08x}", int(info.file_size))
+                                self._archive_index.setdefault(key, []).append((zip_path, info.filename, int(info.CRC)))
+                                indexed += 1
+                    except (zipfile.BadZipFile, OSError) as exc:
+                        self._log("ZIP ignorado no índice: %s | %s", zip_path, exc, level=logging.WARNING)
+                    except Exception as exc:
+                        self._log("Erro indexando ZIP %s: %s", zip_path, exc, level=logging.WARNING)
+
+            self._archive_index_built = True
+            self._log("Índice global concluído: %d membros em %d chaves CRC/tamanho.", indexed, len(self._archive_index))
+            return indexed
+
+    def clear_archive_index(self) -> None:
+        """Limpa o índice global para permitir nova construção."""
+        with self._archive_index_lock:
+            self._archive_index.clear()
+            self._archive_index_built = False
+
+    def _find_indexed_zip_rom(self, machine_name: str, rom: Any) -> RomScanResult | None:
+        """Procura uma ROM ausente em qualquer ZIP indexado."""
+        expected_crc = _normalize_hash(_get_value(rom, "crc", ""))
+        expected_size = _as_int(_get_value(rom, "size", 0))
+        rom_name = _normalize_name(_get_value(rom, "name", ""))
+        if not expected_crc or expected_size <= 0:
+            return None
+
+        if not self._archive_index_built:
+            self.build_archive_index()
+
+        candidates = self._archive_index.get((expected_crc, expected_size), [])
+        if not candidates:
+            return None
+
+        expected_sha1 = _normalize_hash(_get_value(rom, "sha1", ""))
+        for zip_path, member_name, _crc in candidates:
+            if self.cancelled:
+                return RomScanResult(machine_name=machine_name, rom_name=rom_name, expected_size=expected_size, expected_crc=expected_crc, status=ScanStatus.CANCELLED, message="Scan cancelado.")
+            result = self._scan_zip_entry(zip_path, machine_name, rom, member_name)
+            if result is None:
+                continue
+            if result.status is ScanStatus.VALID:
+                result.message = f"ROM encontrada em outro ZIP: {zip_path.name}."
+                return result
+            if expected_sha1 and result.actual_sha1 and result.actual_sha1 != expected_sha1:
+                continue
+        return None
+
+    # ========================================================================
     # ZIP
     # ========================================================================
 
@@ -741,6 +900,45 @@ class RomScanner:
 
         return fallback
 
+    def _scan_zip_entry(
+        self,
+        zip_path: Path,
+        machine_name: str,
+        rom: Any,
+        member_name: str,
+    ) -> RomScanResult | None:
+        """Valida um membro específico de um ZIP já localizado pelo índice."""
+        rom_name = _normalize_name(_get_value(rom, "name", ""))
+        expected_size = _as_int(_get_value(rom, "size", 0))
+        expected_crc = _normalize_hash(_get_value(rom, "crc", ""))
+        try:
+            with zipfile.ZipFile(zip_path, "r") as archive:
+                info = archive.getinfo(member_name)
+                actual_size = int(info.file_size)
+                actual_crc = f"{info.CRC & 0xffffffff:08x}"
+                size_ok = expected_size <= 0 or actual_size == expected_size
+                crc_ok = not expected_crc or actual_crc == expected_crc
+                valid = size_ok and crc_ok
+                return RomScanResult(
+                    machine_name=machine_name,
+                    rom_name=rom_name,
+                    expected_size=expected_size,
+                    actual_size=actual_size,
+                    expected_crc=expected_crc,
+                    actual_crc=actual_crc,
+                    status=ScanStatus.VALID if valid else ScanStatus.INVALID,
+                    path=zip_path,
+                    archive_path=zip_path,
+                    archive_member=info.filename,
+                    merge=_get_value(rom, "merge", None),
+                    optional=bool(_get_value(rom, "optional", False)),
+                    message="ROM encontrada e válida em ZIP alternativo." if valid else "ROM encontrada, mas inválida.",
+                )
+        except (KeyError, zipfile.BadZipFile, OSError):
+            return None
+        except Exception as exc:
+            return RomScanResult(machine_name=machine_name, rom_name=rom_name, expected_size=expected_size, expected_crc=expected_crc, status=ScanStatus.ERROR, path=zip_path, archive_path=zip_path, archive_member=member_name, message=str(exc), error=str(exc))
+
     def _scan_zip_rom(
         self,
         zip_path: Path,
@@ -797,7 +995,21 @@ class RomScanner:
         )
 
         if archive is None:
-            return None
+            # O ZIP existe fisicamente, mas não pode ser lido.
+            # Retornamos ERROR em vez de tratá-lo como simplesmente ausente,
+            # pois o diagnóstico precisa distinguir ZIP corrompido de ROM
+            # inexistente.
+            return RomScanResult(
+                machine_name=machine_name,
+                rom_name=rom_name,
+                expected_size=expected_size,
+                expected_crc=expected_crc,
+                status=ScanStatus.ERROR,
+                path=zip_path,
+                archive_path=zip_path,
+                message="ZIP da machine existe, mas está corrompido ou inacessível.",
+                error="Não foi possível abrir o arquivo ZIP.",
+            )
 
         try:
             info = self._find_zip_entry(
@@ -873,6 +1085,8 @@ class RomScanner:
                 path=zip_path,
                 archive_path=zip_path,
                 archive_member=info.filename,
+                merge=_get_value(rom, "merge", None),
+                optional=bool(_get_value(rom, "optional", False)),
                 message=message,
             )
 
@@ -1077,6 +1291,8 @@ class RomScanner:
                 actual_crc=actual_crc,
                 status=status,
                 path=path,
+                merge=_get_value(rom, "merge", None),
+                optional=bool(_get_value(rom, "optional", False)),
                 message=(
                     "ROM encontrada e válida."
                     if valid
@@ -1285,7 +1501,20 @@ class RomScanner:
             return result
 
         # ------------------------------------------------------------------
-        # 3. AUSENTE
+        # 3. BUSCA GLOBAL POR CRC + TAMANHO
+        # ------------------------------------------------------------------
+
+        if self.enable_alternate_search:
+            alternate_result = self._find_indexed_zip_rom(
+                machine_name,
+                rom,
+            )
+            if alternate_result is not None:
+                self._log_rom_result(alternate_result)
+                return alternate_result
+
+        # ------------------------------------------------------------------
+        # 4. AUSENTE
         # ------------------------------------------------------------------
 
         result = RomScanResult(
@@ -1678,6 +1907,54 @@ class RomScanner:
                 message=str(exc),
             )
 
+    def _manifest_record_for_result(self, result: RomScanResult) -> ScanRomRecord:
+        """Converte o resultado interno no registro persistente do manifesto."""
+        status_map = {
+            ScanStatus.VALID: "valid",
+            ScanStatus.MISSING: "missing",
+            ScanStatus.INVALID: "corrupted",
+            ScanStatus.ERROR: "error",
+            ScanStatus.CANCELLED: "cancelled",
+        }
+        source = None
+        if result.archive_path is not None:
+            source = ScanSource(kind="zip", archive=str(result.archive_path), member=result.archive_member, machine=result.archive_path.stem)
+        elif result.path is not None:
+            kind = "chd" if result.item_type.value == "disk" else "file"
+            source = ScanSource(kind=kind, archive=str(result.path), member=None, machine=result.machine_name)
+
+        return ScanRomRecord(
+            machine=result.machine_name,
+            machine_description="",
+            rom_name=result.rom_name,
+            expected_size=result.expected_size,
+            expected_crc=result.expected_crc,
+            expected_sha1=result.expected_sha1 or None,
+            merge=result.merge,
+            status=status_map.get(result.status, str(result.status)),
+            actual_size=result.actual_size,
+            actual_crc=result.actual_crc,
+            actual_sha1=result.actual_sha1 or None,
+            source=source,
+            required=not result.optional,
+            optional=result.optional,
+            error=result.error or (result.message if result.status is ScanStatus.ERROR else None),
+        )
+
+    def _persist_rom_result(self, result: RomScanResult) -> None:
+        """Persiste uma ROM imediatamente e dispara o callback de resultado."""
+        writer = self.scan_manifest_writer
+        if writer is not None:
+            try:
+                writer.write_rom(self._manifest_record_for_result(result))
+            except Exception:
+                logger.exception("Erro persistindo resultado de ROM no manifesto.")
+        if self.result_callback is not None:
+            try:
+                self.result_callback(result)
+            except Exception:
+                logger.exception("Erro executando result_callback.")
+
     # ========================================================================
     # LOG DO RESULTADO
     # ========================================================================
@@ -1779,8 +2056,37 @@ class RomScanner:
         )
 
         result = MachineScanResult(
-            machine_name=machine_name
+            machine_name=machine_name,
+            description=str(_get_value(machine, "description", "") or ""),
+            cloneof=_get_value(machine, "cloneof", None),
+            started=True,
         )
+
+        writer = self.scan_manifest_writer
+        error_count = sum(1 for r in result.roms if r.status == ScanStatus.ERROR)
+        self._log(
+            "Máquina concluída: %s | total=%d | válidas=%d | ausentes=%d | ruins=%d | erros=%d",
+            machine_name,
+            result.total,
+            result.valid,
+            result.missing,
+            result.bad,
+            error_count,
+        )
+
+        if writer is not None and writer.is_open and machine_name:
+            try:
+                writer.machine_started(
+                    ScanMachineRecord(
+                        name=machine_name,
+                        description=result.description,
+                        cloneof=result.cloneof,
+                        rom_count=len(roms) + (len(disks) if self.include_chds else 0),
+                        started_at=None,
+                    )
+                )
+            except Exception:
+                logger.exception("Erro registrando início da machine no manifesto.")
 
         if not machine_name:
 
@@ -1823,6 +2129,7 @@ class RomScanner:
                 result,
                 rom_result,
             )
+            self._persist_rom_result(rom_result)
 
             local_index += 1
 
@@ -1856,6 +2163,7 @@ class RomScanner:
                     result,
                     disk_result,
                 )
+                self._persist_rom_result(disk_result)
 
                 local_index += 1
 
@@ -1866,16 +2174,19 @@ class RomScanner:
                     disk_result,
                 )
 
-                error_count = sum(1 for r in result.roms if r.status == ScanStatus.ERROR)
-                self._log(
-                    "Máquina concluída: %s | total=%d | válidas=%d | ausentes=%d | ruins=%d | erros=%d",
-                    machine_name,
-                    result.total,
-                    result.valid,
-                    result.missing,
-                    result.bad,
-                    error_count,
+        if writer is not None and writer.is_open and machine_name:
+            try:
+                writer.machine_finished(
+                    ScanMachineRecord(
+                        name=machine_name,
+                        description=result.description,
+                        cloneof=result.cloneof,
+                        rom_count=result.total,
+                        status="cancelled" if self.cancelled else ("error" if result.error else "completed"),
+                    )
                 )
+            except Exception:
+                logger.exception("Erro registrando conclusão da machine no manifesto.")
 
         if self.machine_callback is not None:
 
@@ -1983,9 +2294,23 @@ class RomScanner:
     # SCAN COMPLETO
     # ========================================================================
 
+    def scan_machines(
+        self,
+        machines: Iterable[Any],
+        **kwargs: Any,
+    ) -> list[MachineScanResult]:
+        """Alias compatível para ``scan()`` usado por versões anteriores da GUI."""
+        return self.scan(machines, **kwargs)
+
     def scan(
         self,
         machines: Iterable[Any],
+        *,
+        manifest_writer: ScanManifestWriter | None = None,
+        manifest_directory: Path | str | None = None,
+        mame_version: str = "unknown",
+        xml_path: Path | str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> list[MachineScanResult]:
         """
         Executa o scan completo.
@@ -2005,6 +2330,15 @@ class RomScanner:
         """
 
         self.reset_cancel()
+        self._archive_index.clear()
+        self._archive_index_built = False
+
+        if manifest_writer is not None:
+            self.scan_manifest_writer = manifest_writer
+            self._owns_manifest_writer = False
+        elif self.scan_manifest_writer is None:
+            self.scan_manifest_writer = ScanManifestWriter(directory=manifest_directory)
+            self._owns_manifest_writer = True
 
         machines_list = list(
             machines
@@ -2016,6 +2350,18 @@ class RomScanner:
             )
             for machine in machines_list
         )
+
+        writer = self.scan_manifest_writer
+        if writer is not None and not writer.is_open:
+            writer.start(
+                version=mame_version,
+                xml_path=xml_path,
+                source_paths=self.rom_paths,
+                machine_count=len(machines_list),
+                metadata=metadata or {},
+            )
+            if writer.log_path is not None:
+                self._open_scan_log(writer.log_path)
 
         self._log(
             "============================================================"
@@ -2054,7 +2400,7 @@ class RomScanner:
                 "Nenhuma máquina encontrada no XML filtrado.",
                 level=logging.WARNING,
             )
-
+            self._finish_log([], total_items)
             return []
 
         if total_items == 0:
@@ -2064,18 +2410,14 @@ class RomScanner:
                 level=logging.WARNING,
             )
 
-            return [
+            empty_results = [
                 MachineScanResult(
-                    machine_name=str(
-                        _get_value(
-                            machine,
-                            "name",
-                            "",
-                        )
-                    )
+                    machine_name=str(_get_value(machine, "name", ""))
                 )
                 for machine in machines_list
             ]
+            self._finish_log(empty_results, total_items)
+            return empty_results
 
         # ------------------------------------------------------------------
         # SINGLE THREAD
@@ -2436,6 +2778,29 @@ class RomScanner:
         self._log(
             "============================================================"
         )
+
+        writer = self.scan_manifest_writer
+        if writer is not None and writer.is_open:
+            try:
+                writer.write_summary(
+                    status="cancelled" if self.cancelled else "completed",
+                    data={
+                        "planned": total_items,
+                        "processed": total,
+                        "found": found,
+                        "valid": valid,
+                        "missing": missing,
+                        "invalid": bad,
+                        "errors": error,
+                    },
+                )
+                writer.finish(
+                    status="cancelled" if self.cancelled else "completed",
+                )
+            except Exception:
+                logger.exception("Erro finalizando manifesto do scan.")
+            finally:
+                self._close_scan_log()
 
 
 # ============================================================================
