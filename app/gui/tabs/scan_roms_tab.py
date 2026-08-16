@@ -200,9 +200,10 @@ class ScanRomsTab(QWidget):
         self.scan_thread: threading.Thread | None = None
         self.scan_results: list[Any] = []
         self.scan_start_time: float | None = None
-        self.scan_stats = {"valid": 0, "missing": 0, "invalid": 0, "error": 0}
         self.progress_current = 0
         self._populating_tree = False 
+        self._tree_timer = None
+        self.scan_stats = {"valid": 0, "missing": 0, "invalid": 0, "error": 0}
         self.progress_total = 0
         self.total_machines = 0
         self._tree_index = 0
@@ -824,6 +825,7 @@ class ScanRomsTab(QWidget):
         self.total_machines = 0
         self.scan_start_time = time.monotonic()
         self.scan_stats = {"valid": 0, "missing": 0, "invalid": 0, "error": 0}
+        self._update_summary_from_stats()
 
         self.tree.clear()
         self._reset_summary()
@@ -924,9 +926,20 @@ class ScanRomsTab(QWidget):
 
             logger.info("Todas as atualizações da UI foram enfileiradas.")
 
+            QTimer.singleShot(60000, self._force_finish_if_stuck)
+            logger.info("Todas as atualizações da UI foram enfileiradas.")
         except Exception as exc:
             logger.exception("Erro geral durante o scan.")
             self._queue_ui(lambda: self._show_scan_error(str(exc)))
+
+    def _force_finish_if_stuck(self) -> None:
+        """Fallback: se a árvore não for populada, finaliza mesmo assim."""
+        if self._populating_tree:
+            logger.warning("População da árvore demorou mais que 60s. Forçando finalização.")
+            self._populating_tree = False
+            self.tree.setUpdatesEnabled(True)
+            self._finish_tree_population(0.0)
+            self._update_ui_state()
 
     # ========================================================================
     # LEITURA DO XML
@@ -998,7 +1011,7 @@ class ScanRomsTab(QWidget):
         self.progress_total = total
 
         status = str(_value(result, "status", "")).lower()
-        # Atualizar estatísticas
+        # Atualiza estatísticas
         if status == "valid":
             self.scan_stats["valid"] += 1
         elif status == "missing":
@@ -1011,11 +1024,10 @@ class ScanRomsTab(QWidget):
         machine_name = str(_value(result, "machine_name", ""))
         rom_name = str(_value(result, "rom_name", ""))
 
-        self._queue_ui(
-            lambda: self._update_progress_ui(current, total, machine_name, rom_name, status)
-        )
-        # Atualizar resumo em tempo real também
+        # Agenda atualização da UI
+        self._queue_ui(lambda: self._update_progress_ui(current, total, machine_name, rom_name, status))
         self._queue_ui(self._update_summary_from_stats)
+        self._queue_ui(self._update_mainwindow_status)  # Atualiza status bar principal
 
     def _update_summary_from_stats(self) -> None:
         """Atualiza os labels de resumo com as estatísticas em tempo real."""
@@ -1033,12 +1045,32 @@ class ScanRomsTab(QWidget):
         percentage = int(current * 100 / total) if total > 0 else 0
         self.progress_bar.setValue(percentage)
         self.progress_bar.setFormat(f"{current}/{total} ROMs — {percentage}%")
+
         status_text = STATUS_LABELS.get(status, status.upper() if status else "PROCESSANDO")
-        # Adiciona contadores ao status
+        # Inclui contadores no label de status
+        stats_text = (
+            f"✓ {self.scan_stats['valid']} | "
+            f"✗ {self.scan_stats['missing']} | "
+            f"⚠ {self.scan_stats['invalid']} | "
+            f"! {self.scan_stats['error']}"
+        )
         self.status_label.setText(
             f"Escaneando {current}/{total}: {machine_name} — {rom_name} [{status_text}]  "
-            f"✓ {self.scan_stats['valid']} | ✗ {self.scan_stats['missing']} | ⚠ {self.scan_stats['invalid']} | ! {self.scan_stats['error']}"
+            f"({stats_text})"
         )
+
+    def _update_mainwindow_status(self) -> None:
+        """Atualiza a barra de status da janela principal com o progresso."""
+        if self.parent_widget and hasattr(self.parent_widget, 'status_bar'):
+            # Mostra resumo compacto na status bar
+            stats_text = (
+                f"Válidas: {self.scan_stats['valid']} | "
+                f"Ausentes: {self.scan_stats['missing']} | "
+                f"Inválidas: {self.scan_stats['invalid']} | "
+                f"Erros: {self.scan_stats['error']}"
+            )
+            message = f"Escaneando {self.progress_current}/{self.progress_total} ROMs — {stats_text}"
+            self.parent_widget.status_bar.showMessage(message)
 
     # ========================================================================
     # CALLBACK MÁQUINA
@@ -1100,7 +1132,7 @@ class ScanRomsTab(QWidget):
                 percentage = int(self.progress_current * 100 / self.progress_total) if self.progress_total > 0 else 0
                 self.progress_bar.setValue(percentage)
                 self.progress_bar.setFormat(f"{self.progress_current}/{self.progress_total} itens — {percentage}%")
-                self.status_label.setText("Escaneamento interrompido.")
+                self.parent_widget.status_bar.showMessage("Escaneamento interrompido.")
                 # Habilita a UI imediatamente (árvore não será populada ou será parcial)
                 self._update_ui_state()
             else:
@@ -1109,13 +1141,13 @@ class ScanRomsTab(QWidget):
                 if self.scan_start_time:
                     elapsed = time.monotonic() - self.scan_start_time
                 # Mostra mensagem temporária enquanto a árvore é populada
-                self.status_label.setText(f"Escaneamento concluído em {elapsed:.2f}s. Populando árvore...")
+                self.parent_widget.status_bar.showMessage(f"Escaneamento concluído em {elapsed:.2f}s. Populando árvore...")
                 self.progress_bar.setValue(100)
                 self.progress_bar.setFormat(f"{self.progress_total}/{self.progress_total} itens — 100%")
                 
                 # Se não houver máquinas, não há árvore para popular
                 if not self.scan_results:
-                    self.status_label.setText(f"Escaneamento concluído em {elapsed:.2f}s. Nenhuma máquina.")
+                    self.parent_widget.status_bar.showMessage(f"Escaneamento concluído em {elapsed:.2f}s. Nenhuma máquina.")
                     self._update_ui_state()
                 else:
                     # A UI será habilitada por _finish_tree_population quando a árvore estiver pronta
@@ -1132,7 +1164,7 @@ class ScanRomsTab(QWidget):
     def _show_no_machines(self) -> None:
         self.scanning = False
         self.scanner = None
-        self.status_label.setText("O XML filtrado não possui máquinas.")
+        self.parent_widget.status_bar.showMessage("O XML filtrado não possui máquinas.")
         self.progress_bar.setValue(0)
         self._update_ui_state()
         QMessageBox.warning(self, "XML vazio", "O LISTXML selecionado não contém nenhuma máquina.")
@@ -1140,7 +1172,7 @@ class ScanRomsTab(QWidget):
     def _show_scan_error(self, error: str) -> None:
         self.scanning = False
         self.scanner = None
-        self.status_label.setText(f"Erro: {error}")
+        self.parent_widget.status_bar.showMessage(f"Erro: {error}")
         self._update_ui_state()
         QMessageBox.critical(self, "Erro no escaneamento", f"Ocorreu um erro durante o scan:\n\n{error}")
 
@@ -1152,6 +1184,8 @@ class ScanRomsTab(QWidget):
         self.scan_stats = {"valid": 0, "missing": 0, "invalid": 0, "error": 0}
         for label in self.summary_labels.values():
             label.setText("0")
+        if self.parent_widget and hasattr(self.parent_widget, 'status_bar'):
+            self.parent_widget.status_bar.showMessage("Pronto")
 
     def _update_summary_from_results(self) -> None:
         logger.info("=== INÍCIO _update_summary_from_results ===")
@@ -1189,7 +1223,6 @@ class ScanRomsTab(QWidget):
         logger.info("=== INÍCIO _populate_tree() ===")
         start_time = time.monotonic()
         
-        # Marca que a árvore está sendo populada
         self._populating_tree = True
         self.tree.clear()
         self.tree.setUpdatesEnabled(False)
@@ -1197,45 +1230,56 @@ class ScanRomsTab(QWidget):
         total_machines = len(self.scan_results)
         logger.info("Populando %d máquinas...", total_machines)
         
+        if total_machines == 0:
+            logger.info("Nenhuma máquina para popular.")
+            self.tree.setUpdatesEnabled(True)
+            self._populating_tree = False
+            self._finish_tree_population(0.0)
+            return
+        
         self._tree_index = 0
-        self._tree_batch_size = 50  # Máquinas por lote
+        self._tree_batch_size = 50
+        
+        # Cancelar qualquer timer anterior
+        if self._tree_timer:
+            self._tree_timer.stop()
+            self._tree_timer = None
         
         def process_batch():
-            start_idx = self._tree_index
-            end_idx = min(start_idx + self._tree_batch_size, total_machines)
-            
-            for idx in range(start_idx, end_idx):
-                machine = self.scan_results[idx]
-                self._add_machine_to_tree(machine)
-            
-            self._tree_index = end_idx
-            
-            # Atualiza barra de progresso (opcional, mas útil)
-            if total_machines > 0:
-                progress = int(end_idx * 100 / total_machines)
-                self.progress_bar.setValue(progress)
-                self.progress_bar.setFormat(f"Populando árvore: {end_idx}/{total_machines}")
-                self.status_label.setText(f"Populando árvore: {end_idx}/{total_machines} máquinas")
-            
-            if end_idx < total_machines:
-                # Agenda próximo lote
-                QTimer.singleShot(5, process_batch)
-            else:
+            if self._tree_index >= total_machines:
                 # Concluído
                 self.tree.setUpdatesEnabled(True)
                 elapsed = time.monotonic() - start_time
                 self._populating_tree = False
                 logger.info("=== _populate_tree concluído em %.2f segundos ===", elapsed)
-                
-                # Expande o primeiro item (opcional)
                 if self.tree.topLevelItemCount() > 0:
                     self.tree.topLevelItem(0).setExpanded(True)
-                
-                # Chama a finalização da árvore (habilita UI, atualiza status)
                 self._finish_tree_population(elapsed)
+                return
+            
+            end_idx = min(self._tree_index + self._tree_batch_size, total_machines)
+            
+            for idx in range(self._tree_index, end_idx):
+                machine = self.scan_results[idx]
+                self._add_machine_to_tree(machine)
+            
+            self._tree_index = end_idx
+            
+            # Atualiza progresso
+            progress = int(end_idx * 100 / total_machines)
+            self.progress_bar.setValue(progress)
+            self.progress_bar.setFormat(f"Populando árvore: {end_idx}/{total_machines}")
+            self.parent_widget.status_bar.showMessage(f"Populando árvore: {end_idx}/{total_machines} máquinas")
+            
+            # Agenda próximo lote
+            if self._tree_index < total_machines:
+                self._tree_timer = QTimer.singleShot(5, process_batch)
+            else:
+                # Concluído (chamará o final no próximo loop, mas chamamos aqui também)
+                process_batch()  # recursão controlada
         
         # Inicia o primeiro lote
-        QTimer.singleShot(10, process_batch)
+        QTimer.singleShot(0, process_batch)  # executa assim que possível
 
     def _add_machine_to_tree(self, machine: Any) -> None:
         name = str(_value(machine, "machine_name", ""))
@@ -1312,6 +1356,21 @@ class ScanRomsTab(QWidget):
         ]
         QMessageBox.information(self, "Detalhes do item", "\n".join(details))
 
+    def _finish_tree_population(self, elapsed: float) -> None:
+        """Finaliza o processo de população da árvore e habilita a UI."""
+        total_machines = len(self.scan_results)
+        self.parent_widget.status_bar.showMessage(
+            f"Árvore populada com {total_machines} máquinas em {elapsed:.2f}s."
+        )
+        if self.parent_widget and hasattr(self.parent_widget, 'status_bar'):
+            self.parent_widget.status_bar.showMessage(f"Escaneamento concluído em {elapsed:.2f}s.")
+            self.progress_bar.setFormat(f"{total_machines}/{total_machines} máquinas — 100%")
+            # Atualiza resumo final (garante que os números estejam corretos)
+            self._update_summary_from_results()
+            # Habilita UI
+            self._update_ui_state()
+            logger.info("=== FIM _finish_tree_population ===")
+
     # ========================================================================
     # OPÇÕES DO SCANNER
     # ========================================================================
@@ -1331,9 +1390,9 @@ class ScanRomsTab(QWidget):
 
     def set_active_profile_name(self, name: str | None) -> None:
         if name:
-            self.profile_label.setText(f"Perfil ativo: {name}")
+            self.parent_widget.status_bar.showMessage(f"Perfil ativo: {name}")
         else:
-            self.profile_label.setText("Perfil ativo: (nenhum)")
+            self.parent_widget.status_bar.showMessage("Perfil ativo: (nenhum)")
 
     # ========================================================================
     # ESTADO DA INTERFACE
