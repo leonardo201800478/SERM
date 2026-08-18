@@ -11,6 +11,7 @@ from app.config.app_config import AppConfig
 from app.gui.widgets.log_panel import LogPanel
 from app.gui.widgets.reconstruction_tree_widget import ReconstructionTreeWidget
 from app.mame.reconstruction_service import ReconstructionService
+from app.mame.rom_repair_service import SingleRomRepairService
 
 logger = logging.getLogger(__name__)
 
@@ -200,27 +201,35 @@ class ReconstructionTab(QWidget):
         self.worker.start()
 
     def _context_action(self, data: dict) -> None:
-        """Executa reparo individual usando a mesma engine."""
+        """Executa o reparo individual da ROM selecionada pelo menu contextual."""
         if data.get("action") == "details":
             rom = data.get("rom")
             QMessageBox.information(self, "ROM", f"{rom.rom_name}\nCRC: {rom.expected_crc}\nTamanho: {rom.expected_size}")
             return
+
         machine = data.get("machine")
-        if not machine:
+        rom = data.get("rom")
+        if not machine or not rom:
             return
+
         try:
             destination = self._destination()
-            service = ReconstructionService(self._source_paths(), destination, log_callback=logger.info)
-            result = service.reconstruct([machine], set_type=self.set_combo.currentData(), copy_perfect=False, repair=True)
-            service.write_residual_manifest(
-                self._scan_dir() / "current_reconstruction.jsonl",
-                result.unresolved,
-                source_manifest=self.manifest_path,
-                set_type=self.set_combo.currentData(),
+            self.progress.setValue(0)
+            self.progress_label.setText(f"Reparando {machine.name} -> {rom.rom_name}...")
+            self.log_panel._clear()
+            repairer = SingleRomRepairService(
+                self._source_paths(),
+                destination,
+                log_callback=lambda message: logger.getLogger("app.mame.reconstruction_service").info(message) if False else logger.info(message),
             )
-            self._load_manifest()
+            repairer.repair(machine, rom)
+            self.progress.setValue(100)
+            self.progress_label.setText(f"ROM reparada e verificada: {rom.rom_name}")
+            self._append_log(f"Reparo individual concluído: {machine.name} -> {rom.rom_name}")
         except Exception as exc:
-            QMessageBox.warning(self, "Reparo", str(exc))
+            logger.exception("Falha no reparo individual")
+            self.progress_label.setText("Falha no reparo individual.")
+            QMessageBox.warning(self, "Reparo da ROM", str(exc))
 
     def _on_progress(self, current: int, total: int, message: str) -> None:
         percent = int((current / total) * 100) if total else 100
@@ -229,8 +238,8 @@ class ReconstructionTab(QWidget):
 
     def _append_log(self, message: str) -> None:
         """Recebe logs do worker e os envia ao logger observado pelo LogPanel."""
-        logger = logging.getLogger("app.mame.reconstruction_service")
-        logger.info(message)
+        reconstruction_logger = logging.getLogger("app.mame.reconstruction_service")
+        reconstruction_logger.info(message)
 
     def _finished(self, result) -> None:
         if result is None:
