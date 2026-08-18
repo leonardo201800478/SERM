@@ -6,10 +6,13 @@ from app.gui.tabs.home_tab import HomeTab
 from app.gui.tabs.directories_tab import DirectoriesTab
 from app.gui.tabs.filters_tab_realtime import FiltersTab
 from app.gui.tabs.scan_roms_tab import ScanRomsTab
+from app.gui.scan_thread_guard import install as install_scan_thread_guard
 from app.gui.tabs.reconstruction_tab import ReconstructionTab
 from app.gui.tabs.dataset_tab import DatasetTab
 from app.database.database import Database
 from app.config.app_config import AppConfig
+
+install_scan_thread_guard()
 
 
 class MainWindow(QMainWindow):
@@ -19,25 +22,20 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("MAME Set Builder")
         self.resize(1024, 768)
-
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("Pronto")
-
         self.config = AppConfig()
         self.db = Database(self.config.db_path)
         self.db.connect()
-
         self.tab_widget = QTabWidget()
         self.setCentralWidget(self.tab_widget)
-
         self.home_tab = HomeTab(self)
         self.directories_tab = DirectoriesTab(self)
         self.filters_tab = FiltersTab(self, db=self.db)
         self.dataset_tab = DatasetTab(self)
         self.scan_tab = ScanRomsTab(self)
         self.reconstruction_tab = ReconstructionTab(self)
-
         self.tab_widget.addTab(self.home_tab, "Home")
         self.tab_widget.addTab(self.directories_tab, "Diretórios")
         self.tab_widget.addTab(self.filters_tab, "Filtragem")
@@ -45,15 +43,12 @@ class MainWindow(QMainWindow):
         self.tab_widget.addTab(self.scan_tab, "Scan Roms")
         self.tab_widget.addTab(self.reconstruction_tab, "Reconstrução")
         self.tab_widget.currentChanged.connect(self._on_tab_changed)
-
         if hasattr(self.directories_tab, "settings_changed"):
             self.directories_tab.settings_changed.connect(self.home_tab.refresh_status)
             self.directories_tab.settings_changed.connect(self.filters_tab._update_database_info)
-
         if hasattr(self.filters_tab, "database_updated"):
             self.filters_tab.database_updated.connect(self._on_database_updated)
             self.filters_tab.database_updated.connect(self.scan_tab.refresh_profiles)
-
         if hasattr(self.filters_tab, "filters_changed"):
             self.filters_tab.filters_changed.connect(self._on_filters_changed)
 
