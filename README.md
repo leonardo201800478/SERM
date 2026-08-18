@@ -1,1019 +1,133 @@
-MAME SET BUILDER — DOCUMENTAÇÃO TÉCNICA E VISÃO DO PROJETO
-Versão: 2.0
-Data: 2026-08-08
-
-======================================================================
-1. OBJETIVO
-======================================================================
-
-O MAME Set Builder é uma aplicação Python para gerenciamento,
-filtragem, auditoria e construção de sets personalizados de MAME.
-
-O sistema deve:
-- detectar a versão exata do MAME pelo executável;
-- obter e interpretar o listxml correspondente;
-- incorporar dados complementares de folders/*.ini;
-- armazenar um modelo completo em SQLite;
-- classificar máquinas estruturalmente;
-- aplicar filtros declarativos;
-- resolver ROMs, BIOS, devices, samples, disks e CHDs necessários;
-- auditar um FULLSET preservado;
-- construir um "Meu Set" em outro diretório/unidade;
-- suportar ZIP, 7Z e CHD;
-- suportar Non-Merged, Split e Merged;
-- integrar-se ao qBittorrent para obter arquivos ausentes;
-- futuramente reconstruir sets e criar torrents de subsets.
-
-O FULLSET é sempre somente leitura. O Meu Set é descartável e
-reconstruível.
-
-======================================================================
-2. CONCEITO CENTRAL
-======================================================================
-
-Machine é a unidade lógica de seleção.
-
-Arquivo é a unidade física de auditoria, dependência, cópia e download.
-
-Não assumir:
-
-    machine = machine.zip
-
-Usar:
-
-    MACHINE SELECTION
-          |
-          v
-    DEPENDENCY RESOLUTION
-          |
-          v
-    REQUIRED FILES
-          |
-          v
-    SET MANIFEST
-          |
-          +--> FULLSET
-          +--> qBittorrent
-          +--> MEU SET
-
-Uma máquina pode depender de ROMs, BIOS, devices, samples, disks,
-CHDs e arquivos compartilhados.
-
-======================================================================
-3. FONTE DE DADOS
-======================================================================
-
-FONTE PRIMÁRIA
---------------
-
-MAME executable
-    |
-    +-- version
-    +-- -listxml
-    |
-    v
-MAME DATASET
-
-O listxml é a fonte estrutural principal para:
-machine, description, year, manufacturer, sourcefile, cloneof, romof,
-sampleof, isbios, isdevice, ismechanical, runnable, rom, disk, sample,
-device_ref, chip, display, sound, input, dipswitch, configuration,
-port, adjuster, driver, feature, device, slot, softwarelist e
-ramoption.
-
-FONTE COMPLEMENTAR
-------------------
-
-MAME folders/*.ini.
-
-Usar INIs somente para enriquecer ou classificar informações que não
-sejam suficientemente obtidas do listxml.
-
-Registrar a origem de informações complementares quando apropriado.
-
-SOFTWARE LISTS
---------------
-
-Arquitetura preparada, implementação posterior.
-
-======================================================================
-4. DATASET E VERSÃO DO MAME
-======================================================================
-
-O executável fornecido pelo usuário determina a versão do dataset.
-
-Fluxo:
-
-MAME.EXE
-  -> version
-  -> MAME_VERSION
-  -> -listxml
-  -> DATASET
-
-Datasets de versões diferentes nunca devem ser misturados.
-
-O dataset deve guardar:
-- versão;
-- build quando disponível;
-- fingerprint/hash do XML;
-- data de geração;
-- caminho/origem do executável quando útil.
-
-======================================================================
-5. FULLSET E MEU SET
-======================================================================
-
-FULLSET
--------
-
-Exemplo:
-
-G:\MAME_FULLSET\
-    mk.zip
-    mk2.zip
-    mk3.zip
-    neogeo.zip
-    ...
-
-O FULLSET nunca deve ser modificado pelo software.
-
-MEU SET
--------
-
-Exemplo:
-
-D:\MAME_SET\
-    roms\
-    samples\
-    software\
-
-O destino pode ser apagado e reconstruído usando o FULLSET.
-
-Não implementar backup interno do FULLSET.
-
-======================================================================
-6. ORGANIZAÇÃO FÍSICA
-======================================================================
-
-Por padrão:
-
-ROMs de jogos:
-    roms/
-
-BIOS:
-    roms/
-
-Devices:
-    roms/
-
-CHDs:
-    estrutura de roms compatível com MAME
-
-Samples:
-    samples/
-
-Software Lists:
-    software/ (futuro)
-
-BIOS, devices e samples devem ser diferenciados logicamente mesmo
-quando estiverem em diretórios físicos próximos ou iguais.
-
-Isso evita que frontends de terceiros os apresentem como jogos.
-
-======================================================================
-7. CLASSIFICAÇÃO ARCADE
-======================================================================
-
-Arcade deve ser definido estruturalmente pelo MAME, com complementação
-pelos folders/*.ini quando necessário.
-
-O universo Arcade deve excluir, conforme política:
-- pachinko;
-- fruit machines;
-- portáteis;
-- consoles;
-- computadores;
-- máquinas mecânicas;
-- pinballs;
-- quiz;
-- tabletop;
-- outras categorias não pertencentes ao Arcade.
-
-Arcade representa jogos/sistemas cujo controle pode ser realizado por
-periféricos emuláveis, como teclado, mouse, joystick, gamepad, pistola,
-volante e controles arcade.
-
-Classificação não deve ser confundida com status de emulação.
-
-======================================================================
-8. STATUS DE EMULAÇÃO
-======================================================================
-
-Opções:
-
-GOOD
-IMPERFECT
-PRELIMINARY
-ALL
-
-Semântica cumulativa:
-
-GOOD       = GOOD
-IMPERFECT  = GOOD + IMPERFECT
-PRELIMINARY= GOOD + IMPERFECT + PRELIMINARY
-ALL        = todos
-
-Padrão:
-PRELIMINARY
-
-O status do MAME não determina sozinho se uma máquina deve ser
-excluída. Outros emuladores podem oferecer melhor suporte.
-
-Exemplos relevantes:
-- NAOMI;
-- NAOMI 2;
-- SEGA Model 2;
-- SEGA Model 3.
-
-======================================================================
-9. CLONES E TIPOS DE SET
-======================================================================
-
-Suportar:
-
-NON-MERGED
-SPLIT
-MERGED
-
-Parent e clone devem ser modelados separadamente.
-
-A opção "Excluir clones" depende do tipo de set.
-
-NON-MERGED:
-    permitir somente parents ou todos.
-
-SPLIT:
-    permitir somente parents ou todos.
-
-MERGED:
-    desabilitar exclusão individual de clones.
-
-Tooltip obrigatório:
-
-"Em conjuntos Merged, os clones fazem parte do arquivo do parent e não
-podem ser removidos individualmente."
-
-Objetivo do filtro:
-- manter todos os clones;
-ou
-- selecionar somente os parents.
-
-======================================================================
-10. BIOS, DEVICES E SAMPLES
-======================================================================
-
-Não tratar BIOS/devices/samples como jogos.
-
-Mas mantê-los quando forem necessários.
-
-Opções independentes:
-- Keep BIOS;
-- Keep Devices;
-- Keep Samples.
-
-A decisão deve ser combinada com o Dependency Resolver.
-
-Uma BIOS necessária para um sistema de Software List não deve ser
-removida simplesmente por não ser um jogo Arcade.
-
-======================================================================
-11. CHD E DISKS
-======================================================================
-
-Modelar separadamente:
-
-ROM
-DISK
-CHD
-
-mesmo que fisicamente compartilhem a mesma estrutura de diretórios.
-
-CHDs fazem parte do conjunto de artefatos necessários e devem ser
-associados à machine/dependência correspondente.
-
-======================================================================
-12. FORMATOS DE ARQUIVO
-======================================================================
-
-Suportar:
-- ZIP;
-- 7Z;
-- CHD.
-
-ZIP:
-    zipfile da biblioteca padrão.
-
-7Z:
-    py7zr para operações Python;
-    7-Zip/7zz externo para operações pesadas quando mais eficiente.
-
-Abstração:
-
-Archive
-    list_members()
-    read_member()
-    verify_member()
-    extract()
-    create()
-
-O domínio não deve depender diretamente de zipfile/py7zr.
-
-======================================================================
-13. MODELO DE BANCO
-======================================================================
-
-SQLite é o banco principal.
-
-Entidades:
-
-dataset
+# MAME Set Builder
+
+**Estado de referência:** 17/08/2026
+
+O **MAME Set Builder** é uma aplicação desktop Python/Qt para analisar um dataset MAME, aplicar filtros, auditar um FULLSET e construir um conjunto de destino sem modificar a origem.
+
+> **Fonte de verdade:** o código atual do repositório. Esta documentação distingue explicitamente o que já existe do que continua pendente.
+
+## Fluxo atual
+
+```text
+MAME / listxml
+      ↓
+Dataset / banco
+      ↓
+Filtros
+      ↓
+Scan ROMs
+      ↓
+current_scan.jsonl
+      ↓
+Reconstrução
+      ↓
+Meu Set
+      ↓
+residual / ROMs externas
+      ↓
+Torrent (futuro)
+```
+
+## Implementado
+
+- Detecção/processamento do dataset MAME.
+- Parser e modelos estruturados.
+- SQLite e migrations do projeto.
+- Perfis e filtros com atualização da interface.
+- Aba **Scan ROMs**.
+- Scanner físico com resultados estruturados e manifesto JSONL.
+- Registro da origem física das ROMs quando disponível no resultado do Scan.
+- Classificação visual de estados.
+- Geração de XML filtrado.
+- Aba **Reconstrução** integrada.
+- Seleção `Split`, `Merged` e `Non-Merged`.
+- Reconstrução orientada pelo `current_scan.jsonl`, sem nova varredura global das fontes.
+- Princípio de origem/FULLSET somente leitura.
+- Staging temporário no destino, sem cache permanente de ROMs.
+- Processamento incremental/streaming para evitar carregar ROMs inteiras em RAM.
+
+## Reconstrução
+
+A arquitetura definida é **uma machine por vez e uma ROM por vez**. A origem registrada pelo Scan é a referência inicial; a reconstrução não deve reindexar todas as pastas de ROMs.
+
+```text
+current_scan.jsonl
+    ↓
 machine
-machine_driver
-machine_classification
-machine_relationship
-machine_display
-machine_sound
-machine_input
-machine_control
-machine_chip
-machine_device
-machine_device_ref
-machine_feature
-machine_slot
-machine_slot_option
-machine_softwarelist
-bios
-rom
-disk
-sample
-machine_dependency
-archive
-archive_member
-file_requirement
-set_profile
-set_selection
-set_manifest
-manifest_file
-torrent
-torrent_file
-source_metadata
-
-Campos importantes de machine:
-- name;
-- description;
-- year;
-- manufacturer;
-- sourcefile;
-- cloneof;
-- romof;
-- sampleof;
-- isbios;
-- isdevice;
-- ismechanical;
-- runnable.
-
-Driver:
-- status;
-- emulation;
-- cocktail;
-- savestate;
-- requiresartwork;
-- unofficial;
-- nosoundhardware;
-- incomplete.
-
-ROM:
-- name;
-- size;
-- crc;
-- sha1;
-- merge;
-- region;
-- offset;
-- status;
-- optional;
-- bios.
-
-Disk:
-- name;
-- sha1;
-- merge;
-- region;
-- index;
-- writable;
-- status;
-- optional.
-
-Archive:
-- path;
-- format;
-- size;
-- modified_at;
-- scan_status.
-
-Archive Member:
-- name;
-- size;
-- crc;
-- sha1;
-- member_path.
-
-File Requirement:
-- machine;
-- file type;
-- name;
-- size;
-- crc;
-- sha1;
-- required;
-- optional;
-- source machine;
-- merge target.
-
-======================================================================
-14. ÍNDICES
-======================================================================
-
-Criar índices para:
-- machine.name;
-- cloneof;
-- romof;
-- sourcefile;
-- isbios;
-- isdevice;
-- ismechanical;
-- driver.emulation;
-- driver.status;
-- classification.platform_type;
-- classification.arcade;
-- rom.name;
-- rom.crc;
-- rom.sha1;
-- rom.merge;
-- disk.sha1;
-- archive.path;
-- archive_member.name;
-- archive_member.crc;
-- archive_member.sha1;
-- file_requirement.file_name;
-- file_requirement.crc;
-- file_requirement.sha1;
-- torrent.infohash;
-- torrent_file.path.
-
-======================================================================
-15. PERFORMANCE
-======================================================================
-
-Prioridade: CPU multicore.
-
-Ordem de otimização:
-1. reduzir trabalho;
-2. parsing streaming;
-3. SQLite e índices;
-4. evitar objetos Python desnecessários;
-5. batch processing;
-6. cache;
-7. multiprocessing;
-8. AVX2 quando houver benefício comprovado.
-
-GPU não é requisito.
-
-Não paralelizar cegamente. Medir primeiro.
-
-Benchmarks devem medir:
-- version detection;
-- listxml generation;
-- XML parsing;
-- SQLite ingestion;
-- classification;
-- filtering;
-- dependency resolution;
-- archive scanning;
-- audit;
-- set construction.
-
-======================================================================
-16. PARSER
-======================================================================
-
-Usar parser streaming.
-
-Fluxo:
-
-MAME -listxml
-    |
-    v
-XML stream
-    |
-    v
-machine-by-machine
-    |
-    v
-batch SQLite
-
-Evitar carregar o XML completo como DOM.
-
-======================================================================
-17. CLASSIFICATION E FILTER ENGINE
-======================================================================
-
-Separar:
-
-CLASSIFICATION
-    |
-    v
-SELECTION POLICY
-    |
-    v
-FILTER ENGINE
-
-A GUI não contém regras de negócio.
-
-A GUI cria um SetProfile.
-
-Exemplo:
-
-name:
-    Meu Arcade
-
-arcade:
-    true
-
-emulation:
-    preliminary
-
-set_type:
-    split
-
-clones:
-    false
-
-bios:
-    true
-
-devices:
-    true
-
-samples:
-    false
-
-chds:
-    true
-
-archive_format:
-    zip
-
-source:
-    G:\MAME_FULLSET
-
-destination:
-    D:\MAME_SET
-
-======================================================================
-18. DEPENDENCY RESOLVER
-======================================================================
-
-Selected Machines
-    |
-    v
-Dependency Resolver
-    |
-    +--> parent/clone
-    +--> ROM
-    +--> BIOS
-    +--> device
-    +--> sample
-    +--> disk
-    +--> CHD
-    +--> shared files
-    |
-    v
-Required Files
-
-O resolver é o coração da construção do set.
-
-======================================================================
-19. SET MANIFEST
-======================================================================
-
-Representa exatamente o estado desejado do Meu Set.
-
-Deve registrar:
-- MAME version;
-- dataset fingerprint;
-- profile;
-- selected machines;
-- required files;
-- optional files;
-- local state;
-- torrent state;
-- source path;
-- destination path.
-
-Estados locais:
-PRESENT
-MISSING
-WRONG
-CORRUPTED
-EXTRA
-
-Estados de torrent:
-AVAILABLE
-MISSING
-SELECTED
-NOT_NEEDED
-
-======================================================================
-20. FULLSET SCANNER E AUDITORIA
-======================================================================
-
-O scanner indexa o FULLSET sem modificá-lo.
-
-Primeiro nível:
-    archive
-
-Segundo nível:
-    archive_member
-
-Registrar:
-- nome;
-- extensão;
-- formato;
-- tamanho;
-- timestamp;
-- membros;
-- tamanho dos membros;
-- CRC;
-- SHA1 quando necessário.
-
-Usar verificação progressiva para reduzir I/O.
-
-======================================================================
-21. SET BUILDER
-======================================================================
-
-Recebe SetManifest.
-
-Localiza os artefatos no FULLSET.
-
-Constrói o Meu Set.
-
-Nunca modifica a origem.
-
-Fluxo:
-
-FULLSET
-  |
-  v
-SetManifest
-  |
-  v
-Builder
-  |
-  v
-MEU SET
-
-======================================================================
-22. QBITTORRENT
-======================================================================
-
-Objetivo inicial:
-usar um torrent funcional do FULLSET correspondente para obter
-somente os arquivos necessários que estão ausentes.
-
-Fluxo:
-
-MAGNET
-  |
-  v
-qBittorrent
-  |
-  v
-metadata available
-  |
-  v
-infohash
-  |
-  v
-torrent file list
-  |
-  v
-SetManifest matching
-  |
-  +--> REQUIRED
-  +--> NOT REQUIRED
-  +--> MISSING
-  |
-  v
-priorities
-
-Nunca:
-- assumir torrents_info()[0];
-- consultar arquivos antes de metadata;
-- usar somente machine_name.zip como modelo universal;
-- alterar o torrent original.
-
-Identificar o torrent por infohash ou identificador confiável.
-
-======================================================================
-23. TORRENT SUBSET FUTURO
-======================================================================
-
-Separar:
-
-Torrent Manager
-    integração com torrents existentes.
-
-Torrent Builder
-    criação de novos .torrent.
-
-Criar subset exige recalcular piece hashes.
-
-Não implementar isso na primeira fase de qBittorrent.
-
-======================================================================
-24. GUI
-======================================================================
-
-Toda opção deve possuir tooltip explicativo.
-
-Tooltip:
-- finalidade;
-- impacto;
-- exemplo;
-- limitações;
-- incompatibilidades.
-
-Exemplo:
-SetType = MERGED
-    ->
-Remove clones = disabled
-
-======================================================================
-25. ESTRUTURA DE ARQUIVOS DO PROJETO
-======================================================================
-
-mame-set-builder/
-|
-+-- pyproject.toml
-+-- README.md
-+-- LICENSE
-+-- .gitignore
-|
-+-- docs/
-|   +-- architecture.md
-|   +-- database.md
-|   +-- filters.md
-|   +-- sets.md
-|   +-- archives.md
-|   +-- torrents.md
-|   +-- phases.md
-|
-+-- src/
-|   +-- mame_set_builder/
-|       |
-|       +-- app/
-|       |   +-- application.py
-|       |   +-- settings.py
-|       |
-|       +-- mame/
-|       |   +-- executable.py
-|       |   +-- version.py
-|       |   +-- listxml.py
-|       |   +-- folders.py
-|       |
-|       +-- domain/
-|       |   +-- machine.py
-|       |   +-- rom.py
-|       |   +-- disk.py
-|       |   +-- bios.py
-|       |   +-- device.py
-|       |   +-- sample.py
-|       |   +-- archive.py
-|       |   +-- dependency.py
-|       |   +-- set_profile.py
-|       |   +-- manifest.py
-|       |
-|       +-- database/
-|       |   +-- connection.py
-|       |   +-- schema.py
-|       |   +-- migrations.py
-|       |   +-- repositories/
-|       |
-|       +-- parser/
-|       |   +-- xml_stream.py
-|       |   +-- machine_parser.py
-|       |   +-- rom_parser.py
-|       |   +-- ini_parser.py
-|       |
-|       +-- classification/
-|       |   +-- machine_classifier.py
-|       |   +-- arcade_classifier.py
-|       |   +-- rules.py
-|       |
-|       +-- filtering/
-|       |   +-- engine.py
-|       |   +-- predicates.py
-|       |   +-- profiles.py
-|       |
-|       +-- dependencies/
-|       |   +-- resolver.py
-|       |   +-- clone_resolver.py
-|       |   +-- bios_resolver.py
-|       |   +-- device_resolver.py
-|       |   +-- rom_resolver.py
-|       |   +-- chd_resolver.py
-|       |
-|       +-- archives/
-|       |   +-- scanner.py
-|       |   +-- zip.py
-|       |   +-- sevenzip.py
-|       |   +-- chd.py
-|       |   +-- archive_index.py
-|       |   +-- verifier.py
-|       |
-|       +-- sets/
-|       |   +-- builder.py
-|       |   +-- copier.py
-|       |   +-- merger.py
-|       |   +-- splitter.py
-|       |   +-- rebuild.py
-|       |
-|       +-- torrent/
-|       |   +-- client.py
-|       |   +-- magnet.py
-|       |   +-- metadata.py
-|       |   +-- index.py
-|       |   +-- matcher.py
-|       |   +-- priorities.py
-|       |   +-- builder.py
-|       |
-|       +-- exporters/
-|       |   +-- dat.py
-|       |   +-- xml.py
-|       |   +-- csv.py
-|       |   +-- json.py
-|       |   +-- manifest.py
-|       |
-|       +-- performance/
-|       |   +-- workers.py
-|       |   +-- multiprocessing.py
-|       |   +-- benchmarks.py
-|       |
-|       +-- gui/
-|           +-- main_window.py
-|           +-- filters.py
-|           +-- machines.py
-|           +-- sets.py
-|           +-- torrents.py
-|           +-- widgets/
-|
-+-- tests/
-|   +-- fixtures/
-|   +-- unit/
-|   +-- integration/
-|   +-- performance/
-|
-+-- data/
-|   +-- cache/
-|   +-- database/
-|   +-- manifests/
-|
-+-- tools/
-    +-- inspect_xml.py
-    +-- benchmark_parser.py
-    +-- benchmark_archives.py
-
-======================================================================
-26. FASES
-======================================================================
-
-FASE 0 — LIMPEZA
-- auditar GitHub;
-- remover legado;
-- remover duplicações;
-- preservar somente código útil.
-
-FASE 1 — MAME DATASET
-- detectar executável;
-- detectar versão;
-- gerar/validar listxml;
-- parser streaming;
-- SQLite;
-- benchmark.
-
-FASE 2 — MODELO MAME
-- machine;
-- ROM;
-- disk;
-- BIOS;
-- device;
-- sample;
-- CHD;
-- driver;
-- input;
-- display;
-- relationships.
-
-FASE 3 — CLASSIFICATION
-- Arcade;
-- Console;
-- Computer;
-- Portable;
-- Mechanical;
-- Pinball;
-- Pachinko;
-- Fruit Machine;
-- Quiz;
-- Tabletop;
-- BIOS;
-- Device.
-
-FASE 4 — FILTER ENGINE
-- emulation;
-- clones;
-- machine type;
-- BIOS;
-- devices;
-- samples;
-- CHDs.
-
-FASE 5 — SET PROFILE + GUI
-
-FASE 6 — DEPENDENCY RESOLVER
-
-FASE 7 — FULLSET SCANNER
-
-FASE 8 — SET BUILDER
-
-FASE 9 — AUDITOR
-
-FASE 10 — QBITTORRENT
-
-FASE 11 — MERGED/SPLIT/NON-MERGED REBUILD
-
-FASE 12 — TORRENT BUILDER
-
-FASE 13 — SOFTWARE LISTS
-
-======================================================================
-27. REGRAS DE DESENVOLVIMENTO
-======================================================================
-
-1. FULLSET é somente leitura.
-2. Não misturar versões MAME.
-3. GUI não contém regras de negócio.
-4. Não colocar lógica de domínio em main.py.
-5. SQLite deve executar filtros sempre que possível.
-6. Não paralelizar sem benchmark.
-7. GPU não é requisito.
-8. BIOS/devices não devem ser removidos indiscriminadamente.
-9. Seleção de machine e resolução de arquivos são separadas.
-10. Merged/Split/Non-Merged são políticas explícitas.
-11. qBittorrent usa infohash/metadata confiável.
-12. Nunca assumir torrents_info()[0].
-13. Toda opção GUI possui tooltip.
-14. Documentação acompanha implementação.
-15. Estado real do GitHub é a fonte de verdade da implementação.
-
-======================================================================
-28. CRITÉRIO FINAL
-======================================================================
-
-O sistema deve alcançar:
-
-MAME.EXE
-  -> VERSION
-  -> LISTXML
-  -> DATASET
-  -> CLASSIFICATION
-  -> FILTER PROFILE
-  -> SELECTED MACHINES
-  -> DEPENDENCY RESOLVER
-  -> SET MANIFEST
-  -> FULLSET AUDIT
-  -> MEU SET
-  -> QBITTORRENT MISSING
-
-Futuro:
-  -> REBUILD
-  -> SUBSET TORRENT
-  -> SOFTWARE LISTS
-
-O MAME Set Builder não é um simples filtro de nomes. É um sistema de
-gerenciamento e construção de sets MAME orientado por dados.
-
-======================================================================
-FIM
-======================================================================
+    ↓
+ROM individual
+    ↓
+origem registrada
+    ↓
+streaming
+    ↓
+CRC / tamanho / SHA-1 quando disponível
+    ↓
+staging
+    ↓
+ZIP da machine
+    ↓
+validação
+    ↓
+publicação atômica no destino
+```
+
+ROMs compartilhadas por outras machines devem ser obtidas pela origem registrada e nunca alteradas na origem. Uma ROM com conteúdo correto, mas nome físico diferente, é escrita no destino com o nome exigido pelo set.
+
+Não há cache permanente de ROMs. O staging temporário é descartável e deve ficar no destino.
+
+## Pendências
+
+### Reconstrução
+
+- Cobertura completa de testes do protocolo ROM → validação → staging → ZIP → validação → publicação.
+- Testes reais de `Split`, `Merged` e `Non-Merged` com parent/clone.
+- Fechamento do manifesto residual contendo somente ROMs não resolvidas.
+- Recuperação após interrupção sem duplicação/perda de estado.
+- Cobertura de todos os `source.kind` suportados pelo scanner.
+- Testes de integridade pós-escrita e retry com arquivos grandes.
+
+### Torrent / aquisição
+
+- Aba de download via torrent.
+- Integração qBittorrent.
+- Matching por infohash/lista de arquivos.
+- Download seletivo das dependências residuais.
+- Reentrada na reconstrução após aquisição.
+
+### Dataset / dependências
+
+- Completar/validar a persistência de todos os nós estruturais relevantes do `listxml` ainda não representados.
+- Consolidar Dependency Resolver para ROM, BIOS, device, sample, disk, CHD e compartilhamentos.
+- Auditoria completa de CHD/disk e demais artefatos.
+
+### Qualidade
+
+- Ampliar testes de integração Scan → Reconstrução.
+- Não considerar funcionalidade futura concluída apenas porque existem modelos ou documentação para ela.
+
+## Regras de segurança
+
+- **Nunca modificar o FULLSET/origens.**
+- Nunca renomear, mover ou apagar ROMs na origem.
+- Nunca assumir `machine == machine.zip` sem resolver dependências.
+- Não criar cache permanente contendo cópias das ROMs.
+- Não carregar ROMs inteiras em memória sem necessidade.
+- Validar tamanho e hashes antes de publicar artefatos reconstruídos.
+- Publicar arquivos finais somente após conclusão e validação.
+
+## Documentação
+
+- `docs/architecture.md` — arquitetura real e limites atuais.
+- `docs/archives.md` — auditoria e formatos físicos.
+- `docs/database.md` — banco e regras de evolução.
+- `docs/filters.md` — filtros e seleção.
+- `docs/sets.md` — Scan, manifesto e reconstrução.
+- `docs/torrents.md` — integração futura.
+- `docs/phases.md` — roadmap real.
+- `ARCHITECTURE_RECOMMENDATIONS.md` — decisões técnicas consolidadas.
+- `mame-set-builder-Prompt MESTRE.md` — regras para evolução do projeto.
+
+## Desenvolvimento
+
+Antes de alterar qualquer componente: consultar o código atual no GitHub, modelos/schema afetados e consumidores; preservar funções ativas; testar o fluxo real; e atualizar a documentação somente com o que realmente foi implementado.
