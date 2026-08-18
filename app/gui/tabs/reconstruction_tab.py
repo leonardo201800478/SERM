@@ -220,7 +220,7 @@ class ReconstructionTab(QWidget):
             repairer = SingleRomRepairService(
                 self._source_paths(),
                 destination,
-                log_callback=lambda message: logger.getLogger("app.mame.reconstruction_service").info(message) if False else logger.info(message),
+                log_callback=lambda message: logging.getLogger("app.mame.reconstruction_service").info(message),
             )
             repairer.repair(machine, rom)
             self.progress.setValue(100)
