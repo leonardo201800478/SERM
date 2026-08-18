@@ -41,6 +41,9 @@ class ScanRomsTabEngine(QWidget):
         self.scanner: RomScanEngine | None = None
         self.scan_thread: threading.Thread | None = None
         self.scan_results: list[Any] = []
+        self._scan_error_message: str | None = None
+        self._last_progress: tuple[int, int, Any] | None = None
+        self._scan_watchdog: QTimer | None = None
         self._filter_service: FilterService | None = None
         self._tree_timer: QTimer | None = None
         self._build_ui()
@@ -222,25 +225,55 @@ class ScanRomsTabEngine(QWidget):
             return
         self._save_paths()
         self.scanning = True
+        self._scan_error_message = None
+        self._last_progress = None
         self.summary.reset()
         self.tree.clear()
         self.summary.set_status("Iniciando novo escaneamento...")
         self._update_ui_state()
         self.scan_thread = threading.Thread(target=self._scan_worker, daemon=True, name="mame-rom-scan")
         self.scan_thread.start()
+        self._start_scan_watchdog()
+
+    def _start_scan_watchdog(self) -> None:
+        """Inicia um timer pertencente à thread Qt principal para observar o worker."""
+        if self._scan_watchdog is None:
+            self._scan_watchdog = QTimer(self)
+            self._scan_watchdog.setInterval(100)
+            self._scan_watchdog.timeout.connect(self._poll_scan_worker)
+        if not self._scan_watchdog.isActive():
+            self._scan_watchdog.start()
+
+    def _poll_scan_worker(self) -> None:
+        """Atualiza a UI e finaliza o scan somente na thread Qt principal."""
+        if self._last_progress is not None:
+            current, total, result = self._last_progress
+            self._last_progress = None
+            self._set_progress(current, total, result)
+        thread = self.scan_thread
+        if thread is not None and thread.is_alive():
+            return
+        if self._scan_watchdog is not None:
+            self._scan_watchdog.stop()
+        error = self._scan_error_message
+        self._scan_error_message = None
+        if error:
+            self._scan_error(error)
+        else:
+            self._scan_finished()
 
     def _scan_worker(self) -> None:
         try:
             machines = self._xml_machines()
             self.scanner = RomScanEngine(self.control.get_rom_paths(), max_workers=self.control.worker_count(), progress_callback=self._progress, log_callback=self._log, enable_alternate_search=self.control.alternate_search_enabled(), include_chds=self.control.include_chds(), manifest_directory=self._scans_dir())
             self.scan_results = self.scanner.scan(machines, mame_version=self._mame_version(), xml_path=self.filtered_xml_path)
-            QTimer.singleShot(0, self._scan_finished)
         except Exception as exc:
             logger.exception("Falha no scan")
-            QTimer.singleShot(0, lambda: self._scan_error(str(exc)))
+            self._scan_error_message = str(exc)
 
     def _progress(self, current: int, total: int, result: Any) -> None:
-        self._queue_ui(lambda: self._set_progress(current, total, result))
+        """Recebe progresso do worker sem tocar diretamente em widgets Qt."""
+        self._last_progress = (current, total, result)
 
     def _set_progress(self, current: int, total: int, result: Any) -> None:
         status = str(value_of(result, "status", "")).lower()
@@ -257,9 +290,9 @@ class ScanRomsTabEngine(QWidget):
         self.scanning = False
         self.scanner = None
         self.scan_thread = None
-        self._load_current_manifest(show_errors=True)
+        loaded = self._load_current_manifest(show_errors=True)
         self.summary.set_progress(100, "Scan concluído")
-        self.summary.set_status("Escaneamento concluído — current_scan.jsonl carregado")
+        self.summary.set_status("Escaneamento concluído — current_scan.jsonl carregado" if loaded else "Escaneamento concluído, mas o manifesto não pôde ser carregado")
         self._update_ui_state()
 
     def _scan_error(self, message: str) -> None:
@@ -370,9 +403,6 @@ class ScanRomsTabEngine(QWidget):
                         writer.writerow([machine.machine_name, rom.rom_name, rom.status.value, rom.expected_size, rom.actual_size, rom.expected_crc, rom.actual_crc, str(rom.location or "")])
         except Exception as exc:
             QMessageBox.critical(self, "Relatório", str(exc))
-
-    def _queue_ui(self, callback) -> None:
-        QTimer.singleShot(0, callback)
 
     def _update_ui_state(self) -> None:
         self.control.set_scanning_state(self.scanning, xml_ready=self.filtered_xml_path is not None and self.filtered_xml_path.is_file())
