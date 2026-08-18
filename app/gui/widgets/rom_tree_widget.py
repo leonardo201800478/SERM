@@ -96,7 +96,7 @@ class RomTreeWidget(QWidget):
         # Árvore
         self.tree = QTreeWidget()
         self.tree.setColumnCount(5)
-        self.tree.setHeaderLabels(["ROM / Máquina", "Descrição / Caminho", "Tamanho", "CRC / SHA1", "Status"])
+        self.tree.setHeaderLabels(["ROM / Máquina", "Nome do Jogo", "Tamanho", "CRC / SHA1", "Status"])
         self.tree.setAlternatingRowColors(True)
         self.tree.setUniformRowHeights(True)
         self.tree.setSortingEnabled(True)
@@ -197,11 +197,12 @@ class RomTreeWidget(QWidget):
 
     def _add_machine(self, machine: Any) -> None:
         name = str(value_of(machine, "machine_name", ""))
+        description = str(value_of(machine, "description", "") or "")
         status = self._machine_status(machine)
 
         item = QTreeWidgetItem(self.tree)
         item.setText(0, f"📁 {name}")
-        item.setText(1, "")
+        item.setText(1, description)  # <-- exibe a descrição do jogo
         item.setText(2, self._format_machine_size(machine))
         item.setText(3, "-")
         item.setText(4, STATUS_LABELS.get(status, status.upper()))
@@ -222,7 +223,7 @@ class RomTreeWidget(QWidget):
 
         child = QTreeWidgetItem(parent)
         child.setText(0, f"  ├─ {name}")
-        child.setText(1, str(path) if path else "")
+        child.setText(1, "")  # <-- vazio, sem caminho (pode ser adicionado via tooltip)
         child.setText(2, self._format_result_size(expected_size, actual_size, status))
         hash_value = actual_crc or expected_crc or "-"
         child.setText(3, hash_value[:40])
@@ -234,7 +235,8 @@ class RomTreeWidget(QWidget):
         )
         self._apply_status_color(child, status)
         child.setToolTip(0, f"Esperado: {expected_crc or '-'}\nEncontrado: {actual_crc or '-'}")
-        child.setToolTip(1, str(path) if path else "")
+        if path:
+            child.setToolTip(1, str(path))  # mantém caminho como tooltip, se disponível
 
     @staticmethod
     def _machine_status(machine: Any) -> str:

@@ -101,13 +101,25 @@ class LoadManifestWorker(QThread):
             from app.core.models.scan_result import MachineScanResult, RomScanResult, ScanStatus
 
             reader = ScanManifestReader(self.manifest_path)
-            # Primeira passagem: contar registros de ROM (para progresso)
+
+            # --- 1. LER DESCRIÇÕES DOS REGISTROS "machine" ---
+            machine_descriptions: dict[str, str] = {}
+            for record in reader.iter_records():
+                if record.get("record_type") == "machine":
+                    machine_data = record.get("machine")
+                    if isinstance(machine_data, dict):
+                        name = machine_data.get("name")
+                        desc = machine_data.get("description", "")
+                        if name:
+                            machine_descriptions[name] = desc
+
+            # --- 2. REABRIR O READER PARA PROCESSAR AS ROMS ---
+            reader = ScanManifestReader(self.manifest_path)
             total_roms = sum(1 for _ in reader.iter_roms())
             if total_roms == 0:
                 self.error.emit("O manifesto não contém registros de ROM.")
                 return
 
-            # Segunda passagem: carregar dados
             reader = ScanManifestReader(self.manifest_path)
             machines_dict: dict[str, MachineScanResult] = {}
             rom_count = 0
@@ -118,7 +130,12 @@ class LoadManifestWorker(QThread):
                     continue
 
                 if machine_name not in machines_dict:
-                    machines_dict[machine_name] = MachineScanResult(machine_name=machine_name)
+                    # Usa a descrição capturada do registro machine
+                    description = machine_descriptions.get(machine_name, "")
+                    machines_dict[machine_name] = MachineScanResult(
+                        machine_name=machine_name,
+                        description=description
+                    )
 
                 status_str = rom_record.get("status", "missing")
                 status_map = {
@@ -166,6 +183,9 @@ class LoadManifestWorker(QThread):
         except Exception as e:
             self.error.emit(str(e))
 
+            logger.info(f"Máquinas carregadas: {len(machines_dict)}")
+            for name, machine in list(machines_dict.items())[:5]:
+                logger.info(f"  {name}: descrição='{machine.description}'")
 
 # ============================================================================
 # ABA PRINCIPAL
