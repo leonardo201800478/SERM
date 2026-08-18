@@ -139,6 +139,7 @@ class ReconstructionService:
 
     @staticmethod
     def _valid_data(data: bytes, rom: ReconstructionRom) -> bool:
+        """Confere tamanho, CRC e SHA-1 esperado."""
         if len(data) != rom.expected_size:
             return False
         import binascii
@@ -147,10 +148,11 @@ class ReconstructionService:
         return not rom.expected_sha1 or hashlib.sha1(data).hexdigest().lower() == rom.expected_sha1.lower()
 
     def _find_source(self, rom: ReconstructionRom) -> tuple[Path, str] | None:
+        """Localiza uma cópia válida da ROM em qualquer fonte configurada."""
         key = (rom.rom_name.lower(), rom.expected_crc.lower(), rom.expected_size)
         candidates = self._index.get(key, [])
         if not candidates:
-            candidates = [item for (name, crc, size), values in self._index.items()
+            candidates = [item for (_, crc, size), values in self._index.items()
                           if crc == rom.expected_crc.lower() and size == rom.expected_size for item in values]
         for archive, member in candidates:
             try:
@@ -162,6 +164,7 @@ class ReconstructionService:
         return None
 
     def _source_for_rom(self, rom: ReconstructionRom) -> tuple[Path, str] | None:
+        """Tenta primeiro a origem registrada no scan e depois o índice global."""
         if rom.source_archive and rom.source_member:
             archive = Path(rom.source_archive)
             if archive.is_file():
@@ -196,10 +199,11 @@ class ReconstructionService:
         shutil.copy2(source, target)
         return True
 
-    def _write_zip(self, machine: ReconstructionMachine, selected: list[tuple[ReconstructionRom, Path, str]]) -> None:
-        target = self.destination_path / f"{machine.name}.zip"
+    def _write_zip(self, machine_name: str, selected: list[tuple[ReconstructionRom, Path, str]]) -> None:
+        """Cria o ZIP de forma atômica para não deixar arquivos corrompidos."""
+        target = self.destination_path / f"{machine_name}.zip"
         target.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(prefix=f".{machine.name}.", suffix=".tmp", dir=str(target.parent))
+        fd, tmp = tempfile.mkstemp(prefix=f".{machine_name}.", suffix=".tmp", dir=str(target.parent))
         os.close(fd)
         tmp_path = Path(tmp)
         try:
@@ -218,21 +222,27 @@ class ReconstructionService:
         finally:
             tmp_path.unlink(missing_ok=True)
 
-    def _roms_for_set(self, machine: ReconstructionMachine, by_name: dict[str, ReconstructionMachine], set_type: str) -> list[ReconstructionRom]:
+    def _roms_for_nonmerged(self, machine: ReconstructionMachine, by_name: dict[str, ReconstructionMachine]) -> list[ReconstructionRom]:
+        """Non-Merged inclui ROMs próprias e todas as ROMs necessárias do parent."""
         own = list(machine.roms)
-        if set_type == self.SET_SPLIT or not machine.cloneof:
+        if not machine.cloneof:
             return own
         parent = by_name.get(machine.cloneof)
-        if not parent:
-            return own
-        parent_required = self._required(parent)
-        if set_type == self.SET_MERGED:
-            return own + parent_required
-        return own + parent_required
+        return own + (self._required(parent) if parent else [])
+
+    @staticmethod
+    def _merged_root(machine: ReconstructionMachine, by_name: dict[str, ReconstructionMachine]) -> ReconstructionMachine:
+        """Retorna a machine raiz do grupo merged."""
+        current = machine
+        visited: set[str] = set()
+        while current.cloneof and current.cloneof in by_name and current.name not in visited:
+            visited.add(current.name)
+            current = by_name[current.cloneof]
+        return current
 
     def reconstruct(self, machines: list[ReconstructionMachine], *, set_type: str = SET_SPLIT,
                     copy_perfect: bool = True, repair: bool = True) -> ReconstructionResult:
-        """Executa a operação e mantém somente pendências no resultado."""
+        """Executa o modo escolhido: Split, Merged ou Non-Merged."""
         if set_type not in {self.SET_SPLIT, self.SET_MERGED, self.SET_NON_MERGED}:
             raise ValueError(f"Tipo de set inválido: {set_type}")
         self.destination_path.mkdir(parents=True, exist_ok=True)
@@ -241,6 +251,39 @@ class ReconstructionService:
         result = ReconstructionResult()
         total = sum(len(self._required(m)) for m in machines)
         current = 0
+
+        if set_type == self.SET_MERGED:
+            # Em Merged existe um ZIP por família, com parent + clones.
+            groups: dict[str, list[ReconstructionMachine]] = {}
+            for machine in machines:
+                root = self._merged_root(machine, by_name)
+                groups.setdefault(root.name, []).append(machine)
+            for root_name, group in groups.items():
+                selected: list[tuple[ReconstructionRom, Path, str]] = []
+                failed = False
+                for machine in group:
+                    for rom in self._required(machine):
+                        source = self._source_for_rom(rom)
+                        if source:
+                            selected.append((rom, source[0], source[1]))
+                        else:
+                            failed = True
+                            result.external += 1
+                            result.unresolved.append(self._unresolved(machine, rom, "fonte_externa_necessaria"))
+                        current += 1
+                        self._progress(current, total, f"{machine.name}: {rom.rom_name}")
+                if failed:
+                    result.failed += 1
+                    continue
+                try:
+                    self._write_zip(root_name, selected)
+                    result.repaired += 1
+                    self._log(f"Merged criado: {root_name}")
+                except Exception as exc:
+                    result.failed += 1
+                    result.unresolved.append(self._unresolved(group[0], None, "erro_gravacao", str(exc)))
+            self._progress(total, total, "Reconstrução concluída.")
+            return result
 
         for machine in machines:
             required = self._required(machine)
@@ -256,11 +299,10 @@ class ReconstructionService:
                 current += len(required)
                 continue
 
+            roms = required if set_type == self.SET_SPLIT else self._roms_for_nonmerged(machine, by_name)
             selected: list[tuple[ReconstructionRom, Path, str]] = []
             failed = False
-            for rom in self._roms_for_set(machine, by_name, set_type):
-                if rom.optional:
-                    continue
+            for rom in roms:
                 source = self._source_for_rom(rom)
                 if not source:
                     failed = True
@@ -275,12 +317,13 @@ class ReconstructionService:
                 result.failed += 1
                 continue
             try:
-                self._write_zip(machine, selected)
+                self._write_zip(machine.name, selected)
                 result.repaired += 1
                 self._log(f"Reparado: {machine.name}")
             except Exception as exc:
                 result.failed += 1
                 result.unresolved.append(self._unresolved(machine, None, "erro_gravacao", str(exc)))
+
         self._progress(total, total, "Reconstrução concluída.")
         return result
 
@@ -293,7 +336,7 @@ class ReconstructionService:
 
     @staticmethod
     def write_residual_manifest(path: str | Path, unresolved: list[dict[str, Any]], *, source_manifest: str | Path, set_type: str) -> Path:
-        """Gera manifesto residual compatível com a próxima etapa do pipeline."""
+        """Gera manifesto residual somente com ROMs/machines não resolvidas."""
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("w", encoding="utf-8", newline="\n") as fh:
@@ -301,18 +344,23 @@ class ReconstructionService:
                                  "manifest_type": "reconstruction_residual", "source_manifest": str(source_manifest),
                                  "set_type": set_type}, ensure_ascii=False) + "\n")
             seen: set[tuple[str, str]] = set()
+            machines_written: set[str] = set()
             for item in unresolved:
-                key = (str(item.get("machine")), str(item.get("rom_name")))
+                machine = str(item.get("machine") or "")
+                rom_name = str(item.get("rom_name") or "")
+                key = (machine, rom_name)
                 if key in seen:
                     continue
                 seen.add(key)
-                fh.write(json.dumps({"record_type": "machine", "event": "residual",
-                                     "machine": {"name": item.get("machine"), "description": item.get("description", ""),
-                                                 "cloneof": item.get("cloneof")}}, ensure_ascii=False) + "\n")
-                if item.get("rom_name"):
-                    fh.write(json.dumps({"record_type": "rom", "machine": item.get("machine"),
+                if machine not in machines_written:
+                    fh.write(json.dumps({"record_type": "machine", "event": "residual",
+                                         "machine": {"name": machine, "description": item.get("description", ""),
+                                                     "cloneof": item.get("cloneof")}}, ensure_ascii=False) + "\n")
+                    machines_written.add(machine)
+                if rom_name:
+                    fh.write(json.dumps({"record_type": "rom", "machine": machine,
                                          "machine_description": item.get("description", ""),
-                                         "rom_name": item.get("rom_name"), "expected_size": item.get("expected_size", 0),
+                                         "rom_name": rom_name, "expected_size": item.get("expected_size", 0),
                                          "expected_crc": item.get("expected_crc", ""), "expected_sha1": item.get("expected_sha1"),
                                          "status": "missing", "required": True, "optional": False,
                                          "error": item.get("reason")}, ensure_ascii=False) + "\n")
