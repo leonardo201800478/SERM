@@ -10,8 +10,8 @@ from PySide6.QtWidgets import QComboBox, QGroupBox, QHBoxLayout, QLabel, QMessag
 from app.config.app_config import AppConfig
 from app.gui.widgets.log_panel import LogPanel
 from app.gui.widgets.reconstruction_tree_widget import ReconstructionTreeWidget
-from app.mame.reconstruction_service import ReconstructionService
-from app.mame.rom_repair_service import SingleRomRepairService
+from app.mame.reconstruction_engine import ReconstructionEngine
+from app.mame.rom_repair_engine import SingleRomRepairEngine
 
 logger = logging.getLogger(__name__)
 
@@ -33,14 +33,14 @@ class ReconstructionWorker(QThread):
         self.copy_perfect = copy_perfect
         self.repair = repair
         self.residual = residual
-        self.service: ReconstructionService | None = None
+        self.service: ReconstructionEngine | None = None
 
     def run(self) -> None:
         try:
             self.log.emit(f"Carregando manifesto: {self.manifest}")
-            machines = ReconstructionService.load_manifest(self.manifest)
+            machines = ReconstructionEngine.load_manifest(self.manifest)
             self.log.emit(f"Manifesto carregado: {len(machines)} machines. Nenhuma varredura das fontes será realizada.")
-            self.service = ReconstructionService(
+            self.service = ReconstructionEngine(
                 self.source_paths,
                 self.destination,
                 progress_callback=lambda c, t, m: self.progress.emit(c, t, m),
@@ -52,10 +52,7 @@ class ReconstructionWorker(QThread):
                 copy_perfect=self.copy_perfect,
                 repair=self.repair,
             )
-            service = self.service
-            if service is None:
-                raise RuntimeError("Serviço de reconstrução não inicializado.")
-            residual_path = service.write_residual_manifest(
+            residual_path = self.service.write_residual_manifest(
                 self.residual,
                 result.unresolved,
                 source_manifest=self.manifest,
@@ -105,9 +102,9 @@ class ReconstructionTab(QWidget):
         self.cancel_button = QPushButton("Cancelar")
         self.cancel_button.setEnabled(False)
         self.set_combo = QComboBox()
-        self.set_combo.addItem("Split", ReconstructionService.SET_SPLIT)
-        self.set_combo.addItem("Merged", ReconstructionService.SET_MERGED)
-        self.set_combo.addItem("Non-Merged", ReconstructionService.SET_NON_MERGED)
+        self.set_combo.addItem("Split", ReconstructionEngine.SET_SPLIT)
+        self.set_combo.addItem("Merged", ReconstructionEngine.SET_MERGED)
+        self.set_combo.addItem("Non-Merged", ReconstructionEngine.SET_NON_MERGED)
         self.manifest_label = QLabel()
         row.addWidget(self.copy_button)
         row.addWidget(self.repair_button)
@@ -147,7 +144,7 @@ class ReconstructionTab(QWidget):
                 self.manifest_label.setText("Manifesto: current_scan.jsonl não encontrado")
                 self.tree.clear()
                 return
-            self.machines = ReconstructionService.load_manifest(self.manifest_path)
+            self.machines = ReconstructionEngine.load_manifest(self.manifest_path)
             self.tree.set_data(self.machines)
             self.manifest_label.setText(f"Manifesto: {self.manifest_path} | Machines: {len(self.machines)}")
         except Exception as exc:
@@ -201,26 +198,24 @@ class ReconstructionTab(QWidget):
         self.worker.start()
 
     def _context_action(self, data: dict) -> None:
-        """Executa o reparo individual da ROM selecionada pelo menu contextual."""
+        """Executa reparo individual usando o mesmo protocolo transacional."""
         if data.get("action") == "details":
             rom = data.get("rom")
             QMessageBox.information(self, "ROM", f"{rom.rom_name}\nCRC: {rom.expected_crc}\nTamanho: {rom.expected_size}")
             return
-
         machine = data.get("machine")
         rom = data.get("rom")
         if not machine or not rom:
             return
-
         try:
             destination = self._destination()
             self.progress.setValue(0)
             self.progress_label.setText(f"Reparando {machine.name} -> {rom.rom_name}...")
             self.log_panel._clear()
-            repairer = SingleRomRepairService(
+            repairer = SingleRomRepairEngine(
                 self._source_paths(),
                 destination,
-                log_callback=lambda message: logging.getLogger("app.mame.reconstruction_service").info(message),
+                log_callback=self._append_log,
             )
             repairer.repair(machine, rom)
             self.progress.setValue(100)
@@ -237,18 +232,14 @@ class ReconstructionTab(QWidget):
         self.progress_label.setText(message)
 
     def _append_log(self, message: str) -> None:
-        """Recebe logs do worker e os envia ao logger observado pelo LogPanel."""
-        reconstruction_logger = logging.getLogger("app.mame.reconstruction_service")
-        reconstruction_logger.info(message)
+        """Recebe logs do worker."""
+        logging.getLogger("app.mame.reconstruction_service").info(message)
 
     def _finished(self, result) -> None:
         if result is None:
             self.progress_label.setText("Reconstrução cancelada.")
             return
-        self.count_label.setText(
-            f"Copiadas: {result.copied} | Reparadas: {result.repaired} | "
-            f"Externas: {result.external} | Pendentes: {len(result.unresolved)}"
-        )
+        self.count_label.setText(f"Copiadas: {result.copied} | Reparadas: {result.repaired} | Externas: {result.external} | Pendentes: {len(result.unresolved)}")
         self.progress.setValue(100)
         self.progress_label.setText("Reconstrução concluída; manifesto residual gerado.")
         self._load_manifest()
@@ -258,7 +249,7 @@ class ReconstructionTab(QWidget):
         QMessageBox.critical(self, "Reconstrução", message)
 
     def _cancel(self) -> None:
-        """Solicita cancelamento seguro; nunca encerra a thread à força."""
+        """Solicita cancelamento seguro."""
         if self.worker and self.worker.isRunning():
             self.worker.cancel()
             self.progress_label.setText("Cancelamento solicitado; aguardando o bloco atual terminar...")
