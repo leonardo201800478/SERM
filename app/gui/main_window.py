@@ -1,5 +1,7 @@
 from PySide6.QtWidgets import QMainWindow, QTabWidget, QStatusBar
 
+# Instala a proteção de leitura ZIP antes de carregar a aba de scanner.
+from app.mame import physical_rom_scanner_guard  # noqa: F401
 from app.gui.tabs.home_tab import HomeTab
 from app.gui.tabs.directories_tab import DirectoriesTab
 from app.gui.tabs.filters_tab_realtime import FiltersTab
@@ -72,20 +74,24 @@ class MainWindow(QMainWindow):
     def _on_filters_changed(self):
         """Propaga o perfil ativo para o scanner."""
         if hasattr(self.scan_tab, "set_active_profile_name"):
-            self.scan_tab.set_active_profile_name(
-                self.filters_tab.profile_combo.currentText()
-            )
+            self.scan_tab.set_active_profile_name(self.filters_tab.profile_combo.currentText())
 
     def get_current_filter_criteria(self):
         """Retorna os critérios ativos da aba Filtragem."""
         if hasattr(self.filters_tab, "current_criteria"):
             return self.filters_tab.current_criteria
-
         from app.core.models.filter_profile import FilterCriteria
         return FilterCriteria()
 
     def closeEvent(self, event):
-        """Fecha o banco ao encerrar a aplicação."""
+        """Cancela e aguarda workers antes de fechar o banco SQLite."""
+        worker = getattr(self.scan_tab, "worker", None)
+        if worker is not None and worker.isRunning():
+            worker.cancel()
+            worker.wait(10000)
+        loader = getattr(self.scan_tab, "loader", None)
+        if loader is not None and loader.isRunning():
+            loader.wait(5000)
         if self.db:
             self.db.close()
         event.accept()
