@@ -32,21 +32,48 @@ class ReconstructionWorker(QThread):
         self.copy_perfect = copy_perfect
         self.repair = repair
         self.residual = residual
+        self.service: ReconstructionService | None = None
 
     def run(self) -> None:
         try:
+            self.log.emit(f"Carregando manifesto: {self.manifest}")
             machines = ReconstructionService.load_manifest(self.manifest)
-            service = ReconstructionService(self.source_paths, self.destination,
-                                            progress_callback=lambda c, t, m: self.progress.emit(c, t, m),
-                                            log_callback=self.log.emit)
-            result = service.reconstruct(machines, set_type=self.set_type,
-                                         copy_perfect=self.copy_perfect, repair=self.repair)
-            service.write_residual_manifest(self.residual, result.unresolved,
-                                            source_manifest=self.manifest, set_type=self.set_type)
+            self.log.emit(f"Manifesto carregado: {len(machines)} machines. Nenhuma varredura das fontes será realizada.")
+            self.service = ReconstructionService(
+                self.source_paths,
+                self.destination,
+                progress_callback=lambda c, t, m: self.progress.emit(c, t, m),
+                log_callback=self.log.emit,
+            )
+            result = self.service.reconstruct(
+                machines,
+                set_type=self.set_type,
+                copy_perfect=self.copy_perfect,
+                repair=self.repair,
+            )
+            service = self.service
+            if service is None:
+                raise RuntimeError("Serviço de reconstrução não inicializado.")
+            residual_path = service.write_residual_manifest(
+                self.residual,
+                result.unresolved,
+                source_manifest=self.manifest,
+                set_type=self.set_type,
+            )
+            self.log.emit(f"Manifesto residual gravado: {residual_path}")
             self.finished_result.emit(result)
+        except InterruptedError as exc:
+            self.log.emit(str(exc))
+            self.finished_result.emit(None)
         except Exception as exc:
             logger.exception("Falha na reconstrução")
             self.failed.emit(str(exc))
+
+    def cancel(self) -> None:
+        """Solicita cancelamento ao serviço, sem matar a thread à força."""
+        if self.service is not None:
+            self.service.request_cancel()
+        self.requestInterruption()
 
 
 class ReconstructionTab(QWidget):
@@ -155,8 +182,16 @@ class ReconstructionTab(QWidget):
         self.progress.setValue(0)
         self.count_label.setText("Copiadas: 0 | Reparadas: 0 | Externas: 0 | Pendentes: 0")
         self._set_running(True)
-        self.worker = ReconstructionWorker(self.manifest_path, self._source_paths(), destination,
-                                           self.set_combo.currentData(), copy_perfect, repair, residual)
+        self.log_panel._clear()
+        self.worker = ReconstructionWorker(
+            self.manifest_path,
+            self._source_paths(),
+            destination,
+            self.set_combo.currentData(),
+            copy_perfect,
+            repair,
+            residual,
+        )
         self.worker.progress.connect(self._on_progress)
         self.worker.log.connect(self._append_log)
         self.worker.finished_result.connect(self._finished)
@@ -165,7 +200,7 @@ class ReconstructionTab(QWidget):
         self.worker.start()
 
     def _context_action(self, data: dict) -> None:
-        """Executa reparo individual usando a mesma engine da reconstrução."""
+        """Executa reparo individual usando a mesma engine."""
         if data.get("action") == "details":
             rom = data.get("rom")
             QMessageBox.information(self, "ROM", f"{rom.rom_name}\nCRC: {rom.expected_crc}\nTamanho: {rom.expected_size}")
@@ -177,8 +212,12 @@ class ReconstructionTab(QWidget):
             destination = self._destination()
             service = ReconstructionService(self._source_paths(), destination, log_callback=logger.info)
             result = service.reconstruct([machine], set_type=self.set_combo.currentData(), copy_perfect=False, repair=True)
-            service.write_residual_manifest(self._scan_dir() / "current_reconstruction.jsonl", result.unresolved,
-                                            source_manifest=self.manifest_path, set_type=self.set_combo.currentData())
+            service.write_residual_manifest(
+                self._scan_dir() / "current_reconstruction.jsonl",
+                result.unresolved,
+                source_manifest=self.manifest_path,
+                set_type=self.set_combo.currentData(),
+            )
             self._load_manifest()
         except Exception as exc:
             QMessageBox.warning(self, "Reparo", str(exc))
@@ -189,10 +228,18 @@ class ReconstructionTab(QWidget):
         self.progress_label.setText(message)
 
     def _append_log(self, message: str) -> None:
+        """Recebe logs do worker e os envia ao logger observado pelo LogPanel."""
+        logger = logging.getLogger("app.mame.reconstruction_service")
         logger.info(message)
 
     def _finished(self, result) -> None:
-        self.count_label.setText(f"Copiadas: {result.copied} | Reparadas: {result.repaired} | Externas: {result.external} | Pendentes: {len(result.unresolved)}")
+        if result is None:
+            self.progress_label.setText("Reconstrução cancelada.")
+            return
+        self.count_label.setText(
+            f"Copiadas: {result.copied} | Reparadas: {result.repaired} | "
+            f"Externas: {result.external} | Pendentes: {len(result.unresolved)}"
+        )
         self.progress.setValue(100)
         self.progress_label.setText("Reconstrução concluída; manifesto residual gerado.")
         self._load_manifest()
@@ -202,9 +249,10 @@ class ReconstructionTab(QWidget):
         QMessageBox.critical(self, "Reconstrução", message)
 
     def _cancel(self) -> None:
+        """Solicita cancelamento seguro; nunca encerra a thread à força."""
         if self.worker and self.worker.isRunning():
-            self.worker.requestInterruption()
-            self.progress_label.setText("Cancelamento solicitado; aguardando término seguro...")
+            self.worker.cancel()
+            self.progress_label.setText("Cancelamento solicitado; aguardando o bloco atual terminar...")
 
     def _set_running(self, running: bool) -> None:
         for button in (self.copy_button, self.repair_button, self.all_button):
