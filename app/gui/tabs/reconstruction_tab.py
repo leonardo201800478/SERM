@@ -1,9 +1,4 @@
-"""Aba Reconstrução de ROMs.
-
-Consome o current_scan.jsonl produzido pela Scan Roms, copia máquinas
-perfeitas, reconstrói machines incompletas e deixa um manifesto residual
-somente com o que ainda depende de outra fonte.
-"""
+"""Aba Reconstrução de ROMs."""
 from __future__ import annotations
 
 import logging
@@ -74,7 +69,6 @@ class ReconstructionTab(QWidget):
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-
         controls = QGroupBox("Reconstrução do set")
         row = QHBoxLayout(controls)
         self.copy_button = QPushButton("Copiar ROMs perfeitas")
@@ -96,7 +90,6 @@ class ReconstructionTab(QWidget):
         row.addStretch()
         root.addWidget(controls)
         root.addWidget(self.manifest_label)
-
         self.tree = ReconstructionTreeWidget(self)
         self.tree.repair_requested.connect(self._context_action)
         root.addWidget(self.tree, 1)
@@ -110,7 +103,7 @@ class ReconstructionTab(QWidget):
         footer_layout.addWidget(self.progress)
         footer_layout.addWidget(self.progress_label)
         footer_layout.addWidget(self.count_label)
-        self.log_panel = LogPanel(self, logger_name="")
+        self.log_panel = LogPanel(self, logger_name="app.mame.reconstruction_service")
         footer_layout.addWidget(self.log_panel)
         root.addWidget(footer)
 
@@ -124,6 +117,7 @@ class ReconstructionTab(QWidget):
         try:
             if not self.manifest_path.is_file():
                 self.manifest_label.setText("Manifesto: current_scan.jsonl não encontrado")
+                self.tree.clear()
                 return
             self.machines = ReconstructionService.load_manifest(self.manifest_path)
             self.tree.set_data(self.machines)
@@ -157,7 +151,6 @@ class ReconstructionTab(QWidget):
         except Exception as exc:
             QMessageBox.warning(self, "Reconstrução", str(exc))
             return
-
         residual = self._scan_dir() / "current_reconstruction.jsonl"
         self.progress.setValue(0)
         self.count_label.setText("Copiadas: 0 | Reparadas: 0 | Externas: 0 | Pendentes: 0")
@@ -180,16 +173,12 @@ class ReconstructionTab(QWidget):
         machine = data.get("machine")
         if not machine:
             return
-        # Mantém a mesma regra da operação global, mas limita o manifesto à machine selecionada.
         try:
             destination = self._destination()
-            service = ReconstructionService(self._source_paths(), destination,
-                                            log_callback=self._append_log)
-            result = service.reconstruct([machine], set_type=self.set_combo.currentData(),
-                                         copy_perfect=False, repair=True)
-            service.write_residual_manifest(self._scan_dir() / "current_reconstruction.jsonl",
-                                            result.unresolved, source_manifest=self.manifest_path,
-                                            set_type=self.set_combo.currentData())
+            service = ReconstructionService(self._source_paths(), destination, log_callback=logger.info)
+            result = service.reconstruct([machine], set_type=self.set_combo.currentData(), copy_perfect=False, repair=True)
+            service.write_residual_manifest(self._scan_dir() / "current_reconstruction.jsonl", result.unresolved,
+                                            source_manifest=self.manifest_path, set_type=self.set_combo.currentData())
             self._load_manifest()
         except Exception as exc:
             QMessageBox.warning(self, "Reparo", str(exc))
@@ -200,14 +189,10 @@ class ReconstructionTab(QWidget):
         self.progress_label.setText(message)
 
     def _append_log(self, message: str) -> None:
-        try:
-            self.log_panel.append(message)
-        except AttributeError:
-            logger.info(message)
+        logger.info(message)
 
     def _finished(self, result) -> None:
-        pending = len(result.unresolved)
-        self.count_label.setText(f"Copiadas: {result.copied} | Reparadas: {result.repaired} | Externas: {result.external} | Pendentes: {pending}")
+        self.count_label.setText(f"Copiadas: {result.copied} | Reparadas: {result.repaired} | Externas: {result.external} | Pendentes: {len(result.unresolved)}")
         self.progress.setValue(100)
         self.progress_label.setText("Reconstrução concluída; manifesto residual gerado.")
         self._load_manifest()
@@ -217,8 +202,6 @@ class ReconstructionTab(QWidget):
         QMessageBox.critical(self, "Reconstrução", message)
 
     def _cancel(self) -> None:
-        # A engine atual termina operações atômicas sem corromper ZIPs; o cancelamento
-        # do worker é cooperativo para evitar deixar arquivos temporários inválidos.
         if self.worker and self.worker.isRunning():
             self.worker.requestInterruption()
             self.progress_label.setText("Cancelamento solicitado; aguardando término seguro...")
