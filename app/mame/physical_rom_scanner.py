@@ -5,7 +5,6 @@ seus membros são descompactados em streaming. A validade é decidida pelos
 bytes reais: tamanho + CRC32 + SHA1 quando o catálogo possuir SHA1.
 """
 from __future__ import annotations
-
 import hashlib
 import json
 import logging
@@ -22,41 +21,23 @@ logger = logging.getLogger(__name__)
 
 class PhysicalRomScanner:
     """Indexa fisicamente ROMs sem modificar os arquivos de origem."""
-
     CHUNK_SIZE = 1024 * 1024
     COMMIT_EVERY = 250
-
     _SCAN_TABLE_SQL = """
     CREATE TABLE IF NOT EXISTS rom_scan_run (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        dataset_run_id INTEGER,
-        source_count INTEGER NOT NULL DEFAULT 0,
-        started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        finished_at TIMESTAMP,
-        status TEXT NOT NULL,
-        archive_count INTEGER NOT NULL DEFAULT 0,
-        member_count INTEGER NOT NULL DEFAULT 0,
-        loose_file_count INTEGER NOT NULL DEFAULT 0,
-        bytes_read INTEGER NOT NULL DEFAULT 0,
-        valid_match_count INTEGER NOT NULL DEFAULT 0,
-        unmatched_count INTEGER NOT NULL DEFAULT 0,
-        error TEXT
+        id INTEGER PRIMARY KEY AUTOINCREMENT, dataset_run_id INTEGER,
+        source_count INTEGER NOT NULL DEFAULT 0, started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        finished_at TIMESTAMP, status TEXT NOT NULL, archive_count INTEGER NOT NULL DEFAULT 0,
+        member_count INTEGER NOT NULL DEFAULT 0, loose_file_count INTEGER NOT NULL DEFAULT 0,
+        bytes_read INTEGER NOT NULL DEFAULT 0, valid_match_count INTEGER NOT NULL DEFAULT 0,
+        unmatched_count INTEGER NOT NULL DEFAULT 0, error TEXT
     );
     CREATE TABLE IF NOT EXISTS rom_source_match (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        dataset_run_id INTEGER,
-        scan_run_id INTEGER,
-        rom_id INTEGER,
-        source_path TEXT NOT NULL,
-        archive_member TEXT,
-        source_kind TEXT NOT NULL,
-        actual_size INTEGER NOT NULL,
-        actual_crc TEXT NOT NULL,
-        actual_sha1 TEXT,
-        validation_status TEXT NOT NULL,
-        bytes_read INTEGER NOT NULL DEFAULT 0,
-        checked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        error TEXT
+        id INTEGER PRIMARY KEY AUTOINCREMENT, dataset_run_id INTEGER, scan_run_id INTEGER,
+        rom_id INTEGER, source_path TEXT NOT NULL, archive_member TEXT, source_kind TEXT NOT NULL,
+        actual_size INTEGER NOT NULL, actual_crc TEXT NOT NULL, actual_sha1 TEXT,
+        validation_status TEXT NOT NULL, bytes_read INTEGER NOT NULL DEFAULT 0,
+        checked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, error TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_rom_source_match_run ON rom_source_match(dataset_run_id);
     CREATE INDEX IF NOT EXISTS idx_rom_source_match_scan_run ON rom_source_match(scan_run_id);
@@ -78,92 +59,53 @@ class PhysicalRomScanner:
 
     @property
     def cancelled(self) -> bool:
-        """Indica se o scanner foi cancelado."""
         return self._cancel_requested
 
     def scan(self, machine_names: Iterable[str] | None = None, run_id: int | None = None, progress: Callable[[int, str], None] | None = None, cancelled: Callable[[], bool] | None = None) -> dict:
         """Executa o inventário físico e registra cada evidência no SQLite."""
-        conn = self._connection()
-        self._ensure_scan_tables(conn)
-        self._validate_sources()
-        expected = self._build_expected_index(machine_names)
-        started = time.monotonic()
+        conn = self._connection(); self._ensure_scan_tables(conn); self._validate_sources()
+        expected = self._build_expected_index(machine_names); started = time.monotonic()
         conn.execute("INSERT INTO rom_scan_run (dataset_run_id, source_count, status) VALUES (?, ?, 'running')", (run_id, len(self.source_dirs)))
-        scan_id = int(conn.execute("SELECT last_insert_rowid()").fetchone()[0])
-        self.last_scan_id = scan_id
-        conn.commit()
-        stats = {
-            "scan_id": scan_id, "dataset_run_id": run_id,
-            "expected_roms": sum(len(v) for v in expected.values()),
-            "archives": 0, "members": 0, "loose": 0, "bytes_read": 0,
-            "valid": 0, "sha1_mismatch": 0, "unmatched": 0, "read_errors": 0,
-            "seconds": 0.0, "status": "running",
-        }
+        scan_id = int(conn.execute("SELECT last_insert_rowid()").fetchone()[0]); self.last_scan_id = scan_id; conn.commit()
+        stats = {"scan_id": scan_id, "dataset_run_id": run_id, "expected_roms": sum(len(v) for v in expected.values()), "archives": 0, "members": 0, "loose": 0, "bytes_read": 0, "valid": 0, "sha1_mismatch": 0, "unmatched": 0, "read_errors": 0, "seconds": 0.0, "status": "running"}
         pending = 0
         logger.info("Scan físico iniciado: %d ROMs esperadas, %d origem(ns).", stats["expected_roms"], len(self.source_dirs))
         try:
             for root in self.source_dirs:
-                self._check_cancelled(cancelled)
-                logger.info("Origem física: %s", root)
-                if progress:
-                    progress(stats["members"], f"Lendo origem: {root}")
+                self._check_cancelled(cancelled); logger.info("Origem física: %s", root)
+                if progress: progress(stats["members"], f"Lendo origem: {root}")
                 for path in root.rglob("*"):
                     self._check_cancelled(cancelled)
-                    if not path.is_file():
-                        continue
-                    suffix = path.suffix.lower()
-                    if suffix == ".chd":
-                        continue
-                    if suffix == ".zip":
-                        unit = self._scan_zip(path, expected, scan_id, cancelled)
-                        stats["archives"] += 1
+                    if not path.is_file(): continue
+                    if path.suffix.lower() == ".chd": continue
+                    if path.suffix.lower() == ".zip":
+                        unit = self._scan_zip(path, expected, scan_id, cancelled); stats["archives"] += 1
                     else:
-                        unit = self._scan_loose(path, expected, scan_id, cancelled)
-                        stats["loose"] += 1
-                    for key in ("members", "bytes_read", "valid", "sha1_mismatch", "unmatched", "read_errors"):
-                        stats[key] += unit[key]
+                        unit = self._scan_loose(path, expected, scan_id, cancelled); stats["loose"] += 1
+                    for key in ("members", "bytes_read", "valid", "sha1_mismatch", "unmatched", "read_errors"): stats[key] += unit[key]
                     pending += unit["records"]
-                    if pending >= self.COMMIT_EVERY:
-                        conn.commit()
-                        pending = 0
-                    if progress:
-                        progress(stats["members"], self._progress_message(stats, path))
-            conn.commit()
-            stats["seconds"] = round(time.monotonic() - started, 2)
-            stats["status"] = "completed"
-            self._finish_run(conn, scan_id, stats)
-            self.last_stats = stats
+                    if pending >= self.COMMIT_EVERY: conn.commit(); pending = 0
+                    if progress: progress(stats["members"], self._progress_message(stats, path))
+            conn.commit(); stats["seconds"] = round(time.monotonic() - started, 2); stats["status"] = "completed"
+            self._finish_run(conn, scan_id, stats); self.last_stats = stats
             logger.info("Scan físico concluído: archives=%d members=%d loose=%d bytes=%d valid=%d sha1_mismatch=%d unmatched=%d errors=%d tempo=%.2fs", stats["archives"], stats["members"], stats["loose"], stats["bytes_read"], stats["valid"], stats["sha1_mismatch"], stats["unmatched"], stats["read_errors"], stats["seconds"])
             return stats
         except Exception as exc:
-            conn.rollback()
-            stats["seconds"] = round(time.monotonic() - started, 2)
-            stats["status"] = "cancelled" if str(exc) == "Operação cancelada." else "failed"
-            self._finish_run(conn, scan_id, stats, str(exc))
-            self.last_stats = stats
-            if stats["status"] == "cancelled":
-                logger.info("Scan físico cancelado pelo usuário.")
-                return stats
-            logger.exception("Falha no scan físico.")
-            raise
+            conn.rollback(); stats["seconds"] = round(time.monotonic() - started, 2); stats["status"] = "cancelled" if str(exc) == "Operação cancelada." else "failed"
+            self._finish_run(conn, scan_id, stats, str(exc)); self.last_stats = stats
+            if stats["status"] == "cancelled": logger.info("Scan físico cancelado pelo usuário."); return stats
+            logger.exception("Falha no scan físico."); raise
 
     def _build_expected_index(self, machine_names: Iterable[str] | None) -> dict[tuple[str, int], list[dict]]:
         """Cria índice CRC+tamanho limitado às machines do LISTXML."""
-        index: dict[tuple[str, int], list[dict]] = {}
-        names = [str(n).strip() for n in (machine_names or []) if str(n).strip()]
+        index: dict[tuple[str, int], list[dict]] = {}; names = [str(n).strip() for n in (machine_names or []) if str(n).strip()]
         if names:
             placeholders = ",".join("?" for _ in names)
-            rows = self.db.fetchall(
-                f"""SELECT r.id, r.machine_id, r.name, r.size, r.crc, r.sha1
-                      FROM rom r JOIN machine m ON m.id=r.machine_id
-                     WHERE m.name IN ({placeholders})
-                       AND r.crc IS NOT NULL AND TRIM(r.crc) <> ''
-                       AND r.size IS NOT NULL AND r.size >= 0""", names)
+            rows = self.db.fetchall(f"""SELECT r.id, r.machine_id, r.name, r.size, r.crc, r.sha1 FROM rom r JOIN machine m ON m.id=r.machine_id WHERE m.name IN ({placeholders}) AND r.crc IS NOT NULL AND TRIM(r.crc) <> '' AND r.size IS NOT NULL AND r.size >= 0""", names)
         else:
-            rows = self.db.fetchall("""SELECT id, machine_id, name, size, crc, sha1 FROM rom WHERE crc IS NOT NULL AND TRIM(crc) <> '' AND size IS NOT NULL AND size >= 0""")
+            rows = self.db.fetchall("SELECT id, machine_id, name, size, crc, sha1 FROM rom WHERE crc IS NOT NULL AND TRIM(crc) <> '' AND size IS NOT NULL AND size >= 0")
         for row in rows:
-            crc = str(row["crc"]).strip().lower()
-            size = int(row["size"] or 0)
+            crc = str(row["crc"]).strip().lower(); size = int(row["size"] or 0)
             index.setdefault((crc, size), []).append({"rom_id": int(row["id"]), "machine_id": int(row["machine_id"]), "name": str(row["name"]), "sha1": str(row["sha1"] or "").strip().lower()})
         return index
 
@@ -174,137 +116,83 @@ class PhysicalRomScanner:
             with zipfile.ZipFile(path, "r") as archive:
                 for info in archive.infolist():
                     self._check_cancelled(cancelled)
-                    if info.is_dir():
-                        continue
+                    if info.is_dir(): continue
                     result["members"] += 1
                     try:
-                        with archive.open(info, "r") as stream:
-                            size, crc, sha1 = self._hash_stream(stream, cancelled)
+                        with archive.open(info, "r") as stream: size, crc, sha1 = self._hash_stream(stream, cancelled)
                     except (OSError, EOFError, RuntimeError, zipfile.BadZipFile) as exc:
-                        result["read_errors"] += 1
-                        self._record(scan_id, None, path, info.filename, "zip", 0, "", "", "read_error", 0, str(exc))
-                        result["records"] += 1
-                        continue
+                        result["read_errors"] += 1; self._record(scan_id, None, path, info.filename, "zip", 0, "", "", "read_error", 0, str(exc)); result["records"] += 1; continue
                     result["bytes_read"] += size
                     result["records"] += self._record_matches(scan_id, path, info.filename, "zip", size, crc, sha1, expected.get((crc, size), []), result)
         except (OSError, zipfile.BadZipFile, RuntimeError) as exc:
-            result["read_errors"] += 1
-            self._record(scan_id, None, path, None, "zip", 0, "", "", "archive_error", 0, str(exc))
-            result["records"] += 1
+            result["read_errors"] += 1; self._record(scan_id, None, path, None, "zip", 0, "", "", "archive_error", 0, str(exc)); result["records"] += 1
         return result
 
     def _scan_loose(self, path: Path, expected: dict[tuple[str, int], list[dict]], scan_id: int, cancelled: Callable[[], bool] | None) -> dict:
         """Lê um arquivo solto em streaming."""
         result = self._empty_result()
-        try:
-            size, crc, sha1 = self._hash_file(path, cancelled)
+        try: size, crc, sha1 = self._hash_file(path, cancelled)
         except (OSError, RuntimeError) as exc:
-            result["read_errors"] = 1
-            self._record(scan_id, None, path, None, "loose", 0, "", "", "read_error", 0, str(exc))
-            result["records"] = 1
-            return result
-        result["members"] = 1
-        result["bytes_read"] = size
+            result["read_errors"] = 1; self._record(scan_id, None, path, None, "loose", 0, "", "", "read_error", 0, str(exc)); result["records"] = 1; return result
+        result["members"] = 1; result["bytes_read"] = size
         result["records"] = self._record_matches(scan_id, path, None, "loose", size, crc, sha1, expected.get((crc, size), []), result)
         return result
 
     def _hash_file(self, path: Path, cancelled: Callable[[], bool] | None = None) -> tuple[int, str, str]:
-        with path.open("rb") as stream:
-            return self._hash_stream(stream, cancelled)
+        with path.open("rb") as stream: return self._hash_stream(stream, cancelled)
 
     def _hash_stream(self, stream, cancelled: Callable[[], bool] | None = None) -> tuple[int, str, str]:
         """Calcula CRC32 e SHA1 sobre os bytes efetivamente lidos."""
-        crc = 0
-        sha1 = hashlib.sha1()
-        size = 0
+        crc = 0; sha1 = hashlib.sha1(); size = 0
         while True:
-            self._check_cancelled(cancelled)
-            chunk = stream.read(self.CHUNK_SIZE)
-            if not chunk:
-                break
-            size += len(chunk)
-            crc = zlib.crc32(chunk, crc)
-            sha1.update(chunk)
+            self._check_cancelled(cancelled); chunk = stream.read(self.CHUNK_SIZE)
+            if not chunk: break
+            size += len(chunk); crc = zlib.crc32(chunk, crc); sha1.update(chunk)
         return size, f"{crc & 0xFFFFFFFF:08x}", sha1.hexdigest()
 
     def _record_matches(self, scan_id: int, source_path: Path, archive_member: str | None, source_kind: str, size: int, crc: str, sha1: str, candidates: list[dict], result: dict) -> int:
         """Relaciona o conteúdo físico com todas as ROMs compatíveis."""
         if not candidates:
-            self._record(scan_id, None, source_path, archive_member, source_kind, size, crc, sha1, "unmatched", size, None)
-            result["unmatched"] += 1
-            return 1
+            self._record(scan_id, None, source_path, archive_member, source_kind, size, crc, sha1, "unmatched", size, None); result["unmatched"] += 1; return 1
         records = 0
         for candidate in candidates:
-            if candidate["sha1"] and candidate["sha1"] != sha1:
-                status = "sha1_mismatch"
-                result["sha1_mismatch"] += 1
-            else:
-                status = "valid"
-                result["valid"] += 1
-            self._record(scan_id, candidate["rom_id"], source_path, archive_member, source_kind, size, crc, sha1, status, size, None)
-            records += 1
+            if candidate["sha1"] and candidate["sha1"] != sha1: status = "sha1_mismatch"; result["sha1_mismatch"] += 1
+            else: status = "valid"; result["valid"] += 1
+            self._record(scan_id, candidate["rom_id"], source_path, archive_member, source_kind, size, crc, sha1, status, size, None); records += 1
         return records
 
     def _record(self, scan_id: int, rom_id: int | None, source_path: Path, archive_member: str | None, source_kind: str, size: int, crc: str, sha1: str, status: str, bytes_read: int, error: str | None) -> None:
-        conn = self._connection()
-        conn.execute(
-            """INSERT INTO rom_source_match (dataset_run_id, scan_run_id, rom_id, source_path, archive_member, source_kind, actual_size, actual_crc, actual_sha1, validation_status, bytes_read, checked_at, error)
-               SELECT dataset_run_id, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ? FROM rom_scan_run WHERE id=?""",
+        self._connection().execute(
+            """INSERT INTO rom_source_match (dataset_run_id, scan_run_id, rom_id, source_path, archive_member, source_kind, actual_size, actual_crc, actual_sha1, validation_status, bytes_read, checked_at, error) SELECT dataset_run_id, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ? FROM rom_scan_run WHERE id=?""",
             (scan_id, rom_id, str(source_path), archive_member, source_kind, size, crc, sha1, status, bytes_read, error, scan_id),
         )
 
     def write_manifest(self, xml_machines: list[dict], xml_path: Path, output_path: Path, mame_version: str, source_paths: Iterable[Path | str]) -> Path:
-        """Gera current_scan.jsonl somente com evidências do último scan."""
-        if not self.last_scan_id:
-            raise RuntimeError("Nenhum scan físico foi executado.")
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        conn = self._connection()
+        """Gera current_scan.jsonl priorizando correspondências válidas."""
+        if not self.last_scan_id: raise RuntimeError("Nenhum scan físico foi executado.")
+        output_path.parent.mkdir(parents=True, exist_ok=True); conn = self._connection()
         rows = conn.execute(
-            """SELECT r.name rom_name, r.size expected_size, r.crc expected_crc, r.sha1 expected_sha1,
-                      m.name machine_name, m.description machine_description,
-                      s.source_path, s.archive_member, s.source_kind, s.actual_size, s.actual_crc, s.actual_sha1,
-                      s.validation_status, s.error
-                 FROM rom_source_match s JOIN rom r ON r.id=s.rom_id JOIN machine m ON m.id=r.machine_id
-                WHERE s.id IN (SELECT MAX(s2.id) FROM rom_source_match s2 WHERE s2.scan_run_id=? AND s2.rom_id IS NOT NULL GROUP BY s2.rom_id)""",
+            """SELECT r.name rom_name, m.name machine_name, m.description machine_description, r.size expected_size, r.crc expected_crc, r.sha1 expected_sha1, s.source_path, s.archive_member, s.source_kind, s.actual_size, s.actual_crc, s.actual_sha1, s.validation_status, s.error FROM rom_source_match s JOIN rom r ON r.id=s.rom_id JOIN machine m ON m.id=r.machine_id WHERE s.scan_run_id=? AND s.id=(SELECT s2.id FROM rom_source_match s2 WHERE s2.scan_run_id=s.scan_run_id AND s2.rom_id=s.rom_id ORDER BY CASE s2.validation_status WHEN 'valid' THEN 0 WHEN 'sha1_mismatch' THEN 1 ELSE 2 END, s2.id DESC LIMIT 1)""",
             (self.last_scan_id,),
         ).fetchall()
-        by_key = {(row["machine_name"], row["rom_name"]): row for row in rows}
-        header = {
-            "record_type": "header", "schema_version": 2, "scan_id": f"physical_{self.last_scan_id}",
-            "started_at": datetime.now(timezone.utc).isoformat(), "mame_version": mame_version,
-            "xml_path": str(xml_path), "source_paths": [str(Path(p)) for p in source_paths],
-            "machine_count_expected": len(xml_machines),
-            "metadata": {"validation": "physical_stream_crc32_sha1_size", "bytes_read": self.last_stats.get("bytes_read", 0)},
-        }
+        by_key = {(r["machine_name"], r["rom_name"]): r for r in rows}
+        header = {"record_type": "header", "schema_version": 2, "scan_id": f"physical_{self.last_scan_id}", "started_at": datetime.now(timezone.utc).isoformat(), "mame_version": mame_version, "xml_path": str(xml_path), "source_paths": [str(Path(p)) for p in source_paths], "machine_count_expected": len(xml_machines), "metadata": {"validation": "physical_stream_crc32_sha1_size", "bytes_read": self.last_stats.get("bytes_read", 0)}}
         with output_path.open("w", encoding="utf-8", newline="\n") as handle:
             handle.write(json.dumps(header, ensure_ascii=False) + "\n")
             for machine in xml_machines:
-                name = machine["name"]
-                machine_meta = {"name": name, "description": machine.get("description", ""), "cloneof": machine.get("cloneof"), "rom_count": len(machine.get("roms", []))}
-                handle.write(json.dumps({"record_type": "machine", "event": "started", "machine": {**machine_meta, "status": "scanned"}}, ensure_ascii=False) + "\n")
+                name = machine["name"]; meta = {"name": name, "description": machine.get("description", ""), "cloneof": machine.get("cloneof"), "rom_count": len(machine.get("roms", []))}
+                handle.write(json.dumps({"record_type": "machine", "event": "started", "machine": {**meta, "status": "scanned"}}, ensure_ascii=False) + "\n")
                 for rom in machine.get("roms", []):
                     row = by_key.get((name, rom["name"]))
-                    record = {
-                        "machine": name, "machine_description": machine.get("description", ""), "rom_name": rom["name"],
-                        "expected_size": rom.get("size", 0), "expected_crc": rom.get("crc", ""), "expected_sha1": rom.get("sha1", ""),
-                        "merge": rom.get("merge"), "required": not bool(rom.get("optional")), "optional": bool(rom.get("optional")),
-                        "status": "missing" if row is None else row["validation_status"],
-                        "actual_size": 0 if row is None else row["actual_size"], "actual_crc": None if row is None else row["actual_crc"],
-                        "actual_sha1": None if row is None else row["actual_sha1"],
-                        "source": None if row is None else {"kind": row["source_kind"], "archive": row["source_path"], "member": row["archive_member"], "machine": name},
-                        "error": None if row is None else row["error"],
-                    }
+                    record = {"machine": name, "machine_description": machine.get("description", ""), "rom_name": rom["name"], "expected_size": rom.get("size", 0), "expected_crc": rom.get("crc", ""), "expected_sha1": rom.get("sha1", ""), "merge": rom.get("merge"), "required": not bool(rom.get("optional")), "optional": bool(rom.get("optional")), "status": "missing" if row is None else row["validation_status"], "actual_size": 0 if row is None else row["actual_size"], "actual_crc": None if row is None else row["actual_crc"], "actual_sha1": None if row is None else row["actual_sha1"], "source": None if row is None else {"kind": row["source_kind"], "archive": row["source_path"], "member": row["archive_member"], "machine": name}, "error": None if row is None else row["error"]}
                     handle.write(json.dumps({"record_type": "rom", "record": record}, ensure_ascii=False) + "\n")
-                handle.write(json.dumps({"record_type": "machine", "event": "finished", "machine": {**machine_meta, "status": "completed"}}, ensure_ascii=False) + "\n")
-        logger.info("current_scan.jsonl gerado: %s", output_path)
+                handle.write(json.dumps({"record_type": "machine", "event": "finished", "machine": {**meta, "status": "completed"}}, ensure_ascii=False) + "\n")
         return output_path
 
     def _validate_sources(self) -> None:
-        if not self.source_dirs:
-            raise RuntimeError("Nenhuma origem física de ROM foi configurada.")
+        if not self.source_dirs: raise RuntimeError("Nenhuma origem física de ROM foi configurada.")
         for path in self.source_dirs:
-            if not path.is_dir():
-                raise FileNotFoundError(f"Origem física não encontrada: {path}")
+            if not path.is_dir(): raise FileNotFoundError(f"Origem física não encontrada: {path}")
 
     def _ensure_scan_tables(self, conn: sqlite3.Connection) -> None:
         conn.executescript(self._SCAN_TABLE_SQL)
@@ -315,15 +203,10 @@ class PhysicalRomScanner:
         conn.commit()
 
     def _finish_run(self, conn: sqlite3.Connection, scan_id: int, stats: dict, error: str | None = None) -> None:
-        conn.execute(
-            """UPDATE rom_scan_run SET finished_at=CURRENT_TIMESTAMP, status=?, archive_count=?, member_count=?, loose_file_count=?, bytes_read=?, valid_match_count=?, unmatched_count=?, error=? WHERE id=?""",
-            (stats["status"], stats["archives"], stats["members"], stats["loose"], stats["bytes_read"], stats["valid"], stats["unmatched"] + stats["sha1_mismatch"] + stats["read_errors"], error, scan_id),
-        )
-        conn.commit()
+        conn.execute("UPDATE rom_scan_run SET finished_at=CURRENT_TIMESTAMP, status=?, archive_count=?, member_count=?, loose_file_count=?, bytes_read=?, valid_match_count=?, unmatched_count=?, error=? WHERE id=?", (stats["status"], stats["archives"], stats["members"], stats["loose"], stats["bytes_read"], stats["valid"], stats["unmatched"] + stats["sha1_mismatch"] + stats["read_errors"], error, scan_id)); conn.commit()
 
     def _connection(self) -> sqlite3.Connection:
-        if self.db.conn is None:
-            self.db.connect()
+        if self.db.conn is None: self.db.connect()
         assert self.db.conn is not None
         return self.db.conn
 
@@ -332,8 +215,7 @@ class PhysicalRomScanner:
         return {"members": 0, "bytes_read": 0, "valid": 0, "sha1_mismatch": 0, "unmatched": 0, "read_errors": 0, "records": 0}
 
     def _check_cancelled(self, cancelled: Callable[[], bool] | None) -> None:
-        if self._cancel_requested or (cancelled and cancelled()):
-            raise RuntimeError("Operação cancelada.")
+        if self._cancel_requested or (cancelled and cancelled()): raise RuntimeError("Operação cancelada.")
 
     @staticmethod
     def _progress_message(stats: dict, path: Path) -> str:
