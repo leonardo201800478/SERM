@@ -4,6 +4,7 @@ from pathlib import Path
 
 
 class AppConfig:
+    """Configuração persistente do MAME Set Builder."""
     CONFIG_DIR = Path.home() / ".mame-set-builder"
     CONFIG_FILE = CONFIG_DIR / "config.json"
     PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -12,11 +13,12 @@ class AppConfig:
 
     def __init__(self):
         self.mame_path: Path | None = None
-        self.ini_path: Path | None = None  # legado; não é usado no scanner novo
+        self.ini_path: Path | None = None
+        self.catver_path: Path | None = None
         self.db_path: Path = self.DB_PATH
         self.source_dirs: list[Path] = []
         self.destination_dir: Path | None = None
-        self.output_layout: str = "single"  # single | split
+        self.output_layout: str = "single"
         self.cache_dir: Path | None = None
         self.cache_limit_mb: int = 1024
         self.scan_workers: int = max(1, min(os.cpu_count() or 2, 16))
@@ -24,15 +26,18 @@ class AppConfig:
         self.load()
 
     def _ensure_directories(self):
+        """Garante diretórios persistentes do aplicativo."""
         self.DB_DIR.mkdir(parents=True, exist_ok=True)
 
     def load(self):
+        """Carrega configurações sem interromper a aplicação por arquivo inválido."""
         if not self.CONFIG_FILE.exists():
             return
         try:
             data = json.loads(self.CONFIG_FILE.read_text(encoding="utf-8"))
             self.mame_path = Path(data["mame_path"]) if data.get("mame_path") else None
             self.ini_path = Path(data["ini_path"]) if data.get("ini_path") else None
+            self.catver_path = Path(data["catver_path"]) if data.get("catver_path") else None
             self.source_dirs = [Path(p) for p in data.get("source_dirs", [])[:3] if p]
             self.destination_dir = Path(data["destination_dir"]) if data.get("destination_dir") else None
             self.output_layout = data.get("output_layout", "single") if data.get("output_layout") in {"single", "split"} else "single"
@@ -43,10 +48,12 @@ class AppConfig:
             pass
 
     def save(self):
+        """Salva as configurações de forma atômica."""
         self.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         payload = {
             "mame_path": str(self.mame_path) if self.mame_path else "",
             "ini_path": str(self.ini_path) if self.ini_path else "",
+            "catver_path": str(self.catver_path) if self.catver_path else "",
             "source_dirs": [str(p) for p in self.source_dirs[:3]],
             "destination_dir": str(self.destination_dir) if self.destination_dir else "",
             "output_layout": self.output_layout,
