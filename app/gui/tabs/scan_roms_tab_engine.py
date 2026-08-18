@@ -1,11 +1,8 @@
-"""Aba Scan Roms integrada ao RomScanEngine.
-
-Mantém a UI desacoplada do scanner e garante que o resultado físico seja
-persistido no current_scan.jsonl para a reconstrução.
-"""
+"""Aba Scan Roms integrada ao manifesto persistente do MAME Set Builder."""
 from __future__ import annotations
 
 import csv
+import json
 import logging
 import os
 import re
@@ -16,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import Qt, QTimer, QThread, Signal
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QFileDialog, QGroupBox, QHBoxLayout, QLabel, QMessageBox, QSpinBox, QSplitter, QVBoxLayout, QWidget
 
 from app.config.app_config import AppConfig
@@ -33,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 
 class ScanRomsTabEngine(QWidget):
-    """UI do Scan Roms usando o scanner orientado ao manifesto."""
+    """UI do Scan Roms usando o current_scan.jsonl como snapshot oficial."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -51,7 +48,7 @@ class ScanRomsTabEngine(QWidget):
         self._load_paths_from_config()
         self._load_profiles()
         self._update_ui_state()
-        QTimer.singleShot(200, self._load_current_manifest)
+        QTimer.singleShot(100, self._load_current_manifest)
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
@@ -105,6 +102,7 @@ class ScanRomsTabEngine(QWidget):
                     conn = db.conn
             self._filter_service = FilterService(conn) if conn is not None else None
         except Exception:
+            logger.exception("Falha inicializando FilterService")
             self._filter_service = None
 
     def _load_profiles(self) -> None:
@@ -226,6 +224,7 @@ class ScanRomsTabEngine(QWidget):
         self.scanning = True
         self.summary.reset()
         self.tree.clear()
+        self.summary.set_status("Iniciando novo escaneamento...")
         self._update_ui_state()
         self.scan_thread = threading.Thread(target=self._scan_worker, daemon=True, name="mame-rom-scan")
         self.scan_thread.start()
@@ -254,15 +253,19 @@ class ScanRomsTabEngine(QWidget):
         logging.getLogger("app.mame.rom_scan_engine").info(message)
 
     def _scan_finished(self) -> None:
+        """Encerra o estado do scanner e recarrega o snapshot persistido."""
         self.scanning = False
         self.scanner = None
-        self._update_counts()
-        self.tree.populate_async(self.scan_results)
+        self.scan_thread = None
+        self._load_current_manifest(show_errors=True)
+        self.summary.set_progress(100, "Scan concluído")
+        self.summary.set_status("Escaneamento concluído — current_scan.jsonl carregado")
         self._update_ui_state()
 
     def _scan_error(self, message: str) -> None:
         self.scanning = False
         self.scanner = None
+        self.scan_thread = None
         self._update_ui_state()
         QMessageBox.critical(self, "Scan", message)
 
@@ -273,25 +276,86 @@ class ScanRomsTabEngine(QWidget):
     def _update_counts(self) -> None:
         self.summary.update_counts({"machines": len(self.scan_results), "total": sum(m.total for m in self.scan_results), "found": sum(m.found for m in self.scan_results), "valid": sum(m.valid for m in self.scan_results), "missing": sum(m.missing for m in self.scan_results), "bad": sum(m.bad for m in self.scan_results), "error": sum(m.error_count for m in self.scan_results)})
 
-    def _load_current_manifest(self) -> None:
+    @staticmethod
+    def _manifest_status_to_scan_status(status: str):
+        """Converte status persistido no JSONL para ScanStatus."""
+        from app.core.models.scan_result import ScanStatus
+        return {"valid": ScanStatus.VALID, "missing": ScanStatus.MISSING, "invalid": ScanStatus.INVALID, "corrupted": ScanStatus.INVALID, "error": ScanStatus.ERROR, "cancelled": ScanStatus.CANCELLED}.get(status.lower(), ScanStatus.UNKNOWN)
+
+    def _load_current_manifest(self, show_errors: bool = False) -> bool:
+        """Carrega current_scan.jsonl diretamente, sem depender da Reconstrução."""
         manifest = self._scans_dir() / "current_scan.jsonl"
         if not manifest.is_file():
-            return
+            return False
         try:
-            self.scan_results = []
-            from app.mame.reconstruction_engine import ReconstructionEngine
-            machines = ReconstructionEngine.load_manifest(manifest)
-            from app.core.models.scan_result import MachineScanResult, RomScanResult, ScanStatus
-            status_map = {"valid": ScanStatus.VALID, "missing": ScanStatus.MISSING, "invalid": ScanStatus.INVALID, "corrupted": ScanStatus.INVALID, "error": ScanStatus.ERROR}
-            for machine in machines:
-                result = MachineScanResult(machine_name=machine.name, description=machine.description, cloneof=machine.cloneof)
-                for rom in machine.roms:
-                    result.roms.append(RomScanResult(machine_name=rom.machine, rom_name=rom.rom_name, expected_size=rom.expected_size, expected_crc=rom.expected_crc, expected_sha1=rom.expected_sha1 or "", status=status_map.get(rom.status, ScanStatus.MISSING), archive_path=Path(rom.source_archive) if rom.source_archive and rom.source_kind == "zip" else None, archive_member=rom.source_member))
-                self.scan_results.append(result)
+            from app.core.models.scan_result import MachineScanResult, RomScanResult
+            machines: dict[str, MachineScanResult] = {}
+            header: dict[str, Any] | None = None
+            with manifest.open("r", encoding="utf-8") as handle:
+                for line_number, line in enumerate(handle, 1):
+                    if not line.strip():
+                        continue
+                    try:
+                        record = json.loads(line)
+                    except json.JSONDecodeError as exc:
+                        raise ValueError(f"JSONL inválido na linha {line_number}: {exc}") from exc
+                    record_type = record.get("record_type")
+                    if record_type == "header":
+                        header = record
+                        continue
+                    if record_type == "machine":
+                        data = record.get("machine") or {}
+                        name = str(data.get("name") or "")
+                        if not name:
+                            continue
+                        result = machines.get(name)
+                        if result is None:
+                            result = MachineScanResult(machine_name=name, description=str(data.get("description") or ""), cloneof=data.get("cloneof"))
+                            machines[name] = result
+                        else:
+                            if data.get("description"):
+                                result.description = str(data["description"])
+                            if data.get("cloneof"):
+                                result.cloneof = data["cloneof"]
+                        continue
+                    if record_type != "rom":
+                        continue
+                    data = record.get("rom") or record
+                    machine_name = str(data.get("machine") or "")
+                    rom_name = str(data.get("rom_name") or "")
+                    if not machine_name or not rom_name:
+                        continue
+                    machine = machines.setdefault(machine_name, MachineScanResult(machine_name=machine_name))
+                    source = data.get("source") or {}
+                    source_kind = str(source.get("kind") or "").lower()
+                    archive = source.get("archive")
+                    member = source.get("member")
+                    machine.roms.append(RomScanResult(machine_name=machine_name, rom_name=rom_name, expected_size=int(data.get("expected_size") or 0), actual_size=int(data.get("actual_size") or 0), expected_crc=str(data.get("expected_crc") or "").lower(), actual_crc=str(data.get("actual_crc") or "").lower(), expected_sha1=str(data.get("expected_sha1") or "").lower(), actual_sha1=str(data.get("actual_sha1") or "").lower(), status=self._manifest_status_to_scan_status(str(data.get("status") or "unknown")), archive_path=Path(archive) if archive and source_kind == "zip" else None, archive_member=str(member) if member else None, path=Path(archive) if archive and source_kind in {"file", "loose", "raw"} else None, merge=data.get("merge"), optional=bool(data.get("optional", False)), error=data.get("error")))
+            if header is None:
+                raise ValueError("current_scan.jsonl não possui header")
+            self.scan_results = list(machines.values())
+            xml_path = header.get("xml_path")
+            if xml_path:
+                candidate = Path(str(xml_path))
+                if candidate.is_file():
+                    self.filtered_xml_path = candidate
+                    self.control.display_xml(candidate)
+            source_paths = header.get("source_paths") or []
+            if source_paths and not (getattr(self.config, "source_dirs", []) or []):
+                self.config.source_dirs = [str(p) for p in source_paths]
+                self.control.load_paths_from_config(self.config.source_dirs, getattr(self.config, "destination_dir", None))
             self._update_counts()
+            self.tree.clear()
             self.tree.populate_async(self.scan_results)
-        except Exception:
+            self.summary.set_status(f"Manifesto carregado: {len(self.scan_results)} machines")
+            logger.info("current_scan.jsonl carregado: %d machines", len(self.scan_results))
+            self._update_ui_state()
+            return True
+        except Exception as exc:
             logger.exception("Falha carregando current_scan.jsonl")
+            if show_errors:
+                QMessageBox.warning(self, "Manifesto de Scan", f"O scan terminou, mas o current_scan.jsonl não pôde ser carregado:\n\n{exc}")
+            return False
 
     def _export_report(self) -> None:
         path, _ = QFileDialog.getSaveFileName(self, "Exportar relatório", str(self._scans_dir() / "rom_report.csv"), "CSV (*.csv)")
@@ -317,5 +381,4 @@ class ScanRomsTabEngine(QWidget):
         self._update_ui_state()
 
     def _on_repair_requested(self, data: dict) -> None:
-        # O reparo contextual pertence à aba Reconstrução.
         return
