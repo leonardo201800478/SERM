@@ -1,10 +1,9 @@
 from PySide6.QtWidgets import QMainWindow, QTabWidget, QStatusBar
-from PySide6.QtCore import Qt
 
 from app.gui.tabs.home_tab import HomeTab
 from app.gui.tabs.directories_tab import DirectoriesTab
 from app.gui.tabs.filters_tab_realtime import FiltersTab
-from app.gui.tabs.scan_roms_tab import ScanRomsTab
+from app.gui.tabs.scan_roms_tab_engine import ScanRomsTabEngine
 from app.gui.tabs.reconstruction_tab import ReconstructionTab
 from app.database.database import Database
 from app.config.app_config import AppConfig
@@ -29,7 +28,7 @@ class MainWindow(QMainWindow):
         self.home_tab = HomeTab(self)
         self.directories_tab = DirectoriesTab(self)
         self.filters_tab = FiltersTab(self, db=self.db)
-        self.scan_tab = ScanRomsTab(self)
+        self.scan_tab = ScanRomsTabEngine(self)
         self.reconstruction_tab = ReconstructionTab(self)
 
         self.tab_widget.addTab(self.home_tab, "Home")
@@ -63,8 +62,7 @@ class MainWindow(QMainWindow):
 
     def _on_filters_changed(self):
         if hasattr(self.scan_tab, "set_active_profile_name"):
-            profile_name = self.filters_tab.profile_combo.currentText()
-            self.scan_tab.set_active_profile_name(profile_name)
+            self.scan_tab.set_active_profile_name(self.filters_tab.profile_combo.currentText())
 
     def get_current_filter_criteria(self):
         """Retorna os critérios ativos da aba Filtragem."""
