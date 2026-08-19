@@ -153,20 +153,7 @@ class ReconstructionEngine:
 
     @staticmethod
     def _expected(machine: ReconstructionMachine) -> list[ReconstructionRom]:
-        """Retorna as ROMs efetivamente necessárias no ZIP, deduplicando entradas idênticas.
-
-        O manifesto físico v2 pode conter a mesma ROM mais de uma vez quando a
-        definição do MAME referencia o mesmo arquivo em múltiplos pontos ou
-        quando uma cadeia merged/non-merged converge para a mesma ROM. Um ZIP
-        MAME não deve receber duas entradas com o mesmo nome: além de tornar o
-        conjunto ambíguo, isso fazia a validação final rejeitar uma machine que
-        estava fisicamente correta.
-
-        Duplicatas são eliminadas somente quando representam a mesma ROM
-        (nome + tamanho + CRC + SHA1). Se o mesmo nome possuir hashes
-        incompatíveis, mantemos as entradas para que a publicação falhe de
-        forma explícita em vez de escolher silenciosamente uma delas.
-        """
+        """Retorna as ROMs efetivamente necessárias no ZIP, deduplicando entradas idênticas."""
         result: list[ReconstructionRom] = []
         by_name: dict[str, ReconstructionRom] = {}
         for rom in machine.roms:
@@ -288,6 +275,40 @@ class ReconstructionEngine:
                 self._log(f"[ROM] falha: {rom.rom_name} | {exc} | repetindo")
         raise RuntimeError("fluxo de retry inválido")
 
+    @staticmethod
+    def _validate_existing_machine_zip(target: Path, roms: list[ReconstructionRom]) -> bool:
+        """Valida um ZIP já publicado antes de iniciar uma nova reconstrução.
+
+        A validação usa a estrutura do ZIP, quantidade exata de membros, tamanho,
+        CRC e integridade física. O SHA-1 não é recalculado aqui porque o CRC
+        armazenado no ZIP já é validado pelo próprio formato e corresponde ao
+        CRC registrado no manifesto; isso evita uma leitura/hash adicional de
+        todos os arquivos em cada retomada.
+        """
+        if not target.is_file() or not roms:
+            return False
+        expected = {rom.rom_name: rom for rom in roms}
+        if len(expected) != len(roms):
+            return False
+        try:
+            with zipfile.ZipFile(target, "r") as archive:
+                infos = [info for info in archive.infolist() if not info.is_dir()]
+                if len(infos) != len(expected):
+                    return False
+                if {info.filename for info in infos} != set(expected):
+                    return False
+                if archive.testzip() is not None:
+                    return False
+                for name, rom in expected.items():
+                    info = archive.getinfo(name)
+                    if rom.expected_size > 0 and info.file_size != rom.expected_size:
+                        return False
+                    if rom.expected_crc and f"{info.CRC & 0xFFFFFFFF:08x}" != rom.expected_crc:
+                        return False
+            return True
+        except (OSError, zipfile.BadZipFile, RuntimeError, KeyError):
+            return False
+
     def _write_machine_zip(self, machine_name: str, roms: list[ReconstructionRom], staged: list[tuple[ReconstructionRom, Path]]) -> Path:
         """Publica atomicamente um ZIP limpo contendo exatamente as ROMs esperadas."""
         if not roms or len(staged) != len(roms):
@@ -352,10 +373,22 @@ class ReconstructionEngine:
         return {"machine": machine.name, "description": machine.description, "cloneof": machine.cloneof, "rom_name": rom.rom_name if rom else None, "expected_size": rom.expected_size if rom else None, "expected_crc": rom.expected_crc if rom else None, "expected_sha1": rom.expected_sha1 if rom else None, "reason": reason, "error": error}
 
     def _process_machine(self, machine: ReconstructionMachine, roms: list[ReconstructionRom], target_name: str, result: ReconstructionResult, total: int, progress_ref: list[int], *, copy_perfect: bool, repair: bool) -> bool:
-        """Processa todas as ROMs; só publica se a machine ficar completa."""
+        """Processa uma machine, reaproveitando ZIPs de destino que já estejam íntegros."""
         if not roms:
             result.skipped += 1
             return False
+
+        target = self.destination_path / f"{target_name}.zip"
+        if self._validate_existing_machine_zip(target, roms):
+            result.skipped += 1
+            self._log(f"[MACHINE] SKIP: {target_name}.zip | já existe e está válida")
+            for rom in roms:
+                self._check_cancel()
+                if rom.machine == machine.name:
+                    progress_ref[0] += 1
+                    self._progress(progress_ref[0], total, f"{target_name}: {rom.rom_name} (já existente)")
+            return True
+
         machine_dir = self._staging_root / target_name
         shutil.rmtree(machine_dir, ignore_errors=True)
         machine_dir.mkdir(parents=True, exist_ok=True)
@@ -433,7 +466,7 @@ class ReconstructionEngine:
         finally:
             shutil.rmtree(self._staging_root, ignore_errors=True)
         self._progress(total, total, "Reconstrução concluída.")
-        self._log(f"[RECONSTRUÇÃO] finalizada | machines_publicadas={result.repaired} | roms_verificadas={result.roms_verified} | pendencias={len(result.unresolved)}")
+        self._log(f"[RECONSTRUÇÃO] finalizada | machines_publicadas={result.repaired} | machines_skipped={result.skipped} | roms_verificadas={result.roms_verified} | pendencias={len(result.unresolved)}")
         return result
 
     @staticmethod
@@ -450,3 +483,4 @@ class ReconstructionEngine:
                     continue
                 seen.add(key)
                 handle.write(json.dumps({"record_type": "unresolved", "record": item}, ensure_ascii=False, separators=(",", ":")) + "\n")
+        return output
