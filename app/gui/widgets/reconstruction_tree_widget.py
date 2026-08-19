@@ -7,7 +7,7 @@ from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QLineEdit, QMen
 
 
 class ReconstructionTreeWidget(QWidget):
-    """Árvore de machines/ROMs com menu contextual centralizado no widget."""
+    """Árvore de machines/ROMs com diagnóstico físico detalhado."""
     repair_requested = Signal(dict)
     copy_requested = Signal(dict)
 
@@ -34,7 +34,7 @@ class ReconstructionTreeWidget(QWidget):
         self.tree.clear()
 
     def set_data(self, machines: list[Any]) -> None:
-        """Popula a árvore com todas as ROMs do manifesto físico."""
+        """Popula a árvore e registra diagnóstico no tooltip de cada ROM."""
         self.tree.clear()
         for machine in machines:
             item = QTreeWidgetItem(self.tree)
@@ -48,6 +48,7 @@ class ReconstructionTreeWidget(QWidget):
                 child.setText(2, self._size(rom.expected_size))
                 child.setText(3, rom.expected_crc or rom.expected_sha1 or "-")
                 child.setText(4, self._rom_state(rom))
+                child.setToolTip(0, self._rom_reason(rom))
                 child.setData(0, Qt.ItemDataRole.UserRole, {"kind": "rom", "machine": machine, "rom": rom})
             item.setExpanded(False)
 
@@ -68,9 +69,41 @@ class ReconstructionTreeWidget(QWidget):
         state = str(getattr(rom, "status", "missing")).lower()
         return {"valid": "OK", "ok": "OK", "good": "OK", "missing": "AUSENTE", "invalid": "REPARÁVEL", "corrupted": "REPARÁVEL"}.get(state, state.upper())
 
+    @staticmethod
+    def _rom_reason(rom: Any) -> str:
+        """Explica exatamente por que a ROM foi aceita ou rejeitada fisicamente."""
+        state = str(getattr(rom, "status", "missing")).lower()
+        expected_size = int(getattr(rom, "expected_size", 0) or 0)
+        actual_size = int(getattr(rom, "actual_size", 0) or 0)
+        expected_crc = str(getattr(rom, "expected_crc", "") or "").lower()
+        actual_crc = str(getattr(rom, "actual_crc", "") or "").lower()
+        expected_sha1 = str(getattr(rom, "expected_sha1", "") or "").lower()
+        actual_sha1 = str(getattr(rom, "actual_sha1", "") or "").lower()
+        optional = bool(getattr(rom, "optional", False))
+
+        if state in {"valid", "ok", "good"}:
+            return "ROM aceita: tamanho/CRC/SHA-1 disponíveis correspondem ao esperado."
+        if state == "missing":
+            return "ROM ausente. " + ("É opcional e não bloqueia a execução mínima." if optional else "É obrigatória e pode impedir a execução da machine.")
+        if state in {"invalid", "corrupted", "sha1_mismatch"}:
+            reasons: list[str] = []
+            if expected_size > 0 and actual_size != expected_size:
+                reasons.append(f"tamanho esperado={expected_size}, encontrado={actual_size}")
+            if expected_crc and actual_crc and expected_crc != actual_crc:
+                reasons.append(f"CRC esperado={expected_crc}, encontrado={actual_crc}")
+            if expected_sha1 and actual_sha1 and expected_sha1 != actual_sha1:
+                reasons.append("SHA-1 divergente")
+            if not reasons:
+                reasons.append("arquivo não corresponde aos identificadores do LISTXML")
+            return "ROM invalidada: " + "; ".join(reasons) + "."
+        error = getattr(rom, "error", None)
+        if error:
+            return f"ROM não validada por erro: {error}"
+        return f"Estado físico: {state}"
+
     @classmethod
     def _machine_state(cls, machine: Any) -> str:
-        """Calcula o estado usando TODAS as ROMs, inclusive optional do schema v2."""
+        """Calcula o estado usando todas as ROMs, inclusive optional."""
         roms = list(getattr(machine, "roms", []) or [])
         if not roms:
             return "SEM ROMS"
