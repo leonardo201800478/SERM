@@ -4,9 +4,7 @@ ROMs são publicadas em ZIPs MAME. CHDs são arquivos externos em
 ``<destino>/<machine>/<disk>.chd``.
 
 A reconstrução nunca faz um novo scan global: usa exclusivamente as origens
-registradas no manifesto. O código também aceita manifests antigos nos quais
-CHDs foram registrados incorretamente como ``source.kind=file`` e o SHA-1 foi
-armazenado em ``expected_crc``.
+registradas no manifesto.
 """
 from __future__ import annotations
 
@@ -22,7 +20,6 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 logger = logging.getLogger(__name__)
-
 STREAM_CHUNK_SIZE = 1024 * 1024
 DEFAULT_MAX_RETRIES = 2
 ProgressCallback = Callable[[int, int, str], None]
@@ -32,7 +29,6 @@ LogCallback = Callable[[str], None]
 @dataclass(slots=True)
 class ReconstructionRom:
     """ROM ou CHD esperado e sua localização física registrada no scan."""
-
     machine: str
     rom_name: str
     expected_size: int
@@ -48,31 +44,18 @@ class ReconstructionRom:
 
     @property
     def is_chd(self) -> bool:
-        """Detecta CHDs tanto no formato atual quanto em manifests antigos.
-
-        O scanner antigo podia persistir CHDs como ``source.kind=file``.
-        Nessa situação o próprio caminho ``*.chd`` é uma evidência inequívoca
-        de que o item é um disk externo ao ZIP.
-        """
+        """Detecta CHDs atuais e formatos legados do manifesto."""
         kind = (self.source_kind or "").strip().lower()
         if kind in {"chd", "disk"}:
             return True
         source = (self.source_archive or "").strip().lower()
         if source.endswith(".chd"):
             return True
-        return self.rom_name.lower().endswith(".chd") and kind in {
-            "file", "loose", "raw", ""
-        }
+        return self.rom_name.lower().endswith(".chd") and kind in {"file", "loose", "raw", ""}
 
     @property
     def chd_sha1(self) -> str | None:
-        """Retorna o SHA-1 esperado, incluindo manifests legados.
-
-        No formato antigo o scanner gravava o SHA-1 do CHD em
-        ``expected_crc``. Um CRC32 possui 8 caracteres hexadecimais; SHA-1
-        possui 40. Essa diferença permite recuperar o manifesto antigo sem
-        exigir um novo scan.
-        """
+        """Retorna o SHA-1 esperado, inclusive manifests antigos."""
         if self.expected_sha1:
             return self.expected_sha1.lower()
         legacy = (self.expected_crc or "").strip().lower()
@@ -82,17 +65,14 @@ class ReconstructionRom:
 
     @property
     def output_name(self) -> str:
-        """Retorna o nome físico correto do CHD, sempre com ``.chd``."""
+        """Retorna o nome físico correto do CHD."""
         name = Path(self.rom_name).name
-        if not name.lower().endswith(".chd"):
-            name += ".chd"
-        return name
+        return name if name.lower().endswith(".chd") else f"{name}.chd"
 
 
 @dataclass(slots=True)
 class ReconstructionMachine:
     """Machine e todos os itens registrados no manifesto."""
-
     name: str
     description: str = ""
     cloneof: str | None = None
@@ -102,7 +82,6 @@ class ReconstructionMachine:
 @dataclass(slots=True)
 class ReconstructionResult:
     """Resultado agregado da reconstrução."""
-
     copied: int = 0
     repaired: int = 0
     failed: int = 0
@@ -119,20 +98,11 @@ class ReconstructionResult:
 
 class ReconstructionEngine:
     """Reconstrói ROMs e CHDs sem modificar as fontes físicas."""
-
     SET_SPLIT = "split"
     SET_MERGED = "merged"
     SET_NON_MERGED = "non_merged"
 
-    def __init__(
-        self,
-        source_paths: Iterable[str | Path],
-        destination_path: str | Path,
-        *,
-        progress_callback: ProgressCallback | None = None,
-        log_callback: LogCallback | None = None,
-        max_retries: int = DEFAULT_MAX_RETRIES,
-    ) -> None:
+    def __init__(self, source_paths: Iterable[str | Path], destination_path: str | Path, *, progress_callback: ProgressCallback | None = None, log_callback: LogCallback | None = None, max_retries: int = DEFAULT_MAX_RETRIES) -> None:
         self.source_paths = [Path(p).expanduser().resolve() for p in source_paths]
         self.destination_path = Path(destination_path).expanduser().resolve()
         self.progress_callback = progress_callback
@@ -163,7 +133,7 @@ class ReconstructionEngine:
 
     @staticmethod
     def load_manifest(path: str | Path) -> list[ReconstructionMachine]:
-        """Carrega ``current_scan.jsonl`` v2 sem acessar as fontes físicas."""
+        """Carrega current_scan.jsonl v2/v3, incluindo registros explícitos de CHD."""
         machines: dict[str, ReconstructionMachine] = {}
         manifest = Path(path)
         if not manifest.is_file():
@@ -179,7 +149,8 @@ class ReconstructionEngine:
                     logger.warning("JSONL inválido na linha %d: %s", line_number, exc)
                     continue
 
-                if record.get("record_type") == "machine":
+                record_type = record.get("record_type")
+                if record_type == "machine":
                     data = record.get("machine") or {}
                     name = str(data.get("name") or "")
                     if not name:
@@ -189,20 +160,21 @@ class ReconstructionEngine:
                     machine.cloneof = data.get("cloneof") or machine.cloneof
                     continue
 
-                if record.get("record_type") != "rom":
+                if record_type not in {"rom", "disk"}:
                     continue
 
-                data = record.get("record") or record.get("rom") or {}
+                data = record.get("record") or record.get("rom") or record.get("disk") or {}
                 machine_name = str(data.get("machine") or "")
-                rom_name = str(data.get("rom_name") or "")
-                if not machine_name or not rom_name:
+                item_name = str(data.get("rom_name") or data.get("disk_name") or "")
+                if not machine_name or not item_name:
                     continue
 
                 source = data.get("source") or {}
-                machine = machines.setdefault(
-                    machine_name,
-                    ReconstructionMachine(name=machine_name),
-                )
+                is_disk = record_type == "disk"
+                # CHDs precisam chegar ao motor com um nome físico .chd e
+                # source.kind=chd; isso elimina qualquer ambiguidade com ROMs.
+                rom_name = item_name if not is_disk else (item_name if item_name.lower().endswith(".chd") else f"{item_name}.chd")
+                machine = machines.setdefault(machine_name, ReconstructionMachine(name=machine_name))
                 machine.roms.append(
                     ReconstructionRom(
                         machine=machine_name,
@@ -213,7 +185,7 @@ class ReconstructionEngine:
                         status=str(data.get("status") or "missing").lower(),
                         source_archive=source.get("archive"),
                         source_member=source.get("member"),
-                        source_kind=source.get("kind"),
+                        source_kind="chd" if is_disk else source.get("kind"),
                         merge=data.get("merge"),
                         optional=bool(data.get("optional", False)),
                         required=bool(data.get("required", not data.get("optional", False))),
@@ -247,30 +219,20 @@ class ReconstructionEngine:
                 by_key[key] = item
                 result.append(item)
                 continue
-            identical = (
-                previous.expected_size == item.expected_size
-                and previous.expected_crc == item.expected_crc
-                and previous.expected_sha1 == item.expected_sha1
-                and previous.source_archive == item.source_archive
-                and previous.source_member == item.source_member
-            )
+            identical = previous.expected_size == item.expected_size and previous.expected_crc == item.expected_crc and previous.expected_sha1 == item.expected_sha1 and previous.source_archive == item.source_archive and previous.source_member == item.source_member
             if not identical:
-                logger.warning(
-                    "Item duplicado com metadados diferentes: %s -> %s",
-                    machine_name,
-                    item.rom_name,
-                )
+                logger.warning("Item duplicado com metadados diferentes: %s -> %s", machine_name, item.rom_name)
                 result.append(item)
         return result
 
     @classmethod
     def _expected(cls, machine: ReconstructionMachine) -> list[ReconstructionRom]:
-        """Retorna os itens que devem entrar no ZIP."""
+        """Retorna somente ROMs que devem entrar no ZIP."""
         return cls._deduplicate([x for x in machine.roms if not x.is_chd], machine.name)
 
     @classmethod
     def _expected_chds(cls, machine: ReconstructionMachine) -> list[ReconstructionRom]:
-        """Retorna os CHDs externos ao ZIP."""
+        """Retorna somente CHDs externos ao ZIP."""
         return cls._deduplicate([x for x in machine.roms if x.is_chd], machine.name)
 
     def _source_allowed(self, path: Path) -> bool:
@@ -288,7 +250,6 @@ class ReconstructionEngine:
         source = Path(item.source_archive).expanduser()
         if not source.is_file() or not self._source_allowed(source):
             return None
-
         kind = (item.source_kind or "").strip().lower()
         if item.is_chd:
             return "chd", source, None
@@ -302,9 +263,7 @@ class ReconstructionEngine:
     def _validate_zip_info(info: zipfile.ZipInfo, rom: ReconstructionRom) -> None:
         """Valida tamanho e CRC do membro ZIP."""
         if rom.expected_size > 0 and info.file_size != rom.expected_size:
-            raise ValueError(
-                f"tamanho incompatível: esperado={rom.expected_size}, encontrado={info.file_size}"
-            )
+            raise ValueError(f"tamanho incompatível: esperado={rom.expected_size}, encontrado={info.file_size}")
         if rom.expected_crc and len(rom.expected_crc) == 8:
             actual = f"{info.CRC & 0xFFFFFFFF:08x}"
             if actual != rom.expected_crc:
@@ -313,26 +272,21 @@ class ReconstructionEngine:
     def _stream_source(self, item: ReconstructionRom, source: tuple[str, Path, str | None], staged: Path) -> None:
         """Transfere em streaming e valida tamanho, CRC e SHA-1."""
         kind, source_path, member = source
-        archive: zipfile.ZipFile | None = None
+        archive = None
         source_handle = None
         crc = 0
         total = 0
         sha1 = hashlib.sha1()
-
         try:
             if kind == "zip":
                 archive = zipfile.ZipFile(source_path, "r")
                 if not member:
                     raise ValueError("membro ZIP não informado pelo manifesto")
-                try:
-                    info = archive.getinfo(member)
-                except KeyError as exc:
-                    raise FileNotFoundError(f"membro não encontrado no ZIP: {member}") from exc
+                info = archive.getinfo(member)
                 self._validate_zip_info(info, item)
                 source_handle = archive.open(info, "r")
             else:
                 source_handle = source_path.open("rb")
-
             with staged.open("wb") as output:
                 while True:
                     self._check_cancel()
@@ -351,13 +305,10 @@ class ReconstructionEngine:
 
         actual_crc = f"{crc & 0xFFFFFFFF:08x}"
         actual_sha1 = sha1.hexdigest().lower()
-
         if item.expected_size > 0 and total != item.expected_size:
             raise ValueError(f"transferência incompleta: {total}/{item.expected_size} bytes")
-
         if not item.is_chd and item.expected_crc and len(item.expected_crc) == 8 and actual_crc != item.expected_crc:
             raise ValueError(f"CRC após streaming incompatível: {actual_crc}")
-
         expected_sha1 = item.chd_sha1 if item.is_chd else item.expected_sha1
         if expected_sha1 and actual_sha1 != expected_sha1.lower():
             raise ValueError("SHA-1 após streaming incompatível")
@@ -367,18 +318,14 @@ class ReconstructionEngine:
         source = self._source_for_rom(rom)
         if source is None:
             raise FileNotFoundError("fonte física não registrada, inexistente ou fora das fontes configuradas")
-
         safe_name = Path(rom.rom_name).name or "unnamed"
         staged = machine_dir / f"{len(list(machine_dir.iterdir())):06d}_{safe_name}.romtmp"
-
         for attempt in range(self.max_retries + 1):
             self._check_cancel()
             staged.unlink(missing_ok=True)
             try:
                 suffix = f"!{source[2]}" if source[2] else ""
-                self._log(
-                    f"[ROM] {rom.machine} -> {rom.rom_name} | origem={source[1]}{suffix} | tentativa={attempt + 1}"
-                )
+                self._log(f"[ROM] {rom.machine} -> {rom.rom_name} | origem={source[1]}{suffix} | tentativa={attempt + 1}")
                 self._stream_source(rom, source, staged)
                 result.roms_verified += 1
                 if attempt:
@@ -390,7 +337,6 @@ class ReconstructionEngine:
                 if attempt >= self.max_retries:
                     raise
                 self._log(f"[ROM] falha: {rom.rom_name} | {exc} | repetindo")
-
         raise RuntimeError("fluxo de retry inválido")
 
     def _stage_chd(self, chd: ReconstructionRom, machine_dir: Path, result: ReconstructionResult) -> Path:
@@ -400,17 +346,13 @@ class ReconstructionEngine:
             raise FileNotFoundError("CHD não registrado, inexistente ou fora das fontes configuradas")
         if source[0] != "chd":
             raise ValueError(f"origem inválida para CHD: {source[0]}")
-
         staged = machine_dir / f".{chd.output_name}.tmp"
         staged.parent.mkdir(parents=True, exist_ok=True)
-
         for attempt in range(self.max_retries + 1):
             self._check_cancel()
             staged.unlink(missing_ok=True)
             try:
-                self._log(
-                    f"[CHD] {chd.machine} -> {chd.output_name} | origem={source[1]} | tentativa={attempt + 1}"
-                )
+                self._log(f"[CHD] {chd.machine} -> {chd.output_name} | origem={source[1]} | tentativa={attempt + 1}")
                 self._stream_source(chd, source, staged)
                 result.chds_verified += 1
                 if attempt:
@@ -422,7 +364,6 @@ class ReconstructionEngine:
                 if attempt >= self.max_retries:
                     raise
                 self._log(f"[CHD] falha: {chd.output_name} | {exc} | repetindo")
-
         raise RuntimeError("fluxo de retry CHD inválido")
 
     @staticmethod
@@ -444,9 +385,8 @@ class ReconstructionEngine:
                     info = archive.getinfo(name)
                     if rom.expected_size > 0 and info.file_size != rom.expected_size:
                         return False
-                    if rom.expected_crc and len(rom.expected_crc) == 8:
-                        if f"{info.CRC & 0xFFFFFFFF:08x}" != rom.expected_crc:
-                            return False
+                    if rom.expected_crc and len(rom.expected_crc) == 8 and f"{info.CRC & 0xFFFFFFFF:08x}" != rom.expected_crc:
+                        return False
             return True
         except (OSError, zipfile.BadZipFile, RuntimeError, KeyError):
             return False
@@ -474,42 +414,27 @@ class ReconstructionEngine:
         except OSError:
             return False
 
-    def _write_machine_zip(
-        self,
-        machine_name: str,
-        roms: list[ReconstructionRom],
-        staged: list[tuple[ReconstructionRom, Path]],
-    ) -> Path:
+    def _write_machine_zip(self, machine_name: str, roms: list[ReconstructionRom], staged: list[tuple[ReconstructionRom, Path]]) -> Path:
         """Publica atomicamente um ZIP contendo exatamente as ROMs esperadas."""
         if not roms or len(staged) != len(roms):
             raise ValueError(f"machine {machine_name} não possui todas as ROMs para publicação")
-
         expected = {rom.rom_name: rom for rom in roms}
         actual = {rom.rom_name: path for rom, path in staged}
         if len(expected) != len(roms) or set(expected) != set(actual):
             raise ValueError(f"ROMs duplicadas, extras ou ausentes em {machine_name}")
-
         self._staging_root.mkdir(parents=True, exist_ok=True)
         temp_zip = self._staging_root / f".{machine_name}.zip.tmp"
         target = self.destination_path / f"{machine_name}.zip"
         temp_zip.unlink(missing_ok=True)
-
         try:
-            with zipfile.ZipFile(
-                temp_zip,
-                "w",
-                compression=zipfile.ZIP_DEFLATED,
-                allowZip64=True,
-            ) as output:
+            with zipfile.ZipFile(temp_zip, "w", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as output:
                 for rom in roms:
                     self._check_cancel()
                     self._log(f"[ZIP] adicionando {machine_name}.zip <- {rom.rom_name}")
                     with actual[rom.rom_name].open("rb") as source, output.open(rom.rom_name, "w") as destination:
                         shutil.copyfileobj(source, destination, STREAM_CHUNK_SIZE)
-
             if not self._validate_existing_machine_zip(temp_zip, roms):
                 raise ValueError(f"ZIP temporário inválido para {machine_name}")
-
             os.replace(temp_zip, target)
             self._log(f"[ZIP] PUBLICADO: {target}")
             return target
@@ -544,13 +469,7 @@ class ReconstructionEngine:
         return current
 
     @classmethod
-    def _nonmerged_items(
-        cls,
-        machine: ReconstructionMachine,
-        by_name: dict[str, ReconstructionMachine],
-        *,
-        chds: bool,
-    ) -> list[ReconstructionRom]:
+    def _nonmerged_items(cls, machine: ReconstructionMachine, by_name: dict[str, ReconstructionMachine], *, chds: bool) -> list[ReconstructionRom]:
         """Monta Non-Merged com itens próprios e herdados do parent."""
         items = cls._expected_chds(machine) if chds else cls._expected(machine)
         if machine.cloneof and machine.cloneof in by_name:
@@ -559,12 +478,7 @@ class ReconstructionEngine:
         return cls._deduplicate(items, machine.name)
 
     @staticmethod
-    def _unresolved(
-        machine: ReconstructionMachine,
-        rom: ReconstructionRom | None,
-        reason: str,
-        error: str | None = None,
-    ) -> dict[str, Any]:
+    def _unresolved(machine: ReconstructionMachine, rom: ReconstructionRom | None, reason: str, error: str | None = None) -> dict[str, Any]:
         """Cria um registro residual compatível com a próxima etapa."""
         return {
             "machine": machine.name,
@@ -575,33 +489,16 @@ class ReconstructionEngine:
             "expected_size": rom.expected_size if rom else None,
             "expected_crc": rom.expected_crc if rom else None,
             "expected_sha1": rom.expected_sha1 if rom else rom.chd_sha1 if rom else None,
-            "source": {
-                "kind": rom.source_kind if rom else None,
-                "archive": rom.source_archive if rom else None,
-                "member": rom.source_member if rom else None,
-            } if rom else None,
+            "source": {"kind": rom.source_kind if rom else None, "archive": rom.source_archive if rom else None, "member": rom.source_member if rom else None} if rom else None,
             "reason": reason,
             "error": error,
         }
 
-    def _process_machine(
-        self,
-        machine: ReconstructionMachine,
-        roms: list[ReconstructionRom],
-        chds: list[ReconstructionRom],
-        target_name: str,
-        result: ReconstructionResult,
-        total: int,
-        progress_ref: list[int],
-        *,
-        copy_perfect: bool,
-        repair: bool,
-    ) -> bool:
+    def _process_machine(self, machine: ReconstructionMachine, roms: list[ReconstructionRom], chds: list[ReconstructionRom], target_name: str, result: ReconstructionResult, total: int, progress_ref: list[int], *, copy_perfect: bool, repair: bool) -> bool:
         """Processa ROMs e CHDs, aproveitando artefatos válidos já publicados."""
         if not roms and not chds:
             result.skipped += 1
             return False
-
         published_any = False
         target_zip = self.destination_path / f"{target_name}.zip"
         zip_valid = self._validate_existing_machine_zip(target_zip, roms) if roms else True
@@ -640,7 +537,6 @@ class ReconstructionEngine:
                         if rom.machine == machine.name:
                             progress_ref[0] += 1
                             self._progress(progress_ref[0], total, f"{machine.name}: {rom.rom_name}")
-
                 self._write_machine_zip(target_name, roms, staged_roms)
                 published_any = True
                 self._log(f"[MACHINE] CONCLUÍDA: {target_name}.zip")
@@ -664,7 +560,6 @@ class ReconstructionEngine:
                     progress_ref[0] += 1
                     self._progress(progress_ref[0], total, f"{target_name}: {chd.output_name} (já existente)")
                 continue
-
             machine_stage = self._staging_root / f"{target_name}_chd"
             shutil.rmtree(machine_stage, ignore_errors=True)
             machine_stage.mkdir(parents=True, exist_ok=True)
@@ -673,7 +568,7 @@ class ReconstructionEngine:
                 if not is_perfect and not repair:
                     result.unresolved.append(self._unresolved(machine, chd, "reparo_desativado"))
                     self._log(f"[CHD] não perfeito sem reparo: {machine.name} -> {chd.output_name}")
-                    return False
+                    continue
                 try:
                     staged = self._stage_chd(chd, machine_stage, result)
                     self._publish_chd(target_name, chd, staged)
@@ -686,12 +581,10 @@ class ReconstructionEngine:
                     result.external += 1
                     result.unresolved.append(self._unresolved(machine, chd, "chd_fonte_externa_necessaria", str(exc)))
                     self._log(f"[CHD] FONTE EXTERNA: {machine.name} -> {chd.output_name}")
-                    return False
                 except Exception as exc:
                     result.failed += 1
                     result.unresolved.append(self._unresolved(machine, chd, "chd_nao_reconstruido", str(exc)))
                     self._log(f"[CHD] FALHA: {machine.name} -> {chd.output_name} | {exc}")
-                    return False
                 finally:
                     if chd.machine == machine.name:
                         progress_ref[0] += 1
@@ -701,20 +594,12 @@ class ReconstructionEngine:
 
         return published_any or (zip_valid and bool(roms)) or bool(chds)
 
-    def reconstruct(
-        self,
-        machines: list[ReconstructionMachine],
-        *,
-        set_type: str = SET_SPLIT,
-        copy_perfect: bool = True,
-        repair: bool = True,
-    ) -> ReconstructionResult:
+    def reconstruct(self, machines: list[ReconstructionMachine], *, set_type: str = SET_SPLIT, copy_perfect: bool = True, repair: bool = True) -> ReconstructionResult:
         """Reconstrói o set a partir do manifesto físico atual."""
         if set_type not in {self.SET_SPLIT, self.SET_MERGED, self.SET_NON_MERGED}:
             raise ValueError(f"Tipo de set inválido: {set_type}")
         if not copy_perfect and not repair:
             raise ValueError("Pelo menos uma operação deve estar habilitada")
-
         self.destination_path.mkdir(parents=True, exist_ok=True)
         self._staging_root.mkdir(parents=True, exist_ok=True)
         self._cancel_requested = False
@@ -722,7 +607,6 @@ class ReconstructionEngine:
         by_name = {machine.name: machine for machine in machines}
         total = sum(len(self._expected(machine)) + len(self._expected_chds(machine)) for machine in machines)
         progress_ref = [0]
-
         try:
             if set_type == self.SET_MERGED:
                 groups: dict[str, list[ReconstructionMachine]] = {}
@@ -737,17 +621,7 @@ class ReconstructionEngine:
                             rom_map.setdefault(rom.rom_name, rom)
                         for chd in self._expected_chds(member):
                             chd_map.setdefault(chd.output_name, chd)
-                    self._process_machine(
-                        group[0],
-                        list(rom_map.values()),
-                        list(chd_map.values()),
-                        root_name,
-                        result,
-                        total,
-                        progress_ref,
-                        copy_perfect=copy_perfect,
-                        repair=repair,
-                    )
+                    self._process_machine(group[0], list(rom_map.values()), list(chd_map.values()), root_name, result, total, progress_ref, copy_perfect=copy_perfect, repair=repair)
             else:
                 for machine in machines:
                     self._check_cancel()
@@ -757,74 +631,28 @@ class ReconstructionEngine:
                     else:
                         roms = self._expected(machine)
                         chds = self._expected_chds(machine)
-                    self._process_machine(
-                        machine,
-                        roms,
-                        chds,
-                        machine.name,
-                        result,
-                        total,
-                        progress_ref,
-                        copy_perfect=copy_perfect,
-                        repair=repair,
-                    )
+                    self._process_machine(machine, roms, chds, machine.name, result, total, progress_ref, copy_perfect=copy_perfect, repair=repair)
         except InterruptedError:
             self._log("[RECONSTRUÇÃO] CANCELADA; fontes permanecem intactas.")
             raise
         finally:
             shutil.rmtree(self._staging_root, ignore_errors=True)
-
         self._progress(total, total, "Reconstrução concluída.")
-        self._log(
-            f"[RECONSTRUÇÃO] finalizada | roms_verificadas={result.roms_verified} | "
-            f"chds_verificados={result.chds_verified} | chds_copiados={result.chds_copied} | "
-            f"chds_reparados={result.chds_repaired} | chds_skipped={result.chds_skipped} | "
-            f"pendencias={len(result.unresolved)}"
-        )
+        self._log(f"[RECONSTRUÇÃO] finalizada | roms_verificadas={result.roms_verified} | chds_verificados={result.chds_verified} | chds_copiados={result.chds_copied} | chds_reparados={result.chds_repaired} | chds_skipped={result.chds_skipped} | pendencias={len(result.unresolved)}")
         return result
 
     @staticmethod
-    def write_residual_manifest(
-        path: str | Path,
-        unresolved: list[dict[str, Any]],
-        *,
-        source_manifest: str | Path,
-        set_type: str,
-    ) -> Path:
+    def write_residual_manifest(path: str | Path, unresolved: list[dict[str, Any]], *, source_manifest: str | Path, set_type: str) -> Path:
         """Grava somente as pendências restantes em JSONL."""
         output = Path(path)
         output.parent.mkdir(parents=True, exist_ok=True)
         seen: set[tuple[str, str | None, str]] = set()
         with output.open("w", encoding="utf-8", newline="\n") as handle:
-            handle.write(
-                json.dumps(
-                    {
-                        "record_type": "header",
-                        "schema_version": 3,
-                        "manifest_type": "reconstruction_residual",
-                        "source_manifest": str(source_manifest),
-                        "set_type": set_type,
-                    },
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                )
-                + "\n"
-            )
+            handle.write(json.dumps({"record_type": "header", "schema_version": 3, "manifest_type": "reconstruction_residual", "source_manifest": str(source_manifest), "set_type": set_type}, ensure_ascii=False, separators=(",", ":")) + "\n")
             for item in unresolved:
-                key = (
-                    str(item.get("machine", "")),
-                    item.get("rom_name"),
-                    str(item.get("item_type", "rom")),
-                )
+                key = (str(item.get("machine", "")), item.get("rom_name"), str(item.get("item_type", "rom")))
                 if key in seen:
                     continue
                 seen.add(key)
-                handle.write(
-                    json.dumps(
-                        {"record_type": "unresolved", "record": item},
-                        ensure_ascii=False,
-                        separators=(",", ":"),
-                    )
-                    + "\n"
-                )
+                handle.write(json.dumps({"record_type": "unresolved", "record": item}, ensure_ascii=False, separators=(",", ":")) + "\n")
         return output
