@@ -17,7 +17,10 @@ classifiers = [
     "Topic :: Games/Entertainment :: Arcade"
 ]
 requires-python = ">=3.10"
-dependencies = ["PySide6>=6.6.0"]
+dependencies = [
+    "PySide6>=6.6.0",
+    "py-cpuinfo>=9.0.0"
+]
 
 [project.urls]
 Homepage = "https://github.com/leonardo201800478/mame-set-builder"
@@ -33,7 +36,6 @@ exclude = ["tests*", "data*", "docs*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-python_files = "test_*.py"
-python_classes = "Test*"
-python_functions = "test_*"
+python_files = ["test_*.py"]
+python_classes = ["test_*.py"]
 addopts = "-v --tb=short"
