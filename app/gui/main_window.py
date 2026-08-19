@@ -9,6 +9,7 @@ from app.gui.tabs.scan_roms_tab import ScanRomsTab
 from app.gui.scan_thread_guard import install as install_scan_thread_guard
 from app.gui.tabs.reconstruction_tab import ReconstructionTab
 from app.gui.tabs.mame_settings_tab import MameSettingsTab
+from app.gui.mame_shader_test_widget import install_shader_test
 from app.database.database import Database
 from app.config.app_config import AppConfig
 
@@ -34,6 +35,7 @@ class MainWindow(QMainWindow):
         self.directories_tab = DirectoriesTab(self)
         self.filters_tab = FiltersTab(self, db=self.db)
         self.mame_settings_tab = MameSettingsTab(self)
+        self.shader_test_controller = install_shader_test(self.mame_settings_tab)
         self.scan_tab = ScanRomsTab(self)
         self.reconstruction_tab = ReconstructionTab(self)
         self.tab_widget.addTab(self.home_tab, "Home")
@@ -81,7 +83,9 @@ class MainWindow(QMainWindow):
         return FilterCriteria()
 
     def closeEvent(self, event):
-        """Cancela e aguarda workers antes de fechar o banco SQLite."""
+        """Cancela workers, encerra teste de shader e fecha o SQLite com segurança."""
+        if getattr(self, "shader_test_controller", None) is not None:
+            self.shader_test_controller.close()
         worker = getattr(self.scan_tab, "worker", None)
         if worker is not None and worker.isRunning():
             worker.cancel()
