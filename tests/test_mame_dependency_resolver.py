@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.core.services.mame_archive_layout import MameArchiveLayoutPlanner
-from app.core.services.mame_dependency_resolver import DependencyOptions, MameDependencyResolver
+from app.core.services.mame_dependency_resolver import MameDependencyResolver
 
 
 def _write_xml(path: Path) -> None:
@@ -66,7 +66,7 @@ def test_split_keeps_parent_rom_in_parent_archive(tmp_path: Path) -> None:
     assert [item.rom.name for item in archives.archives["parent"]] == ["parent.bin"]
 
 
-def test_nonmerged_is_self_contained(tmp_path: Path) -> None:
+def test_nonmerged_contains_parent_data_but_not_device_archive(tmp_path: Path) -> None:
     xml = tmp_path / "listxml.xml"
     _write_xml(xml)
     plan = MameDependencyResolver(xml).resolve(["clone"], mode="non-merged")
@@ -74,7 +74,8 @@ def test_nonmerged_is_self_contained(tmp_path: Path) -> None:
 
     assert "clone" in archives.archives
     names = {item.rom.name for item in archives.archives["clone"]}
-    assert names == {"parent.bin", "clone.bin", "bios.bin", "sound.bin"}
+    assert names == {"parent.bin", "clone.bin", "bios.bin"}
+    assert "sound.bin" not in names
 
 
 def test_merged_uses_parent_as_archive_owner(tmp_path: Path) -> None:
@@ -86,4 +87,5 @@ def test_merged_uses_parent_as_archive_owner(tmp_path: Path) -> None:
     assert "parent" in archives.archives
     assert "clone" not in archives.archives
     names = {item.rom.name for item in archives.archives["parent"]}
-    assert names == {"parent.bin", "clone.bin", "bios.bin", "sound.bin"}
+    assert names == {"parent.bin", "clone.bin", "bios.bin"}
+    assert "sound.bin" not in names
