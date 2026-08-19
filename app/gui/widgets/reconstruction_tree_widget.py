@@ -30,10 +30,11 @@ class ReconstructionTreeWidget(QWidget):
         layout.addWidget(self.tree)
 
     def clear(self) -> None:
+        """Remove todos os itens da árvore."""
         self.tree.clear()
 
     def set_data(self, machines: list[Any]) -> None:
-        """Popula a árvore a partir das machines do manifesto."""
+        """Popula a árvore com todas as ROMs do manifesto físico."""
         self.tree.clear()
         for machine in machines:
             item = QTreeWidgetItem(self.tree)
@@ -52,6 +53,7 @@ class ReconstructionTreeWidget(QWidget):
 
     @staticmethod
     def _size(value: int) -> str:
+        """Formata bytes para leitura humana."""
         units = ["B", "KB", "MB", "GB", "TB"]
         size = float(value or 0)
         unit = 0
@@ -62,12 +64,17 @@ class ReconstructionTreeWidget(QWidget):
 
     @staticmethod
     def _rom_state(rom: Any) -> str:
+        """Converte o status físico do manifesto em estado visual."""
         state = str(getattr(rom, "status", "missing")).lower()
         return {"valid": "OK", "ok": "OK", "good": "OK", "missing": "AUSENTE", "invalid": "REPARÁVEL", "corrupted": "REPARÁVEL"}.get(state, state.upper())
 
     @classmethod
     def _machine_state(cls, machine: Any) -> str:
-        states = {cls._rom_state(r) for r in machine.roms if getattr(r, "required", True)}
+        """Calcula o estado usando TODAS as ROMs, inclusive optional do schema v2."""
+        roms = list(getattr(machine, "roms", []) or [])
+        if not roms:
+            return "SEM ROMS"
+        states = {cls._rom_state(r) for r in roms}
         if states == {"OK"}:
             return "COMPLETA"
         if "AUSENTE" in states:
@@ -75,14 +82,20 @@ class ReconstructionTreeWidget(QWidget):
         return "REPARÁVEL"
 
     def _filter(self, text: str) -> None:
+        """Filtra machines pela identificação ou descrição."""
         needle = text.strip().lower()
         for i in range(self.tree.topLevelItemCount()):
             item = self.tree.topLevelItem(i)
-            machine = item.data(0, Qt.ItemDataRole.UserRole).get("machine")
+            data = item.data(0, Qt.ItemDataRole.UserRole) or {}
+            machine = data.get("machine")
+            if not machine:
+                item.setHidden(True)
+                continue
             match = not needle or needle in machine.name.lower() or needle in machine.description.lower()
             item.setHidden(not match)
 
     def _context_menu(self, position) -> None:
+        """Centraliza as ações contextuais de ROM e machine."""
         item = self.tree.itemAt(position)
         if item is None:
             return
@@ -90,7 +103,6 @@ class ReconstructionTreeWidget(QWidget):
         menu = QMenu(self)
         if data.get("kind") == "rom":
             rom = data["rom"]
-            machine = data["machine"]
             copy_action = menu.addAction("Copiar nome da ROM")
             repair_action = menu.addAction("Tentar reparar esta ROM")
             menu.addSeparator()
@@ -104,7 +116,7 @@ class ReconstructionTreeWidget(QWidget):
             elif chosen == info_action:
                 self.repair_requested.emit({**data, "action": "details"})
         elif data.get("kind") == "machine":
-            copy_action = menu.addAction("Reconstruir machine")
+            reconstruct_action = menu.addAction("Reconstruir machine")
             chosen = menu.exec(self.tree.viewport().mapToGlobal(position))
-            if chosen == copy_action:
-                self.repair_requested.emit(data)
+            if chosen == reconstruct_action:
+                self.repair_requested.emit({**data, "action": "machine_reconstruct"})
