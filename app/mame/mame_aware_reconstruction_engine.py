@@ -14,17 +14,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from app.mame.reconstruction_engine import (
-    ReconstructionEngine,
-    ReconstructionMachine,
-    ReconstructionResult,
-)
+from app.mame.reconstruction_engine import ReconstructionEngine, ReconstructionMachine, ReconstructionResult
 
 
 @dataclass(frozen=True, slots=True)
 class MameBuildOptions:
     """Opções expostas pela interface de reconstrução."""
-
     include_clones: bool = True
     include_bios: bool = True
     include_devices: bool = True
@@ -35,64 +30,28 @@ class MameBuildOptions:
 class MameAwareReconstructionEngine(ReconstructionEngine):
     """Reconstrutor que aplica a semântica do LISTXML antes do motor físico."""
 
-    def __init__(
-        self,
-        source_paths: Iterable[str | Path],
-        destination_path: str | Path,
-        *,
-        build_options: MameBuildOptions | None = None,
-        xml_path: str | Path | None = None,
-        progress_callback: Callable[[int, int, str], None] | None = None,
-        log_callback: Callable[[str], None] | None = None,
-        max_retries: int = 2,
-    ) -> None:
-        super().__init__(
-            source_paths,
-            destination_path,
-            progress_callback=progress_callback,
-            log_callback=log_callback,
-            max_retries=max_retries,
-        )
+    def __init__(self, source_paths: Iterable[str | Path], destination_path: str | Path, *, build_options: MameBuildOptions | None = None, xml_path: str | Path | None = None, progress_callback: Callable[[int, int, str], None] | None = None, log_callback: Callable[[str], None] | None = None, max_retries: int = 2) -> None:
+        super().__init__(source_paths, destination_path, progress_callback=progress_callback, log_callback=log_callback, max_retries=max_retries)
         self.build_options = build_options or MameBuildOptions()
         self.xml_path = Path(xml_path) if xml_path else None
         self.decisions: list[dict[str, Any]] = []
 
-    def reconstruct(
-        self,
-        machines: list[ReconstructionMachine],
-        *,
-        set_type: str = ReconstructionEngine.SET_SPLIT,
-        copy_perfect: bool = True,
-        repair: bool = True,
-    ) -> ReconstructionResult:
+    def reconstruct(self, machines: list[ReconstructionMachine], *, set_type: str = ReconstructionEngine.SET_SPLIT, copy_perfect: bool = True, repair: bool = True) -> ReconstructionResult:
         """Aplica opções MAME, executa a reconstrução segura e copia samples."""
         self.decisions = []
         catalog = self._load_catalog(self.xml_path)
         prepared = self._prepare_machines(machines, catalog)
-
-        result = super().reconstruct(
-            prepared,
-            set_type=set_type,
-            copy_perfect=copy_perfect,
-            repair=repair,
-        )
-
+        result = super().reconstruct(prepared, set_type=set_type, copy_perfect=copy_perfect, repair=repair)
         sample_artifacts = self._copy_samples(prepared, catalog)
         self._write_decision_report(result, sample_artifacts)
         return result
 
-    def _prepare_machines(
-        self,
-        machines: list[ReconstructionMachine],
-        catalog: dict[str, dict],
-    ) -> list[ReconstructionMachine]:
+    def _prepare_machines(self, machines: list[ReconstructionMachine], catalog: dict[str, dict]) -> list[ReconstructionMachine]:
         """Filtra dependências sem alterar os objetos carregados do manifesto."""
         prepared: list[ReconstructionMachine] = []
         options = self.build_options
-
         for original in machines:
             meta = catalog.get(original.name, {})
-
             if meta.get("is_device") and not options.include_devices:
                 self._decision(original.name, "<machine>", "ignore", "Device desabilitado nas opções de construção.")
                 continue
@@ -118,10 +77,9 @@ class MameAwareReconstructionEngine(ReconstructionEngine):
                     self._decision(machine.name, rom.rom_name, "ignore", "ROM opcional removida pelas opções de construção.")
                     continue
 
-                if rom.status in {"missing", "unknown"} and mame_status == "nodump":
-                    self._decision(machine.name, rom.rom_name, "ignore", "ROM ausente classificada pelo MAME como NO DUMP KNOWN; não existe dump conhecido para procurar ou reconstruir.")
+                if mame_status == "nodump":
+                    self._decision(machine.name, rom.rom_name, "ignore", "ROM marcada como NO DUMP KNOWN pelo MAME; não existe conteúdo conhecido para validar e ela não será inventada nem aceita automaticamente.")
                     continue
-
                 if rom.status == "missing" and is_optional:
                     self._decision(machine.name, rom.rom_name, "ignore", "ROM opcional ausente; sua ausência não bloqueia a execução mínima.")
                     continue
@@ -136,10 +94,8 @@ class MameAwareReconstructionEngine(ReconstructionEngine):
                     self._decision(machine.name, rom.rom_name, "block", "ROM obrigatória ausente; o motor tentará reconstrução pela fonte registrada, mas a máquina não pode ser declarada completa enquanto ela faltar.")
 
                 filtered_roms.append(rom)
-
             machine.roms = filtered_roms
             prepared.append(machine)
-
         return prepared
 
     @staticmethod
@@ -166,7 +122,6 @@ class MameAwareReconstructionEngine(ReconstructionEngine):
             names.update(catalog.get(machine.name, {}).get("samples", ()))
         if not names:
             return []
-
         target_root = self.destination_path / "samples"
         target_root.mkdir(parents=True, exist_ok=True)
         artifacts: list[dict] = []
@@ -191,18 +146,7 @@ class MameAwareReconstructionEngine(ReconstructionEngine):
     def _write_decision_report(self, result: ReconstructionResult, sample_artifacts: list[dict]) -> None:
         """Persiste decisões sem misturá-las ao manifesto residual de pendências."""
         output = self.destination_path / "reconstruction-decisions.json"
-        payload = {
-            "options": {
-                "include_clones": self.build_options.include_clones,
-                "include_bios": self.build_options.include_bios,
-                "include_devices": self.build_options.include_devices,
-                "include_samples": self.build_options.include_samples,
-                "include_optional": self.build_options.include_optional,
-            },
-            "decisions": self.decisions,
-            "sample_artifacts": sample_artifacts,
-            "unresolved_count": len(result.unresolved),
-        }
+        payload = {"options": {"include_clones": self.build_options.include_clones, "include_bios": self.build_options.include_bios, "include_devices": self.build_options.include_devices, "include_samples": self.build_options.include_samples, "include_optional": self.build_options.include_optional}, "decisions": self.decisions, "sample_artifacts": sample_artifacts, "unresolved_count": len(result.unresolved)}
         partial = output.with_suffix(".json.partial")
         partial.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
         os.replace(partial, output)
@@ -222,7 +166,6 @@ class MameAwareReconstructionEngine(ReconstructionEngine):
             root = ET.parse(xml_path).getroot()
         except (OSError, ET.ParseError):
             return {}
-
         catalog: dict[str, dict] = {}
         for machine in root.findall("machine"):
             name = machine.get("name", "")
@@ -232,16 +175,7 @@ class MameAwareReconstructionEngine(ReconstructionEngine):
             for rom in machine.findall("rom"):
                 rom_name = rom.get("name", "")
                 if rom_name:
-                    roms[rom_name] = {
-                        "status": rom.get("status", "good"),
-                        "optional": str(rom.get("optional", "")).lower() in {"yes", "true", "1"},
-                        "bios": rom.get("bios", "") or "",
-                    }
+                    roms[rom_name] = {"status": rom.get("status", "good"), "optional": str(rom.get("optional", "")).lower() in {"yes", "true", "1"}, "bios": rom.get("bios", "") or ""}
             samples = tuple(dict.fromkeys(value for value in (machine.get("sampleof", ""), *(node.get("name", "") for node in machine.findall("sample"))) if value))
-            catalog[name] = {
-                "is_bios": str(machine.get("isbios", "")).lower() == "yes",
-                "is_device": str(machine.get("isdevice", "")).lower() == "yes",
-                "samples": samples,
-                "roms": roms,
-            }
+            catalog[name] = {"is_bios": str(machine.get("isbios", "")).lower() == "yes", "is_device": str(machine.get("isdevice", "")).lower() == "yes", "samples": samples, "roms": roms}
         return catalog
