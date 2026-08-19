@@ -1,20 +1,25 @@
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Callable, List
 
 from app.core.models.scan_result import ScanResult
+from app.core.system import PerformanceManager
 from app.mame.listxml_parser import iter_machines
 from app.mame.rom_scanner import RomScanner
 
 
 class RomScanService:
+    """Serviço de alto nível para executar scans definidos pelo LISTXML."""
+
     def __init__(self, rom_paths: List[Path], *, workers: int | None = None):
         self.rom_paths = [Path(p) for p in rom_paths]
-        self.scanner = RomScanner(self.rom_paths, workers=workers)
+        performance = PerformanceManager.detect()
+        selected_workers = performance.cpu_workers(workers)
+        self.scanner = RomScanner(self.rom_paths, workers=selected_workers)
 
     def scan_machines(self, xml_path: Path, *, progress_callback: Callable[[int, int, str], None] | None = None) -> ScanResult:
+        """Lê as machines do XML e delega o scan ao RomScanner."""
         machines: list[dict] = []
         for machine in iter_machines(xml_path):
             machines.append({
