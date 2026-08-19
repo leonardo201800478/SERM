@@ -8,7 +8,7 @@ from app.gui.tabs.filters_tab_realtime import FiltersTab
 from app.gui.tabs.scan_roms_tab import ScanRomsTab
 from app.gui.scan_thread_guard import install as install_scan_thread_guard
 from app.gui.tabs.reconstruction_tab import ReconstructionTab
-from app.gui.tabs.dataset_tab import DatasetTab
+from app.gui.tabs.mame_settings_tab import MameSettingsTab
 from app.database.database import Database
 from app.config.app_config import AppConfig
 
@@ -33,13 +33,13 @@ class MainWindow(QMainWindow):
         self.home_tab = HomeTab(self)
         self.directories_tab = DirectoriesTab(self)
         self.filters_tab = FiltersTab(self, db=self.db)
-        self.dataset_tab = DatasetTab(self)
+        self.mame_settings_tab = MameSettingsTab(self)
         self.scan_tab = ScanRomsTab(self)
         self.reconstruction_tab = ReconstructionTab(self)
         self.tab_widget.addTab(self.home_tab, "Home")
         self.tab_widget.addTab(self.directories_tab, "Diretórios")
         self.tab_widget.addTab(self.filters_tab, "Filtragem")
-        self.tab_widget.addTab(self.dataset_tab, "Base MAME")
+        self.tab_widget.addTab(self.mame_settings_tab, "Configurações MAME")
         self.tab_widget.addTab(self.scan_tab, "Scan Roms")
         self.tab_widget.addTab(self.reconstruction_tab, "Reconstrução")
         self.tab_widget.currentChanged.connect(self._on_tab_changed)
@@ -59,6 +59,8 @@ class MainWindow(QMainWindow):
             self.scan_tab.refresh_profiles()
         elif widget is self.reconstruction_tab:
             self.reconstruction_tab.refresh()
+        elif widget is self.mame_settings_tab:
+            self.mame_settings_tab._load_ini()
 
     def _on_database_updated(self):
         """Atualiza abas dependentes do dataset."""
