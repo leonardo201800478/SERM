@@ -1,5 +1,6 @@
 import sys
 import logging
+import multiprocessing
 from pathlib import Path
 from PySide6.QtWidgets import QApplication
 from app.gui.main_window import MainWindow
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 def main():
     """Inicializa o aplicativo e registra o perfil de hardware detectado."""
+    multiprocessing.freeze_support()
     logger.info("=" * 60)
     logger.info("Iniciando MAME Set Builder...")
     logger.info(f"Python: {sys.version}")
