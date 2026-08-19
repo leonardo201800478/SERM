@@ -18,8 +18,15 @@ def test_hardware_profile_has_safe_worker_limits() -> None:
     assert profile.memory_budget_bytes >= 512 * 1024**2
 
 
-def test_cpu_map_preserves_order() -> None:
+def test_cpu_map_preserves_order_serial_fallback() -> None:
     manager = PerformanceManager.detect()
     values = [1, 2, 3, 4]
     result = manager.map_cpu(square, values, workers=1)
     assert result == [1, 4, 9, 16]
+
+
+def test_cpu_map_uses_processes_when_requested() -> None:
+    manager = PerformanceManager.detect()
+    values = list(range(12))
+    result = manager.map_cpu(square, values, workers=2, chunksize=2)
+    assert result == [value * value for value in values]
