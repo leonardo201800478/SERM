@@ -153,13 +153,39 @@ class ReconstructionEngine:
 
     @staticmethod
     def _expected(machine: ReconstructionMachine) -> list[ReconstructionRom]:
-        """Retorna TODAS as ROMs do manifesto, inclusive optional.
+        """Retorna as ROMs efetivamente necessárias no ZIP, deduplicando entradas idênticas.
 
-        No schema físico v2, `optional`/`required` descrevem a semântica do
-        XML/MAME e não significam que a entrada deva ser descartada da
-        reconstrução. O scan físico registrou explicitamente cada ROM esperada.
+        O manifesto físico v2 pode conter a mesma ROM mais de uma vez quando a
+        definição do MAME referencia o mesmo arquivo em múltiplos pontos ou
+        quando uma cadeia merged/non-merged converge para a mesma ROM. Um ZIP
+        MAME não deve receber duas entradas com o mesmo nome: além de tornar o
+        conjunto ambíguo, isso fazia a validação final rejeitar uma machine que
+        estava fisicamente correta.
+
+        Duplicatas são eliminadas somente quando representam a mesma ROM
+        (nome + tamanho + CRC + SHA1). Se o mesmo nome possuir hashes
+        incompatíveis, mantemos as entradas para que a publicação falhe de
+        forma explícita em vez de escolher silenciosamente uma delas.
         """
-        return list(machine.roms)
+        result: list[ReconstructionRom] = []
+        by_name: dict[str, ReconstructionRom] = {}
+        for rom in machine.roms:
+            previous = by_name.get(rom.rom_name)
+            if previous is None:
+                by_name[rom.rom_name] = rom
+                result.append(rom)
+                continue
+            identical = (
+                previous.expected_size == rom.expected_size
+                and previous.expected_crc == rom.expected_crc
+                and previous.expected_sha1 == rom.expected_sha1
+            )
+            if identical:
+                logger.debug("ROM duplicada idêntica ignorada no manifesto: %s -> %s", machine.name, rom.rom_name)
+                continue
+            logger.error("ROM duplicada com hashes incompatíveis: %s -> %s", machine.name, rom.rom_name)
+            result.append(rom)
+        return result
 
     def _source_allowed(self, path: Path) -> bool:
         """Impede acesso a arquivos fora das origens declaradas."""
@@ -339,8 +365,6 @@ class ReconstructionEngine:
                 self._check_cancel()
                 is_perfect = rom.status in {"valid", "ok", "good"}
                 if is_perfect and not copy_perfect and repair:
-                    # ROM perfeita não é publicada pelo modo "Reparar" isoladamente;
-                    # ela é usada apenas como dependência temporária para fechar o ZIP.
                     pass
                 elif not is_perfect and not repair:
                     result.unresolved.append(self._unresolved(machine, rom, "reparo_desativado"))
@@ -426,4 +450,3 @@ class ReconstructionEngine:
                     continue
                 seen.add(key)
                 handle.write(json.dumps({"record_type": "unresolved", "record": item}, ensure_ascii=False, separators=(",", ":")) + "\n")
-        return output
