@@ -88,7 +88,8 @@ class ReconstructionTab(QWidget):
         self._load_manifest()
 
     def _scan_dir(self) -> Path:
-        path = Path(__file__).resolve().parents[3] / "data" / "database" / "scan"
+        """Retorna o diretório canônico de scan, nunca o diretório do set."""
+        path = AppConfig.SCAN_DIR
         path.mkdir(parents=True, exist_ok=True)
         return path
 
@@ -138,10 +139,11 @@ class ReconstructionTab(QWidget):
         self.cancel_button.clicked.connect(self._cancel)
 
     def _load_manifest(self) -> None:
-        """Carrega o manifesto corrente herdado da aba Scan Roms."""
+        """Carrega exclusivamente o current_scan.jsonl produzido pela aba Scan ROMs."""
         try:
+            self.manifest_path = self._scan_dir() / "current_scan.jsonl"
             if not self.manifest_path.is_file():
-                self.manifest_label.setText("Manifesto: current_scan.jsonl não encontrado")
+                self.manifest_label.setText(f"Manifesto: {self.manifest_path} — não encontrado")
                 self.tree.clear()
                 return
             self.machines = ReconstructionEngine.load_manifest(self.manifest_path)
@@ -151,9 +153,8 @@ class ReconstructionTab(QWidget):
             self.manifest_label.setText(f"Erro ao carregar manifesto: {exc}")
 
     def refresh(self) -> None:
-        """Recarrega o current_scan.jsonl após um novo scan."""
+        """Recarrega o manifesto corrente após um novo scan."""
         if self.worker is None or not self.worker.isRunning():
-            self.manifest_path = self._scan_dir() / "current_scan.jsonl"
             self._load_manifest()
 
     def _source_paths(self) -> list[Path]:
@@ -168,6 +169,7 @@ class ReconstructionTab(QWidget):
     def _start(self, *, copy_perfect: bool, repair: bool) -> None:
         if self.worker and self.worker.isRunning():
             return
+        self._load_manifest()
         if not self.manifest_path.is_file():
             QMessageBox.warning(self, "Reconstrução", "Execute o Scan Roms antes da reconstrução.")
             return
@@ -212,11 +214,7 @@ class ReconstructionTab(QWidget):
             self.progress.setValue(0)
             self.progress_label.setText(f"Reparando {machine.name} -> {rom.rom_name}...")
             self.log_panel._clear()
-            repairer = SingleRomRepairEngine(
-                self._source_paths(),
-                destination,
-                log_callback=self._append_log,
-            )
+            repairer = SingleRomRepairEngine(self._source_paths(), destination, log_callback=self._append_log)
             repairer.repair(machine, rom)
             self.progress.setValue(100)
             self.progress_label.setText(f"ROM reparada e verificada: {rom.rom_name}")
