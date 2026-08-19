@@ -80,25 +80,25 @@ class ReconstructionService:
         build_plan = self._build_plan(result)
         decisions: list[dict] = []
         machine_summary = {m.machine_name: self._summary() for m in result.machines}
-        physical: dict[tuple[str, str], RomScanResult] = {
+        physical = {
             (m.machine_name, r.rom_name): r
             for m in result.machines
             for r in m.roms
             if r.item_type.value == "rom"
         }
         groups: dict[Path, list[tuple[str, RomScanResult]]] = {}
-        planned_keys: set[tuple[str, str]] = set()
+        planned_keys: set[tuple[Path, str, str]] = set()
 
-        # ROMs determinadas pelo layout planner: aqui acontece a ligação real
-        # entre plano lógico e arquivo físico.
+        # A chave inclui o ZIP de destino: no Non-Merged a mesma ROM do parent
+        # deve ser materializada em cada clone autocontido.
         for archive_name, archive_items in build_plan.archives.archives.items():
             target = self._target_path(Path(f"{archive_name}.zip"), "Roms")
             for item in archive_items:
-                key = (item.provider_machine, item.rom.name)
+                key = (target, item.provider_machine, item.rom.name)
                 if key in planned_keys:
                     continue
                 planned_keys.add(key)
-                rom = physical.get(key)
+                rom = physical.get((item.provider_machine, item.rom.name))
                 if rom is None:
                     self._missing_planned(decisions, machine_summary, item.provider_machine, item.rom.name,
                         f"ROM necessária para '{archive_name}.zip', fornecida por '{item.provider_machine}', não existe no ScanResult.")
@@ -130,15 +130,15 @@ class ReconstructionService:
             if machine_plan is None:
                 self._structural(decisions, machine_summary, machine_name, "Dependência externa não possui MachinePlan.")
                 continue
+            target = self._target_path(Path(f"{machine_name}.zip"), "Roms")
             for reason in machine_plan.blocking_reasons:
                 self._structural(decisions, machine_summary, machine_name, reason)
-            target = self._target_path(Path(f"{machine_name}.zip"), "Roms")
             for romdef in machine_plan.own_roms:
-                key = (machine_name, romdef.name)
+                key = (target, machine_name, romdef.name)
                 if key in planned_keys:
                     continue
                 planned_keys.add(key)
-                rom = physical.get(key)
+                rom = physical.get((machine_name, romdef.name))
                 if rom is None:
                     self._missing_planned(decisions, machine_summary, machine_name, romdef.name,
                         f"Dependência externa '{machine_name}.zip' requer '{romdef.name}', ausente no ScanResult.")
@@ -188,13 +188,7 @@ class ReconstructionService:
                 partial.unlink(missing_ok=True)
                 raise
 
-        artifacts.extend(self._copy_samples(result, decisions, build_plan))
-        for name, machine_plan in build_plan.dependencies.machines.items():
-            if machine_plan.blocking_reasons:
-                value = machine_summary.setdefault(name, self._summary())
-                value["blocking"] += len(machine_plan.blocking_reasons)
-                value["executable"] = False
-
+        artifacts.extend(self._copy_samples(decisions, build_plan))
         report = {
             "status": "completed_with_blockers" if build_plan.blockers or any(v["blocking"] for v in machine_summary.values()) else "completed",
             "runtime_ready_machines": sum(v["executable"] for v in machine_summary.values()),
@@ -227,46 +221,38 @@ class ReconstructionService:
                 decision = self._decide_rom(rom, (meta.roms or {}).get(rom.rom_name, _XmlRomMeta()))
                 blocking += int(decision.blocking)
                 runtime_ready = runtime_ready and decision.executable
-                items.append({
-                    "name": rom.rom_name, "type": rom.item_type.value,
-                    "physical_status": rom.status.value, "mame_dump_status": decision.dump_status.value,
-                    "action": decision.action.value, "executable": decision.executable, "blocking": decision.blocking,
-                    "expected_size": rom.expected_size, "actual_size": rom.actual_size,
-                    "expected_crc": rom.expected_crc, "actual_crc": rom.actual_crc,
-                    "expected_sha1": rom.expected_sha1, "actual_sha1": rom.actual_sha1,
-                    "message": rom.message, "reason": decision.reason,
-                })
-            report.append({"machine": machine.machine_name, "cloneof": machine.cloneof, "status": machine.status.value, "runtime_ready": runtime_ready, "blocking_count": blocking, "items": items})
+                items.append({"name": rom.rom_name, "type": rom.item_type.value,
+                              "physical_status": rom.status.value, "mame_dump_status": decision.dump_status.value,
+                              "action": decision.action.value, "executable": decision.executable, "blocking": decision.blocking,
+                              "expected_size": rom.expected_size, "actual_size": rom.actual_size,
+                              "expected_crc": rom.expected_crc, "actual_crc": rom.actual_crc,
+                              "expected_sha1": rom.expected_sha1, "actual_sha1": rom.actual_sha1,
+                              "message": rom.message, "reason": decision.reason})
+            report.append({"machine": machine.machine_name, "cloneof": machine.cloneof,
+                           "status": machine.status.value, "runtime_ready": runtime_ready,
+                           "blocking_count": blocking, "items": items})
         return report
 
     def _build_plan(self, result: ScanResult) -> MameBuildPlan:
         """Cria o BuildPlan usando exatamente as opções da reconstrução."""
         if result.xml_path is None:
             raise ValueError("ScanResult não possui xml_path; o BuildPlanner precisa do LISTXML")
-        options = DependencyOptions(
-            include_clones=self.options.include_clones,
-            include_bios=self.options.include_bios,
-            include_devices=self.options.include_devices,
-            include_samples=self.options.include_samples,
-            include_optional=self.options.include_optional,
-        )
+        options = DependencyOptions(include_clones=self.options.include_clones,
+                                    include_bios=self.options.include_bios,
+                                    include_devices=self.options.include_devices,
+                                    include_samples=self.options.include_samples,
+                                    include_optional=self.options.include_optional)
         return MameBuildPlanner(result.xml_path, options).plan(
-            [machine.machine_name for machine in result.machines], mode=self.options.mode
-        )
+            [machine.machine_name for machine in result.machines], mode=self.options.mode)
 
     @staticmethod
     def _decide_rom(rom: RomScanResult, meta: _XmlRomMeta) -> RomDecision:
-        return classify_rom(
-            physical_status=rom.status.value,
-            expected_size=rom.expected_size,
-            actual_size=rom.actual_size,
-            expected_crc=rom.expected_crc,
-            actual_crc=rom.actual_crc,
-            expected_sha1=rom.expected_sha1,
-            actual_sha1=rom.actual_sha1,
-            mame_status=meta.status,
-            optional=bool(rom.optional or meta.optional),
-        )
+        return classify_rom(physical_status=rom.status.value,
+                            expected_size=rom.expected_size, actual_size=rom.actual_size,
+                            expected_crc=rom.expected_crc, actual_crc=rom.actual_crc,
+                            expected_sha1=rom.expected_sha1, actual_sha1=rom.actual_sha1,
+                            mame_status=meta.status,
+                            optional=bool(rom.optional or meta.optional))
 
     @staticmethod
     def _decision_record(machine_name: str, rom: RomScanResult, decision: RomDecision) -> dict:
@@ -294,26 +280,27 @@ class ReconstructionService:
             for node in machine.findall("rom"):
                 rom_name = (node.get("name") or "").strip()
                 if rom_name:
-                    roms[rom_name] = _XmlRomMeta(
-                        status=(node.get("status") or "good").lower(),
-                        optional=str(node.get("optional") or "").lower() in {"yes", "true", "1"},
-                        bios=node.get("bios") or "", merge=node.get("merge") or "",
-                    )
-            samples = tuple(v for v in ((machine.get("sampleof") or ""), *(n.get("name") or "" for n in machine.findall("sample"))) if v)
-            catalog[name] = _XmlMachineMeta(
-                cloneof=machine.get("cloneof") or "", romof=machine.get("romof") or "",
-                sampleof=machine.get("sampleof") or "", is_bios=str(machine.get("isbios") or "").lower() == "yes",
-                is_device=str(machine.get("isdevice") or "").lower() == "yes", samples=tuple(dict.fromkeys(samples)), roms=roms,
-            )
+                    roms[rom_name] = _XmlRomMeta(status=(node.get("status") or "good").lower(),
+                                                   optional=str(node.get("optional") or "").lower() in {"yes", "true", "1"},
+                                                   bios=node.get("bios") or "", merge=node.get("merge") or "")
+            samples = tuple(v for v in ((machine.get("sampleof") or ""),
+                                        *(n.get("name") or "" for n in machine.findall("sample"))) if v)
+            catalog[name] = _XmlMachineMeta(cloneof=machine.get("cloneof") or "",
+                                             romof=machine.get("romof") or "",
+                                             sampleof=machine.get("sampleof") or "",
+                                             is_bios=str(machine.get("isbios") or "").lower() == "yes",
+                                             is_device=str(machine.get("isdevice") or "").lower() == "yes",
+                                             samples=tuple(dict.fromkeys(samples)), roms=roms)
         return catalog
 
-    def _copy_samples(self, result: ScanResult, decisions: list[dict], build_plan: MameBuildPlan) -> list[dict]:
+    def _copy_samples(self, decisions: list[dict], build_plan: MameBuildPlan) -> list[dict]:
         """Copia apenas samples requeridos pelo BuildPlan."""
         if not self.options.include_samples or not build_plan.samples:
             return []
         sources = tuple(Path(p).expanduser() for p in self.options.source_paths)
         if not sources:
-            decisions.append({"item": "<samples>", "action": "search", "blocking": False, "executable": True, "reason": "Samples requeridos, mas nenhuma origem foi configurada."})
+            decisions.append({"item": "<samples>", "action": "search", "blocking": False,
+                              "executable": True, "reason": "Samples requeridos, mas nenhuma origem foi configurada."})
             return []
         target_root = self.options.destination / "samples"
         target_root.mkdir(parents=True, exist_ok=True)
@@ -323,7 +310,8 @@ class ReconstructionService:
             source = next((p for p in candidates if p.is_file()), None)
             target = target_root / f"{name}.zip"
             if source is None:
-                decisions.append({"item": f"sample:{name}", "action": "search", "blocking": False, "executable": True, "reason": f"Sample set {name}.zip não encontrado nas origens configuradas."})
+                decisions.append({"item": f"sample:{name}", "action": "search", "blocking": False,
+                                  "executable": True, "reason": f"Sample set {name}.zip não encontrado nas origens configuradas."})
                 continue
             if target.exists() and not self.options.overwrite:
                 artifacts.append({"destination": str(target), "status": "already_exists", "source": str(source), "type": "sample"})
@@ -332,7 +320,8 @@ class ReconstructionService:
             shutil.copyfile(source, partial)
             os.replace(partial, target)
             artifacts.append({"destination": str(target), "status": "copied", "source": str(source), "type": "sample"})
-            decisions.append({"item": f"sample:{name}", "action": "keep", "blocking": False, "executable": True, "reason": f"Sample set encontrado em {source} e copiado para o destino."})
+            decisions.append({"item": f"sample:{name}", "action": "keep", "blocking": False,
+                              "executable": True, "reason": f"Sample set encontrado em {source} e copiado para o destino."})
         return artifacts
 
     def _target_path(self, source: Path, category: str) -> Path:
@@ -370,12 +359,14 @@ class ReconstructionService:
 
     @staticmethod
     def _missing_planned(decisions: list[dict], summary: dict[str, dict], machine: str, item: str, reason: str) -> None:
-        decisions.append({"machine": machine, "item": item, "action": "search", "blocking": True, "executable": False, "reason": reason})
+        decisions.append({"machine": machine, "item": item, "action": "search", "blocking": True,
+                          "executable": False, "reason": reason})
         ReconstructionService._block(summary, machine)
 
     @staticmethod
     def _structural(decisions: list[dict], summary: dict[str, dict], machine: str, reason: str) -> None:
-        decisions.append({"machine": machine, "item": "<dependency>", "action": "block", "blocking": True, "executable": False, "reason": reason})
+        decisions.append({"machine": machine, "item": "<dependency>", "action": "block", "blocking": True,
+                          "executable": False, "reason": reason})
         ReconstructionService._block(summary, machine)
 
     def _options_dict(self) -> dict:
