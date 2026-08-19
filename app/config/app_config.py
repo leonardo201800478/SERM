@@ -5,11 +5,13 @@ from pathlib import Path
 
 class AppConfig:
     """Configuração persistente do MAME Set Builder."""
+
     CONFIG_DIR = Path.home() / ".mame-set-builder"
     CONFIG_FILE = CONFIG_DIR / "config.json"
     PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
     DB_DIR = PROJECT_ROOT / "data" / "database"
     DB_PATH = DB_DIR / "mame_set_builder.db"
+    SCAN_DIR = DB_DIR / "scan"
 
     def __init__(self):
         self.mame_path: Path | None = None
@@ -26,8 +28,9 @@ class AppConfig:
         self.load()
 
     def _ensure_directories(self):
-        """Garante diretórios persistentes do aplicativo."""
+        """Garante os diretórios persistentes do aplicativo, incluindo manifests de scan."""
         self.DB_DIR.mkdir(parents=True, exist_ok=True)
+        self.SCAN_DIR.mkdir(parents=True, exist_ok=True)
 
     def load(self):
         """Carrega configurações sem interromper a aplicação por arquivo inválido."""
