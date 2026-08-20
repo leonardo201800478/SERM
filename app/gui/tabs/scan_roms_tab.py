@@ -123,7 +123,8 @@ class ManifestLoadWorker(QThread):
                     if not line.strip():
                         continue
                     record = json.loads(line)
-                    if record.get("record_type") != "rom":
+                    record_type = record.get("record_type")
+                    if record_type not in {"rom", "disk"}:
                         continue
                     data = record.get("record") or {}
                     name = str(data.get("machine") or "")
@@ -134,8 +135,12 @@ class ManifestLoadWorker(QThread):
                         "description": data.get("machine_description", ""),
                         "cloneof": None,
                         "roms": [],
+                        "disks": [],
                     })
-                    machine["roms"].append(data)
+                    if record_type == "rom":
+                        machine["roms"].append(data)
+                    else:
+                        machine["disks"].append(data)
             self.finished.emit(list(machines.values()))
         except Exception as exc:
             self.failed.emit(str(exc))
@@ -350,6 +355,7 @@ class ScanRomsTab(QWidget):
         selected = QFileDialog.getExistingDirectory(self, "Selecionar diretório", target.text().strip() or str(Path.home()))
         if selected:
             target.setText(selected)
+            self._update_ui_state()
 
     def _select_existing_xml(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Selecionar LISTXML filtrado", str(self._scan_dir()), "XML (*.xml)")
@@ -383,6 +389,7 @@ class ScanRomsTab(QWidget):
             QMessageBox.critical(self, "XML", str(exc))
         finally:
             self.btn_generate.setEnabled(True)
+            self._update_ui_state()
 
     def _get_mame_version(self) -> str:
         if not self.config.mame_path or not self.config.mame_path.is_file():
@@ -416,6 +423,17 @@ class ScanRomsTab(QWidget):
                     }
                     for rom in element.findall("rom")
                 ],
+                "disks": [
+                    {
+                        "name": disk.get("name", ""),
+                        "sha1": disk.get("sha1"),
+                        "merge": disk.get("merge"),
+                        "region": disk.get("region"),
+                        "index": int(disk.get("index", "0") or 0),
+                        "optional": disk.get("optional"),
+                    }
+                    for disk in element.findall("disk")
+                ],
             })
         return machines
 
@@ -433,7 +451,7 @@ class ScanRomsTab(QWidget):
         self._populate_tree(machines)
         valid = missing = invalid = errors = total = 0
         for machine in machines:
-            for rom in machine["roms"]:
+            for rom in machine.get("roms", []):
                 total += 1
                 status = str(rom.get("status", "missing")).lower()
                 if status == "valid":
@@ -441,6 +459,17 @@ class ScanRomsTab(QWidget):
                 elif status == "missing":
                     missing += 1
                 elif status in {"sha1_mismatch", "invalid", "corrupted"}:
+                    invalid += 1
+                else:
+                    errors += 1
+            for disk in machine.get("disks", []):
+                total += 1
+                status = str(disk.get("status", "missing")).lower()
+                if status == "valid":
+                    valid += 1
+                elif status == "missing":
+                    missing += 1
+                elif status in {"invalid", "sha1_mismatch", "corrupted"}:
                     invalid += 1
                 else:
                     errors += 1
@@ -459,36 +488,55 @@ class ScanRomsTab(QWidget):
                 member = source.get("member")
                 if member:
                     origin = f"{origin}!{member}"
-
-                # Hashes podem legitimamente ser null no manifesto. Não assumir
-                # que os campos opcionais são strings evita que a visualização
-                # quebre ao encontrar dumps com metadados incompletos.
                 expected_crc = str(rom.get("expected_crc") or "")
                 expected_sha1 = str(rom.get("expected_sha1") or "")
                 expected = f"{expected_crc} / {expected_sha1[:12]}"
-
                 status = str(rom.get("status") or "missing")
                 item = QTreeWidgetItem([
                     f"  {rom.get('rom_name', '')}", origin,
                     str(rom.get("actual_size") or rom.get("expected_size") or 0), expected, status,
                 ])
-                if status == "valid":
-                    item.setForeground(4, QColor("#008000"))
-                elif status == "missing":
-                    item.setForeground(4, QColor("#808080"))
-                else:
-                    item.setForeground(4, QColor("#CC0000"))
+                self._color_status(item, status)
+                machine_item.addChild(item)
+            for disk in machine.get("disks", []):
+                source = disk.get("source") or {}
+                origin = str(source.get("archive") or "")
+                expected_sha1 = str(disk.get("expected_sha1") or "")
+                expected = f"CHD / {expected_sha1[:12]}"
+                status = str(disk.get("status") or "missing")
+                item = QTreeWidgetItem([
+                    f"  [CHD] {disk.get('disk_name', '')}", origin,
+                    str(disk.get("actual_size") or disk.get("expected_size") or 0), expected, status,
+                ])
+                self._color_status(item, status)
                 machine_item.addChild(item)
         self.tree.expandToDepth(0)
 
+    @staticmethod
+    def _color_status(item: QTreeWidgetItem, status: str) -> None:
+        if status == "valid":
+            item.setForeground(4, QColor("#008000"))
+        elif status == "missing":
+            item.setForeground(4, QColor("#808080"))
+        else:
+            item.setForeground(4, QColor("#CC0000"))
+
+    def _set_summary(self, machines: int, total: int, valid: int, missing: int, invalid: int, errors: int) -> None:
+        self.summary_labels["machines"].setText(str(machines))
+        self.summary_labels["total"].setText(str(total))
+        self.summary_labels["valid"].setText(str(valid))
+        self.summary_labels["missing"].setText(str(missing))
+        self.summary_labels["invalid"].setText(str(invalid))
+        self.summary_labels["errors"].setText(str(errors))
+
     def _update_summary_from_stats(self, stats: dict) -> None:
-        self.summary_labels["machines"].setText(str(stats.get("machines", self._machine_count_from_xml())))
-        self.summary_labels["total"].setText(str(stats.get("total", 0)))
-        self.summary_labels["valid"].setText(str(stats.get("valid", 0)))
-        self.summary_labels["missing"].setText(str(stats.get("missing", 0)))
-        self.summary_labels["invalid"].setText(str(stats.get("sha1_mismatch", stats.get("invalid", 0))))
-        self.summary_labels["errors"].setText(str(stats.get("read_errors", stats.get("errors", 0))))
-        self.summary_labels["bytes"].setText(f"{stats.get('bytes_read', 0):,}")
+        machines = int(stats.get("machines", self._machine_count_from_xml()))
+        total = int(stats.get("expected_roms", stats.get("total", 0))) + int(stats.get("expected_chds", 0))
+        valid = int(stats.get("valid", 0)) + int(stats.get("chds_valid", 0))
+        missing = int(stats.get("chds_missing", 0))
+        invalid = int(stats.get("sha1_mismatch", 0)) + int(stats.get("chds_invalid", 0))
+        errors = int(stats.get("read_errors", 0)) + int(stats.get("chds_errors", 0))
+        self._set_summary(machines, total, valid, missing, invalid, errors)
 
     def _machine_count_from_xml(self) -> int:
         if not self.filtered_xml_path or not self.filtered_xml_path.is_file():
@@ -497,3 +545,115 @@ class ScanRomsTab(QWidget):
             return len(ET.parse(self.filtered_xml_path).getroot().findall("machine"))
         except Exception:
             return 0
+
+    def _start_scan(self) -> None:
+        """Valida a configuração e inicia o scan físico em segundo plano."""
+        if self.scanning:
+            return
+        if not self.filtered_xml_path or not self.filtered_xml_path.is_file():
+            QMessageBox.warning(self, "Scan", "Selecione ou gere primeiro um LISTXML filtrado.")
+            return
+        source_paths = self._get_rom_paths()
+        if not source_paths:
+            QMessageBox.warning(self, "Scan", "Configure pelo menos uma origem física válida.")
+            return
+        try:
+            machines = self._load_machines_from_xml(self.filtered_xml_path)
+        except Exception as exc:
+            logger.exception("Falha carregando LISTXML para scan.")
+            QMessageBox.critical(self, "Scan", f"Não foi possível carregar o LISTXML:\n{exc}")
+            return
+        if not machines:
+            QMessageBox.warning(self, "Scan", "O LISTXML não contém machines válidas.")
+            return
+
+        self._save_paths()
+        self.scan_results = []
+        self.scanning = True
+        self.scan_start_time = time.monotonic()
+        self.progress.setValue(0)
+        self.progress.setFormat("Iniciando scan físico...")
+        self.status_label.setText(f"Escaneando {len(machines):,} machines...")
+        self._update_ui_state()
+
+        self.worker = PhysicalScanWorker(
+            self.config.db_path,
+            source_paths,
+            machines,
+            self.filtered_xml_path,
+            self._scan_dir(),
+            self._get_mame_version(),
+        )
+        self.worker.progress.connect(self._on_worker_progress)
+        self.worker.finished.connect(self._on_worker_finished)
+        self.worker.failed.connect(self._on_worker_failed)
+        self.worker.start()
+
+    def _stop_scan(self) -> None:
+        """Solicita parada cooperativa do scan atual."""
+        if self.worker and self.scanning:
+            self.status_label.setText("Solicitando cancelamento...")
+            self.btn_stop.setEnabled(False)
+            self.worker.cancel()
+
+    def _on_worker_progress(self, current_count: int, message: str) -> None:
+        """Atualiza a interface com o progresso informado pelo scanner."""
+        if self.scanning:
+            # O scanner não conhece o total de arquivos, portanto a barra é
+            # usada como indicador visual indeterminado durante a leitura.
+            self.progress.setRange(0, 0)
+            self.progress.setFormat(message)
+            self.status_label.setText(message)
+
+    def _on_worker_finished(self, stats: dict) -> None:
+        """Finaliza o estado da aba após término normal ou cancelamento."""
+        self.scanning = False
+        self.progress.setRange(0, 100)
+        status = str(stats.get("status") or "completed")
+        if status == "cancelled":
+            self.progress.setValue(0)
+            self.progress.setFormat("Scan cancelado")
+            self.status_label.setText("Scan cancelado pelo usuário.")
+        else:
+            self.progress.setValue(100)
+            self.progress.setFormat("Scan concluído")
+            self.status_label.setText(
+                f"Scan concluído em {stats.get('seconds', 0):.2f}s | "
+                f"CHDs válidos: {stats.get('chds_valid', 0)}/{stats.get('chds', 0)}"
+            )
+            self._update_summary_from_stats(stats)
+            QTimer.singleShot(50, self._load_current_manifest)
+        self._update_ui_state()
+
+    def _on_worker_failed(self, message: str) -> None:
+        """Trata falha fatal do worker sem derrubar a aplicação."""
+        self.scanning = False
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
+        self.progress.setFormat("Falha no scan")
+        self.status_label.setText(f"Falha no scan: {message}")
+        self._update_ui_state()
+        QMessageBox.critical(self, "Falha no escaneamento", message)
+
+    def _open_scans_dir(self) -> None:
+        """Abre o diretório dos manifests no explorador do sistema."""
+        path = self._scan_dir()
+        try:
+            if os.name == "nt":
+                os.startfile(str(path))
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", str(path)])
+            else:
+                subprocess.Popen(["xdg-open", str(path)])
+        except Exception as exc:
+            logger.exception("Falha abrindo diretório de scans.")
+            QMessageBox.warning(self, "Scans", f"Não foi possível abrir a pasta:\n{path}\n\n{exc}")
+
+    def _update_ui_state(self) -> None:
+        """Sincroniza habilitação dos controles com o estado atual."""
+        has_xml = bool(self.filtered_xml_path and self.filtered_xml_path.is_file())
+        has_source = bool(self._get_rom_paths())
+        self.btn_scan.setEnabled(not self.scanning and has_xml and has_source)
+        self.btn_stop.setEnabled(self.scanning)
+        self.btn_generate.setEnabled(not self.scanning)
+        self.btn_open.setEnabled(True)
