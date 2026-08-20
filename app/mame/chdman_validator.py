@@ -4,6 +4,11 @@ CHDs não devem ser validados calculando SHA-1 sobre os bytes do arquivo .chd.
 O digest de conteúdo esperado pelo MAME é o digest lógico armazenado no CHD.
 Este módulo usa o próprio chdman para validar a integridade e obter esse
 SHA-1, evitando duplicar a implementação do formato CHD no projeto.
+
+O tamanho físico do arquivo CHD nunca é usado como identidade. Ele pode ser
+registrado apenas como informação, pois depende da compressão. O tamanho
+lógico também não é usado para aceitar/rejeitar um CHD quando o LISTXML não
+fornece esse valor como identidade.
 """
 from __future__ import annotations
 
@@ -141,16 +146,31 @@ def chdman_verify(path: str | Path, chdman_path: str | Path | None = None, timeo
     return {"verified": True, "output": output, "returncode": result.returncode}
 
 
-def validate_chd(path: str | Path, expected_sha1: str | None, expected_logical_size: int = 0, chdman_path: str | Path | None = None) -> tuple[bool, dict[str, Any]]:
-    """Valida integridade pelo chdman e compara o SHA-1 lógico esperado."""
-    verify = chdman_verify(path, chdman_path=chdman_path)
+def validate_chd(
+    path: str | Path,
+    expected_sha1: str | None,
+    expected_logical_size: int = 0,
+    chdman_path: str | Path | None = None,
+) -> tuple[bool, dict[str, Any]]:
+    """Valida CHD pelo content SHA-1 e pela integridade interna.
+
+    ``expected_logical_size`` é mantido apenas por compatibilidade de API e
+    é deliberadamente ignorado como critério de aceitação. A identidade do
+    CHD para a reconstrução é o content SHA-1; ``chdman verify`` confirma a
+    integridade estrutural antes da cópia.
+    """
+    del expected_logical_size
     info = chdman_info(path, chdman_path=chdman_path)
     expected = (expected_sha1 or "").strip().lower()
-    logical_size = int(info.get("logical_size") or 0)
-    size_ok = expected_logical_size <= 0 or logical_size == expected_logical_size
-    sha1_ok = not expected or str(info["sha1"]).lower() == expected
-    info.update(verify)
+    actual = str(info.get("sha1") or "").lower()
+    sha1_ok = bool(expected) and actual == expected
     info["expected_sha1"] = expected or None
     info["sha1_match"] = sha1_ok
-    info["logical_size_match"] = size_ok
-    return size_ok and sha1_ok, info
+
+    if not sha1_ok:
+        info.update({"verified": False, "verify_skipped": True, "verify_reason": "content SHA1 divergente"})
+        return False, info
+
+    verify = chdman_verify(path, chdman_path=chdman_path)
+    info.update(verify)
+    return True, info
