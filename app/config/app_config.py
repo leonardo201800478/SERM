@@ -15,6 +15,7 @@ class AppConfig:
 
     def __init__(self):
         self.mame_path: Path | None = None
+        self.chdman_path: Path | None = None
         self.ini_path: Path | None = None
         self.catver_path: Path | None = None
         self.db_path: Path = self.DB_PATH
@@ -39,6 +40,7 @@ class AppConfig:
         try:
             data = json.loads(self.CONFIG_FILE.read_text(encoding="utf-8"))
             self.mame_path = Path(data["mame_path"]) if data.get("mame_path") else None
+            self.chdman_path = Path(data["chdman_path"]) if data.get("chdman_path") else None
             self.ini_path = Path(data["ini_path"]) if data.get("ini_path") else None
             self.catver_path = Path(data["catver_path"]) if data.get("catver_path") else None
             self.source_dirs = [Path(p) for p in data.get("source_dirs", [])[:3] if p]
@@ -55,6 +57,7 @@ class AppConfig:
         self.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         payload = {
             "mame_path": str(self.mame_path) if self.mame_path else "",
+            "chdman_path": str(self.chdman_path) if self.chdman_path else "",
             "ini_path": str(self.ini_path) if self.ini_path else "",
             "catver_path": str(self.catver_path) if self.catver_path else "",
             "source_dirs": [str(p) for p in self.source_dirs[:3]],
