@@ -30,11 +30,26 @@ _VERSION_RE = re.compile(r"chdman\s+.*?\b(\d+\.\d+)\b", re.IGNORECASE)
 
 
 def find_chdman(explicit: str | Path | None = None) -> Path | None:
-    """Localiza chdman usando configuração explícita, variáveis de ambiente ou PATH."""
+    """Localiza chdman usando configuração do aplicativo, ambiente ou PATH.
+
+    A configuração persistida em ``AppConfig.chdman_path`` tem prioridade
+    quando nenhum caminho explícito é fornecido. Isso garante que o caminho
+    selecionado na aba Diretórios seja realmente utilizado pela reconstrução.
+    """
     candidates: list[Path] = []
 
     if explicit:
         candidates.append(Path(explicit).expanduser())
+    else:
+        try:
+            from app.config.app_config import AppConfig
+            configured = AppConfig().chdman_path
+            if configured:
+                candidates.append(Path(configured).expanduser())
+        except Exception:
+            # A resolução por ambiente/PATH continua disponível mesmo se a
+            # configuração da aplicação não puder ser carregada.
+            pass
 
     for variable in ("MAME_CHDMAN", "CHDMAN_EXE"):
         value = os.environ.get(variable)
@@ -98,8 +113,8 @@ def chdman_info(path: str | Path, chdman_path: str | Path | None = None, timeout
     executable = find_chdman(chdman_path)
     if executable is None:
         raise ChdmanError(
-            "chdman.exe não foi encontrado. Configure MAME_CHDMAN, MAME_EXE_DIR "
-            "ou MAME_EXECUTABLE, ou coloque chdman no PATH."
+            "chdman.exe não foi encontrado. Configure-o na aba Diretórios "
+            "ou coloque chdman no PATH."
         )
 
     source = Path(path).expanduser().resolve()
@@ -131,8 +146,8 @@ def chdman_verify(path: str | Path, chdman_path: str | Path | None = None, timeo
     executable = find_chdman(chdman_path)
     if executable is None:
         raise ChdmanError(
-            "chdman.exe não foi encontrado. Configure MAME_CHDMAN, MAME_EXE_DIR "
-            "ou MAME_EXECUTABLE, ou coloque chdman no PATH."
+            "chdman.exe não foi encontrado. Configure-o na aba Diretórios "
+            "ou coloque chdman no PATH."
         )
 
     source = Path(path).expanduser().resolve()
