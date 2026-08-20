@@ -1,8 +1,12 @@
 """Aba de configurações gerais do MAME baseada no mame.ini real.
 
-A interface trata HLSL/CRT como um subsistema de primeira classe. O arquivo
+A interface trata HLSL/CRT e GLSL como subsistemas de primeira classe. O arquivo
 mame.ini continua sendo a fonte de verdade e é editado pelo MameIniEditor,
 que preserva comentários, seções, ordem e opções desconhecidas.
+
+Observação sobre áudio: as opções globais ficam no mame.ini. O MAME também
+possui o Audio Mixer e Audio Effects por sistema; essas rotas são salvas nos
+arquivos de configuração do sistema, não como opções globais do mame.ini.
 """
 from __future__ import annotations
 
@@ -22,6 +26,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSpinBox,
     QDoubleSpinBox,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -47,7 +52,7 @@ class MameSettingsTab(QWidget):
         self._load_ini()
 
     def _build_ui(self) -> None:
-        """Cria a interface organizada por subsistemas do MAME."""
+        """Cria a interface principal e separa Som, Vídeo e Shaders em subguias."""
         root = QVBoxLayout(self)
 
         header = QHBoxLayout()
@@ -74,27 +79,40 @@ class MameSettingsTab(QWidget):
         self.info.setStyleSheet("padding:6px")
         root.addWidget(self.info)
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        container = QWidget()
-        self.form_layout = QVBoxLayout(container)
+        self.subtabs = QTabWidget()
+        root.addWidget(self.subtabs, 1)
 
-        self._build_video_group()
-        self._build_audio_group()
-        self._build_crt_group()
-        self._build_glsl_group()
-        self._build_general_group()
-
-        self.form_layout.addStretch()
-        scroll.setWidget(container)
-        root.addWidget(scroll, 1)
+        self._create_subtab("Som", self._build_audio_group)
+        self._create_subtab("Vídeo", self._build_video_page)
+        self._create_subtab("Shaders", self._build_shader_page)
 
         self.reload_button.clicked.connect(self._load_ini)
         self.save_button.clicked.connect(self._save_ini)
         self.browse_button.clicked.connect(self._select_ini)
 
+    def _create_subtab(self, title: str, builder) -> None:
+        """Cria uma subguia rolável e executa nela o construtor correspondente."""
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        container = QWidget()
+        self.form_layout = QVBoxLayout(container)
+        builder()
+        self.form_layout.addStretch()
+        scroll.setWidget(container)
+        self.subtabs.addTab(scroll, title)
+
+    def _build_video_page(self) -> None:
+        """Agrupa as opções de vídeo global e imagem/rotação em uma única subguia."""
+        self._build_video_group()
+        self._build_general_group()
+
+    def _build_shader_page(self) -> None:
+        """Agrupa HLSL/CRT e GLSL na subguia dedicada a shaders."""
+        self._build_crt_group()
+        self._build_glsl_group()
+
     def _add_group(self, title: str) -> QFormLayout:
-        """Cria um grupo com formulário e adiciona-o à área rolável."""
+        """Cria um grupo com formulário e adiciona-o à área rolável atual."""
         group = QGroupBox(title)
         form = QFormLayout(group)
         self.form_layout.addWidget(group)
@@ -156,13 +174,27 @@ class MameSettingsTab(QWidget):
         self._add_combo(form, "effect", "Effect", ["none"])
 
     def _build_audio_group(self) -> None:
-        """Configura saída de áudio, frequência, samples e volume."""
-        form = self._add_group("Áudio")
+        """Configura as opções globais de áudio suportadas diretamente pelo mame.ini.
+
+        O MAME 0.289 também oferece Audio Mixer e Audio Effects por sistema.
+        Essas rotas são persistidas na configuração do sistema e não devem ser
+        simuladas como opções globais do mame.ini.
+        """
+        form = self._add_group("Áudio global")
         self._add_combo(form, "sound", "Backend de áudio", ["auto", "none"])
         self._add_int(form, "samplerate", "Sample rate (Hz)", 8000, 192000)
         self._add_check(form, "samples", "Samples")
-        self._add_int(form, "volume", "Volume (dB)", -32, 0)
+        self._add_int(form, "volume", "Volume (dB)", -96, 12)
         self._add_float(form, "audio_latency", "Latência de áudio", 0.0, 1.0, 3)
+
+        mixer_info = QLabel(
+            "O MAME possui Audio Mixer para rotas full/channel e controle de "
+            "volume por canal. Essas rotas são salvas na configuração de cada "
+            "sistema, portanto não serão gravadas artificialmente no mame.ini."
+        )
+        mixer_info.setWordWrap(True)
+        mixer_info.setStyleSheet("padding:8px")
+        self.form_layout.addWidget(mixer_info)
 
     def _build_crt_group(self) -> None:
         """Configura HLSL/CRT completo: scanlines, máscara, geometria, cor e bloom."""
