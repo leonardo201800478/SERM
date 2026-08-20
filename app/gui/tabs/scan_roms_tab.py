@@ -408,96 +408,16 @@ class ScanRomsTab(QWidget):
                 "roms": [
                     {
                         "name": rom.get("name", ""),
-                        "size": int(rom.get("size", 0) or 0),
-                        "crc": (rom.get("crc", "") or "").lower(),
-                        "sha1": (rom.get("sha1", "") or "").lower(),
+                        "size": int(rom.get("size", "0") or 0),
+                        "crc": rom.get("crc"),
+                        "sha1": rom.get("sha1"),
                         "merge": rom.get("merge"),
                         "optional": rom.get("optional"),
                     }
-                    for rom in element.findall("rom") if rom.get("name")
+                    for rom in element.findall("rom")
                 ],
             })
         return machines
-
-    def _start_scan(self) -> None:
-        if self.scanning:
-            return
-        if not self.filtered_xml_path or not self.filtered_xml_path.is_file():
-            QMessageBox.warning(self, "Scan", "Selecione ou gere um LISTXML primeiro.")
-            return
-        sources = self._get_rom_paths()
-        if not sources:
-            QMessageBox.warning(self, "Scan", "Nenhuma origem física válida foi configurada.")
-            return
-        machines = self._load_machines_from_xml(self.filtered_xml_path)
-        if not machines:
-            QMessageBox.warning(self, "Scan", "O LISTXML não possui machines.")
-            return
-
-        self._save_paths()
-        self.scanning = True
-        self.scan_start_time = time.monotonic()
-        self.scan_results = []
-        self.tree.clear()
-        self.progress.setRange(0, 0)
-        self.progress.setFormat("Lendo origem física em streaming...")
-        self.status_label.setText(f"Preparado: {len(machines)} machines. Validando origem física...")
-        self._update_ui_state()
-        self.worker = PhysicalScanWorker(
-            db_path=self.config.db_path,
-            source_paths=sources,
-            machines=machines,
-            xml_path=self.filtered_xml_path,
-            scans_dir=self._scan_dir(),
-            mame_version=self._get_mame_version(),
-        )
-        self.worker.progress.connect(self._on_worker_progress)
-        self.worker.finished.connect(self._on_worker_finished)
-        self.worker.failed.connect(self._on_worker_failed)
-        self.worker.start()
-
-    def _stop_scan(self) -> None:
-        if self.worker:
-            self.status_label.setText("Solicitando cancelamento...")
-            self.worker.cancel()
-            self.btn_stop.setEnabled(False)
-
-    def _on_worker_progress(self, _current: int, message: str) -> None:
-        self.status_label.setText(message)
-        self.progress.setRange(0, 0)
-        self.summary_labels["bytes"].setText(self._extract_bytes(message))
-        if self.parent_widget and hasattr(self.parent_widget, "status_bar"):
-            self.parent_widget.status_bar.showMessage(message)
-
-    @staticmethod
-    def _extract_bytes(message: str) -> str:
-        match = re.search(r"bytes lidos ([\d,]+)", message)
-        return match.group(1) if match else "0"
-
-    def _on_worker_finished(self, stats: dict) -> None:
-        self.scanning = False
-        self.progress.setRange(0, 100)
-        if stats.get("status") == "cancelled":
-            self.status_label.setText("Scan físico cancelado.")
-            self.worker = None
-            self._update_ui_state()
-            return
-        elapsed = time.monotonic() - self.scan_start_time
-        self.status_label.setText(f"Scan físico concluído em {elapsed:.1f}s — {stats.get('bytes_read', 0):,} bytes lidos.")
-        self.progress.setValue(100)
-        self.progress.setFormat("Scan físico concluído — current_scan.jsonl atualizado")
-        self._update_summary_from_stats(stats)
-        self.worker = None
-        self._load_current_manifest()
-        self._update_ui_state()
-
-    def _on_worker_failed(self, message: str) -> None:
-        self.scanning = False
-        self.worker = None
-        self.progress.setRange(0, 100)
-        self.status_label.setText("Falha no scan físico.")
-        self._update_ui_state()
-        QMessageBox.critical(self, "Scan físico", message)
 
     def _load_current_manifest(self) -> None:
         path = self._scan_dir() / "current_scan.jsonl"
@@ -535,12 +455,19 @@ class ScanRomsTab(QWidget):
             self.tree.addTopLevelItem(machine_item)
             for rom in machine.get("roms", []):
                 source = rom.get("source") or {}
-                origin = source.get("archive") or ""
+                origin = str(source.get("archive") or "")
                 member = source.get("member")
                 if member:
                     origin = f"{origin}!{member}"
-                expected = f"{rom.get('expected_crc', '')} / {rom.get('expected_sha1', '')[:12]}"
-                status = str(rom.get("status", "missing"))
+
+                # Hashes podem legitimamente ser null no manifesto. Não assumir
+                # que os campos opcionais são strings evita que a visualização
+                # quebre ao encontrar dumps com metadados incompletos.
+                expected_crc = str(rom.get("expected_crc") or "")
+                expected_sha1 = str(rom.get("expected_sha1") or "")
+                expected = f"{expected_crc} / {expected_sha1[:12]}"
+
+                status = str(rom.get("status") or "missing")
                 item = QTreeWidgetItem([
                     f"  {rom.get('rom_name', '')}", origin,
                     str(rom.get("actual_size") or rom.get("expected_size") or 0), expected, status,
@@ -570,43 +497,3 @@ class ScanRomsTab(QWidget):
             return len(ET.parse(self.filtered_xml_path).getroot().findall("machine"))
         except Exception:
             return 0
-
-    def _set_summary(self, machines: int, total: int, valid: int, missing: int, invalid: int, errors: int) -> None:
-        values = {"machines": machines, "total": total, "valid": valid, "missing": missing, "invalid": invalid, "errors": errors}
-        for key, value in values.items():
-            self.summary_labels[key].setText(str(value))
-
-    def _update_ui_state(self) -> None:
-        active = self.scanning
-        self.btn_scan.setEnabled(not active and self.filtered_xml_path is not None)
-        self.btn_generate.setEnabled(not active)
-        self.btn_stop.setEnabled(active)
-
-    def _open_scans_dir(self) -> None:
-        path = self._scan_dir()
-        try:
-            if os.name == "nt":
-                os.startfile(str(path))
-            else:
-                subprocess.Popen(["xdg-open", str(path)])
-        except Exception as exc:
-            QMessageBox.warning(self, "Pasta de scans", str(exc))
-
-    def _delayed_load_scan(self) -> None:
-        """Restaura o manifesto corrente."""
-        self._load_current_manifest()
-
-    def worker_count(self) -> int:
-        """Compatibilidade com código anterior; não expõe configuração inativa."""
-        return 1
-
-    def alternate_search_enabled(self) -> bool:
-        """Compatibilidade com versões anteriores; opção removida da UI."""
-        return False
-
-    def include_chds(self) -> bool:
-        """Compatibilidade com versões anteriores; CHDs possuem fluxo próprio."""
-        return False
-
-
-LoadManifestWorker = ManifestLoadWorker
