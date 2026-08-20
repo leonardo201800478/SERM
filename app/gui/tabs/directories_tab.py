@@ -1,7 +1,7 @@
 """
 Aba de configuração de diretórios do MAME.
 
-Permite selecionar o executável MAME, carregar/editar o mame.ini
+Permite selecionar o executável MAME, o chdman.exe, carregar/editar o mame.ini
 e configurar os caminhos de ROMs, samples, artwork, etc.
 """
 
@@ -28,9 +28,7 @@ from app.mame.executable import MameExecutable
 
 
 class DirectoriesTab(QWidget):
-    """
-    Aba para configuração de diretórios e arquivos do MAME.
-    """
+    """Aba para configuração de diretórios e arquivos do MAME."""
 
     settings_changed = Signal()
 
@@ -85,6 +83,36 @@ class DirectoriesTab(QWidget):
 
         layout.addWidget(grp_mame)
 
+        # --- chdman ---
+        grp_chdman = QGroupBox("Ferramenta CHD (chdman)")
+        grp_chdman.setToolTip(
+            "Selecione o chdman.exe que acompanha a mesma distribuição do MAME. "
+            "Ele é usado para validar CHDs antes da cópia."
+        )
+        form_chdman = QFormLayout()
+        grp_chdman.setLayout(form_chdman)
+
+        self.edit_chdman_path = QLineEdit()
+        self.edit_chdman_path.setReadOnly(True)
+        self.edit_chdman_path.setPlaceholderText("Detectar automaticamente ou selecionar chdman.exe")
+
+        btn_browse_chdman = QPushButton("Selecionar...")
+        btn_browse_chdman.clicked.connect(self._select_chdman_executable)
+
+        hbox_chdman = QHBoxLayout()
+        hbox_chdman.addWidget(self.edit_chdman_path)
+        hbox_chdman.addWidget(btn_browse_chdman)
+        form_chdman.addRow("Caminho:", hbox_chdman)
+
+        self.lbl_chdman_status = QLabel("Status: não configurado")
+        form_chdman.addRow("", self.lbl_chdman_status)
+
+        btn_detect_chdman = QPushButton("Detectar junto ao MAME")
+        btn_detect_chdman.clicked.connect(self._detect_chdman)
+        form_chdman.addRow("", btn_detect_chdman)
+
+        layout.addWidget(grp_chdman)
+
         # --- mame.ini ---
         grp_ini = QGroupBox("Arquivo mame.ini")
         grp_ini.setToolTip("Arquivo de configuração principal do MAME")
@@ -114,7 +142,6 @@ class DirectoriesTab(QWidget):
         form_paths = QFormLayout()
         grp_paths.setLayout(form_paths)
 
-        # ROM Path (5 campos com botão de seleção)
         self.rom_paths: list[QLineEdit] = []
         for i in range(1, 6):
             edit = QLineEdit()
@@ -129,7 +156,6 @@ class DirectoriesTab(QWidget):
             self.rom_paths.append(edit)
             form_paths.addRow(f"ROM {i}:", hbox)
 
-        # Função auxiliar para criar seletores de pasta
         def make_folder_selector(edit_widget: QLineEdit, title: str):
             def selector() -> None:
                 dir_path = QFileDialog.getExistingDirectory(self, title, edit_widget.text())
@@ -137,7 +163,6 @@ class DirectoriesTab(QWidget):
                     edit_widget.setText(dir_path)
             return selector
 
-        # Outros diretórios com botão de seleção
         dirs = [
             ("Sample Path:", "samplepath", "samples"),
             ("Artwork Path:", "artpath", "artwork"),
@@ -190,6 +215,12 @@ class DirectoriesTab(QWidget):
             self.edit_mame_path.clear()
             self.lbl_version.setText("Versão: não detectada")
 
+        if self.config.chdman_path and self.config.chdman_path.exists():
+            self.edit_chdman_path.setText(str(self.config.chdman_path))
+            self._update_chdman_status()
+        else:
+            self._detect_chdman(show_message=False)
+
         if self.config.ini_path and self.config.ini_path.exists():
             self.edit_ini_path.setText(str(self.config.ini_path))
             self._load_ini()
@@ -222,8 +253,8 @@ class DirectoriesTab(QWidget):
         self.config.save()
         self.edit_mame_path.setText(str(path))
         self._detect_mame_version()
+        self._detect_chdman(show_message=False)
 
-        # Tenta carregar mame.ini automaticamente da mesma pasta
         default_ini = path.parent / "mame.ini"
         if default_ini.exists():
             self.edit_ini_path.setText(str(default_ini))
@@ -252,6 +283,66 @@ class DirectoriesTab(QWidget):
                 f"Falha ao detectar versão:\n{str(e)}\n\n"
                 "Verifique o arquivo mame_executable.log para mais detalhes."
             )
+
+    # ========================================================================
+    # CHDMAN
+    # ========================================================================
+
+    def _select_chdman_executable(self) -> None:
+        """Seleciona explicitamente o chdman.exe e persiste o caminho."""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Selecionar chdman.exe",
+            str(self.config.mame_path.parent) if self.config.mame_path else "",
+            "chdman (chdman.exe);;Executáveis (*.exe);;Todos os arquivos (*)",
+        )
+        if not file_path:
+            return
+
+        path = Path(file_path)
+        self.config.chdman_path = path
+        self.config.save()
+        self.edit_chdman_path.setText(str(path))
+        self._update_chdman_status()
+        self.settings_changed.emit()
+
+    def _detect_chdman(self, show_message: bool = True) -> None:
+        """Procura chdman.exe na pasta do MAME e registra o caminho encontrado."""
+        candidates: list[Path] = []
+        if self.config.mame_path:
+            mame_dir = self.config.mame_path.parent
+            candidates.extend((mame_dir / "chdman.exe", mame_dir / "chdman"))
+            candidates.extend((mame_dir / "exe" / "chdman.exe", mame_dir / "exe" / "chdman"))
+
+        for candidate in candidates:
+            if candidate.is_file():
+                self.config.chdman_path = candidate.resolve()
+                self.config.save()
+                self.edit_chdman_path.setText(str(self.config.chdman_path))
+                self._update_chdman_status()
+                if show_message:
+                    QMessageBox.information(self, "CHDMAN encontrado", f"chdman encontrado em:\n{candidate}")
+                return
+
+        self.config.chdman_path = None
+        self.edit_chdman_path.clear()
+        self.lbl_chdman_status.setText("Status: chdman.exe não encontrado")
+        if show_message:
+            QMessageBox.warning(
+                self,
+                "CHDMAN não encontrado",
+                "Não foi encontrado chdman.exe junto ao executável MAME.\n\n"
+                "Use 'Selecionar...' para apontar manualmente para o chdman.exe "
+                "da mesma versão/distribuição do MAME.",
+            )
+
+    def _update_chdman_status(self) -> None:
+        """Atualiza o estado visual da configuração do chdman."""
+        path = self.config.chdman_path
+        if path and path.is_file():
+            self.lbl_chdman_status.setText(f"Status: OK — {path.name}")
+        else:
+            self.lbl_chdman_status.setText("Status: chdman.exe não configurado")
 
     # ========================================================================
     # MAME.INI
@@ -292,7 +383,6 @@ class DirectoriesTab(QWidget):
         if not self.ini_service:
             return
 
-        # ROM paths
         rom_list = self.ini_service.get_paths("rompath")
         for i, edit in enumerate(self.rom_paths):
             if i < len(rom_list):
@@ -300,7 +390,6 @@ class DirectoriesTab(QWidget):
             else:
                 edit.clear()
 
-        # Outros diretórios
         mapping = {
             "samplepath": self.ini_service.get_samplepath,
             "artpath": self.ini_service.get_artpath,
@@ -328,11 +417,9 @@ class DirectoriesTab(QWidget):
             return
 
         try:
-            # Coleta ROM paths
             rom_paths = [edit.text().strip() for edit in self.rom_paths if edit.text().strip()]
             self.ini_service.set_paths("rompath", rom_paths)
 
-            # Outros campos
             fields = {
                 "samplepath": self.dir_edits["samplepath"].text().strip(),
                 "artpath": self.dir_edits["artpath"].text().strip(),
