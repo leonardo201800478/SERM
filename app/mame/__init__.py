@@ -1,108 +1,185 @@
-"""Integrações e compatibilidade do pacote MAME Set Builder.
+"""Integrações do pacote MAME Set Builder.
 
-A validação de CHD é delegada ao chdman distribuído pelo próprio MAME. Os
-patches abaixo preservam a API existente de PhysicalRomScanner e
-ReconstructionEngine enquanto substituem apenas a validação incorreta de
-SHA-1 bruto do arquivo .chd pelo digest lógico validado pelo chdman.
+A validação de CHD com ``chdman`` pertence exclusivamente à reconstrução.
+Durante o scan físico fazemos somente resolução determinística do caminho e
+verificação de existência do arquivo. Isso mantém o scan rápido e evita ler
+CHDs que nem existem.
 """
 from __future__ import annotations
 
 import shutil
+from pathlib import Path
 
 from .chdman_validator import ChdmanError, validate_chd
 
 
-def _patch_chd_validation() -> None:
-    """Aplica a integração chdman às classes já existentes sem quebrar a API."""
+def _machine_parent_chain(scanner, machine_name: str) -> list[str]:
+    """Retorna a cadeia ``machine -> parent -> ...`` sem varrer o HDD."""
+    cache = getattr(scanner, "_parent_chain_cache", None)
+    if cache is None:
+        cache = {}
+        scanner._parent_chain_cache = cache
+
+    if machine_name in cache:
+        return list(cache[machine_name])
+
+    chain: list[str] = []
+    seen: set[str] = set()
+    current = str(machine_name or "").strip()
+
+    while current and current not in seen:
+        seen.add(current)
+        chain.append(current)
+        try:
+            rows = scanner.db.fetchall(
+                "SELECT cloneof FROM machine WHERE name = ? LIMIT 1",
+                (current,),
+            )
+        except Exception:
+            rows = []
+        if not rows:
+            break
+        parent = str(rows[0]["cloneof"] or "").strip()
+        if not parent or parent == current:
+            break
+        current = parent
+
+    cache[machine_name] = tuple(chain)
+    return chain
+
+
+def _patch_chd_scan() -> None:
+    """Substitui somente a localização de CHD do scanner físico.
+
+    O scanner continua expected-driven: para cada disco são testados apenas
+    caminhos derivados da própria machine, do ``disk.merge`` e da cadeia de
+    parents. Não existe ``rglob`` nem busca global por CHD.
+    """
     from .physical_rom_scanner import PhysicalRomScanner
-    from .reconstruction_engine import ReconstructionEngine
 
     def scan_expected_chd(self, machine_name: str, disk: dict, cancelled=None) -> dict:
-        """Localiza e valida um CHD usando chdman verify/info."""
+        """Localiza um CHD esperado sem abrir, hashear ou validar seu conteúdo."""
         disk_name = str(disk.get("name") or "").strip()
-        expected_sha1 = str(disk.get("sha1") or "").strip().lower()
-        expected_logical_size = int(disk.get("size") or 0)
+        merge_machine = str(disk.get("merge") or "").strip()
         if not disk_name:
-            return {"status": "error", "source_path": None, "actual_size": 0, "actual_sha1": None, "error": "CHD sem nome"}
-
-        disk_filename = disk_name if disk_name.lower().endswith(".chd") else f"{disk_name}.chd"
-        candidates = []
-        for base in self.source_dirs:
-            for candidate_machine in [machine_name, *(disk.get("_parent_machines") or [])]:
-                if candidate_machine:
-                    candidates.append(base / candidate_machine / disk_filename)
-            candidates.append(base / disk_filename)
-
-        found = next((path for path in candidates if path.is_file()), None)
-        if found is None:
             return {
-                "status": "missing",
+                "status": "error",
                 "source_path": None,
-                "actual_size": 0,
-                "actual_sha1": None,
-                "logical_size": 0,
-                "error": "CHD não encontrado",
+                "source_machine": None,
+                "error": "CHD sem nome",
             }
 
-        try:
+        filename = Path(disk_name).name
+        if not filename.lower().endswith(".chd"):
+            filename = f"{filename}.chd"
+
+        machine_candidates: list[str] = []
+        seen: set[str] = set()
+
+        def add_machine(name: str) -> None:
+            name = str(name or "").strip()
+            if name and name not in seen:
+                seen.add(name)
+                machine_candidates.append(name)
+
+        # O arquivo próprio tem prioridade.
+        add_machine(machine_name)
+
+        # ``disk.merge`` aponta para o set que fornece o CHD compartilhado.
+        if merge_machine:
+            add_machine(merge_machine)
+
+        # Em clones, siga a cadeia parent somente dentro das dependências
+        # conhecidas pelo banco. Nunca procure CHDs arbitrariamente no HDD.
+        for parent in _machine_parent_chain(self, machine_name):
+            add_machine(parent)
+
+        candidates: list[tuple[str, Path]] = []
+        for base in self.source_dirs:
+            for candidate_machine in machine_candidates:
+                self._check_cancelled(cancelled)
+                candidates.append((candidate_machine, base / candidate_machine / filename))
+
+        for source_machine, path in candidates:
             self._check_cancelled(cancelled)
-            valid, info = validate_chd(
-                found,
-                expected_sha1=expected_sha1 or None,
-                expected_logical_size=expected_logical_size,
-            )
-            return {
-                "status": "valid" if valid else "invalid",
-                "source_path": str(found),
-                "actual_size": int(info.get("physical_size") or found.stat().st_size),
-                "actual_sha1": str(info.get("sha1") or "").lower() or None,
-                "logical_size": int(info.get("logical_size") or 0),
-                "chd_version": info.get("chd_version"),
-                "chdman_version": info.get("chdman_version"),
-                "chdman_verified": bool(info.get("verified")),
-                "error": None if valid else (
-                    "SHA-1 lógico incompatível"
-                    if not info.get("sha1_match", True)
-                    else "tamanho lógico incompatível"
-                ),
-            }
-        except ChdmanError as exc:
-            return {
-                "status": "error",
-                "source_path": str(found),
-                "actual_size": found.stat().st_size if found.exists() else 0,
-                "actual_sha1": None,
-                "logical_size": 0,
-                "chdman_verified": False,
-                "error": str(exc),
-            }
-        except Exception as exc:
-            return {
-                "status": "error",
-                "source_path": str(found),
-                "actual_size": found.stat().st_size if found.exists() else 0,
-                "actual_sha1": None,
-                "logical_size": 0,
-                "chdman_verified": False,
-                "error": str(exc),
-            }
+            if path.is_file():
+                try:
+                    physical_size = path.stat().st_size
+                except OSError:
+                    physical_size = 0
+                return {
+                    "status": "present",
+                    "source_path": str(path),
+                    "source_machine": source_machine,
+                    "physical_size": physical_size,
+                    "logical_size": int(disk.get("size") or 0),
+                    "expected_sha1": str(disk.get("sha1") or "").strip().lower() or None,
+                    "error": None,
+                }
+
+        searched = [str(path) for _machine, path in candidates]
+        return {
+            "status": "missing",
+            "source_path": None,
+            "source_machine": None,
+            "physical_size": 0,
+            "logical_size": int(disk.get("size") or 0),
+            "expected_sha1": str(disk.get("sha1") or "").strip().lower() or None,
+            "searched_paths": searched,
+            "error": "CHD não encontrado nos caminhos esperados",
+        }
+
+    def progress_message(stats: dict, machine: str, completed: int, total: int) -> str:
+        """Mostra CHDs presentes/ausentes e progresso real de processamento."""
+        processed = stats["chds"]
+        expected = stats["expected_chds"]
+        return (
+            f"Machine {completed:,}/{total:,}: {machine} | "
+            f"ROMs {stats['members']:,} verificadas | válidas {stats['valid']:,} | "
+            f"ausentes {stats['missing']:,} | "
+            f"CHDs {stats['chds_present']:,} presentes | "
+            f"{stats['chds_missing']:,} ausentes | "
+            f"processados {processed:,}/{expected:,} | "
+            f"dados lidos {stats['bytes_read'] / (1024**3):.2f} GiB"
+        )
+
+    def summary_message(stats: dict) -> str:
+        """Resumo final sem confundir processados com presentes."""
+        return (
+            f"Scan concluído: {stats['machines_completed']:,}/{stats['machines']:,} machines | "
+            f"ROMs válidas {stats['valid']:,} | ausentes {stats['missing']:,} | "
+            f"CHDs presentes {stats['chds_present']:,} | "
+            f"ausentes {stats['chds_missing']:,} | "
+            f"processados {stats['chds']:,}/{stats['expected_chds']:,} | "
+            f"tempo {stats['seconds']:.2f}s"
+        )
+
+    PhysicalRomScanner._scan_expected_chd = scan_expected_chd
+    PhysicalRomScanner._progress_message = staticmethod(progress_message)
+    PhysicalRomScanner._summary_message = staticmethod(summary_message)
+
+
+def _patch_reconstruction_chd_validation() -> None:
+    """Mantém ``chdman`` somente na reconstrução/publicação de CHDs."""
+    from .reconstruction_engine import ReconstructionEngine
+
+    original_stream_source = ReconstructionEngine._stream_source
 
     def stream_source(self, item, source, staged) -> None:
-        """Mantém o streaming original para ROMs e usa chdman para CHDs."""
+        """Copia o CHD para staging e valida o container com chdman."""
         if not item.is_chd:
             return original_stream_source(self, item, source, staged)
 
-        kind, source_path, member = source
+        kind, source_path, _member = source
         if kind != "chd":
             raise ValueError(f"origem inválida para CHD: {kind}")
         staged.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source_path, staged)
-        expected_size = 0
         try:
             valid, info = validate_chd(
                 staged,
                 expected_sha1=item.chd_sha1,
-                expected_logical_size=expected_size,
+                expected_logical_size=0,
             )
         except ChdmanError:
             staged.unlink(missing_ok=True)
@@ -111,12 +188,13 @@ def _patch_chd_validation() -> None:
             staged.unlink(missing_ok=True)
             if not info.get("sha1_match", True):
                 raise ValueError(
-                    f"SHA-1 lógico do CHD incompatível: esperado={item.chd_sha1}, encontrado={info.get('sha1')}"
+                    f"SHA-1 lógico do CHD incompatível: esperado={item.chd_sha1}, "
+                    f"encontrado={info.get('sha1')}"
                 )
             raise ValueError("CHD inválido segundo chdman")
 
     def validate_existing_chd(target, chd) -> bool:
-        """Valida CHD publicado usando chdman, inclusive o digest lógico."""
+        """Valida um CHD já publicado usando chdman."""
         if not target.is_file():
             return False
         try:
@@ -129,12 +207,11 @@ def _patch_chd_validation() -> None:
         except (ChdmanError, OSError, ValueError):
             return False
 
-    original_stream_source = ReconstructionEngine._stream_source
-    PhysicalRomScanner._scan_expected_chd = scan_expected_chd
     ReconstructionEngine._stream_source = stream_source
     ReconstructionEngine._validate_existing_chd = staticmethod(validate_existing_chd)
 
 
-_patch_chd_validation()
+_patch_chd_scan()
+_patch_reconstruction_chd_validation()
 
 __all__ = ["ChdmanError", "validate_chd"]
