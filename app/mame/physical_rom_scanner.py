@@ -29,7 +29,6 @@ class PhysicalRomScanner:
     """Escaneia somente ROMs/CHDs esperados sem varredura global do HDD."""
 
     CHUNK_SIZE = 1024 * 1024
-    COMMIT_EVERY = 250
 
     _SCAN_TABLE_SQL = """
     CREATE TABLE IF NOT EXISTS rom_scan_run (
@@ -105,8 +104,9 @@ class PhysicalRomScanner:
         * ``<rom_path>/<machine>/<rom>``;
         * ``<rom_path>/<machine>/<disk>.chd``.
 
-        Não há ``rglob('*')`` da origem e CHDs inexistentes são descartados
-        com um simples teste ``is_file()``.
+        Não há ``rglob('*')`` da origem. CHDs inexistentes são descartados
+        com um simples teste ``is_file()`` e CHDs presentes não são lidos.
+        SHA-1 e ``chdman verify`` pertencem exclusivamente à reconstrução.
         """
         conn = self._connection()
         self._ensure_scan_tables(conn)
@@ -159,9 +159,6 @@ class PhysicalRomScanner:
         )
 
         try:
-            # Cada machine é independente no caminho físico. Os workers não
-            # escrevem no SQLite: retornam evidências e o thread principal
-            # persiste os resultados, evitando concorrência na conexão SQLite.
             tasks = []
             with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
                 for machine_name in names:
@@ -185,23 +182,19 @@ class PhysicalRomScanner:
                     if progress:
                         progress(stats["members"], self._progress_message(stats, Path(unit.get("machine") or "scan")))
 
-            # CHDs são deliberadamente separados das ROMs. Não existe busca
-            # global: apenas os caminhos previstos para a machine/parent são
-            # testados.
+            # CHDs são deliberadamente separados das ROMs. O scan só testa
+            # o caminho esperado da própria machine e nunca lê o arquivo.
             for machine_name, disks in self._expected_disks.items():
                 for disk in disks:
                     self._check_cancelled(cancelled)
                     stats["chds"] += 1
                     result = self._scan_expected_chd(machine_name, disk, cancelled)
                     self._chd_results[(machine_name, str(disk.get("name") or ""))] = result
-                    stats["bytes_read"] += int(result.get("bytes_read") or 0)
                     status = result.get("status")
-                    if status == "valid":
+                    if status == "present":
                         stats["chds_valid"] += 1
                     elif status == "missing":
                         stats["chds_missing"] += 1
-                    elif status == "invalid":
-                        stats["chds_invalid"] += 1
                     else:
                         stats["chds_errors"] += 1
                     if progress:
@@ -213,7 +206,7 @@ class PhysicalRomScanner:
             self._finish_run(conn, scan_id, stats)
             self.last_stats = stats
             logger.info(
-                "Scan esperado concluído: archives=%d members=%d loose=%d CHDs=%d/%d válidos tempo=%.2fs",
+                "Scan esperado concluído: archives=%d members=%d loose=%d CHDs=%d/%d presentes tempo=%.2fs",
                 stats["archives"], stats["members"], stats["loose"],
                 stats["chds"], stats["chds_valid"], stats["seconds"],
             )
@@ -323,7 +316,6 @@ class PhysicalRomScanner:
                         unit["members"] += 1
                         size = int(info.file_size)
                         crc = f"{info.CRC & 0xFFFFFFFF:08x}"
-                        unit["bytes_read"] += 0
                         status = "valid" if (size == int(candidate["size"]) and crc == str(candidate["crc"]).lower()) else "invalid"
                         actual_sha1 = None
                         bytes_read = 0
@@ -370,44 +362,53 @@ class PhysicalRomScanner:
                         status = "valid" if actual_sha1 == candidate["sha1"] else "sha1_mismatch"
                     unit["loose"] += 1
                     unit["bytes_read"] += bytes_read
-                    if status == "valid": unit["valid"] += 1
-                    elif status == "sha1_mismatch": unit["sha1_mismatch"] += 1
+                    if status == "valid":
+                        unit["valid"] += 1
+                    elif status == "sha1_mismatch":
+                        unit["sha1_mismatch"] += 1
                     self._add_evidence(unit, candidate, path, None, "loose", size, crc, actual_sha1, status, bytes_read, None)
                 except (OSError, RuntimeError) as exc:
                     unit["read_errors"] += 1
                     self._add_evidence(unit, candidate, path, None, "loose", 0, "", None, "read_error", 0, str(exc))
 
     def _scan_expected_chd(self, machine_name: str, disk: dict, cancelled: Callable[[], bool] | None) -> dict:
-        """Localiza e valida somente o CHD esperado na pasta da machine."""
+        """Localiza somente o CHD esperado; não lê nem valida seu conteúdo."""
         disk_name = str(disk.get("name") or "").strip()
-        expected_sha1 = str(disk.get("sha1") or "").strip().lower()
-        expected_size = int(disk.get("size") or 0)
         if not disk_name:
-            return {"status": "error", "source_path": None, "actual_size": 0, "bytes_read": 0, "actual_sha1": None, "error": "CHD sem nome"}
+            return {
+                "status": "error",
+                "source_path": None,
+                "actual_size": 0,
+                "bytes_read": 0,
+                "actual_sha1": None,
+                "error": "CHD sem nome",
+            }
+
         filename = disk_name if disk_name.lower().endswith(".chd") else f"{disk_name}.chd"
-        # Regra do scan: somente a pasta da machine. Não procurar CHD global.
-        found = None
         for base in self.source_dirs:
+            self._check_cancelled(cancelled)
             candidate = base / machine_name / filename
             if candidate.is_file():
-                found = candidate
-                break
-        if found is None:
-            return {"status": "missing", "source_path": None, "actual_size": 0, "bytes_read": 0, "actual_sha1": None, "error": "CHD não encontrado na pasta da machine"}
-        try:
-            self._check_cancelled(cancelled)
-            actual_size, actual_sha1 = self._hash_sha1_only(found, cancelled)
-            valid = (expected_size <= 0 or actual_size == expected_size) and (not expected_sha1 or actual_sha1 == expected_sha1)
-            return {
-                "status": "valid" if valid else "invalid",
-                "source_path": str(found),
-                "actual_size": actual_size,
-                "bytes_read": actual_size,
-                "actual_sha1": actual_sha1,
-                "error": None if valid else ("tamanho ou SHA-1 incompatível"),
-            }
-        except Exception as exc:
-            return {"status": "error", "source_path": str(found), "actual_size": 0, "bytes_read": 0, "actual_sha1": None, "error": str(exc)}
+                # Presença física é tudo o que o scan precisa saber. A
+                # validação de content SHA1 e chdman verify ocorre na
+                # reconstrução, onde uma cópia inválida será descartada.
+                return {
+                    "status": "present",
+                    "source_path": str(candidate),
+                    "actual_size": 0,
+                    "bytes_read": 0,
+                    "actual_sha1": None,
+                    "error": None,
+                }
+
+        return {
+            "status": "missing",
+            "source_path": None,
+            "actual_size": 0,
+            "bytes_read": 0,
+            "actual_sha1": None,
+            "error": "CHD não encontrado na pasta da machine",
+        }
 
     def _add_evidence(self, unit: dict, candidate: dict, source_path: Path, member: str | None, kind: str, size: int, crc: str, sha1: str | None, status: str, bytes_read: int, error: str | None) -> None:
         """Adiciona evidência para persistência pelo thread principal."""
@@ -441,7 +442,7 @@ class PhysicalRomScanner:
             "mame_version": mame_version, "xml_path": str(xml_path),
             "source_paths": [str(Path(p)) for p in source_paths],
             "machine_count_expected": len(xml_machines),
-            "metadata": {"validation": "expected_driven_crc_size_sha1", "bytes_read": self.last_stats.get("bytes_read", 0), "chds_scanned": self.last_stats.get("chds", 0), "chds_valid": self.last_stats.get("chds_valid", 0)},
+            "metadata": {"validation": "expected_driven_crc_size_sha1_rom_presence_chd", "bytes_read": self.last_stats.get("bytes_read", 0), "chds_scanned": self.last_stats.get("chds", 0), "chds_present": self.last_stats.get("chds_valid", 0)},
         }
         with output_path.open("w", encoding="utf-8", newline="\n") as handle:
             handle.write(json.dumps(header, ensure_ascii=False) + "\n")
@@ -457,7 +458,7 @@ class PhysicalRomScanner:
                 for disk in disks:
                     disk_name = str(disk.get("name") or "")
                     chd = self._chd_results.get((name, disk_name), {})
-                    record = {"machine": name, "machine_description": machine.get("description", ""), "disk_name": disk_name, "expected_size": int(disk.get("size") or 0), "expected_sha1": str(disk.get("sha1") or "").lower(), "merge": disk.get("merge"), "required": not bool(disk.get("optional")), "optional": bool(disk.get("optional")), "status": chd.get("status", "missing"), "actual_size": chd.get("actual_size") or 0, "actual_sha1": chd.get("actual_sha1"), "source": {"kind": "chd", "archive": chd.get("source_path"), "member": None, "machine": name} if chd.get("source_path") else None, "error": chd.get("error")}
+                    record = {"machine": name, "machine_description": machine.get("description", ""), "disk_name": disk_name, "expected_size": int(disk.get("size") or 0), "expected_sha1": str(disk.get("sha1") or "").lower(), "required": not bool(disk.get("optional")), "optional": bool(disk.get("optional")), "status": chd.get("status", "missing"), "actual_size": 0, "actual_sha1": None, "source": {"kind": "chd", "archive": chd.get("source_path"), "member": None, "machine": name} if chd.get("source_path") else None, "error": chd.get("error")}
                     handle.write(json.dumps({"record_type": "disk", "record": record}, ensure_ascii=False) + "\n")
                 handle.write(json.dumps({"record_type": "machine", "event": "finished", "machine": {**meta, "status": "completed"}}, ensure_ascii=False) + "\n")
         return output_path
@@ -493,7 +494,7 @@ class PhysicalRomScanner:
         """Finaliza o registro do scan físico."""
         conn.execute(
             "UPDATE rom_scan_run SET finished_at=CURRENT_TIMESTAMP, status=?, archive_count=?, member_count=?, loose_file_count=?, bytes_read=?, valid_match_count=?, unmatched_count=?, error=? WHERE id=?",
-            (stats["status"], stats["archives"], stats["members"], stats["loose"], stats["bytes_read"], stats["valid"], stats["unmatched"] + stats["sha1_mismatch"] + stats["read_errors"] + stats.get("chds_missing", 0) + stats.get("chds_invalid", 0) + stats.get("chds_errors", 0), error, scan_id),
+            (stats["status"], stats["archives"], stats["members"], stats["loose"], stats["bytes_read"], stats["valid"], stats["unmatched"] + stats["sha1_mismatch"] + stats["read_errors"] + stats.get("chds_missing", 0) + stats.get("chds_errors", 0), error, scan_id),
         )
         conn.commit()
 
@@ -512,7 +513,7 @@ class PhysicalRomScanner:
     @staticmethod
     def _progress_message(stats: dict, path: Path) -> str:
         """Formata o progresso sem enumerar o HDD."""
-        return f"{path.name} | ZIPs {stats['archives']:,} | ROMs verificadas {stats['members']:,} | válidas {stats['valid']:,} | CHDs {stats.get('chds_valid', 0):,}/{stats.get('chds', 0):,} válidos | SHA1 divergente {stats['sha1_mismatch']:,} | erros {stats['read_errors']:,}"
+        return f"{path.name} | ZIPs {stats['archives']:,} | ROMs verificadas {stats['members']:,} | válidas {stats['valid']:,} | CHDs {stats.get('chds_valid', 0):,}/{stats.get('chds', 0):,} presentes | SHA1 divergente {stats['sha1_mismatch']:,} | erros {stats['read_errors']:,}"
 
     def _check_cancelled(self, cancelled: Callable[[], bool] | None) -> None:
         """Interrompe a operação quando solicitado."""
@@ -557,17 +558,3 @@ class PhysicalRomScanner:
                     break
                 digest.update(chunk)
         return digest.hexdigest()
-
-    def _hash_sha1_only(self, path: Path, cancelled: Callable[[], bool] | None = None) -> tuple[int, str]:
-        """Calcula tamanho e SHA1 de CHD existente."""
-        size = 0
-        digest = hashlib.sha1()
-        with path.open("rb") as stream:
-            while True:
-                self._check_cancelled(cancelled)
-                chunk = stream.read(self.CHUNK_SIZE)
-                if not chunk:
-                    break
-                size += len(chunk)
-                digest.update(chunk)
-        return size, digest.hexdigest()
