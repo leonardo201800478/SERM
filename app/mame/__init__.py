@@ -8,10 +8,14 @@ CHDs que nem existem.
 from __future__ import annotations
 
 import json
+import logging
 import shutil
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from .chdman_validator import ChdmanError, validate_chd
+
+logger = logging.getLogger(__name__)
 
 
 def _machine_parent_chain(scanner, machine_name: str) -> list[str]:
@@ -50,12 +54,7 @@ def _machine_parent_chain(scanner, machine_name: str) -> list[str]:
 
 
 def _patch_chd_scan() -> None:
-    """Substitui somente a localização de CHD do scanner físico.
-
-    O scanner continua expected-driven: para cada disco são testados apenas
-    caminhos derivados da própria machine, do ``disk.merge`` e da cadeia de
-    parents. Não existe ``rglob`` nem busca global por CHD.
-    """
+    """Substitui somente a localização de CHD do scanner físico."""
     from .physical_rom_scanner import PhysicalRomScanner
 
     def scan_expected_chd(self, machine_name: str, disk: dict, cancelled=None) -> dict:
@@ -149,44 +148,111 @@ def _patch_chd_scan() -> None:
 
 
 def _patch_streaming_manifest_metadata() -> None:
-    """Completa o cabeçalho do manifesto streaming sem uma segunda varredura.
+    """Atualiza somente o header do JSONL streaming, sem novo scan.
 
-    O scanner abre o JSONL antes dos workers para persistência incremental.
-    A GUI, entretanto, passa o LISTXML ao método de compatibilidade
-    ``write_manifest`` somente depois que o scan termina. A implementação
-    anterior retornava imediatamente quando o manifesto já existia, deixando
-    ``xml_path`` ausente no cabeçalho e tornando a reconstrução impossível.
-    Aqui atualizamos somente a primeira linha de metadados; os registros de
-    ROM/CHD já gravados não são recalculados nem relidos do HDD.
+    O scan grava ROMs/CHDs incrementalmente. Ao terminar, a GUI informa o
+    LISTXML usado e a versão do MAME. Esta compatibilidade corrige apenas a
+    primeira linha do manifesto; os registros físicos nunca são recalculados.
     """
     from .physical_rom_scanner import PhysicalRomScanner
+    from .reconstruction_engine import ReconstructionEngine
 
     original_write_manifest = PhysicalRomScanner.write_manifest
+    original_load_header = ReconstructionEngine.load_manifest_header
+
+    def _rewrite_header(path: Path, xml_path: Path, mame_version: str, source_paths) -> bool:
+        """Reescreve atomicamente somente a primeira linha do JSONL."""
+        if not path.is_file() or not xml_path or not Path(xml_path).is_file():
+            return False
+        temporary = path.with_name(path.name + ".metadata.tmp")
+        try:
+            with path.open("r", encoding="utf-8") as source, temporary.open("w", encoding="utf-8", newline="\n") as target:
+                first = source.readline()
+                if not first.strip():
+                    return False
+                header = json.loads(first)
+                if header.get("record_type") != "header":
+                    return False
+                header["xml_path"] = str(Path(xml_path).resolve())
+                if mame_version and str(mame_version).lower() != "unknown":
+                    header["mame_version"] = str(mame_version)
+                header["source_paths"] = [str(Path(p).resolve()) for p in source_paths if p]
+                target.write(json.dumps(header, ensure_ascii=False) + "\n")
+                shutil.copyfileobj(source, target, length=1024 * 1024)
+            temporary.replace(path)
+            return True
+        except Exception:
+            temporary.unlink(missing_ok=True)
+            logger.exception("Falha atualizando metadata do manifesto: %s", path)
+            return False
 
     def write_manifest(self, xml_machines, xml_path, output_path, mame_version, source_paths):
+        """Atualiza o manifesto já criado pelo scan streaming."""
         path = Path(getattr(self, "_manifest_path", output_path) or output_path)
-        if path.is_file() and xml_path:
-            try:
-                lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
-                if lines:
-                    header = json.loads(lines[0])
-                    if header.get("record_type") == "header":
-                        header["xml_path"] = str(Path(xml_path).resolve())
-                        header["mame_version"] = str(mame_version or header.get("mame_version") or "unknown")
-                        header["source_paths"] = [str(Path(p).resolve()) for p in source_paths]
-                        lines[0] = json.dumps(header, ensure_ascii=False) + "\n"
-                        temporary = path.with_suffix(path.suffix + ".metadata.tmp")
-                        temporary.write_text("".join(lines), encoding="utf-8")
-                        temporary.replace(path)
-                        self._manifest_path = path
-                        return path
-            except Exception:
-                # Não destrói um manifesto válido por falha apenas de metadata.
-                # A reconstrução ainda poderá diagnosticar o cabeçalho ausente.
-                pass
+        if _rewrite_header(path, Path(xml_path) if xml_path else Path(), str(mame_version or "unknown"), source_paths):
+            self._manifest_path = path
+            return path
         return original_write_manifest(self, xml_machines, xml_path, output_path, mame_version, source_paths)
 
+    def _discover_xml_for_manifest(path: Path, header: dict) -> Path | None:
+        """Encontra LISTXML local compatível para manifests antigos sem xml_path."""
+        if header.get("xml_path"):
+            candidate = Path(str(header["xml_path"]))
+            if candidate.is_file():
+                return candidate
+
+        scan_dir = path.parent
+        expected = int(header.get("machine_count_expected") or 0)
+        candidates: list[tuple[float, Path]] = []
+        for xml in scan_dir.glob("*.xml"):
+            try:
+                root = ET.parse(xml).getroot()
+                count = len(root.findall("machine"))
+            except (OSError, ET.ParseError):
+                continue
+            if expected and count != expected:
+                continue
+            candidates.append((xml.stat().st_mtime, xml))
+
+        if not candidates:
+            return None
+        candidates.sort(reverse=True)
+        if len(candidates) > 1:
+            logger.warning(
+                "Mais de um LISTXML compatível com o manifesto; usando o mais recente: %s",
+                candidates[0][1],
+            )
+        return candidates[0][1]
+
+    def load_manifest_header(path):
+        """Lê o header e recupera metadata ausente sem tocar nos registros do scan."""
+        header = original_load_header(path)
+        manifest = Path(path)
+        if header.get("xml_path"):
+            return header
+
+        xml_path = _discover_xml_for_manifest(manifest, header)
+        if xml_path is None:
+            return header
+
+        root = ET.parse(xml_path).getroot()
+        build = str(root.get("build") or "").strip()
+        version = header.get("mame_version")
+        if not version or str(version).lower() == "unknown":
+            version = build.split(" ", 1)[0] if build else "unknown"
+
+        if _rewrite_header(manifest, xml_path, version, header.get("source_paths", [])):
+            header["xml_path"] = str(xml_path.resolve())
+            header["mame_version"] = version
+            logger.info(
+                "Metadata do manifesto reparada sem novo scan: LISTXML=%s | MAME=%s",
+                xml_path,
+                version,
+            )
+        return header
+
     PhysicalRomScanner.write_manifest = write_manifest
+    ReconstructionEngine.load_manifest_header = staticmethod(load_manifest_header)
 
 
 def _patch_reconstruction_chd_validation() -> None:
