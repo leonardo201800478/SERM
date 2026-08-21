@@ -101,7 +101,7 @@ class MultiEmulatorReconstructionService:
             artifacts.extend(group_artifacts)
             decisions.extend(group_decisions)
 
-        if self.options.profile in {ReconstructionTarget.MULTI, ReconstructionTarget.MAME}:
+        if self.options.profile in {ReconstructionTarget.MULTI, ReconstructionTarget.MAME, ReconstructionTarget.FLYCAST}:
             support = self._build_support_groups(selected, support_pool)
             for kind, support_machines in support.items():
                 if not support_machines:
@@ -112,7 +112,7 @@ class MultiEmulatorReconstructionService:
                 artifacts.extend(group_artifacts)
                 decisions.extend(group_decisions)
 
-            if self.options.include_samples:
+            if self.options.include_samples and self.options.profile in {ReconstructionTarget.MULTI, ReconstructionTarget.MAME}:
                 artifacts.extend(self._copy_samples(machines))
             artifacts.append(self._write_path_hints())
 
@@ -190,8 +190,16 @@ class MultiEmulatorReconstructionService:
                 for kind, names in wanted.items()}
 
     def _run_support_target(self, kind: str, machines: list[ReconstructionMachine]):
-        """Publica BIOS/devices em ZIPs independentes."""
-        destination = self.destination / kind
+        """Publica BIOS/devices em ZIPs independentes.
+
+        Para Flycast, o BIOS é publicado em systems/flycast/dc, que é o layout
+        usado por RetroArch/Flycast para BIOS de NAOMI. Para MAME/Multi, BIOS e
+        devices permanecem separados em suas respectivas pastas.
+        """
+        if kind == "bios" and self.options.profile is ReconstructionTarget.FLYCAST:
+            destination = self.destination / self.profile.systems_dir / "flycast" / "dc"
+        else:
+            destination = self.destination / kind
         destination.mkdir(parents=True, exist_ok=True)
         engine = MameAwareReconstructionEngine(
             self.source_paths, destination,
