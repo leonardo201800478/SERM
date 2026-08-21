@@ -7,6 +7,7 @@ CHDs que nem existem.
 """
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
 
@@ -62,12 +63,7 @@ def _patch_chd_scan() -> None:
         disk_name = str(disk.get("name") or "").strip()
         merge_machine = str(disk.get("merge") or "").strip()
         if not disk_name:
-            return {
-                "status": "error",
-                "source_path": None,
-                "source_machine": None,
-                "error": "CHD sem nome",
-            }
+            return {"status": "error", "source_path": None, "source_machine": None, "error": "CHD sem nome"}
 
         filename = Path(disk_name).name
         if not filename.lower().endswith(".chd"):
@@ -82,15 +78,9 @@ def _patch_chd_scan() -> None:
                 seen.add(name)
                 machine_candidates.append(name)
 
-        # O arquivo próprio tem prioridade.
         add_machine(machine_name)
-
-        # ``disk.merge`` aponta para o set que fornece o CHD compartilhado.
         if merge_machine:
             add_machine(merge_machine)
-
-        # Em clones, siga a cadeia parent somente dentro das dependências
-        # conhecidas pelo banco. Nunca procure CHDs arbitrariamente no HDD.
         for parent in _machine_parent_chain(self, machine_name):
             add_machine(parent)
 
@@ -117,7 +107,6 @@ def _patch_chd_scan() -> None:
                     "error": None,
                 }
 
-        searched = [str(path) for _machine, path in candidates]
         return {
             "status": "missing",
             "source_path": None,
@@ -125,7 +114,7 @@ def _patch_chd_scan() -> None:
             "physical_size": 0,
             "logical_size": int(disk.get("size") or 0),
             "expected_sha1": str(disk.get("sha1") or "").strip().lower() or None,
-            "searched_paths": searched,
+            "searched_paths": [str(path) for _machine, path in candidates],
             "error": "CHD não encontrado nos caminhos esperados",
         }
 
@@ -159,6 +148,47 @@ def _patch_chd_scan() -> None:
     PhysicalRomScanner._summary_message = staticmethod(summary_message)
 
 
+def _patch_streaming_manifest_metadata() -> None:
+    """Completa o cabeçalho do manifesto streaming sem uma segunda varredura.
+
+    O scanner abre o JSONL antes dos workers para persistência incremental.
+    A GUI, entretanto, passa o LISTXML ao método de compatibilidade
+    ``write_manifest`` somente depois que o scan termina. A implementação
+    anterior retornava imediatamente quando o manifesto já existia, deixando
+    ``xml_path`` ausente no cabeçalho e tornando a reconstrução impossível.
+    Aqui atualizamos somente a primeira linha de metadados; os registros de
+    ROM/CHD já gravados não são recalculados nem relidos do HDD.
+    """
+    from .physical_rom_scanner import PhysicalRomScanner
+
+    original_write_manifest = PhysicalRomScanner.write_manifest
+
+    def write_manifest(self, xml_machines, xml_path, output_path, mame_version, source_paths):
+        path = Path(getattr(self, "_manifest_path", output_path) or output_path)
+        if path.is_file() and xml_path:
+            try:
+                lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+                if lines:
+                    header = json.loads(lines[0])
+                    if header.get("record_type") == "header":
+                        header["xml_path"] = str(Path(xml_path).resolve())
+                        header["mame_version"] = str(mame_version or header.get("mame_version") or "unknown")
+                        header["source_paths"] = [str(Path(p).resolve()) for p in source_paths]
+                        lines[0] = json.dumps(header, ensure_ascii=False) + "\n"
+                        temporary = path.with_suffix(path.suffix + ".metadata.tmp")
+                        temporary.write_text("".join(lines), encoding="utf-8")
+                        temporary.replace(path)
+                        self._manifest_path = path
+                        return path
+            except Exception:
+                # Não destrói um manifesto válido por falha apenas de metadata.
+                # A reconstrução ainda poderá diagnosticar o cabeçalho ausente.
+                pass
+        return original_write_manifest(self, xml_machines, xml_path, output_path, mame_version, source_paths)
+
+    PhysicalRomScanner.write_manifest = write_manifest
+
+
 def _patch_reconstruction_chd_validation() -> None:
     """Mantém ``chdman`` somente na reconstrução/publicação de CHDs."""
     from .reconstruction_engine import ReconstructionEngine
@@ -176,11 +206,7 @@ def _patch_reconstruction_chd_validation() -> None:
         staged.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source_path, staged)
         try:
-            valid, info = validate_chd(
-                staged,
-                expected_sha1=item.chd_sha1,
-                expected_logical_size=0,
-            )
+            valid, info = validate_chd(staged, expected_sha1=item.chd_sha1, expected_logical_size=0)
         except ChdmanError:
             staged.unlink(missing_ok=True)
             raise
@@ -188,8 +214,7 @@ def _patch_reconstruction_chd_validation() -> None:
             staged.unlink(missing_ok=True)
             if not info.get("sha1_match", True):
                 raise ValueError(
-                    f"SHA-1 lógico do CHD incompatível: esperado={item.chd_sha1}, "
-                    f"encontrado={info.get('sha1')}"
+                    f"SHA-1 lógico do CHD incompatível: esperado={item.chd_sha1}, encontrado={info.get('sha1')}"
                 )
             raise ValueError("CHD inválido segundo chdman")
 
@@ -198,11 +223,7 @@ def _patch_reconstruction_chd_validation() -> None:
         if not target.is_file():
             return False
         try:
-            valid, _info = validate_chd(
-                target,
-                expected_sha1=chd.chd_sha1,
-                expected_logical_size=0,
-            )
+            valid, _info = validate_chd(target, expected_sha1=chd.chd_sha1, expected_logical_size=0)
             return valid
         except (ChdmanError, OSError, ValueError):
             return False
@@ -212,6 +233,7 @@ def _patch_reconstruction_chd_validation() -> None:
 
 
 _patch_chd_scan()
+_patch_streaming_manifest_metadata()
 _patch_reconstruction_chd_validation()
 
 __all__ = ["ChdmanError", "validate_chd"]
