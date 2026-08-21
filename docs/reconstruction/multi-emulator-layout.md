@@ -4,86 +4,71 @@
 
 O seletor da aba Reconstrução possui quatro destinos:
 
-- **MAME** — mantém as machines comuns em `roms/`.
-- **Supermodel 3** — envia machines identificadas pelo driver Model 3 para `supermodel3/roms/`.
-- **Flycast** — envia NAOMI/NAOMI2 para `flycast/roms/` e mantém cada GD-ROM CHD em `flycast/roms/<machine>/<disk>.chd`.
-- **Multi-emulador** — executa os três destinos no mesmo processo.
-
-A classificação usa `machine@sourcefile` do LISTXML, com fallback por nome/descrição. O `sourcefile` é a melhor indicação porque o LISTXML oficial expõe o driver responsável pela machine.
+- **MAME** — machines comuns em `roms/`.
+- **Supermodel 3** — Sega Model 3 em `supermodel3/roms/`.
+- **Flycast** — NAOMI/NAOMI2 em `flycast/roms/`, com GD-ROM em `<machine>/<disk>.chd`.
+- **Multi-emulador** — publica os três destinos no mesmo processo.
 
 ## Layout Multi
 
 ```text
 <destino>/
 ├── roms/                       # machines restantes para MAME
-├── supermodel3/
-│   └── roms/                   # Sega Model 3
-├── flycast/
-│   └── roms/                   # Sega NAOMI/NAOMI2 + ZIPs
-│       └── <machine>/
-│           └── <disk>.chd      # GD-ROM
+├── supermodel3/roms/           # Sega Model 3
+├── flycast/roms/               # Sega NAOMI/NAOMI2
+│   └── <machine>/<disk>.chd    # GD-ROM
 ├── bios/                       # BIOS MAME separado
 ├── devices/                    # devices MAME separado
-├── samples/                    # samples comuns
-└── systems/
-    ├── flycast/
-    │   └── dc/                 # BIOS NAOMI para Flycast/RetroArch
-    └── mame-set-builder-paths.json
+├── samples/                    # samples
+└── systems/                    # caminhos/BIOS de sistemas externos
 ```
 
-O Flycast aceita jogos NAOMI em ZIP MAME e GD-ROM em CHD, com o CHD em um subdiretório nomeado pelo MAME ID. A documentação do Libretro/Flycast dá `ikaruga.zip` + `ikaruga/gdl-0010.chd` como exemplo. O Flycast também espera BIOS NAOMI no diretório de sistema quando usado via RetroArch. citeturn2search7turn2search3
-
-O Supermodel usa ROM sets compatíveis com MAME em ZIP e normalmente mantém esses sets em sua pasta `ROMs`. citeturn1search0
-
-## BIOS e devices
-
-BIOS e devices não são misturados arbitrariamente aos ZIPs dos jogos. O BuildPlanner determina as dependências e o reconstrutor publica os sets externos separadamente.
-
-Isso preserva a semântica do MAME, que procura system ROMs e device ROMs através do `rompath`; portanto a configuração pode apontar `roms`, `bios` e `devices` como caminhos separados. citeturn3search0turn3search2
+A classificação utiliza `machine@sourcefile` do LISTXML, com fallback por nome/descrição. BIOS e devices não são tratados como jogos: o BuildPlanner determina as dependências necessárias.
 
 ## CHD
 
-O scan apenas verifica existência em:
+O scan somente verifica `<origem>/<machine>/<disk>.chd`. Se não existir, o estado é `missing` imediatamente. Não há busca global por `.chd`, procura em outras machines, procura dentro de ZIP ou cálculo de SHA-1 durante o scan.
+
+Na reconstrução, um CHD presente é validado pelo content SHA-1 e `chdman verify`. Se inválido, é ignorado e permanece faltante. Se válido, é copiado diretamente para a estrutura de destino; o arquivo nunca é reconstruído.
+
+## Scan expected-driven
+
+O caminho físico único é `app/mame/physical_rom_scanner.py`.
 
 ```text
-<origem>/<machine>/<disk>.chd
+LISTXML / banco
+      ↓
+requisitos por machine
+      ↓
+ThreadPool por machine
+      ├── <machine>.zip
+      │      └── ZipInfo: nome + CRC + tamanho
+      ├── <machine>/<rom>
+      │      └── somente ROMs esperadas
+      └── <machine>/<disk>.chd
+             └── is_file()
+      ↓
+machine concluída
+      ├── SQLite commit
+      └── JSONL flush
 ```
 
-CHD inexistente é `MISSING` imediatamente. Não há busca global por `.chd`, nem procura dentro de ZIP.
+O scanner não faz `rglob('*')`. ROMs de ZIP somente são lidas quando nome, tamanho e CRC já coincidem e o LISTXML possui SHA-1 para confirmação. ROMs soltas seguem nome → tamanho/CRC → SHA-1.
 
-Na reconstrução o CHD é validado pelo content SHA-1 e `chdman verify`; se inválido, é ignorado e permanece faltante. Se válido, é copiado sem reconstrução.
+### Persistência
 
-## Scan esperado-driven
+`current_scan.jsonl.tmp` é aberto **antes** dos workers. Cada machine concluída é escrita e `flush()` imediatamente. O SQLite também recebe a machine em uma transação curta. Ao final, o `ScanRomsTab` apenas renomeia o arquivo temporário para `current_scan.jsonl`; não existe uma segunda geração completa do manifesto.
 
-O novo scanner de teste está em `app/mame/expected_driven_scan_service.py`.
+Isso elimina o gargalo observado no teste de 6479 segundos, no qual o scan terminava e somente depois começava a construção do JSONL.
 
-Ele trabalha em paralelo por machine e possui um writer dedicado para JSONL:
+## Progresso e logs
 
-```text
-LISTXML
-  ↓
-requirements
-  ↓
-worker por machine
-  ├── machine.zip / machine/
-  └── machine/<disk>.chd
-  ↓
-result queue
-  ├── ScanResult
-  └── JSONL writer thread
-```
+O callback de progresso informa machine concluída/total, ROMs verificadas, válidas, ausentes, CHDs presentes/total e GiB lidos. O logger registra início, cada machine concluída, resumo final e exceções. A reconstrução utiliza callbacks de progresso/log para manter a GUI responsiva e informativa.
 
-O scan não percorre o HDD para descobrir arquivos. Para ZIP, `ZipInfo` fornece CRC e tamanho no diretório central; o conteúdo é lido somente para o membro que corresponde ao requisito e precisa de SHA-1. citeturn7search0
+## Limpeza de legado
+
+O caminho antigo `app/mame/rom_scanner.py` e os indexadores globais/duplicados foram removidos. Busca de ROMs reaproveitáveis deve permanecer fora do caminho crítico e ser usada pela reconstrução.
 
 ## Teste recomendado
 
-Use o mesmo LISTXML e as mesmas origens do teste que levou 6479 segundos. O objetivo da comparação é medir:
-
-1. tempo até o primeiro resultado;
-2. tempo total do scan;
-3. tempo de criação do JSONL;
-4. quantidade de I/O do HDD;
-5. quantidade de CHDs tratados como `MISSING` sem busca global;
-6. reconstrução do mesmo manifesto sem novo scan.
-
-O branch de trabalho é `perf/scan-expected-driven`. Ele contém o scanner esperado-driven, o seletor de perfil e o reconstrutor multi-emulador.
+Repita o mesmo LISTXML e as mesmas origens do teste que levou 6479 segundos e compare: tempo até o primeiro resultado, tempo total, crescimento do `.jsonl.tmp` durante o scan, I/O do HDD, CHDs ausentes resolvidos por `is_file()` e reconstrução do mesmo manifesto sem novo scan.
