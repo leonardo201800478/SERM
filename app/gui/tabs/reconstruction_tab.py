@@ -1,4 +1,4 @@
-"""Aba Reconstrução de ROMs baseada exclusivamente no current_scan.jsonl."""
+"""Aba Reconstrução de ROMs baseada no current_scan.jsonl."""
 from __future__ import annotations
 
 import logging
@@ -13,10 +13,12 @@ from PySide6.QtWidgets import (
 from app.config.app_config import AppConfig
 from app.gui.widgets.log_panel import LogPanel
 from app.gui.widgets.reconstruction_tree_widget import ReconstructionTreeWidget
-from app.mame.mame_aware_reconstruction_engine import (
-    MameAwareReconstructionEngine,
-    MameBuildOptions,
+from app.core.services.reconstruction_profiles import ReconstructionTarget
+from app.core.services.multi_emulator_reconstruction_service import (
+    MultiEmulatorOptions,
+    MultiEmulatorReconstructionService,
 )
+from app.mame.mame_aware_reconstruction_engine import MameAwareReconstructionEngine, MameBuildOptions
 from app.mame.reconstruction_engine import ReconstructionEngine
 from app.mame.rom_repair_engine import SingleRomRepairEngine
 
@@ -30,7 +32,9 @@ class ReconstructionWorker(QThread):
     finished_result = Signal(object)
     failed = Signal(str)
 
-    def __init__(self, manifest: Path, source_paths: list[Path], destination: Path, set_type: str, copy_perfect: bool, repair: bool, residual: Path, build_options: MameBuildOptions) -> None:
+    def __init__(self, manifest: Path, source_paths: list[Path], destination: Path, set_type: str,
+                 copy_perfect: bool, repair: bool, residual: Path, build_options: MameBuildOptions,
+                 target_profile: ReconstructionTarget) -> None:
         super().__init__()
         self.manifest = manifest
         self.source_paths = source_paths
@@ -40,41 +44,63 @@ class ReconstructionWorker(QThread):
         self.repair = repair
         self.residual = residual
         self.build_options = build_options
-        self.service: MameAwareReconstructionEngine | None = None
+        self.target_profile = target_profile
+        self.service = None
 
     def run(self) -> None:
         try:
-            self.log.emit(f"Carregando manifesto físico v2: {self.manifest}")
+            self.log.emit(f"Carregando manifesto físico: {self.manifest}")
             header = ReconstructionEngine.load_manifest_header(self.manifest)
             machines = ReconstructionEngine.load_manifest(self.manifest)
             manifest_sources = [Path(p) for p in header.get("source_paths", []) if p]
             if manifest_sources:
                 self.source_paths = manifest_sources
             xml_path = Path(header["xml_path"]) if header.get("xml_path") else None
-            self.log.emit(f"Manifesto carregado: {len(machines)} machines | origem(ns): {len(self.source_paths)}")
-            self.log.emit("A reconstrução NÃO executará novo scan. As fontes serão consultadas somente pelas localizações registradas no manifesto.")
-            self.service = MameAwareReconstructionEngine(
-                self.source_paths,
-                self.destination,
-                build_options=self.build_options,
-                xml_path=xml_path,
+            if xml_path is None or not xml_path.is_file():
+                raise RuntimeError("O manifesto não possui um LISTXML válido para a reconstrução.")
+
+            self.log.emit(
+                f"Manifesto carregado: {len(machines)} machines | origem(ns): {len(self.source_paths)}"
+            )
+            self.log.emit("A reconstrução NÃO executará novo scan.")
+
+            if self.target_profile is ReconstructionTarget.MAME:
+                self.service = MameAwareReconstructionEngine(
+                    self.source_paths, self.destination,
+                    build_options=self.build_options, xml_path=xml_path,
+                    progress_callback=lambda c, t, m: self.progress.emit(c, t, m),
+                    log_callback=self.log.emit,
+                )
+                result = self.service.reconstruct(
+                    machines, set_type=self.set_type,
+                    copy_perfect=self.copy_perfect, repair=self.repair,
+                )
+                residual_path = self.service.write_residual_manifest(
+                    self.residual, result.unresolved,
+                    source_manifest=self.manifest, set_type=self.set_type,
+                )
+                self.log.emit(f"Manifesto residual gravado: {residual_path}")
+                self.finished_result.emit(result)
+                return
+
+            self.service = MultiEmulatorReconstructionService(
+                self.source_paths, self.destination, xml_path=xml_path,
+                options=MultiEmulatorOptions(
+                    profile=self.target_profile,
+                    set_type=self.set_type,
+                    copy_perfect=self.copy_perfect,
+                    repair=self.repair,
+                    include_clones=self.build_options.include_clones,
+                    include_bios=self.build_options.include_bios,
+                    include_devices=self.build_options.include_devices,
+                    include_samples=self.build_options.include_samples,
+                    include_optional=self.build_options.include_optional,
+                ),
                 progress_callback=lambda c, t, m: self.progress.emit(c, t, m),
                 log_callback=self.log.emit,
             )
-            result = self.service.reconstruct(
-                machines,
-                set_type=self.set_type,
-                copy_perfect=self.copy_perfect,
-                repair=self.repair,
-            )
-            residual_path = self.service.write_residual_manifest(
-                self.residual,
-                result.unresolved,
-                source_manifest=self.manifest,
-                set_type=self.set_type,
-            )
-            self.log.emit(f"Manifesto residual gravado: {residual_path}")
-            self.log.emit(f"Relatório de decisões: {self.destination / 'reconstruction-decisions.json'}")
+            result = self.service.reconstruct(machines)
+            self.log.emit(f"Relatório multi-emulador: {result.manifest_path}")
             self.finished_result.emit(result)
         except InterruptedError as exc:
             self.log.emit(str(exc))
@@ -84,14 +110,14 @@ class ReconstructionWorker(QThread):
             self.failed.emit(str(exc))
 
     def cancel(self) -> None:
-        """Solicita cancelamento cooperativo sem destruir a thread à força."""
-        if self.service is not None:
+        """Solicita cancelamento cooperativo."""
+        if self.service is not None and hasattr(self.service, "request_cancel"):
             self.service.request_cancel()
         self.requestInterruption()
 
 
 class ReconstructionTab(QWidget):
-    """Interface de cópia/reparo do set atual."""
+    """Interface de cópia/reparo com seleção de destino de emulador."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -117,14 +143,26 @@ class ReconstructionTab(QWidget):
         self.all_button = QPushButton("Copiar + Reparar")
         self.cancel_button = QPushButton("Cancelar")
         self.cancel_button.setEnabled(False)
+
+        self.target_combo = QComboBox()
+        self.target_combo.addItem("MAME — ROMs restantes", ReconstructionTarget.MAME)
+        self.target_combo.addItem("Supermodel 3 — Sega Model 3", ReconstructionTarget.SUPERMODEL3)
+        self.target_combo.addItem("Flycast — Sega Naomi / Naomi 2 + GD-ROM", ReconstructionTarget.FLYCAST)
+        self.target_combo.addItem("Multi-emulador — MAME + Supermodel 3 + Flycast", ReconstructionTarget.MULTI)
+        self.target_combo.setToolTip(
+            "Define onde as machines serão publicadas. O perfil Multi separa Model 3 e Naomi do rompath principal do MAME."
+        )
+
         self.set_combo = QComboBox()
         self.set_combo.addItem("Split", ReconstructionEngine.SET_SPLIT)
         self.set_combo.addItem("Merged", ReconstructionEngine.SET_MERGED)
         self.set_combo.addItem("Non-Merged", ReconstructionEngine.SET_NON_MERGED)
         self.manifest_label = QLabel()
-        row.addWidget(self.copy_button)
-        row.addWidget(self.repair_button)
-        row.addWidget(self.all_button)
+
+        for widget in (self.copy_button, self.repair_button, self.all_button):
+            row.addWidget(widget)
+        row.addWidget(QLabel("Destino:"))
+        row.addWidget(self.target_combo)
         row.addWidget(QLabel("Tipo:"))
         row.addWidget(self.set_combo)
         row.addStretch()
@@ -172,7 +210,7 @@ class ReconstructionTab(QWidget):
         self.cancel_button.clicked.connect(self._cancel)
 
     def _load_manifest(self) -> None:
-        """Carrega o current_scan.jsonl físico v2/v3 da pasta canônica de scan."""
+        """Carrega o current_scan.jsonl físico v2/v3."""
         try:
             self.manifest_path = self._scan_dir() / "current_scan.jsonl"
             if not self.manifest_path.is_file():
@@ -187,7 +225,7 @@ class ReconstructionTab(QWidget):
             self.tree.set_data(self.machines)
             self.manifest_label.setText(
                 f"Manifesto físico v{header.get('schema_version', '?')}: {self.manifest_path} | "
-                f"Machines: {len(self.machines)} | ROMs: {rom_count} | Origem: {', '.join(source_paths) or 'não informada'}"
+                f"Machines: {len(self.machines)} | Itens: {rom_count} | Origem: {', '.join(source_paths) or 'não informada'}"
             )
         except Exception as exc:
             logger.exception("Falha ao carregar current_scan.jsonl")
@@ -201,7 +239,7 @@ class ReconstructionTab(QWidget):
             self._load_manifest()
 
     def _source_paths(self) -> list[Path]:
-        """Retorna as fontes gravadas no header do scan, não as do destino."""
+        """Retorna as fontes gravadas no header do scan."""
         try:
             header = ReconstructionEngine.load_manifest_header(self.manifest_path)
             paths = [Path(p) for p in header.get("source_paths", []) if p]
@@ -229,7 +267,7 @@ class ReconstructionTab(QWidget):
         )
 
     def _start(self, *, copy_perfect: bool, repair: bool) -> None:
-        """Inicia uma reconstrução baseada no manifesto atual, sem novo scan."""
+        """Inicia reconstrução baseada no manifesto atual, sem novo scan."""
         if self.worker and self.worker.isRunning():
             return
         self._load_manifest()
@@ -244,6 +282,7 @@ class ReconstructionTab(QWidget):
         except Exception as exc:
             QMessageBox.warning(self, "Reconstrução", str(exc))
             return
+
         residual = self._scan_dir() / "current_reconstruction.jsonl"
         self.progress.setValue(0)
         self.count_label.setText("Copiadas: 0 | Reparadas: 0 | Externas: 0 | Pendentes: 0")
@@ -251,14 +290,9 @@ class ReconstructionTab(QWidget):
         self._set_running(True)
         self.log_panel._clear()
         self.worker = ReconstructionWorker(
-            self.manifest_path,
-            source_paths,
-            destination,
-            self.set_combo.currentData(),
-            copy_perfect,
-            repair,
-            residual,
-            self._build_options(),
+            self.manifest_path, source_paths, destination,
+            self.set_combo.currentData(), copy_perfect, repair,
+            residual, self._build_options(), self.target_combo.currentData(),
         )
         self.worker.progress.connect(self._on_progress)
         self.worker.log.connect(self._append_log)
@@ -272,7 +306,11 @@ class ReconstructionTab(QWidget):
         if data.get("action") == "details":
             rom = data.get("rom")
             if rom:
-                QMessageBox.information(self, "ROM", f"{rom.rom_name}\nCRC: {rom.expected_crc}\nTamanho: {rom.expected_size}\nEstado: {rom.status}\nOrigem: {rom.source_archive}!{rom.source_member}")
+                QMessageBox.information(
+                    self, "ROM",
+                    f"{rom.rom_name}\nCRC: {rom.expected_crc}\nTamanho: {rom.expected_size}\n"
+                    f"Estado: {rom.status}\nOrigem: {rom.source_archive}!{rom.source_member}"
+                )
             return
         machine = data.get("machine")
         rom = data.get("rom")
@@ -300,19 +338,29 @@ class ReconstructionTab(QWidget):
         self.progress_label.setText(message)
 
     def _append_log(self, message: str) -> None:
-        """Envia mensagens do worker para o logger observado pelo LogPanel."""
+        """Envia mensagens para o logger observado pelo LogPanel."""
         logging.getLogger("app.mame.reconstruction_service").info(message)
 
     def _finished(self, result) -> None:
         if result is None:
             self.progress_label.setText("Reconstrução cancelada.")
             return
-        self.count_label.setText(
-            f"Copiadas: {result.copied} | Reparadas: {result.repaired} | "
-            f"Externas: {result.external} | Pendentes: {len(result.unresolved)}"
-        )
+        if hasattr(result, "targets"):
+            copied = sum(r.copied for r in result.targets.values())
+            repaired = sum(r.repaired for r in result.targets.values())
+            external = sum(r.external for r in result.targets.values())
+            pending = sum(len(r.unresolved) for r in result.targets.values())
+            self.count_label.setText(
+                f"Copiadas: {copied} | Reparadas: {repaired} | Externas: {external} | Pendentes: {pending}"
+            )
+            self.progress_label.setText(f"Reconstrução multi-emulador concluída: {result.manifest_path}")
+        else:
+            self.count_label.setText(
+                f"Copiadas: {result.copied} | Reparadas: {result.repaired} | "
+                f"Externas: {result.external} | Pendentes: {len(result.unresolved)}"
+            )
+            self.progress_label.setText("Reconstrução concluída; manifesto residual e relatório de decisões gerados.")
         self.progress.setValue(100)
-        self.progress_label.setText("Reconstrução concluída; manifesto residual e relatório de decisões gerados.")
         self._load_manifest()
 
     def _failed(self, message: str) -> None:
@@ -320,7 +368,7 @@ class ReconstructionTab(QWidget):
         QMessageBox.critical(self, "Reconstrução", message)
 
     def _cancel(self) -> None:
-        """Solicita cancelamento seguro e aguarda a operação corrente."""
+        """Solicita cancelamento seguro."""
         if self.worker and self.worker.isRunning():
             self.worker.cancel()
             self.progress_label.setText("Cancelamento solicitado; aguardando o bloco atual terminar...")
@@ -330,5 +378,8 @@ class ReconstructionTab(QWidget):
         for button in (self.copy_button, self.repair_button, self.all_button):
             button.setEnabled(not running)
         self.cancel_button.setEnabled(running)
-        for widget in (self.include_clones, self.include_bios, self.include_devices, self.include_samples, self.include_optional, self.set_combo):
+        for widget in (
+            self.include_clones, self.include_bios, self.include_devices,
+            self.include_samples, self.include_optional, self.set_combo, self.target_combo,
+        ):
             widget.setEnabled(not running)
