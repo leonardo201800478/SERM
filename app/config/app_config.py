@@ -4,7 +4,13 @@ from pathlib import Path
 
 
 class AppConfig:
-    """Configuração persistente do MAME Set Builder."""
+    """Configuração persistente do MAME Set Builder.
+
+    Os campos ``*_path`` representam o executável atualmente instalado/configurado.
+    Os campos ``*_dir`` representam o diretório padrão de instalação do emulador.
+    Essa separação permite instalar uma versão nova sem confundir pasta de instalação
+    com caminho do executável.
+    """
 
     CONFIG_DIR = Path.home() / ".mame-set-builder"
     CONFIG_FILE = CONFIG_DIR / "config.json"
@@ -14,12 +20,17 @@ class AppConfig:
     SCAN_DIR = DB_DIR / "scan"
 
     def __init__(self):
-        # Executáveis dos emuladores. Caminhos opcionais; a ausência significa
-        # que o emulador ainda não foi configurado pelo usuário.
+        # Executáveis dos emuladores atualmente disponíveis.
         self.mame_path: Path | None = None
         self.flycast_path: Path | None = None
         self.supermodel_path: Path | None = None
         self.fbneo_path: Path | None = None
+
+        # Diretórios padrão de instalação/uso dos emuladores.
+        self.mame_dir: Path | None = None
+        self.flycast_dir: Path | None = None
+        self.supermodel_dir: Path | None = None
+        self.fbneo_dir: Path | None = None
 
         self.chdman_path: Path | None = None
         self.ini_path: Path | None = None
@@ -45,10 +56,18 @@ class AppConfig:
             return
         try:
             data = json.loads(self.CONFIG_FILE.read_text(encoding="utf-8"))
+
             self.mame_path = Path(data["mame_path"]) if data.get("mame_path") else None
             self.flycast_path = Path(data["flycast_path"]) if data.get("flycast_path") else None
             self.supermodel_path = Path(data["supermodel_path"]) if data.get("supermodel_path") else None
             self.fbneo_path = Path(data["fbneo_path"]) if data.get("fbneo_path") else None
+
+            # Compatibilidade: instalações existentes continuam funcionando.
+            self.mame_dir = self._load_dir(data, "mame_dir", self.mame_path)
+            self.flycast_dir = self._load_dir(data, "flycast_dir", self.flycast_path)
+            self.supermodel_dir = self._load_dir(data, "supermodel_dir", self.supermodel_path)
+            self.fbneo_dir = self._load_dir(data, "fbneo_dir", self.fbneo_path)
+
             self.chdman_path = Path(data["chdman_path"]) if data.get("chdman_path") else None
             self.ini_path = Path(data["ini_path"]) if data.get("ini_path") else None
             self.catver_path = Path(data["catver_path"]) if data.get("catver_path") else None
@@ -61,6 +80,16 @@ class AppConfig:
         except (OSError, ValueError, TypeError, json.JSONDecodeError):
             pass
 
+    @staticmethod
+    def _load_dir(data: dict, key: str, executable: Path | None) -> Path | None:
+        """Lê um diretório persistido, usando a pasta do executável como fallback."""
+        value = data.get(key)
+        if value:
+            return Path(value)
+        if executable:
+            return executable.parent
+        return None
+
     def save(self):
         """Salva as configurações de forma atômica."""
         self.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -69,6 +98,10 @@ class AppConfig:
             "flycast_path": str(self.flycast_path) if self.flycast_path else "",
             "supermodel_path": str(self.supermodel_path) if self.supermodel_path else "",
             "fbneo_path": str(self.fbneo_path) if self.fbneo_path else "",
+            "mame_dir": str(self.mame_dir) if self.mame_dir else "",
+            "flycast_dir": str(self.flycast_dir) if self.flycast_dir else "",
+            "supermodel_dir": str(self.supermodel_dir) if self.supermodel_dir else "",
+            "fbneo_dir": str(self.fbneo_dir) if self.fbneo_dir else "",
             "chdman_path": str(self.chdman_path) if self.chdman_path else "",
             "ini_path": str(self.ini_path) if self.ini_path else "",
             "catver_path": str(self.catver_path) if self.catver_path else "",
