@@ -14,7 +14,13 @@ class AppConfig:
     SCAN_DIR = DB_DIR / "scan"
 
     def __init__(self):
+        # Executáveis dos emuladores. Caminhos opcionais; a ausência significa
+        # que o emulador ainda não foi configurado pelo usuário.
         self.mame_path: Path | None = None
+        self.flycast_path: Path | None = None
+        self.supermodel_path: Path | None = None
+        self.fbneo_path: Path | None = None
+
         self.chdman_path: Path | None = None
         self.ini_path: Path | None = None
         self.catver_path: Path | None = None
@@ -40,6 +46,9 @@ class AppConfig:
         try:
             data = json.loads(self.CONFIG_FILE.read_text(encoding="utf-8"))
             self.mame_path = Path(data["mame_path"]) if data.get("mame_path") else None
+            self.flycast_path = Path(data["flycast_path"]) if data.get("flycast_path") else None
+            self.supermodel_path = Path(data["supermodel_path"]) if data.get("supermodel_path") else None
+            self.fbneo_path = Path(data["fbneo_path"]) if data.get("fbneo_path") else None
             self.chdman_path = Path(data["chdman_path"]) if data.get("chdman_path") else None
             self.ini_path = Path(data["ini_path"]) if data.get("ini_path") else None
             self.catver_path = Path(data["catver_path"]) if data.get("catver_path") else None
@@ -57,6 +66,9 @@ class AppConfig:
         self.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         payload = {
             "mame_path": str(self.mame_path) if self.mame_path else "",
+            "flycast_path": str(self.flycast_path) if self.flycast_path else "",
+            "supermodel_path": str(self.supermodel_path) if self.supermodel_path else "",
+            "fbneo_path": str(self.fbneo_path) if self.fbneo_path else "",
             "chdman_path": str(self.chdman_path) if self.chdman_path else "",
             "ini_path": str(self.ini_path) if self.ini_path else "",
             "catver_path": str(self.catver_path) if self.catver_path else "",
