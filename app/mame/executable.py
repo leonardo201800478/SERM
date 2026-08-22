@@ -1,122 +1,146 @@
-import subprocess
-import re
-import logging
-from contextlib import contextmanager  # <-- adicione esta linha
-from pathlib import Path
-from typing import Optional
+"""Integração segura e silenciosa com o executável do MAME."""
+from __future__ import annotations
 
-logger = logging.getLogger("MameExecutable")
-logger.setLevel(logging.WARNING)
+import logging
+import re
+import subprocess
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Iterator, Optional, TextIO
+
+logger = logging.getLogger(__name__)
+
 
 class MameExecutable:
-    def __init__(self, path: Path):
-        self.path = path
-        self._version = None
-        logger.info(f"Inicializando MameExecutable com caminho: {path}")
+    """Representa o executável do MAME e suas operações de processo.
+
+    A detecção de versão é deliberadamente silenciosa: falhas de detecção
+    retornam ``None`` e não provocam diálogos, exceções ou logs de warning.
+    """
+
+    _VERSION_TIMEOUT = 5
+    _LISTXML_TIMEOUT = 120
+
+    def __init__(self, path: Path | str):
+        self.path = Path(path).expanduser()
+        self._version: Optional[str] = None
+        self._version_checked = False
 
     @property
     def version(self) -> Optional[str]:
-        if self._version is None:
+        """Retorna a versão detectada, consultando o executável apenas uma vez."""
+        if not self._version_checked:
             self._detect_version()
         return self._version
 
-    def _detect_version(self):
-        """Detecta a versão do MAME silenciosamente."""
+    def _detect_version(self) -> None:
+        """Detecta ``MAME -version`` sem abrir console ou gerar alertas."""
+        self._version_checked = True
+
         if not self.path.is_file():
-            self._version = "unknown"
             return
 
-        # Tenta apenas o argumento -version (mais rápido e confiável)
         try:
+            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             result = subprocess.run(
                 [str(self.path), "-version"],
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=5,
-                encoding='utf-8',
-                errors='ignore',
+                encoding="utf-8",
+                errors="replace",
+                timeout=self._VERSION_TIMEOUT,
                 shell=False,
                 check=False,
+                creationflags=creationflags,
             )
-            output = result.stdout.strip() or result.stderr.strip()
-            if output:
-                # Padrão: "MAME X.Y" ou somente número
-                match = re.search(r'(?:MAME\s+)?([\d.]+)', output, re.IGNORECASE)
-                if match:
-                    self._version = match.group(1)
-                    return
-        except Exception:
-            pass  # silencioso
+        except (OSError, subprocess.SubprocessError):
+            return
 
-        # Fallback: define como unknown sem logs
-        self._version = "unknown"
+        output = "\n".join((result.stdout or "", result.stderr or ""))
+        match = re.search(
+            r"\b(?:MAME\s+)?([0-9]+(?:\.[0-9]+)+(?:[-+._][0-9A-Za-z.-]+)?)\b",
+            output,
+            re.IGNORECASE,
+        )
+        if match:
+            self._version = match.group(1)
 
     def get_listxml(self) -> str:
-        """Executa mame -listxml e retorna o XML como string.
+        """Executa ``mame -listxml`` e retorna o XML completo.
 
-        Aviso: isto materializa o XML inteiro em memória (pode passar de
-        100 MB em builds atuais do MAME). Para importar para o banco,
-        prefira ``stream_listxml()``, que entrega o stdout do processo
-        diretamente para um parser incremental (iterparse), sem nunca
-        montar a string completa.
+        Para importações grandes, ``stream_listxml`` deve ser preferido para
+        evitar materializar o XML inteiro na memória.
         """
-        logger.info("Executando -listxml...")
         try:
             result = subprocess.run(
                 [str(self.path), "-listxml"],
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=120,
-                encoding='utf-8',
-                errors='ignore',
-                shell=False
+                encoding="utf-8",
+                errors="replace",
+                timeout=self._LISTXML_TIMEOUT,
+                shell=False,
+                check=False,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
-            if result.returncode != 0:
-                logger.error(f"Erro ao executar -listxml: código {result.returncode}")
-                logger.error(f"STDERR: {result.stderr}")
-                raise RuntimeError(f"Error running listxml: {result.stderr}")
-            logger.info("listxml obtido com sucesso.")
-            return result.stdout
-        except subprocess.TimeoutExpired:
-            logger.error("Timeout ao executar -listxml.")
-            raise RuntimeError("Timeout ao executar -listxml.")
-        except Exception as e:
-            logger.error(f"Erro ao executar -listxml: {e}")
-            raise RuntimeError(f"Failed to get listxml: {e}")
+        except FileNotFoundError as exc:
+            raise RuntimeError(f"Executável MAME não encontrado: {self.path}") from exc
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError("Timeout ao executar MAME -listxml.") from exc
+        except OSError as exc:
+            raise RuntimeError(f"Falha ao executar MAME -listxml: {exc}") from exc
+
+        if result.returncode != 0:
+            detail = (result.stderr or "").strip()
+            raise RuntimeError(
+                f"MAME -listxml terminou com código {result.returncode}"
+                + (f": {detail}" if detail else ".")
+            )
+        return result.stdout
 
     @contextmanager
-    def stream_listxml(self):
-        """Executa mame -listxml e expõe o stdout do processo para leitura incremental.
+    def stream_listxml(self) -> Iterator[TextIO]:
+        """Executa ``mame -listxml`` e fornece seu stdout em streaming.
 
-        Uso:
-            with mame.stream_listxml() as stdout:
-                for machine in iter_machines(stdout):
-                    ...
-
-        O XML nunca é materializado como string completa: o subprocesso
-        escreve no pipe e o parser (iterparse) consome incrementalmente,
-        o que mantém o uso de memória proporcional a UMA máquina por vez,
-        não ao dataset inteiro.
+        O processo não abre janela de console no Windows. O stderr é drenado
+        antes de ``wait`` para evitar bloqueio caso o MAME produza muita saída.
         """
-        logger.info("Iniciando -listxml em modo streaming...")
         process = subprocess.Popen(
             [str(self.path), "-listxml"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            encoding='utf-8',
-            errors='ignore',
+            encoding="utf-8",
+            errors="replace",
             bufsize=1,
             shell=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
+
         try:
+            if process.stdout is None:
+                raise RuntimeError("MAME não forneceu stdout para -listxml.")
             yield process.stdout
         finally:
-            process.stdout.close()
-            stderr_output = process.stderr.read() if process.stderr else ""
-            process.stderr.close()
-            returncode = process.wait(timeout=120)
+            if process.stdout is not None:
+                process.stdout.close()
+
+            stderr_output = process.stderr.read() if process.stderr is not None else ""
+            if process.stderr is not None:
+                process.stderr.close()
+
+            try:
+                returncode = process.wait(timeout=self._LISTXML_TIMEOUT)
+            except subprocess.TimeoutExpired as exc:
+                process.kill()
+                process.wait()
+                raise RuntimeError("Timeout ao finalizar MAME -listxml.") from exc
+
             if returncode != 0:
-                logger.error(f"-listxml terminou com código {returncode}: {stderr_output}")
-                raise RuntimeError(f"Error running listxml: {stderr_output}")
-            logger.info("listxml (streaming) concluído com sucesso.")
+                detail = stderr_output.strip()
+                raise RuntimeError(
+                    f"MAME -listxml terminou com código {returncode}"
+                    + (f": {detail}" if detail else ".")
+                )
