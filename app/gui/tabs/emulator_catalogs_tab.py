@@ -16,20 +16,15 @@ logger = logging.getLogger(__name__)
 
 
 class EmulatorCatalogsTab(QWidget):
-    """Permite gerar e inspecionar os catálogos dos quatro emuladores.
-
-    Todos os cards usam a mesma semântica: ``Jogos suportados`` representa
-    máquinas/jogos do catálogo, nunca a quantidade de arquivos ROM. A
-    quantidade de ROMs permanece disponível no detalhe/log para diagnóstico.
-    """
+    """Permite gerar e inspecionar catálogos dos quatro emuladores."""
 
     EMULATORS = ("mame", "flycast", "supermodel", "fbneo")
     LABELS = {"mame": "MAME", "flycast": "Flycast", "supermodel": "Supermodel", "fbneo": "FBNeo"}
     DESCRIPTIONS = {
-        "mame": "Catálogo completo produzido pelo MAME instalado.",
-        "flycast": "Arcade suportado pelo Flycast: NAOMI, NAOMI 2, GD-ROM, Atomiswave e System SP. Dreamcast não entra neste catálogo.",
+        "mame": "Catálogo completo do MAME instalado. Sistemas, jogos, dispositivos e BIOS são contabilizados separadamente.",
+        "flycast": "Arcade suportado: NAOMI, NAOMI 2, GD-ROM, Atomiswave e System SP. Dreamcast não entra neste catálogo.",
         "supermodel": "Jogos Sega Model 3 obtidos da base oficial Games.xml.",
-        "fbneo": "Jogos Arcade que o FBNeo publica através de -listinfo; consoles não são considerados neste perfil.",
+        "fbneo": "Jogos Arcade publicados pelo FBNeo através de -listinfo.",
     }
 
     def __init__(self, parent=None):
@@ -40,21 +35,19 @@ class EmulatorCatalogsTab(QWidget):
         self._thread: QThread | None = None
         self._worker = None
         self._active_emulator: str | None = None
-        self.cards: dict[str, tuple[QLabel, QLabel, QLabel, QLabel, QProgressBar, QPushButton]] = {}
+        self.cards = {}
         self._build_ui()
         self.refresh()
 
     def _build_ui(self) -> None:
-        """Monta a interface em grupos independentes para manutenção."""
+        """Monta a interface em grupos independentes."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(18, 18, 18, 18)
         layout.setSpacing(12)
         title = QLabel("Catálogos dos Emuladores")
         title.setStyleSheet("font-size:22px;font-weight:bold;")
         layout.addWidget(title)
-        description = QLabel(
-            "As informações abaixo representam jogos/máquinas suportados. A quantidade de ROMs é um dado técnico separado e não define o tamanho do set."
-        )
+        description = QLabel("A GUI diferencia sistemas, jogos, dispositivos, BIOS e arquivos ROM. No MAME, uma machine não é automaticamente um jogo.")
         description.setWordWrap(True)
         description.setStyleSheet("color:#aaa;")
         layout.addWidget(description)
@@ -75,7 +68,7 @@ class EmulatorCatalogsTab(QWidget):
         self.generate_all_button.clicked.connect(self.generate_all)
         actions.addWidget(self.generate_all_button)
         refresh = QPushButton("↻ Atualizar estado")
-        refresh.setToolTip("Relê os metadados dos catálogos publicados no SQLite.")
+        refresh.setToolTip("Relê os metadados dos catálogos publicados no SQLite, sem gerar novamente os catálogos.")
         refresh.clicked.connect(self.refresh)
         actions.addWidget(refresh)
         clear = QPushButton("Limpar log")
@@ -95,7 +88,7 @@ class EmulatorCatalogsTab(QWidget):
         layout.addWidget(self.footer)
 
     def _create_card(self, emulator: str):
-        """Cria um card padronizado mostrando jogos suportados e ROMs separadamente."""
+        """Cria card com contadores semânticos e independentes."""
         card = QFrame()
         card.setObjectName("catalogCard")
         box = QVBoxLayout(card)
@@ -110,11 +103,14 @@ class EmulatorCatalogsTab(QWidget):
         box.addWidget(status)
         version = QLabel("Versão: —")
         box.addWidget(version)
-        games = QLabel("Jogos suportados: —")
-        box.addWidget(games)
-        roms = QLabel("ROMs no catálogo: —")
+        systems = QLabel("Sistemas: —")
+        games = QLabel("Jogos: —")
+        devices = QLabel("Dispositivos: —")
+        bios = QLabel("BIOS: —")
+        roms = QLabel("ROMs: —")
         roms.setStyleSheet("color:#888;font-size:10px;")
-        box.addWidget(roms)
+        for label in (systems, games, devices, bios, roms):
+            box.addWidget(label)
         progress = QProgressBar()
         progress.setTextVisible(False)
         progress.setRange(0, 1)
@@ -125,10 +121,10 @@ class EmulatorCatalogsTab(QWidget):
         button.setToolTip("Gera somente o catálogo deste emulador e publica o resultado no SQLite.")
         button.clicked.connect(lambda _=False, key=emulator: self.generate_one(key))
         box.addWidget(button)
-        return card, (status, version, games, roms, progress, button)
+        return card, (status, version, systems, games, devices, bios, roms, progress, button)
 
     def _context(self) -> CatalogBuildContext:
-        """Monta o contexto usando somente instalações configuradas."""
+        """Monta contexto usando somente instalações configuradas."""
         self.config.load()
         return CatalogBuildContext(
             mame_executable=self._path("mame_path"),
@@ -141,12 +137,12 @@ class EmulatorCatalogsTab(QWidget):
         )
 
     def _path(self, attr: str) -> Path | None:
-        """Converte uma configuração de caminho em Path."""
+        """Converte configuração de caminho em Path."""
         value = getattr(self.config, attr, None)
         return Path(value).expanduser() if value else None
 
     def refresh(self) -> None:
-        """Atualiza os cards lendo o estado persistido no SQLite."""
+        """Atualiza cards somente por leitura do SQLite."""
         if self.db is None:
             self.footer.setText("Banco SQLite indisponível")
             return
@@ -154,39 +150,50 @@ class EmulatorCatalogsTab(QWidget):
             repository = EmulatorCatalogRepository(self.db)
             catalogs = {row["emulator"]: row for row in repository.list_catalogs()}
             for emulator in self.EMULATORS:
-                status, version, games, roms, progress, button = self.cards[emulator]
+                status, version, systems, games, devices, bios, roms, progress, button = self.cards[emulator]
                 row = catalogs.get(emulator)
                 if row is None:
                     status.setText("● Não publicado")
                     status.setStyleSheet("color:#999;font-weight:bold;")
                     version.setText("Versão: —")
-                    games.setText("Jogos suportados: —")
-                    roms.setText("ROMs no catálogo: —")
+                    systems.setText("Sistemas: —")
+                    games.setText("Jogos: —")
+                    devices.setText("Dispositivos: —")
+                    bios.setText("BIOS: —")
+                    roms.setText("ROMs: —")
                     continue
                 status.setText("● Publicado")
                 status.setStyleSheet("color:#55d66b;font-weight:bold;")
                 version.setText(f"Versão: {row['version'] or 'unknown'}")
-                games.setText(f"Jogos suportados: {row['machine_count']:,}".replace(",", "."))
-                roms.setText(f"ROMs no catálogo: {row['rom_count']:,}".replace(",", "."))
+                systems.setText(f"Sistemas: {self._fmt(row['system_count'])}")
+                games.setText(f"Jogos: {self._fmt(row['game_count'])}")
+                devices.setText(f"Dispositivos: {self._fmt(row['device_count'])}")
+                bios.setText(f"BIOS: {self._fmt(row['bios_count'])}")
+                roms.setText(f"ROMs: {self._fmt(row['rom_count'])}")
             self.footer.setText("Estado dos catálogos atualizado")
         except Exception as exc:
             logger.exception("Falha ao atualizar GUI de catálogos")
             self.footer.setText(f"Erro: {exc}")
 
+    @staticmethod
+    def _fmt(value) -> str:
+        """Formata contadores no padrão brasileiro."""
+        return f"{int(value or 0):,}".replace(",", ".")
+
     def generate_one(self, emulator: str) -> None:
-        """Inicia a geração de um catálogo em background."""
+        """Inicia geração de um catálogo em background."""
         if self._thread is not None or self.db is None:
             return
         self._start_worker(EmulatorCatalogWorker, emulator)
 
     def generate_all(self) -> None:
-        """Inicia a geração dos quatro catálogos em background."""
+        """Inicia geração dos quatro catálogos em background."""
         if self._thread is not None or self.db is None:
             return
         self._start_worker(EmulatorCatalogBatchWorker, None)
 
     def _start_worker(self, worker_type, emulator: str | None) -> None:
-        """Cria e conecta o worker responsável pela operação selecionada."""
+        """Cria e conecta worker da operação selecionada."""
         context = self._context()
         self._active_emulator = emulator
         self._thread = QThread(self)
@@ -212,8 +219,8 @@ class EmulatorCatalogsTab(QWidget):
 
     @Slot(str, int, int, str)
     def _catalog_finished(self, emulator: str, machines: int, roms: int, version: str) -> None:
-        """Atualiza o card após publicação."""
-        self._append_log(f"OK | {self.LABELS.get(emulator, emulator)} | jogos={machines} | roms={roms} | version={version}")
+        """Registra conclusão e recarrega os contadores persistidos."""
+        self._append_log(f"OK | {self.LABELS.get(emulator, emulator)} | entradas={machines} | roms={roms} | version={version}")
         self.refresh()
 
     @Slot(str, str)
@@ -239,8 +246,8 @@ class EmulatorCatalogsTab(QWidget):
         """Ativa progresso somente no emulador em execução."""
         self.generate_all_button.setEnabled(not busy)
         for emulator, labels in self.cards.items():
-            progress = labels[4]
-            button = labels[5]
+            progress = labels[7]
+            button = labels[8]
             is_active = busy and (active_emulator is None or emulator == active_emulator)
             progress.setVisible(is_active)
             button.setEnabled(not busy)
@@ -251,7 +258,7 @@ class EmulatorCatalogsTab(QWidget):
                 progress.setValue(0)
 
     def clear_log(self) -> None:
-        """Limpa o console sem alterar os catálogos."""
+        """Limpa o console sem alterar catálogos."""
         self.log.clear()
 
     def closeEvent(self, event) -> None:
