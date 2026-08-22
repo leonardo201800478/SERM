@@ -1,11 +1,15 @@
 """Worker Qt para downloads/instalações de emuladores sem bloquear a GUI."""
 from __future__ import annotations
 
+import logging
+import traceback
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal, Slot
 
 from app.core.services.emulator_install_service import EmulatorInstallService
+
+logger = logging.getLogger(__name__)
 
 
 class EmulatorInstallWorker(QObject):
@@ -24,7 +28,8 @@ class EmulatorInstallWorker(QObject):
 
     @Slot()
     def run(self) -> None:
-        """Baixa e instala o pacote, emitindo progresso e resultado."""
+        """Executa a operação e converte qualquer exceção em sinal seguro."""
+        logger.info("Emulator worker: iniciado | emulator=%s | destination=%s | nightly=%s", self.emulator, self.destination, self.nightly)
         try:
             self.status.emit("Consultando release oficial…")
             service = EmulatorInstallService()
@@ -34,6 +39,9 @@ class EmulatorInstallWorker(QObject):
                 nightly=self.nightly,
                 progress=lambda received, total: self.progress.emit(received, total),
             )
+            logger.info("Emulator worker: concluído | emulator=%s | release=%s | asset=%s | executable=%s", self.emulator, release.tag, asset.name, executable)
             self.finished.emit(self.emulator, release.tag, str(executable))
         except Exception as exc:
-            self.failed.emit(str(exc))
+            logger.exception("Emulator worker: falha | emulator=%s | destination=%s", self.emulator, self.destination)
+            diagnostic = "\n".join((f"{type(exc).__name__}: {exc}", traceback.format_exc()))
+            self.failed.emit(diagnostic)
