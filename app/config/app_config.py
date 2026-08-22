@@ -8,6 +8,9 @@ class AppConfig:
 
     ``*_dir`` é a fonte canônica da instalação de cada emulador.
     ``*_path`` representa somente o executável efetivamente instalado.
+    ``*_version`` guarda a última versão confirmada pela instalação/atualização
+    realizada pelo aplicativo quando o executável não fornece uma versão local
+    confiável (caso de alguns emuladores).
     Pacotes baixados (.exe/.7z/.zip) nunca devem ser persistidos como executáveis.
     """
 
@@ -28,6 +31,13 @@ class AppConfig:
         self.flycast_dir: Path | None = None
         self.supermodel_dir: Path | None = None
         self.fbneo_dir: Path | None = None
+
+        # Versões confirmadas pelo aplicativo durante instalação/atualização.
+        # MAME/FBNeo continuam preferencialmente sendo detectados localmente.
+        self.mame_version: str | None = None
+        self.flycast_version: str | None = None
+        self.supermodel_version: str | None = None
+        self.fbneo_version: str | None = None
 
         self.chdman_path: Path | None = None
         self.ini_path: Path | None = None
@@ -63,6 +73,11 @@ class AppConfig:
             self.flycast_dir = self._load_dir(data, "flycast_dir", self.flycast_path)
             self.supermodel_dir = self._load_dir(data, "supermodel_dir", self.supermodel_path)
             self.fbneo_dir = self._load_dir(data, "fbneo_dir", self.fbneo_path)
+
+            self.mame_version = data.get("mame_version") or None
+            self.flycast_version = data.get("flycast_version") or None
+            self.supermodel_version = data.get("supermodel_version") or None
+            self.fbneo_version = data.get("fbneo_version") or None
 
             # O diretório configurado é a autoridade. Se houver mame.exe nele,
             # qualquer caminho antigo (inclusive mame0289b_x64.exe) é descartado.
@@ -109,6 +124,10 @@ class AppConfig:
             "flycast_dir": str(self.flycast_dir) if self.flycast_dir else "",
             "supermodel_dir": str(self.supermodel_dir) if self.supermodel_dir else "",
             "fbneo_dir": str(self.fbneo_dir) if self.fbneo_dir else "",
+            "mame_version": self.mame_version or "",
+            "flycast_version": self.flycast_version or "",
+            "supermodel_version": self.supermodel_version or "",
+            "fbneo_version": self.fbneo_version or "",
             "chdman_path": str(self.chdman_path) if self.chdman_path else "",
             "ini_path": str(self.ini_path) if self.ini_path else "",
             "catver_path": str(self.catver_path) if self.catver_path else "",
