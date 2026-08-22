@@ -33,18 +33,18 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.tab_widget)
         self.home_tab = HomeTab(self)
         self.catalogs_tab = EmulatorCatalogsTab(self)
-        self.mame_settings_tab = MameSettingsTab(self)
         self.directories_tab = DirectoriesTab(self)
+        self.mame_settings_tab = MameSettingsTab(self)
         self.filters_tab = FiltersTab(self, db=self.db)
         self.shader_test_controller = install_shader_test(self.mame_settings_tab)
         self.scan_tab = ScanRomsTab(self)
         self.reconstruction_tab = ReconstructionTab(self)
 
-        # Ordem funcional: Home -> Catálogos -> configuração -> dados -> execução.
+        # Ordem funcional: Home -> Catálogos -> Diretórios -> configuração -> dados -> execução.
         self.tab_widget.addTab(self.home_tab, "Home")
         self.tab_widget.addTab(self.catalogs_tab, "Catálogos")
-        self.tab_widget.addTab(self.mame_settings_tab, "Configurações MAME")
         self.tab_widget.addTab(self.directories_tab, "Diretórios")
+        self.tab_widget.addTab(self.mame_settings_tab, "Configurações MAME")
         self.tab_widget.addTab(self.filters_tab, "Filtragem")
         self.tab_widget.addTab(self.scan_tab, "Scan Roms")
         self.tab_widget.addTab(self.reconstruction_tab, "Reconstrução")
@@ -64,6 +64,8 @@ class MainWindow(QMainWindow):
         widget = self.tab_widget.widget(index)
         if widget is self.catalogs_tab:
             self.catalogs_tab.refresh()
+        elif widget is self.directories_tab:
+            self.directories_tab._refresh_ui_state()
         elif widget is self.scan_tab:
             self.scan_tab.refresh_profiles()
         elif widget is self.reconstruction_tab:
