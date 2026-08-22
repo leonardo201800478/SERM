@@ -6,6 +6,7 @@ from app.gui.tabs.home_tab import HomeTab
 from app.gui.tabs.directories_tab import DirectoriesTab
 from app.gui.tabs.filters_tab_realtime import FiltersTab
 from app.gui.tabs.scan_roms_tab import ScanRomsTab
+from app.gui.tabs.emulator_catalogs_tab import EmulatorCatalogsTab
 from app.gui.scan_thread_guard import install as install_scan_thread_guard
 from app.gui.tabs.reconstruction_tab import ReconstructionTab
 from app.gui.tabs.mame_settings_tab import MameSettingsTab
@@ -22,7 +23,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("MAME Set Builder")
-        self.resize(1024, 768)
+        self.resize(1200, 820)
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("Pronto")
@@ -35,14 +36,17 @@ class MainWindow(QMainWindow):
         self.mame_settings_tab = MameSettingsTab(self)
         self.directories_tab = DirectoriesTab(self)
         self.filters_tab = FiltersTab(self, db=self.db)
+        self.catalogs_tab = EmulatorCatalogsTab(self)
         self.shader_test_controller = install_shader_test(self.mame_settings_tab)
         self.scan_tab = ScanRomsTab(self)
         self.reconstruction_tab = ReconstructionTab(self)
 
-        # Configurações MAME fica imediatamente após Home.
+        # A ordem mantém as funções existentes e coloca a camada de catálogos
+        # antes da filtragem, para permitir testes isolados antes da integração.
         self.tab_widget.addTab(self.home_tab, "Home")
         self.tab_widget.addTab(self.mame_settings_tab, "Configurações MAME")
         self.tab_widget.addTab(self.directories_tab, "Diretórios")
+        self.tab_widget.addTab(self.catalogs_tab, "Catálogos")
         self.tab_widget.addTab(self.filters_tab, "Filtragem")
         self.tab_widget.addTab(self.scan_tab, "Scan Roms")
         self.tab_widget.addTab(self.reconstruction_tab, "Reconstrução")
@@ -50,6 +54,7 @@ class MainWindow(QMainWindow):
         if hasattr(self.directories_tab, "settings_changed"):
             self.directories_tab.settings_changed.connect(self.home_tab.refresh_status)
             self.directories_tab.settings_changed.connect(self.filters_tab._update_database_info)
+            self.directories_tab.settings_changed.connect(self.catalogs_tab.refresh)
         if hasattr(self.filters_tab, "database_updated"):
             self.filters_tab.database_updated.connect(self._on_database_updated)
             self.filters_tab.database_updated.connect(self.scan_tab.refresh_profiles)
@@ -59,7 +64,9 @@ class MainWindow(QMainWindow):
     def _on_tab_changed(self, index):
         """Atualiza dados transitórios quando uma aba é selecionada."""
         widget = self.tab_widget.widget(index)
-        if widget is self.scan_tab:
+        if widget is self.catalogs_tab:
+            self.catalogs_tab.refresh()
+        elif widget is self.scan_tab:
             self.scan_tab.refresh_profiles()
         elif widget is self.reconstruction_tab:
             self.reconstruction_tab.refresh()
@@ -69,6 +76,7 @@ class MainWindow(QMainWindow):
     def _on_database_updated(self):
         """Atualiza abas dependentes do dataset."""
         self.home_tab.refresh_status()
+        self.catalogs_tab.refresh()
         if hasattr(self.scan_tab, "_update_ui_state"):
             self.scan_tab._update_ui_state()
 
@@ -88,6 +96,9 @@ class MainWindow(QMainWindow):
         """Cancela workers, encerra teste de shader e fecha o SQLite com segurança."""
         if getattr(self, "shader_test_controller", None) is not None:
             self.shader_test_controller.close()
+        catalog_tab = getattr(self, "catalogs_tab", None)
+        if catalog_tab is not None:
+            catalog_tab.close()
         worker = getattr(self.scan_tab, "worker", None)
         if worker is not None and worker.isRunning():
             worker.cancel()
