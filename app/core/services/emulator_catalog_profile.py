@@ -1,23 +1,4 @@
-"""Perfis declarativos de catálogo por emulador.
-
-Esta camada responde a uma pergunta diferente do parser:
-
-    "Quais máquinas de uma fonte podem ser tratadas por este emulador?"
-
-Ela não consulta a Internet, não executa emuladores e não grava no banco.
-Os perfis são deliberadamente conservadores: quando a origem não permite
-identificar uma plataforma com segurança, a máquina não é incluída.
-
-Fontes atuais:
-* MAME: catálogo completo é o próprio MAME.
-* Supermodel: o catálogo é obtido diretamente de Config/Games.xml.
-* FBNeo: o catálogo é obtido diretamente de -listinfo.
-* Flycast: para o subconjunto arcade derivado do MAME, somente drivers
-  explicitamente associados a Naomi/Naomi 2/Atomiswave são selecionados.
-
-O Flycast também suporta Dreamcast, mas essa plataforma não deve ser
-misturada ao catálogo arcade do projeto nesta etapa.
-"""
+"""Perfis declarativos de catálogo por emulador."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -57,8 +38,9 @@ class CatalogProfile:
     def accepts(self, machine: Mapping[str, object]) -> bool:
         """Retorna ``True`` somente quando a máquina pertence ao perfil.
 
-        O método usa apenas metadados do LISTXML. Não executa o emulador e
-        não presume compatibilidade apenas pelo nome da ROM.
+        O caminho do sourcefile é normalizado para tolerar as duas formas
+        encontradas em LISTXML: ``src/mame/...`` e ``sega/...``. A seleção
+        nunca depende apenas do nome da ROM.
         """
         if self.source is CatalogSource.MAME:
             return True
@@ -67,7 +49,12 @@ class CatalogProfile:
         if not sourcefile:
             return False
 
-        return any(fragment.casefold() in sourcefile for fragment in self.sourcefile_fragments)
+        normalized = sourcefile.removeprefix("src/mame/")
+        return any(
+            fragment.casefold().lstrip("/") in sourcefile
+            or fragment.casefold().lstrip("/") in normalized
+            for fragment in self.sourcefile_fragments
+        )
 
 
 PROFILES: dict[str, CatalogProfile] = {
@@ -97,10 +84,13 @@ PROFILES: dict[str, CatalogProfile] = {
             MachinePlatform.SEGA_NAOMI_2,
             MachinePlatform.SAMMY_ATOMISWAVE,
         ),
+        # O LISTXML pode trazer tanto src/mame/sega/... quanto sega/....
+        # Mantemos somente nomes de drivers conhecidos para evitar incluir
+        # Dreamcast ou hardware não suportado no catálogo Arcade Flycast.
         sourcefile_fragments=(
-            "/sega/naomi.cpp",
-            "/sega/dc_atomiswave.cpp",
-            "/sega/atomiswave.cpp",
+            "sega/naomi.cpp",
+            "sega/dc_atomiswave.cpp",
+            "sega/atomiswave.cpp",
         ),
         description=(
             "Arcade Flycast derivado do MAME: Naomi, Naomi 2 e Atomiswave. "
