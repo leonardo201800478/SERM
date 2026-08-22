@@ -20,7 +20,6 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable
 
 from app.database.database import Database
 
@@ -79,7 +78,7 @@ class EmulatorCatalogRepository:
 
         Raises:
             FileNotFoundError: quando o XML não existe.
-            ValueError: quando o XML é vazio ou inválido.
+            ValueError: quando o XML é vazio, inválido ou não contém máquinas.
             sqlite3.Error: quando a transação SQLite falha.
         """
         path = Path(xml_path).expanduser().resolve()
@@ -145,7 +144,6 @@ class EmulatorCatalogRepository:
             raise ValueError(f"Nenhuma máquina encontrada no catálogo: {path}")
 
         conn = self.database.connect()
-        previous_isolation = conn.isolation_level
         try:
             conn.execute("BEGIN IMMEDIATE")
 
@@ -209,30 +207,31 @@ class EmulatorCatalogRepository:
                 if machine_id is None:
                     raise RuntimeError("SQLite não retornou o ID da máquina")
 
-                conn.executemany(
-                    """
-                    INSERT INTO emulator_catalog_rom
-                        (machine_id, name, size, crc, sha1, merge, region,
-                         offset, status, optional, bios)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    [
-                        (
-                            machine_id,
-                            rom["name"],
-                            rom["size"],
-                            rom["crc"],
-                            rom["sha1"],
-                            rom["merge"],
-                            rom["region"],
-                            rom["offset"],
-                            rom["status"],
-                            rom["optional"],
-                            rom["bios"],
-                        )
-                        for rom in roms
-                    ],
-                )
+                if roms:
+                    conn.executemany(
+                        """
+                        INSERT INTO emulator_catalog_rom
+                            (machine_id, name, size, crc, sha1, merge, region,
+                             offset, status, optional, bios)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        [
+                            (
+                                machine_id,
+                                rom["name"],
+                                rom["size"],
+                                rom["crc"],
+                                rom["sha1"],
+                                rom["merge"],
+                                rom["region"],
+                                rom["offset"],
+                                rom["status"],
+                                rom["optional"],
+                                rom["bios"],
+                            )
+                            for rom in roms
+                        ],
+                    )
 
             conn.commit()
         except Exception:
@@ -242,8 +241,6 @@ class EmulatorCatalogRepository:
                 emulator_key,
             )
             raise
-        finally:
-            conn.isolation_level = previous_isolation
 
         logger.info(
             "Catálogo persistido | emulator=%s | version=%s | machines=%d | roms=%d | hash=%s",
@@ -288,9 +285,13 @@ class EmulatorCatalogRepository:
         )
         return int(row["total"]) if row else 0
 
-    def iter_machines(self, emulator: str) -> Iterable[sqlite3.Row]:
-        """Retorna máquinas do catálogo sem carregar todo o dataset em memória."""
-        return self.database.iterate(
+    def list_machines(self, emulator: str) -> list[sqlite3.Row]:
+        """Retorna máquinas do catálogo ordenadas por nome.
+
+        Para o carregamento massivo futuro, o serviço de consulta poderá
+        introduzir paginação/streaming sem alterar o modelo persistido.
+        """
+        return self.database.fetchall(
             """
             SELECT m.*
             FROM emulator_catalog_machine m
