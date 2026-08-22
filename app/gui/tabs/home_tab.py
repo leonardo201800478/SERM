@@ -119,9 +119,7 @@ class HomeTab(QWidget):
         self.install_log.setReadOnly(True)
         self.install_log.setMaximumBlockCount(3000)
         self.install_log.setPlaceholderText("O diagnóstico detalhado da instalação aparecerá aqui…")
-        self.install_log.setStyleSheet(
-            "QPlainTextEdit{background:#0b0b0b;color:#d7d7d7;font-family:Consolas;font-size:10px;}"
-        )
+        self.install_log.setStyleSheet("QPlainTextEdit{background:#0b0b0b;color:#d7d7d7;font-family:Consolas;font-size:10px;}")
         main_layout.addWidget(QLabel("Log detalhado da instalação"))
         main_layout.addWidget(self.install_log, 1)
 
@@ -155,7 +153,6 @@ class HomeTab(QWidget):
         progress.setTextVisible(False)
         progress.hide()
         layout.addWidget(progress)
-
         row = QHBoxLayout()
         install = QPushButton("⬇ Baixar / atualizar")
         install.setToolTip("Baixa o pacote oficial Windows x64 e instala diretamente no diretório configurado.")
@@ -168,7 +165,7 @@ class HomeTab(QWidget):
         return card, (status, version, path, progress, install)
 
     def refresh_status(self):
-        """Atualiza a descoberta dos emuladores sem interromper a aplicação."""
+        """Atualiza a descoberta sem iniciar emuladores, instaladores ou 7-Zip."""
         logger.info("Home: iniciando descoberta dos emuladores")
         try:
             self.config.load()
@@ -184,7 +181,10 @@ class HomeTab(QWidget):
     def _set_card_from_status(self, name: str, status: EmulatorStatus):
         """Renderiza o estado normalizado."""
         directory = getattr(self.config, f"{name}_dir", None)
-        self._set_card(name, status.status, status.version, str(directory or status.root or status.executable or "—"))
+        detail = str(directory or status.root or status.executable or "—")
+        if status.status == "executable_missing":
+            detail += " | configuração encontrada, executável não localizado"
+        self._set_card(name, status.status, status.version, detail)
 
     def _set_card(self, name: str, status: str, version: str | None, path: str | None, detail: str | None = None):
         """Aplica textos e estado visual ao card."""
@@ -197,6 +197,7 @@ class HomeTab(QWidget):
             "ready_generated": ("● Pronto (configuração gerada)", "#55d66b"),
             "configuration_missing": ("● Configuração ausente", "#e5c454"),
             "configuration_corrupt": ("● Configuração inválida", "#e59b54"),
+            "executable_missing": ("● Configuração encontrada; executável ausente", "#e5c454"),
             "error": ("● Erro na descoberta", "#e05a5a"),
             "not_found": ("● Não configurado", "#a8a8a8"),
         }
@@ -235,9 +236,7 @@ class HomeTab(QWidget):
             self._finish_bulk_update()
             return
         emulator = self._update_queue.pop(0)
-        self.install_log.appendPlainText(
-            f"ATUALIZAÇÃO EM LOTE | {self.EMULATOR_LABELS[emulator]} | restante={len(self._update_queue)}"
-        )
+        self.install_log.appendPlainText(f"ATUALIZAÇÃO EM LOTE | {self.EMULATOR_LABELS[emulator]} | restante={len(self._update_queue)}")
         self.install_emulator(emulator)
 
     def install_emulator(self, emulator: str):
@@ -260,7 +259,6 @@ class HomeTab(QWidget):
         self.install_log.appendPlainText(f"INICIANDO INSTALAÇÃO | {self.EMULATOR_LABELS[emulator]} | destino={destination}")
         self.install_log.appendPlainText("Aguardando início do worker…")
         self.install_log.ensureCursorVisible()
-
         progress = self.cards[emulator][3]
         progress.show()
         progress.setRange(0, 0)
@@ -306,48 +304,42 @@ class HomeTab(QWidget):
 
     @Slot(str)
     def _on_install_log(self, message: str):
-        """Adiciona uma linha operacional ao console visível."""
-        self.install_log.appendPlainText(str(message).rstrip())
+        """Adiciona uma linha operacional ao console visual."""
+        text = str(message).rstrip()
+        self.install_log.appendPlainText(text)
         self.install_log.ensureCursorVisible()
 
     @Slot(str, str, str)
     def _install_finished(self, emulator: str, version: str, executable: str):
-        """Registra conclusão e atualiza a configuração persistida."""
-        self._on_install_log(
-            f"SUCESSO | {self.EMULATOR_LABELS.get(emulator, emulator)} | versão={version} | executável={executable}"
-        )
+        """Registra conclusão, atualiza configuração e mantém a janela aberta."""
+        self._on_install_log(f"SUCESSO | {self.EMULATOR_LABELS.get(emulator, emulator)} | versão={version} | executável={executable}")
         path = Path(executable)
         setattr(self.config, f"{emulator}_path", path)
         setattr(self.config, f"{emulator}_dir", path.parent)
         self.config.save()
+        self._finish_card_progress(emulator)
         if self._bulk_update:
             self._bulk_successes.append(emulator)
-        self._finish_card_progress(emulator)
+        self.refresh_status()
         if not self._bulk_update:
-            self.refresh_status()
-            QMessageBox.information(
-                self,
-                "Instalação concluída",
-                f"{self.EMULATOR_LABELS.get(emulator, emulator)} foi instalado/atualizado com sucesso.\n\nVersão: {version}\nExecutável: {executable}",
-            )
+            QMessageBox.information(self, "Instalação concluída", f"{self.EMULATOR_LABELS.get(emulator, emulator)} foi instalado/atualizado com sucesso.\n\nVersão: {version}\nExecutável: {executable}")
 
     @Slot(str)
     def _install_failed(self, message: str):
-        """Registra a falha sem encerrar a aplicação; em lote, continua com o próximo."""
+        """Mostra o diagnóstico da falha sem encerrar a aplicação."""
         self._on_install_log("=" * 100)
         self._on_install_log("FALHA NA INSTALAÇÃO")
         self._on_install_log(message)
-        emulator = self._install_emulator
-        if emulator:
-            self._finish_card_progress(emulator)
+        if self._install_emulator:
+            self._finish_card_progress(self._install_emulator)
             if self._bulk_update:
-                self._bulk_failures.append(emulator)
-            else:
-                QMessageBox.critical(self, "Falha na instalação", message)
+                self._bulk_failures.append(self._install_emulator)
+        if not self._bulk_update:
+            QMessageBox.critical(self, "Falha na instalação", message)
 
     @Slot()
     def _install_thread_finished(self):
-        """Libera a thread e, quando aplicável, inicia o próximo emulador da fila."""
+        """Libera referências da thread concluída e continua a atualização em lote."""
         emulator = self._install_emulator
         self._on_install_log(f"THREAD FINALIZADA | emulator={emulator}")
         if emulator:
@@ -361,36 +353,18 @@ class HomeTab(QWidget):
             self._set_install_buttons_enabled(True)
 
     def _finish_bulk_update(self):
-        """Finaliza o processamento em lote e mostra um resumo único."""
-        successes = [self.EMULATOR_LABELS[e] for e in self._bulk_successes]
-        failures = [self.EMULATOR_LABELS[e] for e in self._bulk_failures]
+        """Finaliza a atualização em lote e apresenta um resumo único."""
         self._bulk_update = False
-        self._update_queue.clear()
-        self._set_install_buttons_enabled(True)
         self.update_all_button.setEnabled(True)
-        self.refresh_status()
+        self._set_install_buttons_enabled(True)
+        successes = ", ".join(self.EMULATOR_LABELS[name] for name in self._bulk_successes) or "nenhum"
+        failures = ", ".join(self.EMULATOR_LABELS[name] for name in self._bulk_failures) or "nenhum"
         self._on_install_log("=" * 100)
-        self._on_install_log(
-            f"ATUALIZAÇÃO COMPLETA FINALIZADA | sucesso={len(successes)} | falhas={len(failures)}"
-        )
-        if successes:
-            self._on_install_log(f"SUCESSOS | {', '.join(successes)}")
-        if failures:
-            self._on_install_log(f"FALHAS | {', '.join(failures)}")
-            QMessageBox.warning(
-                self,
-                "Atualização concluída com falhas",
-                f"Sucesso: {', '.join(successes) or 'nenhum'}\n\nFalhas: {', '.join(failures)}",
-            )
-        else:
-            QMessageBox.information(
-                self,
-                "Atualização concluída",
-                "MAME, Flycast, Supermodel e FBNeo foram processados com sucesso.",
-            )
+        self._on_install_log(f"ATUALIZAÇÃO COMPLETA FINALIZADA | sucesso={successes} | falha={failures}")
+        QMessageBox.information(self, "Atualização dos emuladores", f"Atualização concluída.\n\nSucesso: {successes}\nFalhas: {failures}")
 
     def _set_install_buttons_enabled(self, enabled: bool):
-        """Habilita ou desabilita os botões individuais de instalação."""
+        """Habilita ou desabilita os botões de instalação."""
         for labels in self.cards.values():
             labels[4].setEnabled(enabled)
 
