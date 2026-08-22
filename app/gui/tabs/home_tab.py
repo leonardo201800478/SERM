@@ -23,7 +23,6 @@ from PySide6.QtWidgets import (
 from app.config.app_config import AppConfig
 from app.core.services.emulator_persistence_service import EmulatorPersistenceService
 from app.core.services.emulator_status_service import EmulatorStatus, EmulatorStatusService
-from app.gui.widgets.emulator_directories_dialog import EmulatorDirectoriesDialog
 from app.gui.widgets.emulator_install_worker import EmulatorInstallWorker
 
 logger = logging.getLogger(__name__)
@@ -106,6 +105,7 @@ class HomeTab(QWidget):
         self.update_all_button = update_all
 
         directories = QPushButton("📁 Configurar diretórios")
+        directories.setToolTip("Abre a aba Diretórios, que é a configuração central dos quatro emuladores.")
         directories.clicked.connect(self.open_emulator_directories)
         actions.addWidget(directories)
 
@@ -209,7 +209,16 @@ class HomeTab(QWidget):
         button.setEnabled(self._install_thread is None and not self._bulk_update)
 
     def open_emulator_directories(self):
-        """Abre o diálogo de configuração dos diretórios."""
+        """Abre a aba Diretórios, mantendo uma única fonte de configuração."""
+        window = self.parent_window
+        if window is not None and hasattr(window, "tab_widget") and hasattr(window, "directories_tab"):
+            directories_tab = window.directories_tab
+            if hasattr(directories_tab, "refresh"):
+                directories_tab.refresh()
+            window.tab_widget.setCurrentWidget(directories_tab)
+            return
+        # Fallback defensivo para usos fora da MainWindow.
+        from app.gui.widgets.emulator_directories_dialog import EmulatorDirectoriesDialog
         dialog = EmulatorDirectoriesDialog(self.config, self)
         if dialog.exec():
             self.config.load()
@@ -251,9 +260,7 @@ class HomeTab(QWidget):
                 self._start_next_bulk_update()
                 return
             self.open_emulator_directories()
-            destination = getattr(self.config, f"{emulator}_dir", None)
-            if not destination:
-                return
+            return
         destination = Path(destination)
         self.install_log.appendPlainText("=" * 100)
         self.install_log.appendPlainText(f"INICIANDO INSTALAÇÃO | {self.EMULATOR_LABELS[emulator]} | destino={destination}")
@@ -311,101 +318,56 @@ class HomeTab(QWidget):
 
     @Slot(str, str, str)
     def _install_finished(self, emulator: str, version: str, executable: str):
-        """Registra conclusão e persiste a versão confirmada pelo release.
-
-        A versão emitida pelo worker é a tag do release efetivamente baixado.
-        Para Flycast e Supermodel essa informação é a fonte local persistente,
-        pois seus executáveis não oferecem uma forma confiável de consulta que
-        seja adequada para a descoberta silenciosa da Home.
-        """
+        """Registra conclusão e persiste a versão confirmada pelo release."""
         label = self.EMULATOR_LABELS.get(emulator, emulator)
-        self._on_install_log(
-            f"SUCESSO | {label} | versão={version} | executável={executable}"
-        )
-
-        # A versão do release deve ser persistida ANTES do refresh. Caso
-        # contrário, refresh_status() perde a informação recém-detectada e a
-        # Home volta a mostrar "Versão: —" para Flycast/Supermodel.
+        self._on_install_log(f"SUCESSO | {label} | versão={version} | executável={executable}")
         version_value = str(version).strip() or None
         setattr(self.config, f"{emulator}_version", version_value)
-
         path = Path(executable)
         setattr(self.config, f"{emulator}_path", path)
         setattr(self.config, f"{emulator}_dir", path.parent)
         self.config.save()
-        self._on_install_log(
-            f"VERSÃO PERSISTIDA | {label} | versão={version_value or '—'} | arquivo={self.config.CONFIG_FILE}"
-        )
-
-        self._finish_card_progress(emulator)
+        self._on_install_log(f"VERSÃO PERSISTIDA | {label} | versão={version_value or '—'} | arquivo={self.config.CONFIG_FILE}")
+        self.refresh_status()
         if self._bulk_update:
             self._bulk_successes.append(emulator)
-        self.refresh_status()
-        if not self._bulk_update:
-            QMessageBox.information(
-                self,
-                "Instalação concluída",
-                f"{label} foi instalado/atualizado com sucesso.\n\n"
-                f"Versão: {version}\nExecutável: {executable}",
-            )
 
-    @Slot(str)
-    def _install_failed(self, message: str):
-        """Mostra o diagnóstico da falha sem encerrar a aplicação."""
-        self._on_install_log("=" * 100)
-        self._on_install_log("FALHA NA INSTALAÇÃO")
-        self._on_install_log(message)
-        if self._install_emulator:
-            self._finish_card_progress(self._install_emulator)
-            if self._bulk_update:
-                self._bulk_failures.append(self._install_emulator)
-        if not self._bulk_update:
-            QMessageBox.critical(self, "Falha na instalação", message)
+    @Slot(str, str)
+    def _install_failed(self, emulator: str, message: str):
+        """Registra falha sem encerrar a aplicação."""
+        label = self.EMULATOR_LABELS.get(emulator, emulator)
+        self._on_install_log(f"FALHA | {label} | {message}")
+        if self._bulk_update:
+            self._bulk_failures.append(emulator)
 
     @Slot()
     def _install_thread_finished(self):
-        """Libera referências da thread concluída e continua a atualização em lote."""
-        emulator = self._install_emulator
-        self._on_install_log(f"THREAD FINALIZADA | emulator={emulator}")
-        if emulator:
-            self._finish_card_progress(emulator)
-        self._install_worker = None
+        """Libera referências da thread e continua eventual atualização em lote."""
         self._install_thread = None
-        self._install_emulator = None
+        self._install_worker = None
+        self._set_install_buttons_enabled(not self._bulk_update)
         if self._bulk_update:
             self._start_next_bulk_update()
-        else:
-            self._set_install_buttons_enabled(True)
-
-    def _finish_bulk_update(self):
-        """Finaliza a atualização em lote e apresenta um resumo único."""
-        self._bulk_update = False
-        self.update_all_button.setEnabled(True)
-        self._set_install_buttons_enabled(True)
-        successes = ", ".join(self.EMULATOR_LABELS[name] for name in self._bulk_successes) or "nenhum"
-        failures = ", ".join(self.EMULATOR_LABELS[name] for name in self._bulk_failures) or "nenhum"
-        self._on_install_log("=" * 100)
-        self._on_install_log(f"ATUALIZAÇÃO COMPLETA FINALIZADA | sucesso={successes} | falha={failures}")
-        QMessageBox.information(self, "Atualização dos emuladores", f"Atualização concluída.\n\nSucesso: {successes}\nFalhas: {failures}")
 
     def _set_install_buttons_enabled(self, enabled: bool):
-        """Habilita ou desabilita os botões de instalação."""
+        """Controla os botões individuais durante operações de instalação."""
         for labels in self.cards.values():
             labels[4].setEnabled(enabled)
+        self.update_all_button.setEnabled(enabled and not self._bulk_update)
 
-    def _finish_card_progress(self, emulator: str):
-        """Oculta a barra de progresso."""
-        labels = self.cards.get(emulator)
-        if labels:
-            labels[3].hide()
+    def _finish_bulk_update(self):
+        """Finaliza a atualização dos quatro emuladores e atualiza a Home."""
+        self._bulk_update = False
+        self._set_install_buttons_enabled(True)
+        successes = ", ".join(self.EMULATOR_LABELS[k] for k in self._bulk_successes) or "nenhum"
+        failures = ", ".join(self.EMULATOR_LABELS[k] for k in self._bulk_failures) or "nenhum"
+        self._on_install_log("=" * 100)
+        self._on_install_log(f"ATUALIZAÇÃO COMPLETA | sucesso={successes} | falhas={failures}")
+        self.refresh_status()
 
     def clear_install_log(self):
         """Limpa o console visual de instalação."""
         self.install_log.clear()
-
-    def open_directories(self):
-        """Mantém compatibilidade com navegação antiga."""
-        self.open_emulator_directories()
 
     def open_official_site(self, emulator: str):
         """Abre o repositório oficial do emulador."""
