@@ -22,6 +22,7 @@ class MachinePlatform(StrEnum):
     SEGA_NAOMI = "sega_naomi"
     SEGA_NAOMI_2 = "sega_naomi_2"
     SAMMY_ATOMISWAVE = "sammy_atomiswave"
+    SEGA_SYSTEM_SP = "sega_system_sp"
     SEGA_MODEL_3 = "sega_model_3"
 
 
@@ -36,7 +37,10 @@ class CatalogProfile:
     description: str = ""
 
     def accepts(self, machine: Mapping[str, object]) -> bool:
-        """Retorna ``True`` somente quando a máquina pertence ao perfil."""
+        """Retorna ``True`` somente quando a máquina pertence ao perfil.
+
+        A decisão utiliza o ``sourcefile`` informado pelo próprio MAME.
+        """
         if self.source is CatalogSource.MAME:
             return True
 
@@ -78,20 +82,24 @@ PROFILES: dict[str, CatalogProfile] = {
             MachinePlatform.SEGA_NAOMI,
             MachinePlatform.SEGA_NAOMI_2,
             MachinePlatform.SAMMY_ATOMISWAVE,
+            MachinePlatform.SEGA_SYSTEM_SP,
         ),
-        # MAME pode publicar o caminho completo (src/mame/sega/...) ou
-        # somente o caminho relativo. Mantemos também tokens do driver para
-        # tolerar mudanças de organização interna do source tree.
+        # MAME atual:
+        #   sega/naomi.cpp          -> NAOMI / NAOMI 2, incluindo GD-ROM
+        #   sega/dc_atomiswave.cpp  -> Sammy Atomiswave
+        #   sega/segasp.cpp         -> Sega System SP
+        # NAOMI/NAOMI 2 GD-ROM são modalidades do driver naomi.cpp.
         sourcefile_fragments=(
             "sega/naomi.cpp",
             "sega/dc_atomiswave.cpp",
-            "sega/atomiswave.cpp",
+            "sega/segasp.cpp",
             "naomi.cpp",
-            "atomiswave.cpp",
             "dc_atomiswave.cpp",
+            "segasp.cpp",
         ),
         description=(
-            "Arcade Flycast derivado do MAME: Naomi, Naomi 2 e Atomiswave. "
+            "Arcade Flycast derivado do MAME: Sega NAOMI, NAOMI 2, "
+            "NAOMI/NAOMI 2 GD-ROM, Sammy Atomiswave e Sega System SP. "
             "Dreamcast permanece fora deste catálogo arcade."
         ),
     ),
