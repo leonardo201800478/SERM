@@ -6,7 +6,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from app.config.app_config import AppConfig
-from app.core.services.emulator_discovery_service import EmulatorDiscoveryOptions, EmulatorDiscoveryService, EmulatorInstallation
+from app.core.services.emulator_discovery_service import (
+    EmulatorDiscoveryOptions,
+    EmulatorDiscoveryService,
+    EmulatorInstallation,
+)
 from app.core.services.emulator_persistence_service import EmulatorPersistenceService
 
 logger = logging.getLogger(__name__)
@@ -15,6 +19,7 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True, slots=True)
 class EmulatorStatus:
     """Estado resumido de um emulador para exibição na Home."""
+
     emulator: str
     executable: Path | None
     root: Path | None
@@ -32,7 +37,7 @@ class EmulatorStatusService:
         self.persistence = persistence or EmulatorPersistenceService()
 
     def refresh(self) -> dict[str, EmulatorStatus]:
-        """Redescobre os emuladores configurados e persiste o resultado."""
+        """Redescobre instalações; nenhuma delas é iniciada durante a Home."""
         options = EmulatorDiscoveryOptions(
             mame_executable=self.config.mame_path,
             flycast_executable=self.config.flycast_path,
@@ -43,7 +48,13 @@ class EmulatorStatusService:
             supermodel_root=self.config.supermodel_dir,
             fbneo_root=self.config.fbneo_dir,
         )
-        logger.info("Emulator status: paths | mame=%s | flycast=%s | supermodel=%s | fbneo=%s", options.mame_executable, options.flycast_executable, options.supermodel_executable, options.fbneo_executable)
+        logger.info(
+            "Emulator status: paths | mame=%s | flycast=%s | supermodel=%s | fbneo=%s",
+            options.mame_executable,
+            options.flycast_executable,
+            options.supermodel_executable,
+            options.fbneo_executable,
+        )
         installations = self.discovery.discover_all(options)
         try:
             self.persistence.persist(installations.values())
@@ -51,7 +62,14 @@ class EmulatorStatusService:
             logger.exception("Emulator status: falha ao persistir estado; mantendo descoberta em memória")
         statuses = self._to_statuses(installations)
         for name, status in statuses.items():
-            logger.info("Emulator status: %s | state=%s | executable=%s | root=%s | version=%s", name, status.status, status.executable, status.root, status.version)
+            logger.info(
+                "Emulator status: %s | state=%s | executable=%s | root=%s | version=%s",
+                name,
+                status.status,
+                status.executable,
+                status.root,
+                status.version,
+            )
         return statuses
 
     @staticmethod
@@ -59,8 +77,18 @@ class EmulatorStatusService:
         """Converte descoberta em modelos simples para a GUI."""
         statuses: dict[str, EmulatorStatus] = {}
         for name, installation in installations.items():
-            configs = tuple({"name": cfg.name, "status": cfg.status, "generated": cfg.generated} for cfg in installation.configs)
-            statuses[name] = EmulatorStatus(name, installation.executable, installation.root, installation.version, EmulatorStatusService._installation_status(installation), configs)
+            configs = tuple(
+                {"name": cfg.name, "status": cfg.status, "generated": cfg.generated}
+                for cfg in installation.configs
+            )
+            statuses[name] = EmulatorStatus(
+                name,
+                installation.executable,
+                installation.root,
+                installation.version,
+                EmulatorStatusService._installation_status(installation),
+                configs,
+            )
         return statuses
 
     @staticmethod

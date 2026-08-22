@@ -9,9 +9,14 @@ from pathlib import Path
 from typing import Iterable
 
 from app.core.services.emulator_config_service import (
-    EmulatorConfigService, EmulatorConfigSpec, EnsureResult,
-    validate_fbneo_dat, validate_fbneo_ini, validate_flycast_cfg,
-    validate_mame_ini, validate_supermodel_ini,
+    EmulatorConfigService,
+    EmulatorConfigSpec,
+    EnsureResult,
+    validate_fbneo_dat,
+    validate_fbneo_ini,
+    validate_flycast_cfg,
+    validate_mame_ini,
+    validate_supermodel_ini,
 )
 
 logger = logging.getLogger(__name__)
@@ -55,7 +60,8 @@ class EmulatorDiscoveryService:
         for name, detector in (("mame", self.discover_mame), ("flycast", self.discover_flycast), ("supermodel", self.discover_supermodel), ("fbneo", self.discover_fbneo)):
             try:
                 result[name] = detector(opts)
-                logger.info("Emulator discovery: %s | executable=%s | root=%s | version=%s", name, result[name].executable, result[name].root, result[name].version)
+                item = result[name]
+                logger.info("Emulator discovery: %s | executable=%s | root=%s | version=%s", name, item.executable, item.root, item.version)
             except Exception:
                 logger.exception("Emulator discovery: falha isolada | emulator=%s", name)
                 result[name] = EmulatorInstallation(name, None, None, None, metadata={"discovery_error": "exception"})
@@ -79,7 +85,7 @@ class EmulatorDiscoveryService:
         configs: list[EnsureResult] = []
         if root:
             configs.append(self._ensure_config("flycast", "emu.cfg", root / "emu.cfg", validate_flycast_cfg))
-        return EmulatorInstallation("flycast", executable, root, self._probe_version(executable, "flycast"), tuple(configs))
+        return EmulatorInstallation("flycast", executable, root, None, tuple(configs))
 
     def discover_supermodel(self, options: EmulatorDiscoveryOptions) -> EmulatorInstallation:
         """Descobre Supermodel sem executar o emulador para obter versão."""
@@ -88,7 +94,7 @@ class EmulatorDiscoveryService:
         configs: list[EnsureResult] = []
         if root:
             configs.append(self._ensure_config("supermodel", "Supermodel.ini", root / "Supermodel.ini", validate_supermodel_ini))
-        return EmulatorInstallation("supermodel", executable, root, self._probe_version(executable, "supermodel"), tuple(configs))
+        return EmulatorInstallation("supermodel", executable, root, None, tuple(configs))
 
     def discover_fbneo(self, options: EmulatorDiscoveryOptions) -> EmulatorInstallation:
         """Descobre FBNeo sem usar switches de versão não documentados."""
@@ -98,7 +104,7 @@ class EmulatorDiscoveryService:
         if root:
             configs.append(self._ensure_config("fbneo", "fbneo.ini", root / "config" / "fbneo.ini", validate_fbneo_ini))
             configs.append(self._ensure_config("fbneo", "arcade.dat", root / "dats" / "arcade.dat", validate_fbneo_dat))
-        return EmulatorInstallation("fbneo", executable, root, self._probe_version(executable, "fbneo"), tuple(configs))
+        return EmulatorInstallation("fbneo", executable, root, None, tuple(configs))
 
     def _ensure_config(self, emulator: str, name: str, path: Path, validator, *, generator_command: tuple[str, ...] | None = None, cwd: Path | None = None) -> EnsureResult:
         """Valida ou delega a geração de configuração explicitamente autorizada."""
@@ -113,7 +119,11 @@ class EmulatorDiscoveryService:
     def _root(executable: Path | None, configured: Path | None) -> Path | None:
         """Resolve a raiz preferindo o caminho explicitamente configurado."""
         if configured:
-            return configured.expanduser().resolve()
+            try:
+                return configured.expanduser().resolve()
+            except OSError:
+                logger.exception("Emulator discovery: raiz inválida | root=%s", configured)
+                return configured.expanduser()
         return executable.parent if executable else None
 
     @staticmethod
@@ -132,38 +142,39 @@ class EmulatorDiscoveryService:
                         return nested
         except OSError:
             logger.exception("Emulator discovery: caminho inválido | path=%s", path)
+        logger.info("Emulator discovery: executável não encontrado | path=%s", path)
         return None
 
     @staticmethod
     def _probe_version(executable: Path | None, emulator: str) -> str | None:
-        """Obtém versão somente por métodos documentados/seguros."""
+        """Obtém a versão somente para MAME; nenhum emulador é iniciado nos demais casos."""
         if executable is None or not executable.is_file():
-            logger.info("Emulator discovery: executável não encontrado | emulator=%s", emulator)
             return None
-
-        # Primeiro tenta metadados PE via PowerShell. Isso não inicia o emulador.
-        if executable.suffix.lower() == ".exe":
-            script = "$p=(Get-Item -LiteralPath $args[0] -ErrorAction Stop).VersionInfo;if($p.ProductVersion){$p.ProductVersion}else{$p.FileVersion}"
-            try:
-                result = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script, str(executable)], capture_output=True, text=True, timeout=3, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), check=False)
-                value = (result.stdout or "").strip()
-                match = re.search(r"([0-9]+(?:\.[0-9]+)+(?:[-+._][0-9A-Za-z.-]+)?)", value)
-                if match:
-                    logger.info("Emulator discovery: versão PE | emulator=%s | version=%s", emulator, match.group(1))
-                    return match.group(1)
-            except (OSError, subprocess.SubprocessError):
-                logger.exception("Emulator discovery: falha lendo versão PE | emulator=%s", emulator)
-
         if emulator != "mame":
-            logger.info("Emulator discovery: versão local não consultada por CLI | emulator=%s", emulator)
+            logger.info("Emulator discovery: versão não consultada por CLI | emulator=%s", emulator)
             return None
-
         try:
-            result = subprocess.run([str(executable), "-version"], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", shell=False, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), timeout=5, check=False, cwd=str(executable.parent))
+            result = subprocess.run(
+                [str(executable), "-version"],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                shell=False,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                timeout=5,
+                check=False,
+                cwd=str(executable.parent),
+            )
             text = (result.stdout or "").strip()
             logger.info("Emulator discovery: MAME -version returncode=%s output=%r", result.returncode, text[:256])
             match = re.search(r"\b([0-9]+\.[0-9]+)\b", text)
             return match.group(1) if match else None
+        except subprocess.TimeoutExpired:
+            logger.warning("Emulator discovery: MAME -version timeout | executable=%s", executable)
+            return None
         except (OSError, subprocess.SubprocessError):
             logger.exception("Emulator discovery: falha no probe MAME | executable=%s", executable)
             return None
@@ -171,7 +182,19 @@ class EmulatorDiscoveryService:
     @classmethod
     def normalize(cls, installations: Iterable[EmulatorInstallation]) -> list[dict[str, object]]:
         """Converte instalações em estrutura estável para persistência."""
-        rows=[]
+        rows: list[dict[str, object]] = []
         for item in installations:
-            rows.append({"emulator":item.emulator,"executable":str(item.executable) if item.executable else None,"root":str(item.root) if item.root else None,"version":item.version,"configs":[{"name":cfg.name,"path":str(cfg.path),"status":cfg.status,"generated":cfg.generated,"backup":str(cfg.backup) if cfg.backup else None} for cfg in item.configs],"metadata":dict(item.metadata)})
+            rows.append(
+                {
+                    "emulator": item.emulator,
+                    "executable": str(item.executable) if item.executable else None,
+                    "root": str(item.root) if item.root else None,
+                    "version": item.version,
+                    "configs": [
+                        {"name": cfg.name, "path": str(cfg.path), "status": cfg.status, "generated": cfg.generated, "backup": str(cfg.backup) if cfg.backup else None}
+                        for cfg in item.configs
+                    ],
+                    "metadata": dict(item.metadata),
+                }
+            )
         return rows
