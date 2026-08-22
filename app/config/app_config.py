@@ -6,10 +6,9 @@ from pathlib import Path
 class AppConfig:
     """Configuração persistente do MAME Set Builder.
 
-    Os campos ``*_path`` representam o executável atualmente instalado/configurado.
-    Os campos ``*_dir`` representam o diretório padrão de instalação do emulador.
-    Essa separação permite instalar uma versão nova sem confundir pasta de instalação
-    com caminho do executável.
+    ``*_dir`` é a fonte canônica da instalação de cada emulador.
+    ``*_path`` representa somente o executável efetivamente instalado.
+    Pacotes baixados (.exe/.7z/.zip) nunca devem ser persistidos como executáveis.
     """
 
     CONFIG_DIR = Path.home() / ".mame-set-builder"
@@ -20,13 +19,11 @@ class AppConfig:
     SCAN_DIR = DB_DIR / "scan"
 
     def __init__(self):
-        # Executáveis dos emuladores atualmente disponíveis.
         self.mame_path: Path | None = None
         self.flycast_path: Path | None = None
         self.supermodel_path: Path | None = None
         self.fbneo_path: Path | None = None
 
-        # Diretórios padrão de instalação/uso dos emuladores.
         self.mame_dir: Path | None = None
         self.flycast_dir: Path | None = None
         self.supermodel_dir: Path | None = None
@@ -46,12 +43,12 @@ class AppConfig:
         self.load()
 
     def _ensure_directories(self):
-        """Garante os diretórios persistentes do aplicativo, incluindo manifests de scan."""
+        """Garante os diretórios persistentes do aplicativo."""
         self.DB_DIR.mkdir(parents=True, exist_ok=True)
         self.SCAN_DIR.mkdir(parents=True, exist_ok=True)
 
     def load(self):
-        """Carrega configurações sem interromper a aplicação por arquivo inválido."""
+        """Carrega configurações e saneia caminhos de executáveis antigos."""
         if not self.CONFIG_FILE.exists():
             return
         try:
@@ -62,11 +59,16 @@ class AppConfig:
             self.supermodel_path = Path(data["supermodel_path"]) if data.get("supermodel_path") else None
             self.fbneo_path = Path(data["fbneo_path"]) if data.get("fbneo_path") else None
 
-            # Compatibilidade: instalações existentes continuam funcionando.
             self.mame_dir = self._load_dir(data, "mame_dir", self.mame_path)
             self.flycast_dir = self._load_dir(data, "flycast_dir", self.flycast_path)
             self.supermodel_dir = self._load_dir(data, "supermodel_dir", self.supermodel_path)
             self.fbneo_dir = self._load_dir(data, "fbneo_dir", self.fbneo_path)
+
+            # O diretório configurado é a autoridade. Se houver mame.exe nele,
+            # qualquer caminho antigo (inclusive mame0289b_x64.exe) é descartado.
+            if self.mame_dir:
+                canonical_mame = self.mame_dir.expanduser() / "mame.exe"
+                self.mame_path = canonical_mame if canonical_mame.is_file() else None
 
             self.chdman_path = Path(data["chdman_path"]) if data.get("chdman_path") else None
             self.ini_path = Path(data["ini_path"]) if data.get("ini_path") else None
@@ -86,13 +88,18 @@ class AppConfig:
         value = data.get(key)
         if value:
             return Path(value)
-        if executable:
+        if executable and executable.suffix.casefold() == ".exe":
             return executable.parent
         return None
 
     def save(self):
-        """Salva as configurações de forma atômica."""
+        """Salva configurações de forma atômica, mantendo apenas executáveis válidos."""
         self.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+
+        if self.mame_dir:
+            canonical_mame = self.mame_dir.expanduser() / "mame.exe"
+            self.mame_path = canonical_mame if canonical_mame.is_file() else None
+
         payload = {
             "mame_path": str(self.mame_path) if self.mame_path else "",
             "flycast_path": str(self.flycast_path) if self.flycast_path else "",
