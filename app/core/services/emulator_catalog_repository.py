@@ -67,19 +67,10 @@ class EmulatorCatalogRepository:
     ) -> CatalogPersistenceResult:
         """Substitui integralmente o catálogo de um emulador.
 
-        Args:
-            emulator: identificador normalizado do emulador.
-            version: versão da fonte/instalação que produziu o catálogo.
-            source: identificador da origem, por exemplo ``mame_listxml``.
-            xml_path: LISTXML previamente gerado e validado.
-
-        Returns:
-            Resumo com máquinas, ROMs e hash SHA-256 do catálogo.
-
-        Raises:
-            FileNotFoundError: quando o XML não existe.
-            ValueError: quando o XML é vazio, inválido ou não contém máquinas.
-            sqlite3.Error: quando a transação SQLite falha.
+        Aceita tanto ``<machine>`` quanto ``<game>`` no nível de catálogo.
+        FBNeo usa ``-listinfo`` e algumas versões/saídas desse formato usam
+        ``game`` como elemento de topo, embora o conteúdo de ROMs continue
+        compatível com o contrato MAME/XML usado pelo projeto.
         """
         path = Path(xml_path).expanduser().resolve()
         if not path.is_file():
@@ -95,10 +86,14 @@ class EmulatorCatalogRepository:
         if not emulator_key:
             raise ValueError("Emulador do catálogo não pode ser vazio")
 
+        machine_elements = root.findall("machine")
+        if not machine_elements:
+            machine_elements = root.findall("game")
+
         machines: list[tuple[dict[str, object], list[dict[str, object]]]] = []
         rom_count = 0
 
-        for machine in root.findall("machine"):
+        for machine in machine_elements:
             name = (machine.get("name") or "").strip()
             if not name:
                 continue
@@ -141,7 +136,9 @@ class EmulatorCatalogRepository:
             machines.append((machine_data, roms))
 
         if not machines:
-            raise ValueError(f"Nenhuma máquina encontrada no catálogo: {path}")
+            raise ValueError(
+                f"Nenhuma máquina/game encontrada no catálogo: {path}"
+            )
 
         conn = self.database.connect()
         try:
@@ -286,11 +283,7 @@ class EmulatorCatalogRepository:
         return int(row["total"]) if row else 0
 
     def list_machines(self, emulator: str) -> list[sqlite3.Row]:
-        """Retorna máquinas do catálogo ordenadas por nome.
-
-        Para o carregamento massivo futuro, o serviço de consulta poderá
-        introduzir paginação/streaming sem alterar o modelo persistido.
-        """
+        """Retorna máquinas do catálogo ordenadas por nome."""
         return self.database.fetchall(
             """
             SELECT m.*
