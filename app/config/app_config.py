@@ -8,10 +8,10 @@ class AppConfig:
 
     ``*_dir`` é a fonte canônica da instalação de cada emulador.
     ``*_path`` representa somente o executável efetivamente instalado.
-    ``*_version`` guarda a última versão confirmada pela instalação/atualização
-    realizada pelo aplicativo quando o executável não fornece uma versão local
-    confiável (caso de alguns emuladores).
-    Pacotes baixados (.exe/.7z/.zip) nunca devem ser persistidos como executáveis.
+    ``*_version`` guarda a última versão confirmada pela instalação/atualização.
+    ``emulator_paths`` guarda os diretórios de conteúdo de cada emulador que
+    não pertencem ao diretório de instalação. Esses caminhos são compartilhados
+    pela GUI, catálogo e futuras rotinas de execução/reconstrução.
     """
 
     CONFIG_DIR = Path.home() / ".mame-set-builder"
@@ -20,6 +20,37 @@ class AppConfig:
     DB_DIR = PROJECT_ROOT / "data" / "database"
     DB_PATH = DB_DIR / "mame_set_builder.db"
     SCAN_DIR = DB_DIR / "scan"
+
+    EMULATOR_PATH_DEFAULTS = {
+        "flycast": {
+            "roms": "roms",
+            "bios": "data",
+            "vmu": "data",
+            "saves": "data",
+            "states": "data",
+            "textures": "data",
+            "boxart": "data",
+            "cheats": "cheats",
+        },
+        "supermodel": {
+            "roms": "ROMs",
+            "config": "Config",
+            "nvram": "NVRAM",
+            "saves": "Saves",
+            "assets": "Assets",
+        },
+        "fbneo": {
+            "roms": "roms",
+            "bios": "roms",
+            "samples": "support/samples",
+            "cheats": "support/cheats",
+            "previews": "support/previews",
+            "titles": "support/titles",
+            "snapshots": "support/snapshots",
+            "history": "support/history",
+            "icons": "support/icons",
+        },
+    }
 
     def __init__(self):
         self.mame_path: Path | None = None
@@ -32,12 +63,18 @@ class AppConfig:
         self.supermodel_dir: Path | None = None
         self.fbneo_dir: Path | None = None
 
-        # Versões confirmadas pelo aplicativo durante instalação/atualização.
-        # MAME/FBNeo continuam preferencialmente sendo detectados localmente.
         self.mame_version: str | None = None
         self.flycast_version: str | None = None
         self.supermodel_version: str | None = None
         self.fbneo_version: str | None = None
+
+        # Diretórios de conteúdo por emulador.
+        self.emulator_paths: dict[str, dict[str, Path | None]] = {
+            emulator: {
+                name: None for name in paths
+            }
+            for emulator, paths in self.EMULATOR_PATH_DEFAULTS.items()
+        }
 
         self.chdman_path: Path | None = None
         self.ini_path: Path | None = None
@@ -79,8 +116,15 @@ class AppConfig:
             self.supermodel_version = data.get("supermodel_version") or None
             self.fbneo_version = data.get("fbneo_version") or None
 
+            persisted_paths = data.get("emulator_paths", {})
+            for emulator, defaults in self.EMULATOR_PATH_DEFAULTS.items():
+                stored = persisted_paths.get(emulator, {})
+                for name in defaults:
+                    value = stored.get(name)
+                    self.emulator_paths[emulator][name] = Path(value) if value else None
+
             # O diretório configurado é a autoridade. Se houver mame.exe nele,
-            # qualquer caminho antigo (inclusive mame0289b_x64.exe) é descartado.
+            # qualquer caminho antigo é descartado.
             if self.mame_dir:
                 canonical_mame = self.mame_dir.expanduser() / "mame.exe"
                 self.mame_path = canonical_mame if canonical_mame.is_file() else None
@@ -107,6 +151,16 @@ class AppConfig:
             return executable.parent
         return None
 
+    def get_emulator_path(self, emulator: str, name: str) -> Path | None:
+        """Retorna um diretório de conteúdo persistido para um emulador."""
+        return self.emulator_paths.get(emulator, {}).get(name)
+
+    def set_emulator_path(self, emulator: str, name: str, path: Path | None) -> None:
+        """Define um diretório de conteúdo de emulador e o mantém em memória."""
+        if emulator not in self.emulator_paths:
+            self.emulator_paths[emulator] = {}
+        self.emulator_paths[emulator][name] = Path(path) if path else None
+
     def save(self):
         """Salva configurações de forma atômica, mantendo apenas executáveis válidos."""
         self.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -128,6 +182,13 @@ class AppConfig:
             "flycast_version": self.flycast_version or "",
             "supermodel_version": self.supermodel_version or "",
             "fbneo_version": self.fbneo_version or "",
+            "emulator_paths": {
+                emulator: {
+                    name: str(path) if path else ""
+                    for name, path in paths.items()
+                }
+                for emulator, paths in self.emulator_paths.items()
+            },
             "chdman_path": str(self.chdman_path) if self.chdman_path else "",
             "ini_path": str(self.ini_path) if self.ini_path else "",
             "catver_path": str(self.catver_path) if self.catver_path else "",
