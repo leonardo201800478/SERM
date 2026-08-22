@@ -104,20 +104,33 @@ class EmulatorStatusService:
             )
         return result
 
-    @staticmethod
-    def _to_statuses(installations: dict[str, EmulatorInstallation]) -> dict[str, EmulatorStatus]:
-        """Converte descoberta em modelos simples para a GUI."""
+    def _to_statuses(self, installations: dict[str, EmulatorInstallation]) -> dict[str, EmulatorStatus]:
+        """Converte descoberta em modelos simples para a GUI.
+
+        Quando o emulador não expõe uma versão local confiável, utiliza a
+        última versão confirmada pelo próprio aplicativo durante uma instalação
+        ou atualização. Isso é particularmente importante para Flycast e
+        Supermodel, evitando perder na Home uma versão que já foi identificada
+        no download apenas porque o executável não possui uma CLI de versão.
+        """
         statuses: dict[str, EmulatorStatus] = {}
         for name, installation in installations.items():
             configs = tuple(
                 {"name": cfg.name, "status": cfg.status, "generated": cfg.generated}
                 for cfg in installation.configs
             )
+            detected_version = installation.version or getattr(self.config, f"{name}_version", None)
+            if installation.version is None and detected_version:
+                logger.info(
+                    "Emulator status: usando versão persistida | emulator=%s | version=%s",
+                    name,
+                    detected_version,
+                )
             statuses[name] = EmulatorStatus(
                 name,
                 installation.executable,
                 installation.root,
-                installation.version,
+                detected_version,
                 EmulatorStatusService._installation_status(installation),
                 configs,
             )
