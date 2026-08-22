@@ -1,28 +1,9 @@
-"""Aquisição e normalização das bases de jogos dos emuladores.
-
-A camada de catálogo é deliberadamente separada da filtragem e da
-reconstrução. Cada backend fornece a sua fonte oficial, mas o resultado
-normalizado continua usando o LISTXML do MAME como contrato interno.
-
-Fontes suportadas nesta etapa:
-
-* MAME: ``mame.exe -listxml``;
-* FBNeo: ``fbneo -listinfo`` (a documentação oficial informa que a saída é
-  MAME XML);
-* Supermodel: ``Config/Games.xml``, convertido para um LISTXML mínimo;
-* Flycast: preparado a partir de um LISTXML MAME já disponível, pois o
-  projeto não fornece uma CLI oficial equivalente a ``-listxml``.
-
-Nenhum método desta camada executa instaladores, pacotes baixados ou
-arquivos temporários como executáveis. Somente os executáveis efetivamente
-configurados/descobertos podem ser chamados.
-"""
+"""Aquisição e normalização das bases de jogos dos emuladores."""
 from __future__ import annotations
 
 import logging
 import os
 import subprocess
-import tempfile
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
@@ -62,12 +43,7 @@ class EmulatorCatalogService:
         return CatalogResult("fbneo", output, "fbneo_listinfo", self._count_machines(output))
 
     def generate_supermodel(self, root: Path) -> CatalogResult:
-        """Converte ``Config/Games.xml`` do Supermodel para LISTXML.
-
-        O arquivo oficial do Supermodel descreve os ROM sets em uma estrutura
-        própria. A conversão preserva nome, parent, título, fabricante, ano e
-        CRCs das ROMs. O tamanho não é inventado quando a fonte não o fornece.
-        """
+        """Converte ``Config/Games.xml`` do Supermodel para LISTXML."""
         root = Path(root).expanduser().resolve()
         source = root / "Config" / "Games.xml"
         if not source.is_file():
@@ -81,13 +57,7 @@ class EmulatorCatalogService:
         source_xml: Path,
         machine_names: Iterable[str],
     ) -> CatalogResult:
-        """Cria o catálogo Flycast a partir de um LISTXML MAME existente.
-
-        O método não presume que todo MAME arcade seja suportado pelo Flycast.
-        A seleção dos nomes é responsabilidade do perfil de suporte do
-        Flycast. Isso evita transformar uma heurística de hardware em uma
-        falsa lista oficial do emulador.
-        """
+        """Cria o catálogo Flycast a partir de um LISTXML MAME existente."""
         source = Path(source_xml).expanduser().resolve()
         if not source.is_file():
             raise FileNotFoundError(f"LISTXML de origem não encontrado: {source}")
@@ -105,11 +75,7 @@ class EmulatorCatalogService:
         flycast_source_xml: Path | None = None,
         flycast_machine_names: Iterable[str] = (),
     ) -> list[CatalogResult]:
-        """Gera todos os catálogos cujas fontes já estão configuradas.
-
-        Ausências são registradas no log e não interrompem os demais
-        catálogos. O chamador decide se uma fonte ausente é bloqueadora.
-        """
+        """Gera todos os catálogos cujas fontes já estão configuradas."""
         results: list[CatalogResult] = []
         jobs = (
             ("mame", lambda: self.generate_mame(mame_executable) if mame_executable else None),
@@ -148,12 +114,7 @@ class EmulatorCatalogService:
         return path
 
     @staticmethod
-    def _run_xml_command(
-        emulator: str,
-        executable: Path,
-        arguments: list[str],
-        output: Path,
-    ) -> None:
+    def _run_xml_command(emulator: str, executable: Path, arguments: list[str], output: Path) -> None:
         """Executa uma CLI de catálogo sem shell e grava a saída atomicamente."""
         temp = output.with_suffix(output.suffix + ".partial")
         creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -184,9 +145,7 @@ class EmulatorCatalogService:
                 )
             stderr = result.stderr.decode("utf-8", errors="replace") if result.stderr else ""
             if result.returncode != 0:
-                raise RuntimeError(
-                    f"{emulator} terminou com código {result.returncode}: {stderr.strip()}"
-                )
+                raise RuntimeError(f"{emulator} terminou com código {result.returncode}: {stderr.strip()}")
             if not temp.is_file() or temp.stat().st_size == 0:
                 raise RuntimeError(f"{emulator} não produziu catálogo XML")
             EmulatorCatalogService._validate_xml(temp)
@@ -246,8 +205,7 @@ class EmulatorCatalogService:
                                 rom_attrs["region"] = region_name
                             ET.SubElement(machine, "rom", rom_attrs)
                 count += 1
-            tree_out = ET.ElementTree(out_root)
-            tree_out.write(temp, encoding="utf-8", xml_declaration=True)
+            ET.ElementTree(out_root).write(temp, encoding="utf-8", xml_declaration=True)
             EmulatorCatalogService._validate_xml(temp)
             os.replace(temp, output)
             return count
@@ -265,7 +223,7 @@ class EmulatorCatalogService:
             _, root = next(context)
             out_root = ET.Element(root.tag, root.attrib)
             for event, element in context:
-                if event != "end" or element.tag != "machine":
+                if event != "end" or element.tag not in {"machine", "game"}:
                     continue
                 if element.get("name") in names:
                     out_root.append(element)
@@ -289,10 +247,10 @@ class EmulatorCatalogService:
 
     @staticmethod
     def _count_machines(path: Path) -> int:
-        """Conta máquinas sem manter uma árvore completa em memória."""
+        """Conta máquinas/game sem manter uma árvore completa em memória."""
         count = 0
         for _, element in ET.iterparse(path, events=("end",)):
-            if element.tag == "machine":
+            if element.tag in {"machine", "game"}:
                 count += 1
                 element.clear()
         return count
