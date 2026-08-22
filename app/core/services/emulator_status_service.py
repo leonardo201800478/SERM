@@ -31,13 +31,18 @@ class EmulatorStatus:
 class EmulatorStatusService:
     """Mantém a Home desacoplada da descoberta e do banco."""
 
-    def __init__(self, config: AppConfig | None = None, discovery: EmulatorDiscoveryService | None = None, persistence: EmulatorPersistenceService | None = None) -> None:
+    def __init__(
+        self,
+        config: AppConfig | None = None,
+        discovery: EmulatorDiscoveryService | None = None,
+        persistence: EmulatorPersistenceService | None = None,
+    ) -> None:
         self.config = config or AppConfig()
         self.discovery = discovery or EmulatorDiscoveryService()
         self.persistence = persistence or EmulatorPersistenceService()
 
     def refresh(self) -> dict[str, EmulatorStatus]:
-        """Redescobre instalações; nenhuma delas é iniciada durante a Home."""
+        """Redescobre instalações sem iniciar processos ou gerar configurações."""
         options = EmulatorDiscoveryOptions(
             mame_executable=self.config.mame_path,
             flycast_executable=self.config.flycast_path,
@@ -94,7 +99,16 @@ class EmulatorStatusService:
     @staticmethod
     def _installation_status(installation: EmulatorInstallation) -> str:
         """Calcula o estado apresentado na Home."""
+        # Configuração válida em uma raiz conhecida é informação suficiente
+        # para não classificar o emulador como simplesmente "não configurado".
+        # O executável ainda é reportado separadamente para diagnóstico.
         if installation.executable is None:
+            if any(cfg.status == "valid" for cfg in installation.configs):
+                return "executable_missing"
+            if any(cfg.status.startswith("corrupt") for cfg in installation.configs):
+                return "configuration_corrupt"
+            if any(cfg.status.startswith("missing") for cfg in installation.configs):
+                return "configuration_missing"
             return "not_found"
         if any(cfg.status == "error" for cfg in installation.configs):
             return "error"
