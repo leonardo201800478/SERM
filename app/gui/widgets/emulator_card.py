@@ -5,7 +5,7 @@ from pathlib import Path
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout
 from PySide6.QtCore import Qt
 
-from app.gui.design.colors import COLORS
+from app.gui.design.colors import Colors
 
 
 class EmulatorStatusCard(QFrame):
@@ -16,18 +16,16 @@ class EmulatorStatusCard(QFrame):
         self.setObjectName("emulatorCard")
         layout = QHBoxLayout(self)
         layout.setContentsMargins(14, 10, 14, 10)
-
         self.icon = QLabel("●")
         self.icon.setFixedWidth(20)
         layout.addWidget(self.icon, alignment=Qt.AlignTop)
-
         text = QVBoxLayout()
         self.name_label = QLabel(name)
         self.name_label.setStyleSheet("font-weight: 700;")
         self.status_label = QLabel("Não configurado")
+        self.version_label = QLabel("")
         self.path_label = QLabel("")
         self.path_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self.version_label = QLabel("")
         text.addWidget(self.name_label)
         text.addWidget(self.status_label)
         text.addWidget(self.version_label)
@@ -37,11 +35,11 @@ class EmulatorStatusCard(QFrame):
     def set_state(self, state: str, version: str | None, path: Path | None) -> None:
         """Atualiza estado visual e informações detectadas."""
         styles = {
-            "ok": ("#2e7d32", "Detectado"),
-            "warning": ("#ed6c02", "Executável não respondeu"),
-            "missing": ("#9e9e9e", "Não configurado"),
+            "ok": (Colors.SUCCESS, "Detectado"),
+            "warning": (Colors.WARNING, "Executável não respondeu"),
+            "missing": (Colors.DISABLED, "Não configurado"),
         }
-        color, text = styles.get(state, (COLORS.get("error", "#c62828"), "Indisponível"))
+        color, text = styles.get(state, (Colors.ERROR, "Indisponível"))
         self.icon.setStyleSheet(f"color: {color}; font-size: 14px;")
         self.status_label.setText(text)
         self.status_label.setStyleSheet(f"color: {color}; font-weight: 600;")
