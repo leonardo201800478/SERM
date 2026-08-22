@@ -1,13 +1,8 @@
 """Descoberta e preparação das configurações dos emuladores suportados.
 
-Este módulo separa descoberta de geração. Ele nunca sobrescreve uma
-configuração válida; quando um arquivo está ausente/corrompido, delega a
-regeneração ao :class:`EmulatorConfigService` somente se existir um gerador
-explicitamente configurado.
-
-A descoberta é deliberadamente conservadora: caminhos são obtidos de
-instalações configuradas ou de locais convencionais, e a versão só é
-considerada conhecida quando pode ser obtida de forma confiável.
+A descoberta é silenciosa e conservadora. Arquivos de configuração válidos
+nunca são sobrescritos. Arquivos ausentes ou corrompidos só são regenerados
+quando existe um comando de geração explicitamente configurado.
 """
 from __future__ import annotations
 
@@ -25,8 +20,8 @@ from app.core.services.emulator_config_service import (
     validate_fbneo_dat,
     validate_fbneo_ini,
     validate_flycast_cfg,
+    validate_mame_ini,
     validate_supermodel_ini,
-    validate_xml,
 )
 
 logger = logging.getLogger(__name__)
@@ -46,16 +41,16 @@ class EmulatorInstallation:
 
 @dataclass(frozen=True, slots=True)
 class EmulatorDiscoveryOptions:
-    """Entradas opcionais para tornar a descoberta determinística."""
+    """Caminhos explícitos usados para tornar a descoberta determinística."""
 
     mame_executable: Path | None = None
     flycast_executable: Path | None = None
     supermodel_executable: Path | None = None
     fbneo_executable: Path | None = None
+    mame_root: Path | None = None
     flycast_root: Path | None = None
     supermodel_root: Path | None = None
     fbneo_root: Path | None = None
-    config_root: Path | None = None
 
 
 class EmulatorDiscoveryService:
@@ -67,7 +62,7 @@ class EmulatorDiscoveryService:
         self.config_service = config_service or EmulatorConfigService()
 
     def discover_all(self, options: EmulatorDiscoveryOptions | None = None) -> dict[str, EmulatorInstallation]:
-        """Executa a descoberta dos quatro emuladores de forma independente."""
+        """Executa a descoberta dos quatro emuladores independentemente."""
         opts = options or EmulatorDiscoveryOptions()
         return {
             "mame": self.discover_mame(opts),
@@ -77,52 +72,99 @@ class EmulatorDiscoveryService:
         }
 
     def discover_mame(self, options: EmulatorDiscoveryOptions) -> EmulatorInstallation:
-        """Descobre MAME e valida somente o MAME.INI já existente."""
+        """Descobre MAME e aplica a política segura ao MAME.INI."""
         executable = self._normalize_executable(options.mame_executable, "mame.exe")
-        root = executable.parent if executable else None
-        version = self._probe_version(executable)
-        return EmulatorInstallation("mame", executable, root, version)
+        root = self._root(executable, options.mame_root)
+        configs: list[EnsureResult] = []
+
+        if root:
+            path = root / "mame.ini"
+            generator = (str(executable), "-createconfig") if executable else None
+            configs.append(
+                self._ensure_config(
+                    "mame",
+                    "mame.ini",
+                    path,
+                    validate_mame_ini,
+                    generator_command=generator,
+                    cwd=root,
+                )
+            )
+
+        return EmulatorInstallation(
+            "mame", executable, root, self._probe_version(executable), tuple(configs)
+        )
 
     def discover_flycast(self, options: EmulatorDiscoveryOptions) -> EmulatorInstallation:
-        """Descobre Flycast e prepara `emu.cfg` apenas quando necessário."""
+        """Descobre Flycast e valida emu.cfg quando a raiz é conhecida."""
         executable = self._normalize_executable(options.flycast_executable, "flycast.exe")
         root = self._root(executable, options.flycast_root)
         configs: list[EnsureResult] = []
         if root:
-            path = root / "emu.cfg"
-            configs.append(self._ensure_config("flycast", "emu.cfg", path, validate_flycast_cfg))
-        return EmulatorInstallation("flycast", executable, root, self._probe_version(executable), tuple(configs))
+            configs.append(
+                self._ensure_config(
+                    "flycast", "emu.cfg", root / "emu.cfg", validate_flycast_cfg
+                )
+            )
+        return EmulatorInstallation(
+            "flycast", executable, root, self._probe_version(executable), tuple(configs)
+        )
 
     def discover_supermodel(self, options: EmulatorDiscoveryOptions) -> EmulatorInstallation:
-        """Descobre Supermodel e valida Supermodel.ini sem recriá-lo à força."""
+        """Descobre Supermodel e valida Supermodel.ini."""
         executable = self._normalize_executable(options.supermodel_executable, "Supermodel.exe")
         root = self._root(executable, options.supermodel_root)
         configs: list[EnsureResult] = []
         if root:
-            path = root / "Supermodel.ini"
-            configs.append(self._ensure_config("supermodel", "Supermodel.ini", path, validate_supermodel_ini))
-        return EmulatorInstallation("supermodel", executable, root, self._probe_version(executable), tuple(configs))
+            configs.append(
+                self._ensure_config(
+                    "supermodel",
+                    "Supermodel.ini",
+                    root / "Supermodel.ini",
+                    validate_supermodel_ini,
+                )
+            )
+        return EmulatorInstallation(
+            "supermodel", executable, root, self._probe_version(executable), tuple(configs)
+        )
 
     def discover_fbneo(self, options: EmulatorDiscoveryOptions) -> EmulatorInstallation:
-        """Descobre FBNeo e valida INI/DAT existentes; não inventa DAT."""
+        """Descobre FBNeo e valida INI/DAT existentes, sem fabricar DAT."""
         executable = self._normalize_executable(options.fbneo_executable, "fbneo.exe")
         root = self._root(executable, options.fbneo_root)
         configs: list[EnsureResult] = []
         if root:
-            ini = root / "config" / "fbneo.ini"
-            dat = root / "dats" / "arcade.dat"
-            configs.append(self._ensure_config("fbneo", "fbneo.ini", ini, validate_fbneo_ini))
-            configs.append(self._ensure_config("fbneo", "arcade.dat", dat, validate_fbneo_dat))
-        return EmulatorInstallation("fbneo", executable, root, self._probe_version(executable), tuple(configs))
+            configs.append(
+                self._ensure_config(
+                    "fbneo", "fbneo.ini", root / "config" / "fbneo.ini", validate_fbneo_ini
+                )
+            )
+            configs.append(
+                self._ensure_config(
+                    "fbneo", "arcade.dat", root / "dats" / "arcade.dat", validate_fbneo_dat
+                )
+            )
+        return EmulatorInstallation(
+            "fbneo", executable, root, self._probe_version(executable), tuple(configs)
+        )
 
-    def _ensure_config(self, emulator: str, name: str, path: Path, validator) -> EnsureResult:
-        """Valida um arquivo e deixa a política de geração exclusivamente no serviço de configuração."""
+    def _ensure_config(
+        self,
+        emulator: str,
+        name: str,
+        path: Path,
+        validator,
+        *,
+        generator_command: tuple[str, ...] | None = None,
+        cwd: Path | None = None,
+    ) -> EnsureResult:
+        """Valida ou delega a geração de uma configuração explicitamente autorizada."""
         spec = EmulatorConfigSpec(
             emulator=emulator,
             name=name,
             path=path,
-            generator_command=None,
-            cwd=path.parent,
+            generator_command=generator_command,
+            cwd=cwd or path.parent,
             validator=validator,
         )
         try:
@@ -133,14 +175,14 @@ class EmulatorDiscoveryService:
 
     @staticmethod
     def _root(executable: Path | None, configured: Path | None) -> Path | None:
-        """Resolve a raiz preferindo explicitamente a instalação configurada."""
+        """Resolve a raiz preferindo o caminho explicitamente configurado."""
         if configured:
             return configured.expanduser().resolve()
         return executable.parent if executable else None
 
     @staticmethod
     def _normalize_executable(path: Path | None, filename: str) -> Path | None:
-        """Aceita somente executável explícito; não faz busca agressiva no disco."""
+        """Aceita executável ou diretório contendo o executável esperado."""
         if path is None:
             return None
         candidate = path.expanduser().resolve()
@@ -153,7 +195,7 @@ class EmulatorDiscoveryService:
 
     @staticmethod
     def _probe_version(executable: Path | None) -> str | None:
-        """Obtém a versão silenciosamente quando o executável fornece --version."""
+        """Obtém a versão silenciosamente, sem criar janela de console no Windows."""
         if executable is None or not executable.is_file():
             return None
         try:
@@ -180,24 +222,26 @@ class EmulatorDiscoveryService:
 
     @classmethod
     def normalize(cls, installations: Iterable[EmulatorInstallation]) -> list[dict[str, object]]:
-        """Converte resultados para uma estrutura estável para futura persistência."""
+        """Converte instalações em uma estrutura estável para persistência posterior."""
         rows: list[dict[str, object]] = []
         for item in installations:
-            rows.append({
-                "emulator": item.emulator,
-                "executable": str(item.executable) if item.executable else None,
-                "root": str(item.root) if item.root else None,
-                "version": item.version,
-                "configs": [
-                    {
-                        "name": cfg.name,
-                        "path": str(cfg.path),
-                        "status": cfg.status,
-                        "generated": cfg.generated,
-                        "backup": str(cfg.backup) if cfg.backup else None,
-                    }
-                    for cfg in item.configs
-                ],
-                "metadata": dict(item.metadata),
-            })
+            rows.append(
+                {
+                    "emulator": item.emulator,
+                    "executable": str(item.executable) if item.executable else None,
+                    "root": str(item.root) if item.root else None,
+                    "version": item.version,
+                    "configs": [
+                        {
+                            "name": cfg.name,
+                            "path": str(cfg.path),
+                            "status": cfg.status,
+                            "generated": cfg.generated,
+                            "backup": str(cfg.backup) if cfg.backup else None,
+                        }
+                        for cfg in item.configs
+                    ],
+                    "metadata": dict(item.metadata),
+                }
+            )
         return rows
