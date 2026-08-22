@@ -1,4 +1,4 @@
-"""Descoberta e preparação das configurações dos emuladores suportados."""
+"""Descoberta segura e sem efeitos colaterais dos emuladores suportados."""
 from __future__ import annotations
 
 import logging
@@ -24,7 +24,8 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class EmulatorInstallation:
-    """Representa uma instalação descoberta sem alterar o sistema."""
+    """Representa uma instalação descoberta sem iniciar nem modificar o emulador."""
+
     emulator: str
     executable: Path | None
     root: Path | None
@@ -36,6 +37,7 @@ class EmulatorInstallation:
 @dataclass(frozen=True, slots=True)
 class EmulatorDiscoveryOptions:
     """Caminhos explícitos usados para tornar a descoberta determinística."""
+
     mame_executable: Path | None = None
     flycast_executable: Path | None = None
     supermodel_executable: Path | None = None
@@ -47,7 +49,8 @@ class EmulatorDiscoveryOptions:
 
 
 class EmulatorDiscoveryService:
-    """Descobre os quatro emuladores sem abrir janelas."""
+    """Descobre os emuladores sem executar instaladores, 7-Zip ou geradores de configuração."""
+
     SUPPORTED = ("mame", "flycast", "supermodel", "fbneo")
 
     def __init__(self, config_service: EmulatorConfigService | None = None):
@@ -68,29 +71,49 @@ class EmulatorDiscoveryService:
                 item = result[name]
                 logger.info(
                     "Emulator discovery: %s | executable=%s | root=%s | version=%s",
-                    name, item.executable, item.root, item.version,
+                    name,
+                    item.executable,
+                    item.root,
+                    item.version,
                 )
             except Exception:
                 logger.exception("Emulator discovery: falha isolada | emulator=%s", name)
                 result[name] = EmulatorInstallation(
-                    name, None, None, None, metadata={"discovery_error": "exception"}
+                    name,
+                    None,
+                    None,
+                    None,
+                    metadata={"discovery_error": "exception"},
                 )
         return result
 
     def discover_mame(self, options: EmulatorDiscoveryOptions) -> EmulatorInstallation:
-        """Descobre MAME e prepara mame.ini somente quando necessário."""
-        executable = self._normalize_executable(options.mame_executable, ("mame.exe", "mame"))
+        """Descobre MAME, valida mame.ini e obtém a versão sem abrir janela."""
+        executable = self._resolve_executable(
+            options.mame_executable,
+            options.mame_root,
+            ("mame.exe", "mame"),
+        )
         root = self._root(executable, options.mame_root)
         configs: list[EnsureResult] = []
         if root:
             path = root / "mame.ini"
-            generator = (str(executable), "-createconfig") if executable else None
-            configs.append(self._ensure_config("mame", "mame.ini", path, validate_mame_ini, generator_command=generator, cwd=root))
-        return EmulatorInstallation("mame", executable, root, self._probe_version(executable, "mame"), tuple(configs))
+            configs.append(self._ensure_config("mame", "mame.ini", path, validate_mame_ini))
+        return EmulatorInstallation(
+            "mame",
+            executable,
+            root,
+            self._probe_version(executable, "mame"),
+            tuple(configs),
+        )
 
     def discover_flycast(self, options: EmulatorDiscoveryOptions) -> EmulatorInstallation:
-        """Descobre Flycast sem executar o emulador para obter versão."""
-        executable = self._normalize_executable(options.flycast_executable, ("flycast.exe", "flycast"))
+        """Descobre Flycast sem executar o emulador."""
+        executable = self._resolve_executable(
+            options.flycast_executable,
+            options.flycast_root,
+            ("flycast.exe", "flycast"),
+        )
         root = self._root(executable, options.flycast_root)
         configs: list[EnsureResult] = []
         if root:
@@ -98,9 +121,10 @@ class EmulatorDiscoveryService:
         return EmulatorInstallation("flycast", executable, root, None, tuple(configs))
 
     def discover_supermodel(self, options: EmulatorDiscoveryOptions) -> EmulatorInstallation:
-        """Descobre Supermodel usando o INI dentro da pasta Config."""
-        executable = self._normalize_executable(
+        """Descobre Supermodel e usa Config/Supermodel.ini para a configuração."""
+        executable = self._resolve_executable(
             options.supermodel_executable,
+            options.supermodel_root,
             ("Supermodel.exe", "supermodel.exe", "supermodel"),
         )
         root = self._root(executable, options.supermodel_root)
@@ -113,10 +137,11 @@ class EmulatorDiscoveryService:
         return EmulatorInstallation("supermodel", executable, root, version, tuple(configs))
 
     def discover_fbneo(self, options: EmulatorDiscoveryOptions) -> EmulatorInstallation:
-        """Descobre FBNeo usando config/fbneo64.ini e lê sua versão do cabeçalho."""
-        executable = self._normalize_executable(
+        """Descobre FBNeo usando config/fbneo64.ini e lê a versão do cabeçalho."""
+        executable = self._resolve_executable(
             options.fbneo_executable,
-            ("fbneo.exe", "FBNeo.exe", "fba64.exe", "fba.exe", "fbneo"),
+            options.fbneo_root,
+            ("fbneo64.exe", "fbneo.exe", "FBNeo.exe", "fba64.exe", "fba.exe", "fbneo"),
         )
         root = self._root(executable, options.fbneo_root)
         configs: list[EnsureResult] = []
@@ -124,25 +149,48 @@ class EmulatorDiscoveryService:
         if root:
             ini_path = root / "config" / "fbneo64.ini"
             configs.append(self._ensure_config("fbneo", "fbneo64.ini", ini_path, validate_fbneo_ini))
-            configs.append(self._ensure_config("fbneo", "arcade.dat", root / "dats" / "arcade.dat", validate_fbneo_dat))
+            dat_path = root / "dats" / "arcade.dat"
+            if dat_path.exists():
+                configs.append(self._ensure_config("fbneo", "arcade.dat", dat_path, validate_fbneo_dat))
             version = self._version_from_ini(ini_path, "fbneo")
         return EmulatorInstallation("fbneo", executable, root, version, tuple(configs))
 
-    def _ensure_config(self, emulator: str, name: str, path: Path, validator, *, generator_command: tuple[str, ...] | None = None, cwd: Path | None = None) -> EnsureResult:
-        """Valida ou delega a geração de configuração explicitamente autorizada."""
+    def _ensure_config(self, emulator: str, name: str, path: Path, validator) -> EnsureResult:
+        """Somente valida a configuração durante a descoberta; nunca a gera no startup."""
         spec = EmulatorConfigSpec(
             emulator=emulator,
             name=name,
             path=path,
-            generator_command=generator_command,
-            cwd=cwd or path.parent,
+            generator_command=None,
+            cwd=path.parent,
             validator=validator,
         )
         try:
             return self.config_service.ensure(spec)
         except (OSError, RuntimeError) as exc:
-            logger.warning("[%s] falha ao preparar %s: %s", emulator, path, exc)
+            logger.warning("[%s] falha ao validar %s: %s", emulator, path, exc)
             return EnsureResult(emulator, name, path, "error", stderr=str(exc))
+
+    @classmethod
+    def _resolve_executable(
+        cls,
+        configured_executable: Path | None,
+        configured_root: Path | None,
+        filenames: tuple[str, ...],
+    ) -> Path | None:
+        """Resolve o executável, usando a pasta configurada como fallback quando o path está obsoleto."""
+        if configured_executable:
+            candidate = cls._normalize_executable(configured_executable, filenames)
+            if candidate:
+                return candidate
+            logger.warning(
+                "Emulator discovery: executável configurado não encontrado; procurando na raiz | path=%s | root=%s",
+                configured_executable,
+                configured_root,
+            )
+        if configured_root:
+            return cls._normalize_executable(configured_root, filenames)
+        return None
 
     @staticmethod
     def _root(executable: Path | None, configured: Path | None) -> Path | None:
@@ -171,38 +219,52 @@ class EmulatorDiscoveryService:
                         return nested
         except OSError:
             logger.exception("Emulator discovery: caminho inválido | path=%s", path)
-        logger.info("Emulator discovery: executável não encontrado | path=%s", path)
         return None
 
     @staticmethod
     def _version_from_ini(path: Path, emulator: str) -> str | None:
-        """Extrai a versão de cabeçalhos textuais conhecidos sem executar o emulador."""
+        """Extrai versão de cabeçalhos textuais conhecidos sem executar o emulador."""
         if not path.is_file():
             return None
         try:
             text = path.read_text(encoding="utf-8-sig", errors="ignore")
         except OSError:
-            logger.exception("Emulator discovery: não foi possível ler INI | emulator=%s | path=%s", emulator, path)
+            logger.exception(
+                "Emulator discovery: não foi possível ler INI | emulator=%s | path=%s",
+                emulator,
+                path,
+            )
             return None
 
         if emulator == "fbneo":
-            match = re.search(r"FinalBurn\s+Neo\s+v([0-9]+(?:\.[0-9]+)+)", text, re.IGNORECASE)
+            match = re.search(
+                r"FinalBurn\s+Neo\s+v([0-9]+(?:\.[0-9]+)+)",
+                text,
+                re.IGNORECASE,
+            )
             if match:
                 return match.group(1)
 
-        # Alguns builds do Supermodel registram a versão em comentário no INI.
-        match = re.search(r"(?:supermodel|version|vers[aã]o)[^0-9]*([0-9]+(?:\.[0-9]+)+[a-z]?)", text, re.IGNORECASE)
+        match = re.search(
+            r"(?:supermodel|version|vers[aã]o)[^0-9]*([0-9]+(?:\.[0-9]+)+[a-z]?)",
+            text,
+            re.IGNORECASE,
+        )
         return match.group(1) if match else None
 
     @staticmethod
     def _probe_version(executable: Path | None, emulator: str) -> str | None:
-        """Obtém a versão somente para MAME; os demais usam seus arquivos de configuração."""
-        if executable is None or not executable.is_file():
-            return None
-        if emulator != "mame":
-            logger.info("Emulator discovery: versão não consultada por CLI | emulator=%s", emulator)
+        """Obtém a versão do MAME por CLI totalmente silenciosa."""
+        if executable is None or not executable.is_file() or emulator != "mame":
             return None
         try:
+            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            startupinfo = None
+            if hasattr(subprocess, "STARTUPINFO"):
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                startupinfo.wShowWindow = 0
+
             result = subprocess.run(
                 [str(executable), "-version"],
                 stdin=subprocess.DEVNULL,
@@ -212,14 +274,20 @@ class EmulatorDiscoveryService:
                 encoding="utf-8",
                 errors="replace",
                 shell=False,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                creationflags=creationflags,
+                startupinfo=startupinfo,
                 timeout=5,
                 check=False,
                 cwd=str(executable.parent),
             )
             text = (result.stdout or "").strip()
-            logger.info("Emulator discovery: MAME -version returncode=%s output=%r", result.returncode, text[:256])
-            match = re.search(r"\b([0-9]+\.[0-9]+)\b", text)
+            logger.info(
+                "Emulator discovery: MAME -version | returncode=%s | output=%r",
+                result.returncode,
+                text[:512],
+            )
+            # MAME normalmente retorna algo como "MAME v0.289".
+            match = re.search(r"\bv?([0-9]+\.[0-9]+)\b", text, re.IGNORECASE)
             return match.group(1) if match else None
         except subprocess.TimeoutExpired:
             logger.warning("Emulator discovery: MAME -version timeout | executable=%s", executable)
