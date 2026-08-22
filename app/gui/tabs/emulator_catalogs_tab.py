@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from PySide6.QtCore import QThread, Qt, Slot
+from PySide6.QtCore import QThread, Slot
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
@@ -43,6 +43,7 @@ class EmulatorCatalogsTab(QWidget):
         self.db = getattr(parent, "db", None)
         self._thread: QThread | None = None
         self._worker = None
+        self._active_emulator: str | None = None
         self.cards: dict[str, tuple[QLabel, QLabel, QLabel, QProgressBar, QPushButton]] = {}
         self._build_ui()
         self.refresh()
@@ -200,6 +201,7 @@ class EmulatorCatalogsTab(QWidget):
     def _start_worker(self, worker_type, emulator: str | None) -> None:
         """Cria e conecta o worker Qt responsável pela operação selecionada."""
         context = self._context()
+        self._active_emulator = emulator
         self._thread = QThread(self)
         if emulator is None:
             worker = worker_type(self.db, context)
@@ -214,7 +216,7 @@ class EmulatorCatalogsTab(QWidget):
         worker.finished.connect(worker.deleteLater)
         self._thread.finished.connect(self._worker_thread_finished)
         self._thread.finished.connect(self._thread.deleteLater)
-        self._set_busy(True)
+        self._set_busy(True, emulator)
         self._thread.started.connect(worker.run)
         self._thread.start()
 
@@ -246,16 +248,24 @@ class EmulatorCatalogsTab(QWidget):
         """Libera referências e reativa os controles após a thread."""
         self._thread = None
         self._worker = None
-        self._set_busy(False)
+        active = self._active_emulator
+        self._active_emulator = None
+        self._set_busy(False, active)
         self.refresh()
 
-    def _set_busy(self, busy: bool) -> None:
-        """Padroniza o estado dos controles durante uma geração."""
+    def _set_busy(self, busy: bool, active_emulator: str | None = None) -> None:
+        """Ativa a progressão somente no emulador em execução.
+
+        Em uma operação individual, apenas o card selecionado entra em estado
+        de progresso. Em ``Gerar todos``, todos os cards ficam ocupados porque
+        fazem parte da mesma operação em lote.
+        """
         self.generate_all_button.setEnabled(not busy)
-        for labels in self.cards.values():
-            labels[3].setVisible(busy)
+        for emulator, labels in self.cards.items():
+            is_active = busy and (active_emulator is None or emulator == active_emulator)
+            labels[3].setVisible(is_active)
             labels[4].setEnabled(not busy)
-            if busy:
+            if is_active:
                 labels[3].setRange(0, 0)
             else:
                 labels[3].setRange(0, 1)
