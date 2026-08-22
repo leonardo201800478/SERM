@@ -36,12 +36,7 @@ class CatalogProfile:
     description: str = ""
 
     def accepts(self, machine: Mapping[str, object]) -> bool:
-        """Retorna ``True`` somente quando a máquina pertence ao perfil.
-
-        O caminho do sourcefile é normalizado para tolerar as duas formas
-        encontradas em LISTXML: ``src/mame/...`` e ``sega/...``. A seleção
-        nunca depende apenas do nome da ROM.
-        """
+        """Retorna ``True`` somente quando a máquina pertence ao perfil."""
         if self.source is CatalogSource.MAME:
             return True
 
@@ -84,13 +79,16 @@ PROFILES: dict[str, CatalogProfile] = {
             MachinePlatform.SEGA_NAOMI_2,
             MachinePlatform.SAMMY_ATOMISWAVE,
         ),
-        # O LISTXML pode trazer tanto src/mame/sega/... quanto sega/....
-        # Mantemos somente nomes de drivers conhecidos para evitar incluir
-        # Dreamcast ou hardware não suportado no catálogo Arcade Flycast.
+        # MAME pode publicar o caminho completo (src/mame/sega/...) ou
+        # somente o caminho relativo. Mantemos também tokens do driver para
+        # tolerar mudanças de organização interna do source tree.
         sourcefile_fragments=(
             "sega/naomi.cpp",
             "sega/dc_atomiswave.cpp",
             "sega/atomiswave.cpp",
+            "naomi.cpp",
+            "atomiswave.cpp",
+            "dc_atomiswave.cpp",
         ),
         description=(
             "Arcade Flycast derivado do MAME: Naomi, Naomi 2 e Atomiswave. "
@@ -110,11 +108,7 @@ def get_catalog_profile(emulator: str) -> CatalogProfile:
 
 
 def select_machine_names(emulator: str, machines: list[Mapping[str, object]]) -> list[str]:
-    """Seleciona nomes de máquinas aceitos pelo perfil.
-
-    A função mantém a ordem da fonte e elimina duplicidades preservando a
-    primeira ocorrência. Máquinas sem ``name`` são ignoradas.
-    """
+    """Seleciona nomes de máquinas aceitos pelo perfil."""
     profile = get_catalog_profile(emulator)
     selected: list[str] = []
     seen: set[str] = set()
