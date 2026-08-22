@@ -12,12 +12,18 @@ from app.core.services.emulator_catalog_build_service import (
 )
 from app.core.services.emulator_catalog_repository import EmulatorCatalogRepository
 from app.core.services.emulator_catalog_service import EmulatorCatalogService
+from app.database.database import Database
 
 logger = logging.getLogger(__name__)
 
 
 class EmulatorCatalogWorker(QObject):
-    """Executa a geração dos catálogos fora da thread principal da GUI."""
+    """Executa a geração dos catálogos fora da thread principal da GUI.
+
+    A conexão SQLite da janela principal nunca é compartilhada com esta
+    thread. O worker recebe somente o caminho do banco e cria sua própria
+    instância ``Database`` dentro da thread que irá utilizá-la.
+    """
 
     progress = Signal(int, int)
     log_message = Signal(str)
@@ -27,20 +33,26 @@ class EmulatorCatalogWorker(QObject):
 
     def __init__(self, database, context: CatalogBuildContext, emulator: str) -> None:
         super().__init__()
-        self.database = database
+        self.db_path = Path(database.db_path)
         self.context = context
         self.emulator = emulator
 
     @Slot()
     def run(self) -> None:
         """Gera um catálogo e publica o resultado no SQLite."""
+        database = None
         try:
+            # sqlite3.Connection pertence à thread que a criou. Portanto,
+            # jamais reutilizamos ``database.conn`` da MainWindow aqui.
+            database = Database(self.db_path)
+            database.connect()
+
             service = EmulatorCatalogService()
-            repository = EmulatorCatalogRepository(self.database)
+            repository = EmulatorCatalogRepository(database)
             builder = EmulatorCatalogBuildService(service, repository)
 
             self.log_message.emit(
-                f"CATÁLOGO | iniciando | emulator={self.emulator}"
+                f"CATÁLOGO | iniciando | emulator={self.emulator} | db={self.db_path}"
             )
             jobs = {
                 "mame": lambda: builder.build_mame(self.context),
@@ -64,11 +76,16 @@ class EmulatorCatalogWorker(QObject):
             logger.exception("Falha na geração do catálogo: %s", self.emulator)
             self.failed.emit(self.emulator, f"{type(exc).__name__}: {exc}")
         finally:
+            if database is not None:
+                database.close()
             self.finished.emit()
 
 
 class EmulatorCatalogBatchWorker(QObject):
-    """Executa todos os catálogos em sequência, preservando falhas individuais."""
+    """Executa todos os catálogos em sequência, preservando falhas individuais.
+
+    A conexão SQLite é criada dentro da própria thread e fechada ao final.
+    """
 
     log_message = Signal(str)
     catalog_finished = Signal(str, int, int, str)
@@ -77,15 +94,19 @@ class EmulatorCatalogBatchWorker(QObject):
 
     def __init__(self, database, context: CatalogBuildContext) -> None:
         super().__init__()
-        self.database = database
+        self.db_path = Path(database.db_path)
         self.context = context
 
     @Slot()
     def run(self) -> None:
         """Gera MAME, FBNeo, Supermodel e Flycast em sequência."""
+        database = None
         try:
+            database = Database(self.db_path)
+            database.connect()
+
             service = EmulatorCatalogService()
-            repository = EmulatorCatalogRepository(self.database)
+            repository = EmulatorCatalogRepository(database)
             builder = EmulatorCatalogBuildService(service, repository)
             for emulator, job in (
                 ("mame", lambda: builder.build_mame(self.context)),
@@ -110,4 +131,6 @@ class EmulatorCatalogBatchWorker(QObject):
                     logger.exception("Falha no catálogo %s", emulator)
                     self.failed.emit(emulator, f"{type(exc).__name__}: {exc}")
         finally:
+            if database is not None:
+                database.close()
             self.finished.emit()
