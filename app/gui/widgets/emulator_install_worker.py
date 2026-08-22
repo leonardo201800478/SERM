@@ -17,6 +17,7 @@ class EmulatorInstallWorker(QObject):
 
     progress = Signal(int, int)
     status = Signal(str)
+    log_message = Signal(str)
     finished = Signal(str, str, str)
     failed = Signal(str)
 
@@ -26,22 +27,57 @@ class EmulatorInstallWorker(QObject):
         self.destination = destination
         self.nightly = nightly
 
+    def _log(self, message: str) -> None:
+        """Envia uma mensagem operacional para a GUI e para o log normal."""
+        logger.info("Emulator worker: %s", message)
+        self.log_message.emit(message)
+
     @Slot()
     def run(self) -> None:
-        """Executa a operação e converte qualquer exceção em sinal seguro."""
-        logger.info("Emulator worker: iniciado | emulator=%s | destination=%s | nightly=%s", self.emulator, self.destination, self.nightly)
+        """Executa a instalação e publica cada etapa operacional."""
+        self._log(
+            f"INÍCIO | emulador={self.emulator} | destino={self.destination} | nightly={self.nightly}"
+        )
         try:
             self.status.emit("Consultando release oficial…")
-            service = EmulatorInstallService()
+            self._log("1/8 Consultando o release oficial e procurando o link do pacote…")
+
+            service = EmulatorInstallService(log_callback=self._log)
+            release = service.release(self.emulator, nightly=self.nightly)
+            self._log(
+                f"2/8 Release encontrado | tag={release.tag} | assets={len(release.assets)}"
+            )
+
+            asset = service.select_asset(release)
+            self._log(
+                f"3/8 Pacote selecionado | nome={asset.name} | tamanho={asset.size:,} bytes | url={asset.url}"
+            )
+
+            self.status.emit("Baixando pacote…")
+            self._log("4/8 Iniciando download do arquivo…")
             release, asset, executable = service.download_and_install(
                 self.emulator,
                 self.destination,
                 nightly=self.nightly,
                 progress=lambda received, total: self.progress.emit(received, total),
             )
-            logger.info("Emulator worker: concluído | emulator=%s | release=%s | asset=%s | executable=%s", self.emulator, release.tag, asset.name, executable)
+            self._log(
+                f"8/8 INSTALAÇÃO CONCLUÍDA | executável={executable} | release={release.tag} | asset={asset.name}"
+            )
+            logger.info(
+                "Emulator worker: concluído | emulator=%s | release=%s | asset=%s | executable=%s",
+                self.emulator,
+                release.tag,
+                asset.name,
+                executable,
+            )
             self.finished.emit(self.emulator, release.tag, str(executable))
         except Exception as exc:
-            logger.exception("Emulator worker: falha | emulator=%s | destination=%s", self.emulator, self.destination)
+            self._log(f"ERRO FATAL | {type(exc).__name__}: {exc}")
+            logger.exception(
+                "Emulator worker: falha | emulator=%s | destination=%s",
+                self.emulator,
+                self.destination,
+            )
             diagnostic = "\n".join((f"{type(exc).__name__}: {exc}", traceback.format_exc()))
             self.failed.emit(diagnostic)
