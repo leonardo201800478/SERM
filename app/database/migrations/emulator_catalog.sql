@@ -1,16 +1,8 @@
 -- ========================================================================
 -- MAME SET BUILDER - CATÁLOGOS MULTI-EMULADOR
 -- ========================================================================
---
--- Estas tabelas NÃO substituem as tabelas MAME existentes.
--- O dataset MAME continua em machine/rom/disk/etc.
---
--- O objetivo desta estrutura é armazenar catálogos independentes de:
---   MAME, FBNeo, Supermodel e Flycast.
---
--- Cada catálogo é identificado pelo emulador e pela versão da fonte.
--- A substituição de um catálogo ocorre em uma transação, evitando que uma
--- atualização parcial fique visível para filtros ou reconstrução.
+-- Catálogos independentes de MAME, FBNeo, Supermodel e Flycast.
+-- A tabela machine do dataset MAME legado não é substituída.
 -- ========================================================================
 
 CREATE TABLE IF NOT EXISTS emulator_catalog (
@@ -37,12 +29,12 @@ CREATE TABLE IF NOT EXISTS emulator_catalog_machine (
     romof TEXT,
     sampleof TEXT,
     platform TEXT,
-    runnable INTEGER DEFAULT 1,
+    runnable INTEGER NOT NULL DEFAULT 1,
     emulation_status TEXT,
     driver_status TEXT,
-    FOREIGN KEY (catalog_id)
-        REFERENCES emulator_catalog(id)
-        ON DELETE CASCADE,
+    is_device INTEGER NOT NULL DEFAULT 0,
+    is_bios INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (catalog_id) REFERENCES emulator_catalog(id) ON DELETE CASCADE,
     UNIQUE (catalog_id, name)
 );
 
@@ -59,25 +51,13 @@ CREATE TABLE IF NOT EXISTS emulator_catalog_rom (
     status TEXT DEFAULT 'good',
     optional INTEGER DEFAULT 0,
     bios TEXT,
-    FOREIGN KEY (machine_id)
-        REFERENCES emulator_catalog_machine(id)
-        ON DELETE CASCADE
+    FOREIGN KEY (machine_id) REFERENCES emulator_catalog_machine(id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_emulator_catalog_machine_name
-    ON emulator_catalog_machine(catalog_id, name);
-
-CREATE INDEX IF NOT EXISTS idx_emulator_catalog_machine_cloneof
-    ON emulator_catalog_machine(catalog_id, cloneof);
-
-CREATE INDEX IF NOT EXISTS idx_emulator_catalog_machine_sourcefile
-    ON emulator_catalog_machine(catalog_id, sourcefile);
-
-CREATE INDEX IF NOT EXISTS idx_emulator_catalog_rom_machine
-    ON emulator_catalog_rom(machine_id);
-
-CREATE INDEX IF NOT EXISTS idx_emulator_catalog_rom_crc
-    ON emulator_catalog_rom(crc);
-
-CREATE INDEX IF NOT EXISTS idx_emulator_catalog_rom_sha1
-    ON emulator_catalog_rom(sha1);
+CREATE INDEX IF NOT EXISTS idx_emulator_catalog_machine_name ON emulator_catalog_machine(catalog_id, name);
+CREATE INDEX IF NOT EXISTS idx_emulator_catalog_machine_cloneof ON emulator_catalog_machine(catalog_id, cloneof);
+CREATE INDEX IF NOT EXISTS idx_emulator_catalog_machine_sourcefile ON emulator_catalog_machine(catalog_id, sourcefile);
+CREATE INDEX IF NOT EXISTS idx_emulator_catalog_machine_class ON emulator_catalog_machine(catalog_id, is_device, is_bios, runnable);
+CREATE INDEX IF NOT EXISTS idx_emulator_catalog_rom_machine ON emulator_catalog_rom(machine_id);
+CREATE INDEX IF NOT EXISTS idx_emulator_catalog_rom_crc ON emulator_catalog_rom(crc);
+CREATE INDEX IF NOT EXISTS idx_emulator_catalog_rom_sha1 ON emulator_catalog_rom(sha1);
