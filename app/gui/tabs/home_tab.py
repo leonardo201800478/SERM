@@ -311,18 +311,43 @@ class HomeTab(QWidget):
 
     @Slot(str, str, str)
     def _install_finished(self, emulator: str, version: str, executable: str):
-        """Registra conclusão, atualiza configuração e mantém a janela aberta."""
-        self._on_install_log(f"SUCESSO | {self.EMULATOR_LABELS.get(emulator, emulator)} | versão={version} | executável={executable}")
+        """Registra conclusão e persiste a versão confirmada pelo release.
+
+        A versão emitida pelo worker é a tag do release efetivamente baixado.
+        Para Flycast e Supermodel essa informação é a fonte local persistente,
+        pois seus executáveis não oferecem uma forma confiável de consulta que
+        seja adequada para a descoberta silenciosa da Home.
+        """
+        label = self.EMULATOR_LABELS.get(emulator, emulator)
+        self._on_install_log(
+            f"SUCESSO | {label} | versão={version} | executável={executable}"
+        )
+
+        # A versão do release deve ser persistida ANTES do refresh. Caso
+        # contrário, refresh_status() perde a informação recém-detectada e a
+        # Home volta a mostrar "Versão: —" para Flycast/Supermodel.
+        version_value = str(version).strip() or None
+        setattr(self.config, f"{emulator}_version", version_value)
+
         path = Path(executable)
         setattr(self.config, f"{emulator}_path", path)
         setattr(self.config, f"{emulator}_dir", path.parent)
         self.config.save()
+        self._on_install_log(
+            f"VERSÃO PERSISTIDA | {label} | versão={version_value or '—'} | arquivo={self.config.CONFIG_FILE}"
+        )
+
         self._finish_card_progress(emulator)
         if self._bulk_update:
             self._bulk_successes.append(emulator)
         self.refresh_status()
         if not self._bulk_update:
-            QMessageBox.information(self, "Instalação concluída", f"{self.EMULATOR_LABELS.get(emulator, emulator)} foi instalado/atualizado com sucesso.\n\nVersão: {version}\nExecutável: {executable}")
+            QMessageBox.information(
+                self,
+                "Instalação concluída",
+                f"{label} foi instalado/atualizado com sucesso.\n\n"
+                f"Versão: {version}\nExecutável: {executable}",
+            )
 
     @Slot(str)
     def _install_failed(self, message: str):
