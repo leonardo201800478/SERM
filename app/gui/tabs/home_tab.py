@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.config.app_config import AppConfig
+from app.core.services.emulator_persistence_service import EmulatorPersistenceService
 from app.core.services.emulator_status_service import EmulatorStatus, EmulatorStatusService
 
 
@@ -43,8 +44,13 @@ class HomeTab(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.parent_window = parent
-        self.config = AppConfig()
-        self.status_service = EmulatorStatusService(config=self.config)
+        self.config = getattr(parent, "config", None) or AppConfig()
+        database = getattr(parent, "db", None)
+        persistence = EmulatorPersistenceService(database) if database is not None else None
+        self.status_service = EmulatorStatusService(
+            config=self.config,
+            persistence=persistence,
+        )
         self.statuses: dict[str, EmulatorStatus] = {}
         self.cards: dict[str, tuple[QLabel, QLabel, QLabel]] = {}
         self.setup_ui()
@@ -190,8 +196,6 @@ class HomeTab(QWidget):
             self.config.load()
             self.statuses = self.status_service.refresh()
         except Exception as exc:
-            # A Home não deve impedir a inicialização da aplicação por uma falha
-            # de descoberta. O erro é apresentado somente no card correspondente.
             self.statuses = {
                 name: EmulatorStatus(name, None, None, None, "error")
                 for name in self.EMULATOR_LABELS
