@@ -88,21 +88,56 @@ class EmulatorDiscoveryService:
         return result
 
     def discover_mame(self, options: EmulatorDiscoveryOptions) -> EmulatorInstallation:
-        """Descobre MAME, valida mame.ini na raiz e obtém a versão sem abrir janela."""
-        executable = self._resolve_executable(
-            options.mame_executable,
-            options.mame_root,
-            ("mame.exe", "mame"),
-        )
-        root = self._root(executable, options.mame_root)
+        """Descobre o MAME usando prioritariamente a pasta de instalação configurada.
+
+        Quando ``mame_root`` está definido, ele é a fonte canônica: o único
+        executável aceito é ``mame.exe`` localizado diretamente nessa pasta.
+        Isso evita que um caminho antigo para ``.7z``/``.zip`` seja usado como
+        processo e impede que o Windows abra o instalador/descompactador.
+        """
+        root = self._resolve_root(options.mame_root)
+        executable: Path | None = None
+
+        if root:
+            candidate = root / "mame.exe"
+            if candidate.is_file() and candidate.suffix.casefold() == ".exe":
+                executable = candidate
+            else:
+                logger.warning(
+                    "Emulator discovery: mame.exe não encontrado na instalação configurada | root=%s",
+                    root,
+                )
+        else:
+            # Compatibilidade com configurações antigas: somente se não houver
+            # diretório configurado, aceita mame_path, mas ainda com validação
+            # estrita do nome do executável.
+            executable = self._normalize_executable(
+                options.mame_executable,
+                ("mame.exe", "mame"),
+            )
+            root = self._root(executable, None)
+
         configs: list[EnsureResult] = []
         if root:
-            # MAME cria o mame.ini por padrão na RAIZ da instalação,
-            # ao lado de mame.exe. Não procurar em uma pasta INI.
+            # O mame.ini principal fica na raiz da instalação, ao lado de mame.exe.
             path = root / "mame.ini"
             configs.append(self._ensure_config("mame", "mame.ini", path, validate_mame_ini))
+
         version = self._probe_version(executable, "mame")
-        return EmulatorInstallation("mame", executable, root, version, tuple(configs))
+        metadata: dict[str, str] = {}
+        if options.mame_root:
+            metadata["resolution"] = "configured_root"
+        elif options.mame_executable:
+            metadata["resolution"] = "legacy_executable"
+
+        return EmulatorInstallation(
+            "mame",
+            executable,
+            root,
+            version,
+            tuple(configs),
+            metadata,
+        )
 
     def discover_flycast(self, options: EmulatorDiscoveryOptions) -> EmulatorInstallation:
         """Descobre Flycast sem executar o emulador."""
@@ -168,6 +203,18 @@ class EmulatorDiscoveryService:
             logger.warning("[%s] falha ao validar %s: %s", emulator, path, exc)
             return EnsureResult(emulator, name, path, "error", stderr=str(exc))
 
+    @staticmethod
+    def _resolve_root(configured_root: Path | None) -> Path | None:
+        """Normaliza a pasta configurada sem executar ou interpretar arquivos."""
+        if not configured_root:
+            return None
+        try:
+            root = configured_root.expanduser().resolve()
+        except OSError:
+            logger.exception("Emulator discovery: raiz inválida | root=%s", configured_root)
+            root = configured_root.expanduser()
+        return root if root.is_dir() else root
+
     @classmethod
     def _resolve_executable(
         cls,
@@ -216,9 +263,11 @@ class EmulatorDiscoveryService:
         try:
             candidate = path.expanduser().resolve()
             if candidate.is_file():
-                # Não basta existir: somente um nome explicitamente conhecido pode
-                # ser usado como processo. Isso impede executar .7z/.zip por engano.
-                allowed = {name.casefold() for name in filenames if Path(name).suffix.casefold() == ".exe"}
+                allowed = {
+                    name.casefold()
+                    for name in filenames
+                    if Path(name).suffix.casefold() == ".exe"
+                }
                 if candidate.name.casefold() in allowed and candidate.suffix.casefold() == ".exe":
                     return candidate
                 return None
@@ -264,9 +313,20 @@ class EmulatorDiscoveryService:
 
     @staticmethod
     def _probe_version(executable: Path | None, emulator: str) -> str | None:
-        """Obtém a versão do MAME por CLI sem permitir execução de arquivos arbitrários."""
-        if executable is None or not executable.is_file() or executable.suffix.casefold() != ".exe" or emulator != "mame":
+        """Obtém a versão do MAME por CLI sem permitir execução de arquivos arbitrários.
+
+        A execução usa sempre o executável já validado e o diretório pai como
+        diretório de trabalho. ``-noreadconfig`` evita que a leitura de uma
+        configuração existente interfira no probe da versão.
+        """
+        if (
+            executable is None
+            or not executable.is_file()
+            or executable.suffix.casefold() != ".exe"
+            or emulator != "mame"
+        ):
             return None
+
         try:
             creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             startupinfo = None
@@ -276,7 +336,7 @@ class EmulatorDiscoveryService:
                 startupinfo.wShowWindow = 0
 
             result = subprocess.run(
-                [str(executable), "-version"],
+                [str(executable), "-noreadconfig", "-version"],
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -292,15 +352,16 @@ class EmulatorDiscoveryService:
             )
             text = (result.stdout or "").strip()
             logger.info(
-                "Emulator discovery: MAME -version | returncode=%s | output=%r",
+                "Emulator discovery: MAME -noreadconfig -version | returncode=%s | executable=%s | cwd=%s | output=%r",
                 result.returncode,
+                executable,
+                executable.parent,
                 text[:512],
             )
-            # MAME normalmente retorna algo como "MAME v0.289".
             match = re.search(r"\b(?:v)?([0-9]+\.[0-9]+)\b", text, re.IGNORECASE)
             return match.group(1) if match else None
         except subprocess.TimeoutExpired:
-            logger.warning("Emulator discovery: MAME -version timeout | executable=%s", executable)
+            logger.warning("Emulator discovery: MAME version timeout | executable=%s", executable)
             return None
         except (OSError, subprocess.SubprocessError):
             logger.exception("Emulator discovery: falha no probe MAME | executable=%s", executable)
