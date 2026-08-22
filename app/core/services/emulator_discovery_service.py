@@ -88,7 +88,7 @@ class EmulatorDiscoveryService:
         return result
 
     def discover_mame(self, options: EmulatorDiscoveryOptions) -> EmulatorInstallation:
-        """Descobre MAME, valida mame.ini e obtém a versão sem abrir janela."""
+        """Descobre MAME, valida mame.ini na raiz e obtém a versão sem abrir janela."""
         executable = self._resolve_executable(
             options.mame_executable,
             options.mame_root,
@@ -97,15 +97,12 @@ class EmulatorDiscoveryService:
         root = self._root(executable, options.mame_root)
         configs: list[EnsureResult] = []
         if root:
+            # MAME cria o mame.ini por padrão na RAIZ da instalação,
+            # ao lado de mame.exe. Não procurar em uma pasta INI.
             path = root / "mame.ini"
             configs.append(self._ensure_config("mame", "mame.ini", path, validate_mame_ini))
-        return EmulatorInstallation(
-            "mame",
-            executable,
-            root,
-            self._probe_version(executable, "mame"),
-            tuple(configs),
-        )
+        version = self._probe_version(executable, "mame")
+        return EmulatorInstallation("mame", executable, root, version, tuple(configs))
 
     def discover_flycast(self, options: EmulatorDiscoveryOptions) -> EmulatorInstallation:
         """Descobre Flycast sem executar o emulador."""
@@ -178,13 +175,21 @@ class EmulatorDiscoveryService:
         configured_root: Path | None,
         filenames: tuple[str, ...],
     ) -> Path | None:
-        """Resolve o executável, usando a pasta configurada como fallback quando o path está obsoleto."""
+        """Resolve somente executáveis conhecidos.
+
+        O campo ``*_path`` pode conter uma configuração antiga apontando para um
+        pacote ``.7z``/``.zip``. A implementação anterior aceitava qualquer arquivo
+        como se fosse executável; em seguida o probe de versão tentava executar o
+        arquivo e o Windows abria a tela de descompactação. Agora um arquivo só é
+        aceito quando seu nome corresponde a um executável suportado. Se o caminho
+        antigo estiver inválido, a raiz configurada é usada como fallback.
+        """
         if configured_executable:
             candidate = cls._normalize_executable(configured_executable, filenames)
             if candidate:
                 return candidate
             logger.warning(
-                "Emulator discovery: executável configurado não encontrado; procurando na raiz | path=%s | root=%s",
+                "Emulator discovery: caminho de executável inválido/obsoleto; procurando na raiz | path=%s | root=%s",
                 configured_executable,
                 configured_root,
             )
@@ -205,17 +210,22 @@ class EmulatorDiscoveryService:
 
     @staticmethod
     def _normalize_executable(path: Path | None, filenames: tuple[str, ...]) -> Path | None:
-        """Aceita executável ou diretório e procura nomes Windows conhecidos."""
+        """Aceita executável ou diretório e rejeita arquivos que não sejam executáveis conhecidos."""
         if path is None:
             return None
         try:
             candidate = path.expanduser().resolve()
             if candidate.is_file():
-                return candidate
+                # Não basta existir: somente um nome explicitamente conhecido pode
+                # ser usado como processo. Isso impede executar .7z/.zip por engano.
+                allowed = {name.casefold() for name in filenames if Path(name).suffix.casefold() == ".exe"}
+                if candidate.name.casefold() in allowed and candidate.suffix.casefold() == ".exe":
+                    return candidate
+                return None
             if candidate.is_dir():
                 for filename in filenames:
                     nested = candidate / filename
-                    if nested.is_file():
+                    if nested.is_file() and nested.suffix.casefold() == ".exe":
                         return nested
         except OSError:
             logger.exception("Emulator discovery: caminho inválido | path=%s", path)
@@ -254,8 +264,8 @@ class EmulatorDiscoveryService:
 
     @staticmethod
     def _probe_version(executable: Path | None, emulator: str) -> str | None:
-        """Obtém a versão do MAME por CLI totalmente silenciosa."""
-        if executable is None or not executable.is_file() or emulator != "mame":
+        """Obtém a versão do MAME por CLI sem permitir execução de arquivos arbitrários."""
+        if executable is None or not executable.is_file() or executable.suffix.casefold() != ".exe" or emulator != "mame":
             return None
         try:
             creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -287,7 +297,7 @@ class EmulatorDiscoveryService:
                 text[:512],
             )
             # MAME normalmente retorna algo como "MAME v0.289".
-            match = re.search(r"\bv?([0-9]+\.[0-9]+)\b", text, re.IGNORECASE)
+            match = re.search(r"\b(?:v)?([0-9]+\.[0-9]+)\b", text, re.IGNORECASE)
             return match.group(1) if match else None
         except subprocess.TimeoutExpired:
             logger.warning("Emulator discovery: MAME -version timeout | executable=%s", executable)
