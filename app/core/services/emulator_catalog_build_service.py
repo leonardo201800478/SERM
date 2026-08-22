@@ -96,9 +96,10 @@ class EmulatorCatalogBuildService:
     ) -> CatalogPersistenceResult:
         """Gera e publica o catálogo Arcade Flycast derivado do MAME.
 
-        O MAME XML é usado somente como fonte de metadados; a seleção é feita
-        pelo perfil de catálogo do Flycast, baseado em drivers explicitamente
-        conhecidos. Dreamcast não entra neste catálogo.
+        A seleção considera todas as famílias Arcade que o Flycast identifica
+        no código atual: NAOMI/NAOMI 2 (incluindo GD-ROM), Atomiswave e System
+        SP. O driver MAME é a fonte de identidade do sistema; BIOS, devices e
+        entradas não executáveis não entram como jogos.
         """
         source_xml = mame_xml or (self.catalog_service.catalog_root / "mame" / "listxml.xml")
         source_xml = Path(source_xml).expanduser().resolve()
@@ -108,10 +109,13 @@ class EmulatorCatalogBuildService:
                 f"{source_xml}"
             )
 
-        names = self._select_flycast_names(source_xml)
+        names, family_counts = self._select_flycast_names(source_xml)
         logger.info(
-            "Flycast catalog: máquinas selecionadas a partir do MAME | count=%d",
+            "Flycast catalog: seleção completa | total=%d | naomi=%d | atomiswave=%d | systemsp=%d",
             len(names),
+            family_counts["naomi"],
+            family_counts["atomiswave"],
+            family_counts["systemsp"],
         )
         generated = self.catalog_service.generate_flycast_from_mame(
             source_xml,
@@ -156,18 +160,56 @@ class EmulatorCatalogBuildService:
         return results
 
     @staticmethod
-    def _select_flycast_names(source_xml: Path) -> list[str]:
-        """Lê metadados mínimos do MAME e aplica o perfil Flycast."""
+    def _select_flycast_names(source_xml: Path) -> tuple[list[str], dict[str, int]]:
+        """Seleciona jogos Flycast e retorna contagem por família de hardware.
+
+        A auditoria é baseada no ``sourcefile`` do MAME e em atributos de
+        classificação do próprio XML. Não usamos o nome da ROM para decidir a
+        plataforma, evitando falsos positivos.
+        """
         machines: list[dict[str, object]] = []
+        family_counts = {"naomi": 0, "atomiswave": 0, "systemsp": 0}
         context = ET.iterparse(source_xml, events=("end",))
         for _, element in context:
             if element.tag != "machine":
                 continue
+
+            sourcefile = (element.get("sourcefile") or "").replace("\\", "/").casefold()
+            is_device = (element.get("isdevice") or "").casefold() in {"yes", "true", "1"}
+            is_bios = (element.get("isbios") or "").casefold() in {"yes", "true", "1"}
+            runnable_value = element.get("runnable")
+            runnable = True if runnable_value is None else runnable_value.casefold() in {"yes", "true", "1"}
+
+            # Flycast identifica estas plataformas pelo boot board. No MAME,
+            # NAOMI/NAOMI 2 compartilham naomi.cpp; Atomiswave e System SP têm
+            # drivers próprios.
+            if "sega/naomi.cpp" in sourcefile or sourcefile.endswith("/naomi.cpp"):
+                family = "naomi"
+            elif "sega/dc_atomiswave.cpp" in sourcefile or sourcefile.endswith("/dc_atomiswave.cpp"):
+                family = "atomiswave"
+            elif "sega/segasp.cpp" in sourcefile or sourcefile.endswith("/segasp.cpp"):
+                family = "systemsp"
+            else:
+                element.clear()
+                continue
+
+            # O catálogo do Flycast é um catálogo de jogos, portanto BIOS,
+            # devices e entradas não-runnable não devem aparecer como jogos.
+            if not runnable or is_device or is_bios:
+                element.clear()
+                continue
+
             machines.append(
                 {
                     "name": element.get("name"),
                     "sourcefile": element.get("sourcefile"),
+                    "isdevice": element.get("isdevice"),
+                    "isbios": element.get("isbios"),
+                    "runnable": element.get("runnable"),
                 }
             )
+            family_counts[family] += 1
             element.clear()
-        return select_machine_names("flycast", machines)
+
+        names = select_machine_names("flycast", machines)
+        return names, family_counts
