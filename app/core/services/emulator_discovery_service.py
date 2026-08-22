@@ -57,14 +57,24 @@ class EmulatorDiscoveryService:
         """Executa a descoberta dos quatro emuladores independentemente."""
         opts = options or EmulatorDiscoveryOptions()
         result: dict[str, EmulatorInstallation] = {}
-        for name, detector in (("mame", self.discover_mame), ("flycast", self.discover_flycast), ("supermodel", self.discover_supermodel), ("fbneo", self.discover_fbneo)):
+        for name, detector in (
+            ("mame", self.discover_mame),
+            ("flycast", self.discover_flycast),
+            ("supermodel", self.discover_supermodel),
+            ("fbneo", self.discover_fbneo),
+        ):
             try:
                 result[name] = detector(opts)
                 item = result[name]
-                logger.info("Emulator discovery: %s | executable=%s | root=%s | version=%s", name, item.executable, item.root, item.version)
+                logger.info(
+                    "Emulator discovery: %s | executable=%s | root=%s | version=%s",
+                    name, item.executable, item.root, item.version,
+                )
             except Exception:
                 logger.exception("Emulator discovery: falha isolada | emulator=%s", name)
-                result[name] = EmulatorInstallation(name, None, None, None, metadata={"discovery_error": "exception"})
+                result[name] = EmulatorInstallation(
+                    name, None, None, None, metadata={"discovery_error": "exception"}
+                )
         return result
 
     def discover_mame(self, options: EmulatorDiscoveryOptions) -> EmulatorInstallation:
@@ -88,27 +98,46 @@ class EmulatorDiscoveryService:
         return EmulatorInstallation("flycast", executable, root, None, tuple(configs))
 
     def discover_supermodel(self, options: EmulatorDiscoveryOptions) -> EmulatorInstallation:
-        """Descobre Supermodel sem executar o emulador para obter versão."""
-        executable = self._normalize_executable(options.supermodel_executable, ("Supermodel.exe", "supermodel.exe", "supermodel"))
+        """Descobre Supermodel usando o INI dentro da pasta Config."""
+        executable = self._normalize_executable(
+            options.supermodel_executable,
+            ("Supermodel.exe", "supermodel.exe", "supermodel"),
+        )
         root = self._root(executable, options.supermodel_root)
         configs: list[EnsureResult] = []
+        version = None
         if root:
-            configs.append(self._ensure_config("supermodel", "Supermodel.ini", root / "Supermodel.ini", validate_supermodel_ini))
-        return EmulatorInstallation("supermodel", executable, root, None, tuple(configs))
+            path = root / "Config" / "Supermodel.ini"
+            configs.append(self._ensure_config("supermodel", "Supermodel.ini", path, validate_supermodel_ini))
+            version = self._version_from_ini(path, "supermodel")
+        return EmulatorInstallation("supermodel", executable, root, version, tuple(configs))
 
     def discover_fbneo(self, options: EmulatorDiscoveryOptions) -> EmulatorInstallation:
-        """Descobre FBNeo sem usar switches de versão não documentados."""
-        executable = self._normalize_executable(options.fbneo_executable, ("fbneo.exe", "FBNeo.exe", "fba64.exe", "fba.exe", "fbneo"))
+        """Descobre FBNeo usando config/fbneo64.ini e lê sua versão do cabeçalho."""
+        executable = self._normalize_executable(
+            options.fbneo_executable,
+            ("fbneo.exe", "FBNeo.exe", "fba64.exe", "fba.exe", "fbneo"),
+        )
         root = self._root(executable, options.fbneo_root)
         configs: list[EnsureResult] = []
+        version = None
         if root:
-            configs.append(self._ensure_config("fbneo", "fbneo.ini", root / "config" / "fbneo.ini", validate_fbneo_ini))
+            ini_path = root / "config" / "fbneo64.ini"
+            configs.append(self._ensure_config("fbneo", "fbneo64.ini", ini_path, validate_fbneo_ini))
             configs.append(self._ensure_config("fbneo", "arcade.dat", root / "dats" / "arcade.dat", validate_fbneo_dat))
-        return EmulatorInstallation("fbneo", executable, root, None, tuple(configs))
+            version = self._version_from_ini(ini_path, "fbneo")
+        return EmulatorInstallation("fbneo", executable, root, version, tuple(configs))
 
     def _ensure_config(self, emulator: str, name: str, path: Path, validator, *, generator_command: tuple[str, ...] | None = None, cwd: Path | None = None) -> EnsureResult:
         """Valida ou delega a geração de configuração explicitamente autorizada."""
-        spec = EmulatorConfigSpec(emulator=emulator, name=name, path=path, generator_command=generator_command, cwd=cwd or path.parent, validator=validator)
+        spec = EmulatorConfigSpec(
+            emulator=emulator,
+            name=name,
+            path=path,
+            generator_command=generator_command,
+            cwd=cwd or path.parent,
+            validator=validator,
+        )
         try:
             return self.config_service.ensure(spec)
         except (OSError, RuntimeError) as exc:
@@ -146,8 +175,28 @@ class EmulatorDiscoveryService:
         return None
 
     @staticmethod
+    def _version_from_ini(path: Path, emulator: str) -> str | None:
+        """Extrai a versão de cabeçalhos textuais conhecidos sem executar o emulador."""
+        if not path.is_file():
+            return None
+        try:
+            text = path.read_text(encoding="utf-8-sig", errors="ignore")
+        except OSError:
+            logger.exception("Emulator discovery: não foi possível ler INI | emulator=%s | path=%s", emulator, path)
+            return None
+
+        if emulator == "fbneo":
+            match = re.search(r"FinalBurn\s+Neo\s+v([0-9]+(?:\.[0-9]+)+)", text, re.IGNORECASE)
+            if match:
+                return match.group(1)
+
+        # Alguns builds do Supermodel registram a versão em comentário no INI.
+        match = re.search(r"(?:supermodel|version|vers[aã]o)[^0-9]*([0-9]+(?:\.[0-9]+)+[a-z]?)", text, re.IGNORECASE)
+        return match.group(1) if match else None
+
+    @staticmethod
     def _probe_version(executable: Path | None, emulator: str) -> str | None:
-        """Obtém a versão somente para MAME; nenhum emulador é iniciado nos demais casos."""
+        """Obtém a versão somente para MAME; os demais usam seus arquivos de configuração."""
         if executable is None or not executable.is_file():
             return None
         if emulator != "mame":
@@ -191,7 +240,13 @@ class EmulatorDiscoveryService:
                     "root": str(item.root) if item.root else None,
                     "version": item.version,
                     "configs": [
-                        {"name": cfg.name, "path": str(cfg.path), "status": cfg.status, "generated": cfg.generated, "backup": str(cfg.backup) if cfg.backup else None}
+                        {
+                            "name": cfg.name,
+                            "path": str(cfg.path),
+                            "status": cfg.status,
+                            "generated": cfg.generated,
+                            "backup": str(cfg.backup) if cfg.backup else None,
+                        }
                         for cfg in item.configs
                     ],
                     "metadata": dict(item.metadata),
