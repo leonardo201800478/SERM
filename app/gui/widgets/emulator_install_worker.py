@@ -7,6 +7,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal, Slot
 
+from app.config.app_config import AppConfig
 from app.core.services.emulator_install_service import EmulatorInstallService
 
 logger = logging.getLogger(__name__)
@@ -61,6 +62,28 @@ class EmulatorInstallWorker(QObject):
                 nightly=self.nightly,
                 progress=lambda received, total: self.progress.emit(received, total),
             )
+
+            # A descoberta local continua sendo a autoridade para MAME e FBNeo.
+            # Para Flycast e Supermodel, que não oferecem uma CLI de versão
+            # confiável, o release confirmado no download precisa sobreviver ao
+            # refresh da Home e às próximas execuções do aplicativo.
+            try:
+                config = AppConfig()
+                setattr(config, f"{self.emulator}_version", release.tag)
+                setattr(config, f"{self.emulator}_path", Path(executable))
+                setattr(config, f"{self.emulator}_dir", Path(executable).parent)
+                config.save()
+                self._log(
+                    f"VERSÃO PERSISTIDA | emulator={self.emulator} | versão={release.tag} | origem=GitHub release confirmado"
+                )
+            except Exception:
+                logger.exception(
+                    "Emulator worker: falha ao persistir versão | emulator=%s | version=%s",
+                    self.emulator,
+                    release.tag,
+                )
+                self._log("AVISO | instalação concluída, mas a versão não pôde ser persistida")
+
             self._log(
                 f"8/8 INSTALAÇÃO CONCLUÍDA | executável={executable} | release={release.tag} | asset={asset.name}"
             )
