@@ -12,6 +12,7 @@ from app.core.services.emulator_discovery_service import (
     EmulatorInstallation,
 )
 from app.core.services.emulator_persistence_service import EmulatorPersistenceService
+from app.core.services.emulator_version_service import EmulatorVersionInfo, EmulatorVersionService
 
 logger = logging.getLogger(__name__)
 
@@ -29,20 +30,22 @@ class EmulatorStatus:
 
 
 class EmulatorStatusService:
-    """Mantém a Home desacoplada da descoberta e do banco."""
+    """Mantém a Home desacoplada da descoberta, versões e banco."""
 
     def __init__(
         self,
         config: AppConfig | None = None,
         discovery: EmulatorDiscoveryService | None = None,
         persistence: EmulatorPersistenceService | None = None,
+        version_service: EmulatorVersionService | None = None,
     ) -> None:
         self.config = config or AppConfig()
         self.discovery = discovery or EmulatorDiscoveryService()
         self.persistence = persistence or EmulatorPersistenceService()
+        self.version_service = version_service or EmulatorVersionService()
 
     def refresh(self) -> dict[str, EmulatorStatus]:
-        """Redescobre instalações sem iniciar processos ou gerar configurações."""
+        """Redescobre instalações localmente, sem consultar releases remotos."""
         options = EmulatorDiscoveryOptions(
             mame_executable=self.config.mame_path,
             flycast_executable=self.config.flycast_path,
@@ -77,6 +80,30 @@ class EmulatorStatusService:
             )
         return statuses
 
+    def check_available_versions(self, statuses: dict[str, EmulatorStatus] | None = None) -> dict[str, EmulatorVersionInfo]:
+        """Consulta os releases oficiais somente quando explicitamente solicitado.
+
+        Este método é propositalmente separado de ``refresh()`` para que a
+        abertura da Home nunca dependa de rede ou de uma API externa.
+        """
+        current = statuses or self.refresh()
+        result: dict[str, EmulatorVersionInfo] = {}
+        for name in ("mame", "flycast", "supermodel", "fbneo"):
+            status = current.get(name)
+            installed = status.version if status else None
+            root = status.root if status else None
+            result[name] = self.version_service.check(name, installed=installed, root=root)
+            item = result[name]
+            logger.info(
+                "Emulator status: version check | emulator=%s | installed=%s | available=%s | state=%s | release=%s",
+                name,
+                item.installed,
+                item.available,
+                item.status,
+                item.release_tag,
+            )
+        return result
+
     @staticmethod
     def _to_statuses(installations: dict[str, EmulatorInstallation]) -> dict[str, EmulatorStatus]:
         """Converte descoberta em modelos simples para a GUI."""
@@ -99,9 +126,6 @@ class EmulatorStatusService:
     @staticmethod
     def _installation_status(installation: EmulatorInstallation) -> str:
         """Calcula o estado apresentado na Home."""
-        # Configuração válida em uma raiz conhecida é informação suficiente
-        # para não classificar o emulador como simplesmente "não configurado".
-        # O executável ainda é reportado separadamente para diagnóstico.
         if installation.executable is None:
             if any(cfg.status == "valid" for cfg in installation.configs):
                 return "executable_missing"
