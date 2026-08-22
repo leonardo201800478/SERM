@@ -1,6 +1,5 @@
 from PySide6.QtWidgets import QMainWindow, QTabWidget, QStatusBar
 
-# Instala a proteção de leitura ZIP antes de carregar a aba de scanner.
 from app.mame import physical_rom_scanner_guard  # noqa: F401
 from app.gui.tabs.home_tab import HomeTab
 from app.gui.tabs.directories_tab import DirectoriesTab
@@ -33,20 +32,19 @@ class MainWindow(QMainWindow):
         self.tab_widget = QTabWidget()
         self.setCentralWidget(self.tab_widget)
         self.home_tab = HomeTab(self)
+        self.catalogs_tab = EmulatorCatalogsTab(self)
         self.mame_settings_tab = MameSettingsTab(self)
         self.directories_tab = DirectoriesTab(self)
         self.filters_tab = FiltersTab(self, db=self.db)
-        self.catalogs_tab = EmulatorCatalogsTab(self)
         self.shader_test_controller = install_shader_test(self.mame_settings_tab)
         self.scan_tab = ScanRomsTab(self)
         self.reconstruction_tab = ReconstructionTab(self)
 
-        # A ordem mantém as funções existentes e coloca a camada de catálogos
-        # antes da filtragem, para permitir testes isolados antes da integração.
+        # Ordem funcional: Home -> Catálogos -> configuração -> dados -> execução.
         self.tab_widget.addTab(self.home_tab, "Home")
+        self.tab_widget.addTab(self.catalogs_tab, "Catálogos")
         self.tab_widget.addTab(self.mame_settings_tab, "Configurações MAME")
         self.tab_widget.addTab(self.directories_tab, "Diretórios")
-        self.tab_widget.addTab(self.catalogs_tab, "Catálogos")
         self.tab_widget.addTab(self.filters_tab, "Filtragem")
         self.tab_widget.addTab(self.scan_tab, "Scan Roms")
         self.tab_widget.addTab(self.reconstruction_tab, "Reconstrução")
