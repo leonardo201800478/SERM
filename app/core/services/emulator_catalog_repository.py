@@ -1,8 +1,8 @@
 """Persistência dos catálogos independentes dos emuladores.
 
-A camada separa explicitamente sistemas, jogos, dispositivos, BIOS, ROMs e
-mídias. Isso é essencial no MAME: cada elemento ``machine`` representa um
-sistema ou dispositivo, não necessariamente um jogo.
+A camada separa explicitamente sistemas, jogos, dispositivos, BIOS e ROMs.
+No MAME, cada ``machine`` representa um sistema ou dispositivo e não
+necessariamente um jogo.
 """
 from __future__ import annotations
 
@@ -22,7 +22,6 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True, slots=True)
 class CatalogPersistenceResult:
     """Resumo da persistência de um catálogo."""
-
     emulator: str
     version: str | None
     machine_count: int
@@ -42,7 +41,7 @@ class EmulatorCatalogRepository:
         self._ensure_schema()
 
     def _ensure_schema(self) -> None:
-        """Cria as tabelas e atualiza colunas de compatibilidade do catálogo."""
+        """Cria tabelas e acrescenta flags de classificação a bancos antigos."""
         migration = Path(__file__).resolve().parents[2] / "database" / "migrations" / "emulator_catalog.sql"
         if not migration.is_file():
             raise FileNotFoundError(f"Migração de catálogo não encontrada: {migration}")
@@ -58,7 +57,7 @@ class EmulatorCatalogRepository:
         conn.commit()
 
     def replace_from_xml(self, *, emulator: str, version: str | None, source: str, xml_path: Path) -> CatalogPersistenceResult:
-        """Substitui integralmente o catálogo e classifica cada machine."""
+        """Substitui integralmente o catálogo e classifica cada entrada."""
         path = Path(xml_path).expanduser().resolve()
         if not path.is_file():
             raise FileNotFoundError(f"Catálogo XML não encontrado: {path}")
@@ -73,28 +72,19 @@ class EmulatorCatalogRepository:
 
         machine_elements = root.findall("machine") or root.findall("game")
         machines: list[tuple[dict[str, object], list[dict[str, object]], int]] = []
-        rom_count = 0
-        disk_count = 0
-        game_count = 0
-        device_count = 0
-        bios_count = 0
+        rom_count = disk_count = game_count = device_count = bios_count = 0
 
         for machine in machine_elements:
             name = (machine.get("name") or "").strip()
             if not name:
                 continue
-
             is_device = self._xml_bool(machine.get("isdevice"))
             is_bios = self._xml_bool(machine.get("isbios"))
             runnable = self._int_bool(machine.get("runnable"), default=1)
-            # Um jogo é um sistema executável que não é device nem BIOS.
             is_game = bool(runnable and not is_device and not is_bios)
-            if is_device:
-                device_count += 1
-            if is_bios:
-                bios_count += 1
-            if is_game:
-                game_count += 1
+            device_count += int(is_device)
+            bios_count += int(is_bios)
+            game_count += int(is_game)
 
             machine_data = {
                 "name": name,
@@ -112,7 +102,6 @@ class EmulatorCatalogRepository:
                 "emulation_status": self._child_attr(machine, "driver", "status"),
                 "driver_status": self._child_attr(machine, "driver", "status"),
             }
-
             roms: list[dict[str, object]] = []
             for rom in machine.findall("rom"):
                 rom_name = (rom.get("name") or "").strip()
@@ -152,7 +141,6 @@ class EmulatorCatalogRepository:
             catalog_id = cursor.lastrowid
             if catalog_id is None:
                 raise RuntimeError("SQLite não retornou o ID do catálogo")
-
             for machine_data, roms, _ in machines:
                 machine_cursor = conn.execute(
                     """INSERT INTO emulator_catalog_machine
@@ -174,8 +162,8 @@ class EmulatorCatalogRepository:
                         """INSERT INTO emulator_catalog_rom
                            (machine_id, name, size, crc, sha1, merge, region, offset, status, optional, bios)
                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                        [(machine_id, r["name"], r["size"], r["crc"], r["sha1"], r["merge"],
-                          r["region"], r["offset"], r["status"], r["optional"], r["bios"]) for r in roms],
+                        [(machine_id, r["name"], r["size"], r["crc"], r["sha1"], r["merge"], r["region"],
+                          r["offset"], r["status"], r["optional"], r["bios"]) for r in roms],
                     )
             conn.commit()
         except Exception:
@@ -190,47 +178,39 @@ class EmulatorCatalogRepository:
         return CatalogPersistenceResult(emulator_key, version, len(machines), game_count, device_count, bios_count, rom_count, disk_count, content_hash)
 
     def get_catalog(self, emulator: str) -> sqlite3.Row | None:
-        """Retorna os metadados do catálogo atualmente publicado, com contadores normalizados."""
-        return self._catalog_query("WHERE c.emulator = ?", (emulator.strip().casefold(),))
+        """Retorna metadados do catálogo com métricas normalizadas."""
+        rows = self._catalog_rows("WHERE c.emulator = ?", (emulator.strip().casefold(),))
+        return rows[0] if rows else None
 
     def list_catalogs(self) -> list[sqlite3.Row]:
-        """Retorna catálogos com sistemas, jogos, devices, BIOS, ROMs e discos separados."""
+        """Retorna catálogos com sistemas, jogos, devices, BIOS e ROMs."""
+        return self._catalog_rows("", ())
+
+    def _catalog_rows(self, where: str, params: tuple[object, ...]) -> list[sqlite3.Row]:
+        """Calcula métricas sem duplicar contadores persistidos."""
         return self.database.fetchall(
-            """SELECT c.*,
-                      COUNT(DISTINCT m.id) AS system_count,
-                      COALESCE(SUM(CASE WHEN m.runnable = 1 AND m.is_device = 0 AND m.is_bios = 0 THEN 1 ELSE 0 END), 0) AS game_count,
-                      COALESCE(SUM(CASE WHEN m.is_device = 1 THEN 1 ELSE 0 END), 0) AS device_count,
-                      COALESCE(SUM(CASE WHEN m.is_bios = 1 THEN 1 ELSE 0 END), 0) AS bios_count,
-                      COALESCE((SELECT COUNT(*) FROM emulator_catalog_rom r JOIN emulator_catalog_machine rm ON rm.id = r.machine_id WHERE rm.catalog_id = c.id), 0) AS rom_count,
-                      COALESCE((SELECT COUNT(*) FROM emulator_catalog_machine dm JOIN emulator_catalog_machine_catalog_dummy x ON 1=0), 0) AS disk_count_dummy
-               FROM emulator_catalog c
-               LEFT JOIN emulator_catalog_machine m ON m.catalog_id = c.id
-               GROUP BY c.id
-               ORDER BY c.emulator""",
-        )
-
-    def machine_count(self, emulator: str) -> int:
-        """Retorna a quantidade total de sistemas/machines do catálogo."""
-        row = self.database.fetchone("SELECT COUNT(*) AS total FROM emulator_catalog_machine m JOIN emulator_catalog c ON c.id=m.catalog_id WHERE c.emulator=?", (emulator.strip().casefold(),))
-        return int(row["total"]) if row else 0
-
-    def list_machines(self, emulator: str) -> list[sqlite3.Row]:
-        """Retorna máquinas do catálogo ordenadas por nome."""
-        return self.database.fetchall("SELECT m.* FROM emulator_catalog_machine m JOIN emulator_catalog c ON c.id=m.catalog_id WHERE c.emulator=? ORDER BY m.name", (emulator.strip().casefold(),))
-
-    def _catalog_query(self, where: str, params: tuple[object, ...]) -> sqlite3.Row | None:
-        """Retorna um catálogo com métricas derivadas sem duplicar dados."""
-        rows = self.database.fetchall(
-            f"""SELECT c.*, COUNT(DISTINCT m.id) AS system_count,
+            f"""SELECT c.*,
+                       COUNT(DISTINCT m.id) AS system_count,
                        COALESCE(SUM(CASE WHEN m.runnable=1 AND m.is_device=0 AND m.is_bios=0 THEN 1 ELSE 0 END),0) AS game_count,
                        COALESCE(SUM(CASE WHEN m.is_device=1 THEN 1 ELSE 0 END),0) AS device_count,
                        COALESCE(SUM(CASE WHEN m.is_bios=1 THEN 1 ELSE 0 END),0) AS bios_count,
                        COALESCE((SELECT COUNT(*) FROM emulator_catalog_rom r JOIN emulator_catalog_machine rm ON rm.id=r.machine_id WHERE rm.catalog_id=c.id),0) AS rom_count
-                FROM emulator_catalog c LEFT JOIN emulator_catalog_machine m ON m.catalog_id=c.id
-                {where} GROUP BY c.id""",
+                FROM emulator_catalog c
+                LEFT JOIN emulator_catalog_machine m ON m.catalog_id=c.id
+                {where}
+                GROUP BY c.id
+                ORDER BY c.emulator""",
             params,
         )
-        return rows[0] if rows else None
+
+    def machine_count(self, emulator: str) -> int:
+        """Retorna a quantidade total de systems/machines."""
+        row = self.database.fetchone("SELECT COUNT(*) AS total FROM emulator_catalog_machine m JOIN emulator_catalog c ON c.id=m.catalog_id WHERE c.emulator=?", (emulator.strip().casefold(),))
+        return int(row["total"]) if row else 0
+
+    def list_machines(self, emulator: str) -> list[sqlite3.Row]:
+        """Retorna máquinas ordenadas por nome."""
+        return self.database.fetchall("SELECT m.* FROM emulator_catalog_machine m JOIN emulator_catalog c ON c.id=m.catalog_id WHERE c.emulator=? ORDER BY m.name", (emulator.strip().casefold(),))
 
     @staticmethod
     def _sha256(path: Path) -> str:
@@ -257,7 +237,7 @@ class EmulatorCatalogRepository:
 
     @staticmethod
     def _platform(element: ET.Element) -> str | None:
-        """Obtém a feature de plataforma quando existir."""
+        """Obtém feature de plataforma quando disponível."""
         for feature in element.findall("feature"):
             if (feature.get("type") or "").casefold() == "platform":
                 value = feature.get("status") or feature.get("overall")
@@ -266,7 +246,7 @@ class EmulatorCatalogRepository:
 
     @staticmethod
     def _xml_bool(value: str | None) -> bool:
-        """Interpreta booleanos do LISTXML."""
+        """Interpreta booleanos yes/true/1."""
         return (value or "").strip().casefold() in {"yes", "true", "1"}
 
     @staticmethod
@@ -289,7 +269,7 @@ class EmulatorCatalogRepository:
 
     @staticmethod
     def _int_bool(value: str | None, *, default: int) -> int:
-        """Converte atributos booleanos do LISTXML para 0/1."""
+        """Converte atributo booleano do XML para 0/1."""
         if value is None:
             return default
         return 1 if value.strip().casefold() in {"yes", "true", "1"} else 0
