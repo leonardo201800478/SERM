@@ -35,9 +35,9 @@ class HomeTab(QWidget):
     }
 
     EMULATOR_SITES = {
-        "mame": "https://www.mamedev.org/",
-        "flycast": "https://flycast.dev/",
-        "supermodel": "https://supermodel3.com/",
+        "mame": "https://github.com/mamedev/mame",
+        "flycast": "https://github.com/flyinghead/flycast",
+        "supermodel": "https://github.com/trzy/supermodel",
         "fbneo": "https://github.com/finalburnneo/FBNeo",
     }
 
@@ -62,9 +62,6 @@ class HomeTab(QWidget):
         main_layout.setContentsMargins(20, 20, 20, 20)
         main_layout.setSpacing(15)
 
-        # ------------------------------------------------------------------
-        # CABEÇALHO
-        # ------------------------------------------------------------------
         title = QLabel("MAME Set Builder")
         title.setAlignment(Qt.AlignCenter)
         title_font = QFont()
@@ -83,9 +80,6 @@ class HomeTab(QWidget):
         main_layout.addWidget(subtitle)
         main_layout.addSpacing(10)
 
-        # ------------------------------------------------------------------
-        # STATUS DOS EMULADORES
-        # ------------------------------------------------------------------
         status_frame = QFrame()
         status_frame.setObjectName("emulatorStatusFrame")
         status_frame.setStyleSheet(
@@ -122,9 +116,6 @@ class HomeTab(QWidget):
 
         main_layout.addWidget(status_frame)
 
-        # ------------------------------------------------------------------
-        # AÇÕES
-        # ------------------------------------------------------------------
         actions_layout = QHBoxLayout()
         actions_layout.setSpacing(10)
 
@@ -148,9 +139,6 @@ class HomeTab(QWidget):
         main_layout.addLayout(actions_layout)
         main_layout.addStretch()
 
-        # ------------------------------------------------------------------
-        # RODAPÉ
-        # ------------------------------------------------------------------
         footer = QLabel(
             "O software não distribui ROMs. Trabalha apenas com arquivos que o usuário já possui."
         )
@@ -183,8 +171,8 @@ class HomeTab(QWidget):
         path_label.setWordWrap(True)
         layout.addWidget(path_label)
 
-        site_button = QPushButton("🌐 Site oficial")
-        site_button.setToolTip("Abre o site oficial do emulador no navegador.")
+        site_button = QPushButton("🌐 Repositório oficial")
+        site_button.setToolTip("Abre o repositório oficial do emulador no GitHub.")
         site_button.clicked.connect(lambda _checked=False, key=name: self.open_official_site(key))
         layout.addWidget(site_button)
 
@@ -249,7 +237,7 @@ class HomeTab(QWidget):
                     return
 
     def open_official_site(self, emulator: str):
-        """Abre o endereço oficial do emulador selecionado."""
+        """Abre o repositório oficial do emulador selecionado."""
         url = self.EMULATOR_SITES.get(emulator)
         if url:
             webbrowser.open(url)
