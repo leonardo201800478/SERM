@@ -1,8 +1,4 @@
-"""Layer-2 resolver for configuration options.
-
-It combines the stable Layer-1 schema with runtime capabilities. GUI builders
-can therefore request only settings that the detected executable can expose.
-"""
+"""Layer-2 resolver connecting configuration schema to runtime capability data."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -15,7 +11,7 @@ from .runtime import RuntimeCapabilities, discover_all
 
 @dataclass(frozen=True, slots=True)
 class ResolvedSetting:
-    """A schema setting annotated with its runtime availability."""
+    """Layer-2 setting contract consumed directly by Layer-3 widgets."""
 
     setting: Setting
     available: bool
@@ -23,17 +19,17 @@ class ResolvedSetting:
 
 
 class ConfigResolver:
-    """Resolves Layer-1 settings against Layer-2 runtime capabilities."""
+    """Resolve schema settings without changing the Layer-1 contract."""
 
     def __init__(self, runtime: dict[str, RuntimeCapabilities] | None = None) -> None:
         self.runtime = runtime if runtime is not None else discover_all()
 
     def capabilities(self, emulator: str) -> EmulatorCapabilities:
         """Return static capabilities for an emulator."""
-        return get_capabilities(emulator)
+        return get_capabilities(emulator.strip().lower())
 
     def runtime_capabilities(self, emulator: str) -> RuntimeCapabilities:
-        """Return detected capabilities for an emulator."""
+        """Return detected runtime capabilities for an emulator."""
         key = emulator.strip().lower()
         try:
             return self.runtime[key]
@@ -41,33 +37,34 @@ class ConfigResolver:
             raise ValueError(f"Emulador não suportado: {emulator}") from exc
 
     def settings(self, emulator: str, domain: str) -> tuple[ResolvedSetting, ...]:
-        """Resolve every setting in a domain without silently dropping it."""
-        schema = get_schema(emulator)
-        static = self.capabilities(emulator)
-        runtime = self.runtime_capabilities(emulator)
+        """Annotate every schema setting with static/runtime availability."""
+        key = emulator.strip().lower()
+        schema = get_schema(key)
+        static = self.capabilities(key)
+        runtime = self.runtime_capabilities(key)
         try:
             items = schema[domain]
         except KeyError as exc:
-            raise ValueError(f"Domínio não suportado: {emulator}/{domain}") from exc
+            raise ValueError(f"Domínio não suportado: {key}/{domain}") from exc
 
         resolved: list[ResolvedSetting] = []
         for setting in items:
-            if setting.feature is None:
-                resolved.append(ResolvedSetting(setting, True))
-                continue
-            if not static.supports(setting.feature):
+            if setting.feature is not None and not static.supports(setting.feature):
                 resolved.append(ResolvedSetting(setting, False, "Recurso não faz parte deste emulador."))
                 continue
-            if runtime.available and not runtime.supports(setting.feature):
+            if setting.feature is not None and runtime.available and not runtime.supports(setting.feature):
                 resolved.append(ResolvedSetting(setting, False, "Recurso não está disponível nesta instalação."))
                 continue
-            resolved.append(ResolvedSetting(setting, runtime.available, "Executável não detectado." if not runtime.available else None))
+            if not runtime.available:
+                resolved.append(ResolvedSetting(setting, False, "Executável não detectado."))
+                continue
+            resolved.append(ResolvedSetting(setting, True))
         return tuple(resolved)
 
     def visible_settings(self, emulator: str, domain: str) -> tuple[Setting, ...]:
-        """Return only settings currently safe to expose as editable controls."""
+        """Return only controls that are currently editable."""
         return tuple(item.setting for item in self.settings(emulator, domain) if item.available)
 
     def defaults(self, emulator: str, domain: str) -> dict[str, Any]:
-        """Return default values for all visible settings in a domain."""
+        """Return defaults for the controls currently exposed by Layer 2."""
         return {item.key: item.default for item in self.visible_settings(emulator, domain)}
