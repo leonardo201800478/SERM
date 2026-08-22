@@ -1,7 +1,7 @@
 """Camada MAME-aware sobre o motor de reconstrução existente.
 
 Mantém a segurança do ReconstructionEngine e acrescenta semântica de
-LISTXML: baddump, nodump, optional, BIOS, devices, clones e samples.
+LISTXML: baddump, nodump, optional, BIOS, devices, clones, samples e CHDs.
 """
 from __future__ import annotations
 
@@ -9,17 +9,25 @@ import copy
 import json
 import os
 import shutil
+import subprocess
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from app.mame.reconstruction_engine import ReconstructionEngine, ReconstructionMachine, ReconstructionResult
+from app.mame.chd_validator import ChdValidator
+from app.mame.reconstruction_engine import (
+    ReconstructionEngine,
+    ReconstructionMachine,
+    ReconstructionResult,
+    ReconstructionRom,
+)
 
 
 @dataclass(frozen=True, slots=True)
 class MameBuildOptions:
     """Opções expostas pela interface de reconstrução."""
+
     include_clones: bool = True
     include_bios: bool = True
     include_devices: bool = True
@@ -28,25 +36,138 @@ class MameBuildOptions:
 
 
 class MameAwareReconstructionEngine(ReconstructionEngine):
-    """Reconstrutor que aplica a semântica do LISTXML antes do motor físico."""
+    """Reconstrutor que aplica semântica LISTXML antes do motor físico.
 
-    def __init__(self, source_paths: Iterable[str | Path], destination_path: str | Path, *, build_options: MameBuildOptions | None = None, xml_path: str | Path | None = None, progress_callback: Callable[[int, int, str], None] | None = None, log_callback: Callable[[str], None] | None = None, max_retries: int = 2) -> None:
-        super().__init__(source_paths, destination_path, progress_callback=progress_callback, log_callback=log_callback, max_retries=max_retries)
+    CHDs são uma exceção importante: o arquivo físico nunca é validado por
+    SHA-1 bruto. O MAME usa o digest do conteúdo lógico do CHD, e o próprio
+    chdman é a autoridade para validar sua integridade. Depois de validado,
+    o CHD é copiado diretamente para ``<machine>/<disk>.chd``.
+    """
+
+    def __init__(
+        self,
+        source_paths: Iterable[str | Path],
+        destination_path: str | Path,
+        *,
+        build_options: MameBuildOptions | None = None,
+        xml_path: str | Path | None = None,
+        progress_callback: Callable[[int, int, str], None] | None = None,
+        log_callback: Callable[[str], None] | None = None,
+        max_retries: int = 2,
+        chdman_path: str | Path | None = None,
+    ) -> None:
+        super().__init__(
+            source_paths,
+            destination_path,
+            progress_callback=progress_callback,
+            log_callback=log_callback,
+            max_retries=max_retries,
+        )
         self.build_options = build_options or MameBuildOptions()
         self.xml_path = Path(xml_path) if xml_path else None
         self.decisions: list[dict[str, Any]] = []
+        self.chd_validator = ChdValidator(chdman_path)
 
-    def reconstruct(self, machines: list[ReconstructionMachine], *, set_type: str = ReconstructionEngine.SET_SPLIT, copy_perfect: bool = True, repair: bool = True) -> ReconstructionResult:
-        """Aplica opções MAME, executa a reconstrução segura e copia samples."""
+    def reconstruct(
+        self,
+        machines: list[ReconstructionMachine],
+        *,
+        set_type: str = ReconstructionEngine.SET_SPLIT,
+        copy_perfect: bool = True,
+        repair: bool = True,
+    ) -> ReconstructionResult:
+        """Aplica opções MAME, reconstrói ROMs/CHDs e copia samples."""
         self.decisions = []
         catalog = self._load_catalog(self.xml_path)
         prepared = self._prepare_machines(machines, catalog)
-        result = super().reconstruct(prepared, set_type=set_type, copy_perfect=copy_perfect, repair=repair)
+        result = super().reconstruct(
+            prepared,
+            set_type=set_type,
+            copy_perfect=copy_perfect,
+            repair=repair,
+        )
         sample_artifacts = self._copy_samples(prepared, catalog)
         self._write_decision_report(result, sample_artifacts)
         return result
 
-    def _prepare_machines(self, machines: list[ReconstructionMachine], catalog: dict[str, dict]) -> list[ReconstructionMachine]:
+    def _stage_chd(
+        self,
+        chd: ReconstructionRom,
+        machine_dir: Path,
+        result: ReconstructionResult,
+    ) -> Path:
+        """Valida CHD com chdman e só então copia o arquivo para staging.
+
+        O conteúdo do CHD não é recalculado por Python. Isso evita comparar o
+        SHA-1 bruto do arquivo, que não representa o digest lógico usado pelo
+        MAME e pode mudar com a compressão do CHD.
+        """
+        source = self._source_for_rom(chd)
+        if source is None:
+            raise FileNotFoundError("CHD não registrado, inexistente ou fora das fontes configuradas")
+        if source[0] != "chd":
+            raise ValueError(f"origem inválida para CHD: {source[0]}")
+
+        staged = machine_dir / f".{chd.output_name}.tmp"
+        staged.parent.mkdir(parents=True, exist_ok=True)
+
+        for attempt in range(self.max_retries + 1):
+            self._check_cancel()
+            staged.unlink(missing_ok=True)
+            try:
+                self._log(
+                    f"[CHD] VALIDANDO: {chd.machine} -> {chd.output_name} | "
+                    f"chdman={self.chd_validator.chdman_path or 'não configurado'} | tentativa={attempt + 1}"
+                )
+                validation = self.chd_validator.validate(source[1], chd.chd_sha1)
+                if not validation.valid:
+                    raise ValueError(validation.reason)
+
+                shutil.copyfile(source[1], staged)
+                result.chds_verified += 1
+                if attempt:
+                    result.retries += attempt
+                self._log(
+                    f"[CHD] VALIDADO: {chd.machine} -> {chd.output_name} | {validation.reason}"
+                )
+                return staged
+            except Exception as exc:
+                staged.unlink(missing_ok=True)
+                if attempt >= self.max_retries:
+                    raise
+                self._log(f"[CHD] falha: {chd.output_name} | {exc} | repetindo")
+
+        raise RuntimeError("fluxo de retry CHD inválido")
+
+    def _validate_existing_chd(self, target: Path, chd: ReconstructionRom) -> bool:
+        """Valida um CHD já publicado exclusivamente com chdman."""
+        if not target.is_file():
+            return False
+        validation = self.chd_validator.validate(target, chd.chd_sha1)
+        if not validation.valid:
+            self._log(f"[CHD] existente inválido: {target} | {validation.reason}")
+        return validation.valid
+
+    def _publish_chd(self, machine_name: str, chd: ReconstructionRom, staged: Path) -> Path:
+        """Publica atomicamente o CHD já validado, sem uma segunda validação."""
+        machine_dir = self.destination_path / machine_name
+        machine_dir.mkdir(parents=True, exist_ok=True)
+        target = machine_dir / chd.output_name
+        temp = machine_dir / f".{target.name}.tmp"
+        temp.unlink(missing_ok=True)
+        try:
+            os.replace(staged, temp)
+            os.replace(temp, target)
+            self._log(f"[CHD] PUBLICADO: {target}")
+            return target
+        finally:
+            temp.unlink(missing_ok=True)
+
+    def _prepare_machines(
+        self,
+        machines: list[ReconstructionMachine],
+        catalog: dict[str, dict],
+    ) -> list[ReconstructionMachine]:
         """Filtra dependências sem alterar os objetos carregados do manifesto."""
         prepared: list[ReconstructionMachine] = []
         options = self.build_options
@@ -99,14 +220,14 @@ class MameAwareReconstructionEngine(ReconstructionEngine):
         return prepared
 
     @staticmethod
-    def _invalid_reason(rom, mame_status: str) -> str:
+    def _invalid_reason(rom: ReconstructionRom, mame_status: str) -> str:
         """Monta diagnóstico determinístico para uma ROM inválida."""
         reasons: list[str] = []
-        if rom.expected_size > 0 and rom.actual_size != rom.expected_size:
-            reasons.append(f"tamanho esperado {rom.expected_size} bytes, encontrado {rom.actual_size}")
-        if rom.expected_crc and rom.actual_crc and rom.expected_crc.lower() != rom.actual_crc.lower():
+        if rom.expected_size > 0 and getattr(rom, "actual_size", 0) != rom.expected_size:
+            reasons.append(f"tamanho esperado {rom.expected_size} bytes")
+        if rom.expected_crc and getattr(rom, "actual_crc", None) and rom.expected_crc.lower() != str(rom.actual_crc).lower():
             reasons.append(f"CRC esperado {rom.expected_crc.lower()}, encontrado {rom.actual_crc.lower()}")
-        if rom.expected_sha1 and rom.actual_sha1 and rom.expected_sha1.lower() != rom.actual_sha1.lower():
+        if rom.expected_sha1 and getattr(rom, "actual_sha1", None) and rom.expected_sha1.lower() != str(rom.actual_sha1).lower():
             reasons.append("SHA-1 divergente")
         if not reasons:
             reasons.append("arquivo físico não corresponde aos identificadores conhecidos")
@@ -146,7 +267,18 @@ class MameAwareReconstructionEngine(ReconstructionEngine):
     def _write_decision_report(self, result: ReconstructionResult, sample_artifacts: list[dict]) -> None:
         """Persiste decisões sem misturá-las ao manifesto residual de pendências."""
         output = self.destination_path / "reconstruction-decisions.json"
-        payload = {"options": {"include_clones": self.build_options.include_clones, "include_bios": self.build_options.include_bios, "include_devices": self.build_options.include_devices, "include_samples": self.build_options.include_samples, "include_optional": self.build_options.include_optional}, "decisions": self.decisions, "sample_artifacts": sample_artifacts, "unresolved_count": len(result.unresolved)}
+        payload = {
+            "options": {
+                "include_clones": self.build_options.include_clones,
+                "include_bios": self.build_options.include_bios,
+                "include_devices": self.build_options.include_devices,
+                "include_samples": self.build_options.include_samples,
+                "include_optional": self.build_options.include_optional,
+            },
+            "decisions": self.decisions,
+            "sample_artifacts": sample_artifacts,
+            "unresolved_count": len(result.unresolved),
+        }
         partial = output.with_suffix(".json.partial")
         partial.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
         os.replace(partial, output)
@@ -175,7 +307,25 @@ class MameAwareReconstructionEngine(ReconstructionEngine):
             for rom in machine.findall("rom"):
                 rom_name = rom.get("name", "")
                 if rom_name:
-                    roms[rom_name] = {"status": rom.get("status", "good"), "optional": str(rom.get("optional", "")).lower() in {"yes", "true", "1"}, "bios": rom.get("bios", "") or ""}
-            samples = tuple(dict.fromkeys(value for value in (machine.get("sampleof", ""), *(node.get("name", "") for node in machine.findall("sample"))) if value))
-            catalog[name] = {"is_bios": str(machine.get("isbios", "")).lower() == "yes", "is_device": str(machine.get("isdevice", "")).lower() == "yes", "samples": samples, "roms": roms}
+                    roms[rom_name] = {
+                        "status": rom.get("status", "good"),
+                        "optional": str(rom.get("optional", "")).lower() in {"yes", "true", "1"},
+                        "bios": rom.get("bios", "") or "",
+                    }
+            samples = tuple(
+                dict.fromkeys(
+                    value
+                    for value in (
+                        machine.get("sampleof", ""),
+                        *(node.get("name", "") for node in machine.findall("sample")),
+                    )
+                    if value
+                )
+            )
+            catalog[name] = {
+                "is_bios": str(machine.get("isbios", "")).lower() == "yes",
+                "is_device": str(machine.get("isdevice", "")).lower() == "yes",
+                "samples": samples,
+                "roms": roms,
+            }
         return catalog

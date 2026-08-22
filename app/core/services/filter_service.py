@@ -4,9 +4,12 @@ import sqlite3
 import logging
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
+import xml.etree.ElementTree as ET
 
 from app.core.constants.macro_categories import get_macro_category, macro_sort_key
 from app.core.models.filter_profile import FilterCriteria, FilterProfile
+from app.core.services.emulator_platform_resolver import EmulatorPlatformResolver
+from app.core.services.reconstruction_profiles import ReconstructionTarget
 from app.database.repositories.category_repository import CategoryRepository
 from app.database.repositories.filter_profile_repository import FilterProfileRepository
 
@@ -14,10 +17,19 @@ logger = logging.getLogger(__name__)
 
 
 class FilterService:
+    """Aplica os filtros persistidos e, opcionalmente, um perfil de emulador."""
+
     def __init__(self, conn: sqlite3.Connection):
         self.conn = conn
         self.category_repo = CategoryRepository(conn)
         self.profile_repo = FilterProfileRepository(conn)
+        # Sem manifesto, FBNeo permanece conservador: nenhuma machine é
+        # afirmada como FBNeo. O manifesto pode ser carregado posteriormente.
+        self.platform_resolver = EmulatorPlatformResolver()
+
+    def load_fbneo_manifest(self, manifest_path: Path) -> None:
+        """Carrega o manifesto de machines suportadas pelo FBNeo."""
+        self.platform_resolver = EmulatorPlatformResolver.from_manifest(manifest_path)
 
     # ========================================================================
     # CATEGORIAS
@@ -45,9 +57,7 @@ class FilterService:
     # ========================================================================
 
     def get_macro_categories_with_counts(self) -> List[Dict[str, Any]]:
-        """Agrupa as categorias granulares em macro-grupos, somando as
-        contagens. Categorias sem mapeamento explícito caem em
-        ``UNCLASSIFIED_MACRO`` — nunca são descartadas silenciosamente."""
+        """Agrupa as categorias granulares em macro-grupos."""
         granular = self.get_categories_with_counts()
         groups: Dict[str, Dict[str, Any]] = {}
         for cat in granular:
@@ -60,14 +70,8 @@ class FilterService:
         return sorted(groups.values(), key=lambda g: macro_sort_key(g["macro_name"]))
 
     def import_categories_from_ini(self, ini_path: Path) -> Tuple[int, int, List[str]]:
-        """Ponto de entrada genérico. Nesta fase do projeto, o único
-        formato de INI de categorias suportado é o ``catver.ini``, então
-        delega diretamente para ele em vez de retornar ``None``."""
+        """Importa categorias usando o parser de ``catver.ini``."""
         return self.import_categories_from_catver(ini_path)
-
-    # ========================================================================
-    # IMPORTAÇÃO DO CATVER.INI (com remoção de categorias indesejadas)
-    # ========================================================================
 
     def import_categories_from_catver(self, catver_path: Path) -> Tuple[int, int, List[str]]:
         if not catver_path.exists():
@@ -93,7 +97,6 @@ class FilterService:
                 line = line.strip()
                 if not line or line.startswith(";"):
                     continue
-
                 if line.startswith("[") and line.endswith("]"):
                     section = line[1:-1].strip()
                     if section == "Category":
@@ -103,28 +106,24 @@ class FilterService:
                         break
                     in_category_section = False
                     continue
-
                 if not in_category_section or "=" not in line:
                     continue
 
                 rom_name, cat_full = line.split("=", 1)
                 rom_name = rom_name.strip()
                 cat_full = cat_full.strip().replace(" * Mature *", "").strip()
-
                 if "/" in cat_full:
                     primary = cat_full.split("/", 1)[0].strip()
                 elif ":" in cat_full:
                     primary = cat_full.split(":", 1)[0].strip()
                 else:
                     primary = cat_full
-
                 if not primary:
                     continue
 
                 cat_name = normalize_cat_name(primary)
                 if cat_name in UNWANTED_CATEGORIES:
                     continue
-
                 if cat_name not in cat_cache:
                     cursor.execute("SELECT id FROM category WHERE name = ?", (cat_name,))
                     row = cursor.fetchone()
@@ -160,6 +159,7 @@ class FilterService:
     # ========================================================================
 
     def _build_filter_query(self, criteria: FilterCriteria) -> tuple[str, list]:
+        """Constrói a parte SQL dos filtros que o banco consegue resolver."""
         query = "SELECT DISTINCT m.id FROM machine m"
         params: list = []
         where_clauses: list = []
@@ -170,7 +170,6 @@ class FilterService:
                 placeholders = ",".join(["?"] * len(status_list))
                 where_clauses.append(f"m.emulation_status IN ({placeholders})")
                 params.extend(status_list)
-
         if not criteria.include_clones:
             where_clauses.append("(m.cloneof IS NULL OR m.cloneof = '')")
         if not criteria.include_bios:
@@ -179,25 +178,20 @@ class FilterService:
             where_clauses.append("m.is_device = 0")
         if not criteria.include_chd:
             where_clauses.append("NOT EXISTS (SELECT 1 FROM disk d WHERE d.machine_id = m.id)")
-
         if criteria.exclude_categories:
             placeholders = ",".join(["?"] * len(criteria.exclude_categories))
             where_clauses.append(
-                f"NOT EXISTS (SELECT 1 FROM machine_category mc "
-                f"JOIN category c ON c.id = mc.category_id "
+                "NOT EXISTS (SELECT 1 FROM machine_category mc JOIN category c ON c.id = mc.category_id "
                 f"WHERE mc.machine_id = m.id AND c.name IN ({placeholders}))"
             )
             params.extend(criteria.exclude_categories)
-
         if criteria.include_categories:
             placeholders = ",".join(["?"] * len(criteria.include_categories))
             where_clauses.append(
-                f"EXISTS (SELECT 1 FROM machine_category mc "
-                f"JOIN category c ON c.id = mc.category_id "
+                "EXISTS (SELECT 1 FROM machine_category mc JOIN category c ON c.id = mc.category_id "
                 f"WHERE mc.machine_id = m.id AND c.name IN ({placeholders}))"
             )
             params.extend(criteria.include_categories)
-
         if criteria.arcade_systems:
             placeholders = ",".join(["?"] * len(criteria.arcade_systems))
             where_clauses.append(f"m.name IN ({placeholders})")
@@ -205,78 +199,114 @@ class FilterService:
 
         if where_clauses:
             query += " WHERE " + " AND ".join(where_clauses)
-
         return query, params
+
+    def _apply_emulator_target(self, machine_ids: List[int], criteria: FilterCriteria) -> List[int]:
+        """Aplica o perfil de emulador após os filtros SQL.
+
+        A resolução é feita sobre os metadados armazenados no banco, sem
+        reabrir o LISTXML. Isso mantém o SQL simples e evita duplicar no banco
+        as regras específicas de cada emulador.
+        """
+        target_name = (criteria.emulator_target or "mame").strip().lower()
+        if target_name in {"", "mame"}:
+            return machine_ids
+        try:
+            target = ReconstructionTarget(target_name)
+        except ValueError as exc:
+            raise ValueError(f"Destino de emulador inválido: {target_name}") from exc
+
+        if not machine_ids:
+            return []
+
+        placeholders = ",".join("?" for _ in machine_ids)
+        rows = self.conn.execute(
+            f"SELECT id, name, description, sourcefile, is_bios, is_device FROM machine WHERE id IN ({placeholders})",
+            machine_ids,
+        ).fetchall()
+
+        accepted: set[int] = set()
+        for row in rows:
+            machine = ET.Element("machine", {
+                "name": row[1] or "",
+                "sourcefile": row[3] or "",
+                "isbios": "yes" if row[4] else "no",
+                "isdevice": "yes" if row[5] else "no",
+            })
+            ET.SubElement(machine, "description").text = row[2] or ""
+            resolution = self.platform_resolver.resolve(machine)
+            if resolution.supported and resolution.target is target:
+                accepted.add(row[0])
+
+        return [machine_id for machine_id in machine_ids if machine_id in accepted]
+
+    def _get_filtered_machine_ids(self, criteria: FilterCriteria) -> List[int]:
+        """Retorna os IDs finais após SQL + resolução de plataforma."""
+        query, params = self._build_filter_query(criteria)
+        ids = [row[0] for row in self.conn.execute(query, params).fetchall()]
+        return self._apply_emulator_target(ids, criteria)
 
     # ========================================================================
     # MÉTODOS PÚBLICOS
     # ========================================================================
 
     def apply_filters(self, criteria: FilterCriteria) -> List[int]:
-        query, params = self._build_filter_query(criteria)
-        cursor = self.conn.execute(query, params)
-        return [row[0] for row in cursor.fetchall()]
+        return self._get_filtered_machine_ids(criteria)
 
     def get_machine_names(self, criteria: FilterCriteria) -> List[str]:
-        """Nomes (``machine.name``) das máquinas filtradas — usados pela
-        exportação de listxml, que localiza máquinas pelo atributo
-        ``<machine name="...">``, não pelo id autoincrement do banco."""
-        query, params = self._build_filter_query(criteria)
-        name_query = query.replace(
-            "SELECT DISTINCT m.id FROM machine m", "SELECT DISTINCT m.name FROM machine m", 1,
-        )
-        cursor = self.conn.execute(name_query, params)
-        return [row[0] for row in cursor.fetchall()]
+        """Retorna os nomes das machines após todos os filtros."""
+        ids = self._get_filtered_machine_ids(criteria)
+        if not ids:
+            return []
+        placeholders = ",".join("?" for _ in ids)
+        rows = self.conn.execute(
+            f"SELECT name FROM machine WHERE id IN ({placeholders}) ORDER BY name", ids
+        ).fetchall()
+        return [row[0] for row in rows]
 
     def get_machine_count(self, criteria: FilterCriteria) -> int:
-        query, params = self._build_filter_query(criteria)
-        count_query = query.replace(
-            "SELECT DISTINCT m.id FROM machine m", "SELECT COUNT(DISTINCT m.id) FROM machine m", 1,
-        )
-        cursor = self.conn.execute(count_query, params)
-        return cursor.fetchone()[0]
+        return len(self._get_filtered_machine_ids(criteria))
 
     def get_rom_count(self, criteria: FilterCriteria) -> int:
-        query, params = self._build_filter_query(criteria)
-        count_query = f"""
-            SELECT COUNT(*) FROM rom r
-            WHERE EXISTS (SELECT 1 FROM ({query}) AS fm WHERE fm.id = r.machine_id)
-        """
-        cursor = self.conn.execute(count_query, params)
-        return cursor.fetchone()[0]
+        ids = self._get_filtered_machine_ids(criteria)
+        if not ids:
+            return 0
+        placeholders = ",".join("?" for _ in ids)
+        return self.conn.execute(
+            f"SELECT COUNT(*) FROM rom WHERE machine_id IN ({placeholders})", ids
+        ).fetchone()[0]
 
     def get_chd_count(self, criteria: FilterCriteria) -> int:
-        query, params = self._build_filter_query(criteria)
-        count_query = f"""
-            SELECT COUNT(*) FROM disk d
-            WHERE EXISTS (SELECT 1 FROM ({query}) AS fm WHERE fm.id = d.machine_id)
-        """
-        cursor = self.conn.execute(count_query, params)
-        return cursor.fetchone()[0]
+        ids = self._get_filtered_machine_ids(criteria)
+        if not ids:
+            return 0
+        placeholders = ",".join("?" for _ in ids)
+        return self.conn.execute(
+            f"SELECT COUNT(*) FROM disk WHERE machine_id IN ({placeholders})", ids
+        ).fetchone()[0]
 
     def get_estimated_size(self, criteria: FilterCriteria) -> int:
-        query, params = self._build_filter_query(criteria)
-        size_query = f"""
-            SELECT
-                COALESCE((SELECT SUM(r.size) FROM rom r
-                    WHERE EXISTS (SELECT 1 FROM ({query}) AS fm WHERE fm.id = r.machine_id)), 0)
-                +
-                COALESCE((SELECT SUM(d.size) FROM disk d
-                    WHERE EXISTS (SELECT 1 FROM ({query}) AS fm WHERE fm.id = d.machine_id)), 0)
-        """
-        cursor = self.conn.execute(size_query, params + params)
-        result = cursor.fetchone()
-        return result[0] if result else 0
+        ids = self._get_filtered_machine_ids(criteria)
+        if not ids:
+            return 0
+        placeholders = ",".join("?" for _ in ids)
+        rom_size = self.conn.execute(
+            f"SELECT COALESCE(SUM(size), 0) FROM rom WHERE machine_id IN ({placeholders})", ids
+        ).fetchone()[0]
+        chd_size = self.conn.execute(
+            f"SELECT COALESCE(SUM(size), 0) FROM disk WHERE machine_id IN ({placeholders})", ids
+        ).fetchone()[0]
+        return rom_size + chd_size
 
     def get_unscanned_chd_count(self, criteria: FilterCriteria) -> int:
-        query, params = self._build_filter_query(criteria)
-        count_query = f"""
-            SELECT COUNT(*) FROM disk d
-            WHERE (d.size IS NULL OR d.size = 0)
-            AND EXISTS (SELECT 1 FROM ({query}) AS fm WHERE fm.id = d.machine_id)
-        """
-        cursor = self.conn.execute(count_query, params)
-        return cursor.fetchone()[0]
+        ids = self._get_filtered_machine_ids(criteria)
+        if not ids:
+            return 0
+        placeholders = ",".join("?" for _ in ids)
+        return self.conn.execute(
+            f"SELECT COUNT(*) FROM disk WHERE (size IS NULL OR size = 0) AND machine_id IN ({placeholders})",
+            ids,
+        ).fetchone()[0]
 
     # ========================================================================
     # PERFIS
