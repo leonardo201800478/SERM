@@ -34,72 +34,132 @@ class EmulatorInstallService:
     DOWNLOAD_TIMEOUT = 60
     MAX_DOWNLOAD_RETRIES = 3
 
+    def __init__(self, log_callback=None) -> None:
+        """Inicializa o serviço com um callback opcional para diagnóstico visual."""
+        self._log_callback = log_callback
+
+    def _log(self, message: str) -> None:
+        """Registra uma etapa tanto no logger quanto na interface quando disponível."""
+        logger.info("Emulator install: %s", message)
+        if self._log_callback is not None:
+            try:
+                self._log_callback(message)
+            except Exception:
+                logger.exception("Emulator install: falha ao enviar log para GUI")
+
     def release(self, emulator: str, *, nightly: bool = False) -> ReleaseInfo:
-        """Obtém metadados do release oficial solicitado e registra diagnóstico."""
-        logger.info("Emulator install: consultando release | emulator=%s | nightly=%s", emulator, nightly)
+        """Obtém metadados do release oficial solicitado."""
+        self._log(f"PROCURANDO RELEASE | emulator={emulator} | nightly={nightly}")
         try:
             release = latest_nightly_release(emulator) if nightly else latest_release(emulator)
         except Exception:
             logger.exception("Emulator install: falha ao consultar GitHub | emulator=%s", emulator)
             raise
-        logger.info("Emulator install: release encontrado | emulator=%s | tag=%s | assets=%d", emulator, release.tag, len(release.assets))
+        self._log(
+            f"RELEASE ENCONTRADO | tag={release.tag} | nome={release.name} | assets={len(release.assets)}"
+        )
         return release
 
     def select_asset(self, release: ReleaseInfo) -> ReleaseAsset:
         """Seleciona o pacote Windows x64 oficial disponível no release."""
-        logger.info("Emulator install: avaliando assets | emulator=%s | release=%s", release.emulator, release.tag)
+        self._log(f"PROCURANDO PACOTE | release={release.tag} | assets={len(release.assets)}")
         for asset in release.assets:
-            logger.debug("Emulator install: asset=%s | size=%d | url=%s", asset.name, asset.size, asset.url)
+            logger.debug(
+                "Emulator install: asset=%s | size=%d | url=%s",
+                asset.name,
+                asset.size,
+                asset.url,
+            )
+            self._log(
+                f"ASSET | {asset.name} | {asset.size:,} bytes | {asset.url}"
+            )
         asset = choose_windows_x64_asset(release)
         if asset is None:
-            logger.error("Emulator install: nenhum asset Windows x64 selecionado | emulator=%s | release=%s", release.emulator, release.tag)
-            raise EmulatorInstallError(f"Nenhum pacote Windows x64 foi encontrado no release {release.tag!r}.")
-        logger.info("Emulator install: asset selecionado | emulator=%s | asset=%s | size=%d", release.emulator, asset.name, asset.size)
+            self._log("ERRO | nenhum pacote Windows x64 compatível foi encontrado")
+            raise EmulatorInstallError(
+                f"Nenhum pacote Windows x64 foi encontrado no release {release.tag!r}."
+            )
+        self._log(
+            f"PACOTE SELECIONADO | {asset.name} | {asset.size:,} bytes | {asset.url}"
+        )
         return asset
 
-    def download_and_install(self, emulator: str, destination: Path, *, nightly: bool = False, progress=None) -> tuple[ReleaseInfo, ReleaseAsset, Path]:
-        """Baixa, valida e instala sem destruir a instalação existente."""
+    def download_and_install(
+        self,
+        emulator: str,
+        destination: Path,
+        *,
+        nightly: bool = False,
+        progress=None,
+    ) -> tuple[ReleaseInfo, ReleaseAsset, Path]:
+        """Baixa, valida, extrai/instala e valida o executável final."""
         destination = Path(destination).expanduser().resolve()
-        logger.info("Emulator install: início | emulator=%s | destination=%s", emulator, destination)
+        self._log(f"INÍCIO DA INSTALAÇÃO | emulator={emulator} | destino={destination}")
         try:
             destination.mkdir(parents=True, exist_ok=True)
+            self._log(f"PASTA DE DESTINO PRONTA | {destination}")
+
             release = self.release(emulator, nightly=nightly)
             asset = self.select_asset(release)
 
             with tempfile.TemporaryDirectory(prefix="mame-set-builder-emu-") as temp_name:
                 temp_dir = Path(temp_name)
                 archive = temp_dir / asset.name
+                self._log(f"ARQUIVO TEMPORÁRIO | {archive}")
                 self._download(asset, archive, progress)
-                size = archive.stat().st_size
-                logger.info("Emulator install: download concluído | emulator=%s | file=%s | bytes=%d", emulator, archive, size)
-                if asset.size and size != asset.size:
-                    raise EmulatorInstallError(f"Download incompleto: recebido {size} bytes, esperado {asset.size}.")
 
+                size = archive.stat().st_size
+                self._log(
+                    f"DOWNLOAD FINALIZADO | arquivo={archive} | recebido={size:,} bytes | esperado={asset.size:,} bytes"
+                )
+                if asset.size and size != asset.size:
+                    raise EmulatorInstallError(
+                        f"Download incompleto: recebido {size} bytes, esperado {asset.size}."
+                    )
+
+                self._log(f"VALIDANDO ARQUIVO BAIXADO | {archive}")
                 if archive.suffix.lower() == ".exe":
+                    self._log("PACOTE É EXECUTÁVEL | iniciando cópia para destino")
                     self._install_executable(archive, destination, emulator)
                 else:
+                    self._log(f"PACOTE É ARQUIVO COMPACTADO | extensão={archive.suffix}")
                     extract_dir = temp_dir / "extracted"
                     extract_dir.mkdir()
+                    self._log(f"INICIANDO DESCOMPACTAÇÃO | origem={archive} | destino={extract_dir}")
                     self._extract_archive(archive, extract_dir)
+                    self._log("DESCOMPACTAÇÃO CONCLUÍDA | analisando estrutura do pacote")
                     source_root = self._package_root(extract_dir)
+                    self._log(f"RAIZ DO PACOTE | {source_root}")
                     self._validate_root_install(source_root, emulator)
+                    self._log("VALIDAÇÃO DO PACOTE CONCLUÍDA | iniciando movimentação/mesclagem")
                     self._merge_into_destination(source_root, destination)
+                    self._log("MOVIMENTAÇÃO/MESCLAGEM CONCLUÍDA")
 
+            self._log("PROCURANDO EXECUTÁVEL INSTALADO NO DESTINO")
             executable = self._find_executable(destination, emulator)
             if executable is None:
-                raise EmulatorInstallError(f"O pacote de {emulator} foi processado, mas nenhum executável foi encontrado diretamente no diretório selecionado.")
-            logger.info("Emulator install: instalação validada | emulator=%s | executable=%s | release=%s", emulator, executable, release.tag)
+                raise EmulatorInstallError(
+                    f"O pacote de {emulator} foi processado, mas nenhum executável foi encontrado diretamente no diretório selecionado."
+                )
+            self._log(f"EXECUTÁVEL ENCONTRADO | {executable}")
+            self._log(f"INSTALAÇÃO VALIDADA | emulator={emulator} | release={release.tag}")
             return release, asset, executable
         except EmulatorInstallError:
             logger.exception("Emulator install: operação rejeitada | emulator=%s", emulator)
             raise
         except Exception as exc:
-            logger.exception("Emulator install: falha inesperada | emulator=%s | destination=%s", emulator, destination)
-            raise EmulatorInstallError(f"Falha inesperada na instalação de {emulator}: {type(exc).__name__}: {exc}") from exc
+            logger.exception(
+                "Emulator install: falha inesperada | emulator=%s | destination=%s",
+                emulator,
+                destination,
+            )
+            raise EmulatorInstallError(
+                f"Falha inesperada na instalação de {emulator}: {type(exc).__name__}: {exc}"
+            ) from exc
 
     @classmethod
     def _download(cls, asset: ReleaseAsset, target: Path, progress=None) -> None:
-        """Baixa o asset em blocos, com retry e diagnóstico por bloco, sem carregar o arquivo na memória."""
+        """Baixa o asset em blocos com retry e diagnóstico detalhado."""
         logger.info("Emulator install: download iniciado | url=%s | target=%s", asset.url, target)
         last_error: Exception | None = None
 
@@ -107,6 +167,12 @@ class EmulatorInstallService:
             received = 0
             started = time.monotonic()
             try:
+                logger.info(
+                    "Emulator install: tentando download | attempt=%d/%d | url=%s",
+                    attempt,
+                    cls.MAX_DOWNLOAD_RETRIES,
+                    asset.url,
+                )
                 request = Request(
                     asset.url,
                     headers={
@@ -115,12 +181,24 @@ class EmulatorInstallService:
                         "Accept-Encoding": "identity",
                     },
                 )
-                logger.info("Emulator install: conexão | attempt=%d/%d | url=%s", attempt, cls.MAX_DOWNLOAD_RETRIES, asset.url)
-                with urlopen(request, timeout=cls.DOWNLOAD_TIMEOUT, context=ssl.create_default_context()) as response:
+                with urlopen(
+                    request,
+                    timeout=cls.DOWNLOAD_TIMEOUT,
+                    context=ssl.create_default_context(),
+                ) as response:
                     total_header = response.headers.get("Content-Length")
-                    total = int(total_header) if total_header and total_header.isdigit() else int(asset.size or 0)
+                    total = (
+                        int(total_header)
+                        if total_header and total_header.isdigit()
+                        else int(asset.size or 0)
+                    )
                     status = getattr(response, "status", None)
-                    logger.info("Emulator install: conexão estabelecida | status=%s | total=%d | content-type=%s", status, total, response.headers.get("Content-Type"))
+                    logger.info(
+                        "Emulator install: conexão estabelecida | status=%s | total=%d | content-type=%s",
+                        status,
+                        total,
+                        response.headers.get("Content-Type"),
+                    )
                     if status is not None and status >= 400:
                         raise EmulatorInstallError(f"Servidor retornou HTTP {status}.")
 
@@ -130,7 +208,9 @@ class EmulatorInstallService:
                             try:
                                 chunk = response.read(cls.DOWNLOAD_CHUNK_SIZE)
                             except socket.timeout as exc:
-                                raise EmulatorInstallError(f"Timeout durante leitura após {received} bytes.") from exc
+                                raise EmulatorInstallError(
+                                    f"Timeout durante leitura após {received} bytes."
+                                ) from exc
                             if not chunk:
                                 break
                             output.write(chunk)
@@ -139,113 +219,191 @@ class EmulatorInstallService:
                             chunk_number += 1
                             elapsed = max(time.monotonic() - started, 0.001)
                             speed = received / elapsed / (1024 * 1024)
-                            logger.info("Emulator install: chunk=%d | received=%d | total=%d | progress=%.2f%% | speed=%.2f MiB/s", chunk_number, received, total, (received / total * 100.0) if total else 0.0, speed)
+                            percent = received / total * 100.0 if total else 0.0
                             if progress:
                                 progress(received, total)
+                            if chunk_number == 1 or chunk_number % 10 == 0 or (total and received >= total):
+                                logger.info(
+                                    "Emulator install: recebendo arquivo | chunk=%d | recebido=%s/%s bytes | %.2f%% | %.2f MiB/s",
+                                    chunk_number,
+                                    f"{received:,}",
+                                    f"{total:,}",
+                                    percent,
+                                    speed,
+                                )
 
-                logger.info("Emulator install: stream encerrado | received=%d | expected=%d", received, total)
+                logger.info(
+                    "Emulator install: stream encerrado | received=%d | expected=%d",
+                    received,
+                    total,
+                )
                 if total and received != total:
-                    raise EmulatorInstallError(f"Download incompleto: recebido {received} bytes, esperado {total}.")
+                    raise EmulatorInstallError(
+                        f"Download incompleto: recebido {received} bytes, esperado {total}."
+                    )
                 if received <= 0:
                     raise EmulatorInstallError("Download retornou zero bytes.")
                 return
             except (HTTPError, URLError, TimeoutError, socket.timeout, OSError, EmulatorInstallError) as exc:
                 last_error = exc
-                logger.exception("Emulator install: falha no download | attempt=%d/%d | received=%d", attempt, cls.MAX_DOWNLOAD_RETRIES, received)
+                logger.exception(
+                    "Emulator install: falha no download | attempt=%d/%d | received=%d",
+                    attempt,
+                    cls.MAX_DOWNLOAD_RETRIES,
+                    received,
+                )
                 try:
                     if target.exists():
                         target.unlink()
                 except OSError:
-                    logger.warning("Emulator install: não foi possível remover download parcial | target=%s", target)
+                    logger.warning(
+                        "Emulator install: não foi possível remover download parcial | target=%s",
+                        target,
+                    )
                 if attempt < cls.MAX_DOWNLOAD_RETRIES:
                     delay = attempt * 2
-                    logger.info("Emulator install: retry em %ds | attempt=%d/%d", delay, attempt + 1, cls.MAX_DOWNLOAD_RETRIES)
+                    logger.info(
+                        "Emulator install: retry em %ds | attempt=%d/%d",
+                        delay,
+                        attempt + 1,
+                        cls.MAX_DOWNLOAD_RETRIES,
+                    )
                     time.sleep(delay)
             except Exception as exc:
-                logger.exception("Emulator install: falha não prevista no stream | attempt=%d/%d | received=%d", attempt, cls.MAX_DOWNLOAD_RETRIES, received)
+                logger.exception(
+                    "Emulator install: falha não prevista no stream | attempt=%d/%d | received=%d",
+                    attempt,
+                    cls.MAX_DOWNLOAD_RETRIES,
+                    received,
+                )
                 last_error = exc
                 break
 
-        raise EmulatorInstallError(f"Falha no download de {asset.name} após {cls.MAX_DOWNLOAD_RETRIES} tentativa(s): {type(last_error).__name__}: {last_error}") from last_error
+        raise EmulatorInstallError(
+            f"Falha no download de {asset.name} após {cls.MAX_DOWNLOAD_RETRIES} tentativa(s): "
+            f"{type(last_error).__name__}: {last_error}"
+        ) from last_error
 
     @staticmethod
     def _install_executable(source: Path, destination: Path, emulator: str) -> None:
-        """Instala um executável oficial, como o pacote do MAME."""
+        """Copia o executável para o destino e informa se haverá sobrescrita."""
         preferred = {"mame": "mame.exe"}.get(emulator.lower())
         target = destination / (preferred or source.name)
-        logger.info("Emulator install: copiando executável | source=%s | target=%s", source, target)
+        logger.info("Emulator install: tentativa de abertura/cópia | source=%s | target=%s", source, target)
+        if target.exists():
+            logger.info("Emulator install: SOBRESCREVENDO arquivo existente | target=%s", target)
+        else:
+            logger.info("Emulator install: criando novo arquivo | target=%s", target)
         try:
             shutil.copy2(source, target)
+            logger.info("Emulator install: arquivo copiado com sucesso | target=%s | bytes=%d", target, target.stat().st_size)
         except OSError as exc:
             logger.exception("Emulator install: falha ao copiar executável | target=%s", target)
             raise EmulatorInstallError(f"Não foi possível instalar {source.name}: {exc}") from exc
 
     @staticmethod
     def _extract_archive(archive: Path, destination: Path) -> None:
-        """Extrai um ZIP sem permitir escrita fora da área temporária."""
-        logger.info("Emulator install: extraindo ZIP | archive=%s", archive)
+        """Abre o ZIP, valida todos os caminhos e extrai os arquivos."""
+        logger.info("Emulator install: tentando abrir pacote | archive=%s", archive)
         if not zipfile.is_zipfile(archive):
-            raise EmulatorInstallError(f"O pacote {archive.name} não é um ZIP compatível com a instalação automática.")
+            raise EmulatorInstallError(
+                f"O pacote {archive.name} não é um ZIP compatível com a instalação automática."
+            )
         try:
             with zipfile.ZipFile(archive) as zf:
+                members = zf.infolist()
+                logger.info(
+                    "Emulator install: ZIP aberto | arquivos=%d | tamanho=%d bytes",
+                    len(members),
+                    archive.stat().st_size,
+                )
                 base = destination.resolve()
-                for member in zf.infolist():
+                for index, member in enumerate(members, start=1):
                     target = (destination / member.filename).resolve()
                     if target != base and base not in target.parents:
                         raise EmulatorInstallError("O pacote contém um caminho de extração inseguro.")
+                    if index <= 20 or index == len(members):
+                        logger.info(
+                            "Emulator install: extraindo [%d/%d] | %s | %d bytes",
+                            index,
+                            len(members),
+                            member.filename,
+                            member.file_size,
+                        )
                 zf.extractall(destination)
+                logger.info("Emulator install: extração física concluída | destino=%s", destination)
         except zipfile.BadZipFile as exc:
+            logger.exception("Emulator install: ZIP inválido | archive=%s", archive)
             raise EmulatorInstallError(f"Arquivo ZIP inválido: {archive.name}") from exc
 
     @staticmethod
     def _package_root(extracted: Path) -> Path:
         """Retorna a raiz real do pacote, removendo uma única pasta empacotadora."""
         entries = list(extracted.iterdir())
+        logger.info("Emulator install: conteúdo extraído | entries=%d | path=%s", len(entries), extracted)
         if len(entries) == 1 and entries[0].is_dir():
+            logger.info("Emulator install: pacote possui diretório raiz | %s", entries[0])
             return entries[0]
         return extracted
 
     @staticmethod
     def _validate_root_install(root: Path, emulator: str) -> None:
-        """Garante que o pacote possui executável diretamente em sua raiz."""
+        """Valida a existência de executável na raiz do pacote."""
         executables = [p for p in root.iterdir() if p.is_file() and p.suffix.lower() == ".exe"]
+        logger.info(
+            "Emulator install: executáveis encontrados na raiz | count=%d | files=%s",
+            len(executables),
+            [p.name for p in executables],
+        )
         if not executables:
-            raise EmulatorInstallError(f"O pacote de {emulator} não possui executável diretamente na raiz do pacote.")
+            raise EmulatorInstallError(
+                f"O pacote de {emulator} não possui executável diretamente na raiz do pacote."
+            )
 
     @staticmethod
     def _merge_into_destination(source: Path, destination: Path) -> None:
-        """Mescla o conteúdo da raiz do pacote no diretório configurado."""
-        logger.info("Emulator install: mesclando pacote | source=%s | destination=%s", source, destination)
+        """Mescla o pacote no destino, registrando criação e sobrescrita."""
+        logger.info(
+            "Emulator install: INÍCIO DA MOVIMENTAÇÃO | source=%s | destination=%s",
+            source,
+            destination,
+        )
         for item in source.iterdir():
             target = destination / item.name
-            if item.is_dir():
-                if target.exists() and target.is_dir():
-                    for child in item.iterdir():
-                        EmulatorInstallService._copy_tree_item(child, target / child.name)
-                else:
-                    shutil.copytree(item, target)
-            else:
-                target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(item, target)
+            EmulatorInstallService._copy_tree_item(item, target)
+        logger.info("Emulator install: FIM DA MOVIMENTAÇÃO | destination=%s", destination)
 
     @staticmethod
     def _copy_tree_item(source: Path, target: Path) -> None:
-        """Mescla um item preservando a estrutura interna."""
+        """Copia recursivamente e informa cada criação/sobrescrita relevante."""
         if source.is_dir():
+            logger.info("Emulator install: diretório | %s -> %s", source, target)
             target.mkdir(parents=True, exist_ok=True)
             for child in source.iterdir():
                 EmulatorInstallService._copy_tree_item(child, target / child.name)
+            return
+
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists():
+            logger.info("Emulator install: SOBRESCREVENDO | %s | bytes_novos=%d", target, source.stat().st_size)
         else:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, target)
+            logger.info("Emulator install: CRIANDO | %s | bytes=%d", target, source.stat().st_size)
+        shutil.copy2(source, target)
 
     @staticmethod
     def _find_executable(destination: Path, emulator: str) -> Path | None:
         """Localiza o executável somente na raiz da instalação."""
-        preferred = {"mame": ("mame.exe",), "flycast": ("flycast.exe",), "supermodel": ("supermodel.exe", "Supermodel.exe", "supermodel3.exe"), "fbneo": ("fbneo.exe", "fba.exe", "fba64.exe")}.get(emulator.strip().lower(), ())
+        preferred = {
+            "mame": ("mame.exe",),
+            "flycast": ("flycast.exe",),
+            "supermodel": ("supermodel.exe", "Supermodel.exe", "supermodel3.exe"),
+            "fbneo": ("fbneo.exe", "fba.exe", "fba64.exe"),
+        }.get(emulator.strip().lower(), ())
         for name in preferred:
             candidate = destination / name
             if candidate.is_file():
                 return candidate
-        executables = sorted(p for p in destination.iterdir() if p.is_file() and p.suffix.lower() == ".exe")
+        executables = sorted(
+            p for p in destination.iterdir() if p.is_file() and p.suffix.lower() == ".exe"
+        )
         return executables[0] if len(executables) == 1 else None
