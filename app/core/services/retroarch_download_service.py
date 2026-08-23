@@ -2,7 +2,8 @@
 
 O Buildbot oficial é a fonte de verdade. Pacotes do RetroArch são baixados
 para TEMP, extraídos e mesclados na raiz escolhida pelo usuário. Os cores
-libretro são arquivos ZIP e recebem validação CRC32 antes da instalação.
+libretro são arquivos ZIP; o CRC publicado no .index-extended é validado
+contra a DLL contida no ZIP, não contra o contêiner ZIP.
 """
 from __future__ import annotations
 
@@ -94,8 +95,6 @@ class RetroArchDownloadService:
             match = re.search(r"(?:^|/)v?(\d+\.\d+(?:\.\d+)*)$", value)
             if match:
                 versions.add(match.group(1))
-        # Alguns índices do Buildbot usam links relativos simples e outros
-        # usam caminhos absolutos; a segunda expressão cobre ambos.
         if not versions:
             for match in re.findall(r"(?:^|/)v?(\d+\.\d+(?:\.\d+)*)(?:/|\\|\"|')", html):
                 versions.add(match)
@@ -108,7 +107,7 @@ class RetroArchDownloadService:
 
     @classmethod
     def discover_nightly_archive(cls) -> tuple[str, int, str]:
-        """Localiza o último ``RetroArch.7z`` datado no diretório Nightly Windows x64."""
+        """Localiza o último pacote RetroArch datado no Nightly Windows x64."""
         base = f"{cls.BUILD_ROOT}/nightly/windows/{cls.WINDOWS_ARCH}/"
         html = cls._download_text(base)
         filenames = []
@@ -132,14 +131,13 @@ class RetroArchDownloadService:
                 result = subprocess.run([str(executable), *args], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", shell=False, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), timeout=15, check=False, cwd=str(executable.parent))
             except (OSError, subprocess.SubprocessError):
                 continue
-            text = (result.stdout or "").strip()
-            match = re.search(r"\b(\d+\.\d+(?:\.\d+)*)\b", text)
+            match = re.search(r"\b(\d+\.\d+(?:\.\d+)*)\b", (result.stdout or "").strip())
             if match:
                 return match.group(1)
         return None
 
     def list_cores(self, channel: RetroArchChannel) -> list[RetroArchCoreInfo]:
-        """Lê ``.index-extended`` e retorna todos os cores Windows x64 publicados."""
+        """Lê .index-extended e retorna todos os cores Windows x64 publicados."""
         index_url = channel.base_url + ".index-extended"
         self._log(f"CONSULTANDO ÍNDICE DE CORES | {index_url}")
         text = self._download_text(index_url)
@@ -151,7 +149,7 @@ class RetroArchDownloadService:
             date, crc, filename = parts[0], parts[1], parts[2]
             if not filename.endswith("_libretro.dll.zip"):
                 continue
-            result.append(RetroArchCoreInfo(filename=filename, date=date, crc32=crc.lower().lstrip("0x")))
+            result.append(RetroArchCoreInfo(filename=filename, date=date, crc32=crc.lower().removeprefix("0x")))
         result.sort(key=lambda item: item.core_name.casefold())
         if not result:
             raise RetroArchDownloadError(f"O índice de cores não contém DLLs válidas: {index_url}")
@@ -193,72 +191,99 @@ class RetroArchDownloadService:
     @staticmethod
     def _flatten_single_root(source: Path) -> Path:
         """Retorna a árvore útil, removendo o nível único RetroArch-Win64 quando existir."""
-        entries = [item for item in source.iterdir() if item.name not in {"__MACOSX"}]
-        if len(entries) == 1 and entries[0].is_dir():
-            nested = entries[0]
-            if (nested / "retroarch.exe").is_file():
-                return nested
+        entries = [item for item in source.iterdir() if item.name != "__MACOSX"]
+        if len(entries) == 1 and entries[0].is_dir() and (entries[0] / "retroarch.exe").is_file():
+            return entries[0]
         return source
 
     def download_core(self, channel: RetroArchChannel, core: RetroArchCoreInfo, cores_dir: Path, progress=None) -> Path:
-        """Baixa, valida CRC e instala o ZIP oficial de um core libretro."""
+        """Baixa um core, valida a DLL contra o CRC do índice e instala somente a DLL."""
         cores_dir = Path(cores_dir).expanduser().resolve()
         cores_dir.mkdir(parents=True, exist_ok=True)
         temp = Path(tempfile.mkdtemp(prefix="mame-set-builder-core-"))
         archive = temp / core.filename
         try:
+            self._log(f"DOWNLOAD CORE | {core.filename} | url={self.core_url(channel, core)}")
             self._download(self.core_url(channel, core), archive, progress)
-            expected = core.crc32
-            actual = f"{self._crc32(archive):08x}"
+            dll = self._extract_core_to_temp(archive, temp / "core")
+            expected = core.crc32.lower().removeprefix("0x").zfill(8)
+            actual = f"{self._crc32(dll):08x}"
+            self._log(f"CRC CORE | {dll.name} | recebido={actual} | índice={expected}")
             if expected and expected != actual:
-                raise RetroArchDownloadError(f"CRC32 inválido para {core.filename}: recebido={actual}, índice={expected}")
-            self._extract_core_zip(archive, cores_dir)
-            dll = cores_dir / core.filename[:-4]
-            if not dll.is_file():
-                candidates = list(cores_dir.glob(f"{core.core_name}*_libretro.dll"))
-                if not candidates:
-                    raise RetroArchDownloadError(f"Core instalado sem DLL esperada: {core.filename}")
-                dll = candidates[0]
-            return dll
+                raise RetroArchDownloadError(f"CRC32 inválido para {dll.name}: recebido={actual}, índice={expected}")
+            target = cores_dir / dll.name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(dll, target)
+            self._log(f"CORE INSTALADO | {target}")
+            return target
         finally:
             shutil.rmtree(temp, ignore_errors=True)
 
     @staticmethod
-    def _extract_core_zip(archive: Path, destination: Path) -> None:
-        """Extrai o ZIP de um core sem executar nenhum conteúdo."""
+    def _extract_core_to_temp(archive: Path, destination: Path) -> Path:
+        """Extrai o ZIP em área temporária e retorna a DLL do core."""
+        destination.mkdir(parents=True, exist_ok=True)
         try:
             with zipfile.ZipFile(archive, "r") as package:
                 bad = package.testzip()
                 if bad:
                     raise RetroArchDownloadError(f"ZIP corrompido do core: {bad}")
-                package.extractall(destination)
+                dll_names = [name for name in package.namelist() if name.lower().endswith("_libretro.dll")]
+                if not dll_names:
+                    raise RetroArchDownloadError(f"ZIP sem DLL libretro: {archive.name}")
+                package.extract(dll_names[0], destination)
+                extracted = destination / dll_names[0]
+                if not extracted.is_file():
+                    raise RetroArchDownloadError(f"DLL não encontrada após extração: {dll_names[0]}")
+                return extracted
         except zipfile.BadZipFile as exc:
             raise RetroArchDownloadError(f"Arquivo de core não é um ZIP válido: {archive.name}") from exc
 
+    @staticmethod
+    def installed_cores(cores_dir: Path) -> list[Path]:
+        """Lista somente DLLs libretro presentes no diretório real configurado."""
+        path = Path(cores_dir).expanduser().resolve()
+        if not path.is_dir():
+            return []
+        return sorted(path.glob("*_libretro.dll"), key=lambda item: item.name.casefold())
+
     @classmethod
-    def _download(cls, url: str, target: Path, progress=None) -> None:
+    def match_installed_cores(cls, cores: list[RetroArchCoreInfo], cores_dir: Path) -> list[RetroArchCoreInfo]:
+        """Relaciona DLLs instaladas ao índice sem exigir que todos os cores existam."""
+        installed = {item.name.casefold() for item in cls.installed_cores(cores_dir)}
+        return [core for core in cores if core.filename.removesuffix(".zip").casefold() in installed]
+
+    @staticmethod
+    def _download(url: str, target: Path, progress=None) -> None:
         """Baixa em blocos com retry e valida tamanho quando informado."""
         last: Exception | None = None
-        for attempt in range(1, cls.RETRIES + 1):
+        for attempt in range(1, 4):
             received = 0
             try:
                 request = Request(url, headers={"User-Agent": "mame-set-builder RetroArch downloader", "Accept": "application/octet-stream,*/*", "Accept-Encoding": "identity"})
-                with urlopen(request, timeout=cls.TIMEOUT, context=ssl.create_default_context()) as response:
+                with urlopen(request, timeout=60, context=ssl.create_default_context()) as response:
                     total_header = response.headers.get("Content-Length")
                     total = int(total_header) if total_header and total_header.isdigit() else 0
                     with target.open("wb") as output:
                         while True:
-                            chunk = response.read(cls.CHUNK_SIZE)
-                            if not chunk: break
-                            output.write(chunk); received += len(chunk)
-                            if progress: progress(received, total)
-                if received <= 0: raise RetroArchDownloadError(f"Download vazio: {url}")
-                if total and received != total: raise RetroArchDownloadError(f"Download incompleto: recebido={received}, esperado={total}")
+                            chunk = response.read(1024 * 1024)
+                            if not chunk:
+                                break
+                            output.write(chunk)
+                            received += len(chunk)
+                            if progress:
+                                progress(received, total)
+                if received <= 0:
+                    raise RetroArchDownloadError(f"Download vazio: {url}")
+                if total and received != total:
+                    raise RetroArchDownloadError(f"Download incompleto: recebido={received}, esperado={total}")
                 return
             except (HTTPError, URLError, TimeoutError, OSError, RetroArchDownloadError) as exc:
-                last = exc; target.unlink(missing_ok=True)
-                if attempt < cls.RETRIES: time.sleep(attempt * 2)
-        raise RetroArchDownloadError(f"Falha no download após {cls.RETRIES} tentativa(s): {type(last).__name__}: {last}") from last
+                last = exc
+                target.unlink(missing_ok=True)
+                if attempt < 3:
+                    time.sleep(attempt * 2)
+        raise RetroArchDownloadError(f"Falha no download após 3 tentativa(s): {type(last).__name__}: {last}") from last
 
     @staticmethod
     def _download_text(url: str) -> str:
@@ -272,17 +297,20 @@ class RetroArchDownloadService:
         """Calcula CRC32 sem carregar o arquivo inteiro na memória."""
         value = 0
         with Path(path).open("rb") as stream:
-            while chunk := stream.read(1024 * 1024): value = binascii.crc32(chunk, value)
+            while chunk := stream.read(1024 * 1024):
+                value = binascii.crc32(chunk, value)
         return value & 0xFFFFFFFF
 
     @staticmethod
     def _find_7zip() -> str:
-        """Localiza 7z.exe/7zz.exe no PATH ou nas instalações padrão do Windows."""
+        """Localiza 7z.exe/7zz.exe/7za.exe no PATH ou instalações padrão."""
         for name in ("7z.exe", "7zz.exe", "7za.exe"):
             found = shutil.which(name)
-            if found: return found
+            if found:
+                return found
         for path in (Path(r"C:\Program Files\7-Zip\7z.exe"), Path(r"C:\Program Files (x86)\7-Zip\7z.exe")):
-            if path.is_file(): return str(path)
+            if path.is_file():
+                return str(path)
         raise RetroArchDownloadError("7-Zip não encontrado. Instale 7-Zip para extrair RetroArch e cores.")
 
     @classmethod
@@ -296,11 +324,18 @@ class RetroArchDownloadService:
     @staticmethod
     def _merge(source: Path, destination: Path, excluded: set[str]) -> None:
         """Mescla uma árvore extraída sem substituir dados protegidos."""
-        source = Path(source).resolve(); destination = Path(destination).resolve(); excluded_folded = {x.casefold() for x in excluded}
+        source = Path(source).resolve()
+        destination = Path(destination).resolve()
+        excluded_folded = {x.casefold() for x in excluded}
         for item in source.rglob("*"):
             relative = item.relative_to(source)
-            if relative.parts and relative.parts[0].casefold() in excluded_folded: continue
-            if relative.name.casefold() in excluded_folded: continue
+            if relative.parts and relative.parts[0].casefold() in excluded_folded:
+                continue
+            if relative.name.casefold() in excluded_folded:
+                continue
             target = destination / relative
-            if item.is_dir(): target.mkdir(parents=True, exist_ok=True)
-            else: target.parent.mkdir(parents=True, exist_ok=True); shutil.copy2(item, target)
+            if item.is_dir():
+                target.mkdir(parents=True, exist_ok=True)
+            else:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(item, target)
