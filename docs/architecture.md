@@ -4,25 +4,28 @@
 
 ## 1. Princípio arquitetural
 
-O ARCADE MANAGER é dividido em um núcleo de preservação/construção de sets e camadas de gerenciamento de execução.
+O ARCADE MANAGER é dividido em um núcleo de preservação/construção de sets e camadas de gerenciamento de execução, hardware, apresentação e integração externa.
 
 ```text
-┌────────────────────────────────────────────────────────────┐
-│                        GUI / Qt                             │
-├────────────────────────────────────────────────────────────┤
-│ Library │ Scan │ Reconstruction │ Emulators │ Controls     │
-│ FFB     │ RetroArch │ Downloads │ Settings                │
-├────────────────────────────────────────────────────────────┤
-│                     Application Services                   │
-├──────────────────────┬──────────────────────┬──────────────┤
-│ ROM/Set Domain       │ Emulator Domain      │ Hardware     │
-│ Dataset              │ Runtime/Backend      │ Controls     │
-│ Scan                 │ Core                 │ Profiles     │
-│ Reconstruction       │ Plugin               │ FFB         │
-│ Dependencies         │ Configuration        │ Devices     │
-├──────────────────────┴──────────────────────┴──────────────┤
-│ SQLite │ Filesystem │ Emulator executables │ External APIs │
-└────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────┐
+│                           GUI / Qt                            │
+├───────────────────────────────────────────────────────────────┤
+│ Library │ Scan │ Reconstruction │ Emulators │ Controls       │
+│ FFB │ Presentation │ RetroArch │ Downloads │ LaunchBox       │
+├───────────────────────────────────────────────────────────────┤
+│                     Application Services                     │
+├──────────────────────┬──────────────────────┬────────────────┤
+│ ROM/Set Domain       │ Emulator Domain      │ Hardware       │
+│ Dataset              │ Runtime/Backend      │ Controls       │
+│ Scan                 │ Core                 │ Profiles       │
+│ Reconstruction       │ Plugin               │ FFB            │
+│ Dependencies         │ Configuration        │ Devices        │
+├──────────────────────┼──────────────────────┼────────────────┤
+│ Presentation Domain  │ Integration Domain   │ Download       │
+│ Renderer             │ LaunchBox Export     │ Providers      │
+│ ReShade              │ XML                  │ Packages       │
+│ RetroArch Shaders    │                      │ Updates        │
+└──────────────────────┴──────────────────────┴────────────────┘
 ```
 
 A GUI nunca deve duplicar regras de negócio. Operações de I/O pesado devem ocorrer em services/workers.
@@ -51,7 +54,7 @@ Meu Set
 residual
 ```
 
-Esse núcleo permanece independente de controles, FFB, RetroArch e downloads.
+Esse núcleo permanece independente de controles, FFB, apresentação, RetroArch, LaunchBox e downloads.
 
 ### Regras
 
@@ -212,7 +215,90 @@ Physical Wheel
 
 O perfil FFB pode ser individual ou herdado de uma família.
 
-## 10. RetroArch
+## 10. Graphics / Renderer Profiles
+
+A configuração gráfica deve ser separada da emulação lógica.
+
+```text
+Emulator
+   ↓
+Graphics Profile
+   ├── Renderer / Driver
+   ├── Resolution
+   ├── VSync
+   └── Presentation Profile
+```
+
+Isso é especialmente importante para Flycast, que pode ser executado com diferentes renderers.
+
+O ARCADE MANAGER não deve presumir que um preset gráfico é universal entre renderers.
+
+## 11. Presentation Profiles
+
+A apresentação é uma camada posterior à emulação.
+
+```text
+Emulator / Core
+       ↓
+Framebuffer
+       ↓
+Presentation Profile
+       ↓
+Display
+```
+
+O perfil poderá representar:
+
+- CRT;
+- scanlines;
+- aperture grille;
+- shadow mask;
+- bloom;
+- curvature;
+- geometria;
+- outros efeitos visuais.
+
+### ReShade
+
+Para emuladores standalone que não possuem uma solução CRT adequada, o mecanismo prioritário será **ReShade**.
+
+```text
+Flycast / Supermodel
+       ↓
+Renderer / Driver
+       ↓
+ReShade Runtime
+       ↓
+ReShade Preset
+       ↓
+Display
+```
+
+O ARCADE MANAGER administra a associação entre runtime, renderer, preset e jogo, mas não substitui o mecanismo de pós-processamento do ReShade.
+
+O preset visual deve ser separado do runtime de injeção.
+
+### Compatibilidade
+
+Cada Presentation Profile poderá declarar compatibilidade com renderers:
+
+```text
+CRT Arcade
+ ├── Vulkan ✓
+ ├── OpenGL ✓
+ ├── DX11 ✓
+ └── DX12 ✓
+```
+
+A aplicação deve verificar essa compatibilidade antes da execução.
+
+Não se deve presumir que um shader/preset funciona em qualquer renderer.
+
+### RetroArch
+
+Quando o jogo for executado por RetroArch, deve-se preferir o sistema nativo de shaders do RetroArch em vez de adicionar ReShade externamente, salvo quando houver uma razão técnica explícita.
+
+## 12. RetroArch
 
 RetroArch possui configuração própria, mas os cores são entidades independentes:
 
@@ -222,7 +308,8 @@ RetroArch Runtime
  ├── Core configuration
  ├── System directory
  ├── Save directory
- └── State directory
+ ├── State directory
+ └── Shader/Presentation configuration
 ```
 
 Um core terá:
@@ -236,7 +323,7 @@ Um core terá:
 - hash quando disponível;
 - compatibilidade conhecida.
 
-## 11. Downloads
+## 13. Downloads
 
 Downloads devem ser separados do runtime.
 
@@ -258,7 +345,49 @@ Backup / rollback
 
 A arquitetura do StellarUpdater/Stellar é referência conceitual para o gerenciador RetroArch, mas o ARCADE MANAGER terá implementação própria.
 
-## 12. Configuração de emuladores
+## 14. LaunchBox Export
+
+LaunchBox é uma integração de saída, não uma fonte de verdade.
+
+```text
+ARCADE MANAGER DB
+        ↓
+LaunchBox Exporter
+        ↓
+XML
+        ↓
+LaunchBox\Data
+```
+
+O exportador poderá gerar categorias derivadas dos metadados do ARCADE MANAGER:
+
+- backend;
+- core RetroArch;
+- família de controle;
+- família de jogos;
+- hardware;
+- rotação de volante;
+- gênero/categoria específica.
+
+Exemplos:
+
+```text
+Arcade — MAME
+Arcade — FBNeo
+Arcade — Flycast
+Arcade — Supermodel
+Driving — G27 — 270°
+Driving — G27 — 360°
+Driving — G27 — 540°
+Driving — G27 — 900°
+Fighting — Street Fighter
+Fighting — Mortal Kombat
+Neo Geo
+```
+
+O exportador deve validar XML, preservar registros externos e criar backup antes de alterações destrutivas.
+
+## 15. Configuração de emuladores
 
 Arquivos nativos continuam sendo a fonte de verdade da configuração específica do emulador quando existentes.
 
@@ -271,7 +400,7 @@ O `EmulatorConfigService` deve:
 5. preservar configurações desconhecidas;
 6. criar backup antes de substituir configuração inválida.
 
-## 13. Fluxo de execução
+## 16. Fluxo de execução completo
 
 A execução futura seguirá:
 
@@ -290,45 +419,53 @@ Resolver Hardware Profile
       ↓
 Resolver FFB Profile / plugins
       ↓
+Resolver Graphics / Renderer Profile
+      ↓
+Resolver Presentation Profile
+      ↓
 Preparar configuração
+      ↓
+Preparar ReShade ou shader RetroArch quando aplicável
       ↓
 Iniciar runtime
 ```
 
 A preparação deve ser reversível e não deve alterar o FULLSET.
 
-## 14. Banco
+## 17. Fluxo de integração com LaunchBox
 
-SQLite permanece como autoridade persistente. A expansão deverá acrescentar entidades de emuladores, cores, plugins, controles e downloads sem acoplar essas entidades ao registro físico de ROM.
+```text
+Library / Machine
+       ↓
+Execution Profile
+       ↓
+Control / Hardware / FFB / Presentation metadata
+       ↓
+LaunchBox Exporter
+       ↓
+XML
+       ↓
+LaunchBox\Data
+```
 
-## 15. Estado da arquitetura
+O LaunchBox não deve receber lógica duplicada do ARCADE MANAGER. Ele recebe os artefatos necessários para apresentar e executar a biblioteca já configurada.
 
-### Implementado
+## 18. Banco
 
-- camadas GUI/services/models;
-- dataset/listxml;
-- SQLite/migrations;
-- Scan;
-- manifesto JSONL;
-- Reconstrução estruturada;
-- capabilities/runtime de emuladores;
-- política central de configuração.
+As entidades futuras devem manter separação entre:
 
-### Em evolução
+- `machine` / ROM e dados do dataset;
+- backend de execução;
+- RetroArch core;
+- plugin;
+- control profile;
+- control family;
+- hardware profile;
+- arcade hardware profile;
+- FFB profile;
+- graphics profile;
+- presentation profile;
+- LaunchBox export metadata;
+- package/download metadata.
 
-- Dependency Resolver;
-- integração completa de configuração/discovery;
-- protocolo transacional de reconstrução.
-
-### Planejado
-
-- RetroArch backend/core manager;
-- Plugin Manager;
-- FFBArcadePlugin;
-- Control Profiles;
-- Control Families;
-- Hardware Profiles;
-- Arcade Hardware Profiles;
-- FFB Profiles;
-- Download Manager;
-- torrent/qBittorrent.
+Nenhuma dessas camadas deve duplicar a identidade física da ROM.
