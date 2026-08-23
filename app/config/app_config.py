@@ -22,6 +22,21 @@ class AppConfig:
         "retroarch": {"config": ".", "cores": "cores", "system": "system", "assets": "assets", "shaders": "shaders", "saves": "saves", "states": "states", "downloads": "downloads"},
     }
 
+    # Chaves de diretório do retroarch.cfg que interessam ao gerenciamento do
+    # ARCADE MANAGER. A lista não limita a leitura: chaves desconhecidas são
+    # preservadas em retroarch_native_paths para que novas versões do RA não
+    # quebrem a descoberta.
+    RETROARCH_DIRECTORY_KEYS = (
+        "assets_directory", "cache_directory", "cheat_database_path",
+        "content_database_path", "content_directory", "core_assets_directory",
+        "dynamic_wallpapers_directory", "input_remapping_directory",
+        "libretro_directory", "libretro_info_path", "osk_overlay_directory",
+        "overlay_directory", "playlist_directory", "recording_config_directory",
+        "recording_output_directory", "rgui_browser_directory", "rgui_config_directory",
+        "savefile_directory", "savestate_directory", "screenshot_directory",
+        "system_directory", "thumbnails_directory", "video_font_path",
+    )
+
     def __init__(self):
         self.mame_path: Path | None = None
         self.flycast_path: Path | None = None
@@ -40,6 +55,11 @@ class AppConfig:
         self.retroarch_version: str | None = None
         self.emulator_paths = {emulator: {name: None for name in paths} for emulator, paths in self.EMULATOR_PATH_DEFAULTS.items()}
         self.flycast_rom_paths: list[Path] = []
+        self.retroarch_native_paths: dict[str, Path | str] = {}
+        self.retroarch_config_file: Path | None = None
+        self.retroarch_core_config_dir: Path | None = None
+        self.retroarch_core_remap_dir: Path | None = None
+        self.retroarch_core_shader_dir: Path | None = None
         self.chdman_path: Path | None = None
         self.ini_path: Path | None = None
         self.catver_path: Path | None = None
@@ -79,6 +99,16 @@ class AppConfig:
                     value = stored.get(name)
                     self.emulator_paths[emulator][name] = Path(value) if value else None
 
+            native_paths = data.get("retroarch_native_paths", {})
+            if isinstance(native_paths, dict):
+                self.retroarch_native_paths = {
+                    str(k): (Path(v) if isinstance(v, str) and v else v)
+                    for k, v in native_paths.items()
+                }
+            cfg = data.get("retroarch_config_file")
+            self.retroarch_config_file = Path(cfg) if cfg else None
+            self._derive_retroarch_core_layout()
+
             stored_flycast_roms = data.get("flycast_rom_paths")
             if isinstance(stored_flycast_roms, list):
                 self.flycast_rom_paths = [Path(value) for value in stored_flycast_roms if value][:4]
@@ -112,6 +142,107 @@ class AppConfig:
         if value:
             return Path(value)
         return executable.parent if executable and executable.suffix.casefold() == ".exe" else None
+
+    @staticmethod
+    def _parse_retroarch_cfg(cfg_path: Path) -> dict[str, str]:
+        """Lê o retroarch.cfg sem tentar reformatar ou modificar o arquivo nativo."""
+        result: dict[str, str] = {}
+        text = cfg_path.read_text(encoding="utf-8-sig", errors="replace")
+        for raw in text.splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip()
+            if len(value) >= 2 and value[0] == '"' and value[-1] == '"':
+                value = value[1:-1]
+            result[key] = value
+        return result
+
+    @staticmethod
+    def _resolve_retroarch_path(value: str, root: Path) -> Path | str:
+        """Resolve caminhos nativos do RA, inclusive o marcador ':\\'."""
+        value = value.strip()
+        if not value or value == "default":
+            return value
+        # RetroArch usa :\\ como raiz da instalação/configuração portátil.
+        if value.startswith(":\\") or value.startswith(":/"):
+            return (root / value[2:].replace("\\", os.sep).replace("/", os.sep)).resolve()
+        return Path(value).expanduser().resolve() if Path(value).is_absolute() else (root / value).resolve()
+
+    def import_retroarch_config(self, executable: Path) -> dict[str, Path | str]:
+        """Descobre a instalação pelo retroarch.exe e importa diretórios do retroarch.cfg.
+
+        O arquivo nativo é somente lido. O ARCADE MANAGER não o regrava nesta
+        etapa. Windows normalmente procura retroarch.cfg junto do executável,
+        portanto essa é a fonte de verdade para a instalação selecionada.
+        """
+        executable = Path(executable).expanduser().resolve()
+        if executable.name.casefold() != "retroarch.exe" or not executable.is_file():
+            raise FileNotFoundError(f"Selecione o retroarch.exe válido: {executable}")
+        root = executable.parent
+        cfg = root / "retroarch.cfg"
+        if not cfg.is_file():
+            raise FileNotFoundError(f"retroarch.cfg não encontrado junto de {executable}")
+        raw = self._parse_retroarch_cfg(cfg)
+        native = {
+            key: self._resolve_retroarch_path(raw[key], root)
+            for key in raw
+            if key in self.RETROARCH_DIRECTORY_KEYS
+        }
+        self.retroarch_path = executable
+        self.retroarch_dir = root
+        self.retroarch_config_file = cfg
+        self.retroarch_native_paths = native
+
+        # Mapeamento semântico usado pelas demais telas do projeto.
+        aliases = {
+            "config": cfg.parent,
+            "cores": native.get("libretro_directory", root / "cores"),
+            "system": native.get("system_directory", root / "system"),
+            "assets": native.get("assets_directory", root / "assets"),
+            "shaders": native.get("video_shader_directory", root / "shaders"),
+            "saves": native.get("savefile_directory", root / "saves"),
+            "states": native.get("savestate_directory", root / "states"),
+            "downloads": native.get("core_assets_directory", root / "downloads"),
+        }
+        for name, value in aliases.items():
+            if isinstance(value, (Path, str)):
+                self.emulator_paths["retroarch"][name] = value if isinstance(value, Path) else Path(value)
+        self._derive_retroarch_core_layout()
+        return native
+
+    def set_retroarch_executable(self, executable: Path) -> dict[str, Path | str]:
+        """Define o retroarch.exe como âncora da instalação e importa seu cfg."""
+        return self.import_retroarch_config(executable)
+
+    def _derive_retroarch_core_layout(self) -> None:
+        """Calcula a árvore de configurações por core usada pelo RetroArch."""
+        config_root = self.emulator_paths.get("retroarch", {}).get("config") or self.retroarch_dir
+        if config_root:
+            config_root = Path(config_root)
+            self.retroarch_core_config_dir = config_root
+            self.retroarch_core_remap_dir = config_root / "remaps"
+            self.retroarch_core_shader_dir = config_root
+
+    def retroarch_core_directory(self, core_name: str) -> Path:
+        """Retorna a pasta de configuração do core conforme o padrão Libretro."""
+        if not self.retroarch_core_config_dir:
+            raise RuntimeError("Diretório de configuração do RetroArch ainda não foi descoberto.")
+        safe = Path(core_name).stem.replace("/", "_").replace("\\", "_")
+        return self.retroarch_core_config_dir / safe
+
+    def retroarch_core_paths(self, core_name: str) -> dict[str, Path]:
+        """Retorna os locais previstos para overrides, remaps, opções e shaders do core."""
+        core_dir = self.retroarch_core_directory(core_name)
+        return {
+            "config": core_dir,
+            "override": core_dir / f"{Path(core_name).stem}.cfg",
+            "remaps": (self.retroarch_core_remap_dir or core_dir / "remaps") / Path(core_name).stem,
+            "options": core_dir / f"{Path(core_name).stem}.opt",
+            "shaders": core_dir,
+        }
 
     def _sync_supermodel_from_native(self) -> None:
         """Importa RomsDirectory do Supermodel.ini quando disponível."""
@@ -167,6 +298,8 @@ class AppConfig:
             "mame_dir": str(self.mame_dir) if self.mame_dir else "", "flycast_dir": str(self.flycast_dir) if self.flycast_dir else "", "supermodel_dir": str(self.supermodel_dir) if self.supermodel_dir else "", "fbneo_dir": str(self.fbneo_dir) if self.fbneo_dir else "", "retroarch_dir": str(self.retroarch_dir) if self.retroarch_dir else "",
             "mame_version": self.mame_version or "", "flycast_version": self.flycast_version or "", "supermodel_version": self.supermodel_version or "", "fbneo_version": self.fbneo_version or "", "retroarch_version": self.retroarch_version or "",
             "emulator_paths": {emulator: {name: str(path) if path else "" for name, path in paths.items()} for emulator, paths in self.emulator_paths.items()},
+            "retroarch_native_paths": {key: str(value) if isinstance(value, Path) else value for key, value in self.retroarch_native_paths.items()},
+            "retroarch_config_file": str(self.retroarch_config_file) if self.retroarch_config_file else "",
             "flycast_rom_paths": [str(path) for path in self.flycast_rom_paths[:4]],
             "chdman_path": str(self.chdman_path) if self.chdman_path else "", "ini_path": str(self.ini_path) if self.ini_path else "", "catver_path": str(self.catver_path) if self.catver_path else "",
             "source_dirs": [str(p) for p in self.source_dirs[:3]], "destination_dir": str(self.destination_dir) if self.destination_dir else "", "output_layout": self.output_layout,
