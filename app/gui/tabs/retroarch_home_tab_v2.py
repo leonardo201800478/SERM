@@ -115,15 +115,15 @@ class RetroArchHomeTab(QWidget):
         layout.addLayout(shortcuts)
 
     def refresh(self) -> None:
-        """Atualiza diagnóstico e detecta a versão real do executável quando necessário."""
+        """Atualiza diagnóstico e preserva a lista de cores sem baixar o índice novamente."""
         self.config.load()
         executable = self.config.retroarch_path
         root = self.config.retroarch_dir
         config_path = self.config.get_emulator_path("retroarch", "config") or root
         cores = self.config.get_emulator_path("retroarch", "cores")
-        if executable and Path(executable).is_file() and not self.config.retroarch_version:
+        if executable and Path(executable).is_file():
             detected = RetroArchDownloadService.detect_installed_version(executable)
-            if detected:
+            if detected and detected != self.config.retroarch_version:
                 self.config.retroarch_version = detected
                 self.config.save()
         self.path_label.setText(str(root or "não configurada"))
@@ -138,6 +138,7 @@ class RetroArchHomeTab(QWidget):
         else:
             self.status_label.setText("● Não configurado")
             self.status_label.setStyleSheet("color:#999;font-weight:bold;")
+        self._refresh_installed_markers()
         self._update_busy_state()
 
     def _channel_changed(self, value: str) -> None:
@@ -178,24 +179,55 @@ class RetroArchHomeTab(QWidget):
             return
         self._start_worker("update")
 
+    def _installed_core_filenames(self) -> set[str]:
+        """Lê diretamente o diretório de cores configurado e retorna DLLs instaladas."""
+        cores_dir = self.config.get_emulator_path("retroarch", "cores")
+        if not cores_dir:
+            return set()
+        path = Path(cores_dir).expanduser()
+        if not path.is_dir():
+            return set()
+        return {item.name.casefold() for item in path.glob("*_libretro.dll") if item.is_file()}
+
+    def _refresh_installed_markers(self) -> None:
+        """Atualiza [INSTALADO]/[NOVO] sem consultar a rede e sem alterar seleção."""
+        if not hasattr(self, "core_list"):
+            return
+        installed = self._installed_core_filenames()
+        for index in range(self.core_list.count()):
+            item = self.core_list.item(index)
+            filename = str(item.data(Qt.ItemDataRole.UserRole) or "")
+            base = item.text()
+            for prefix in ("[INSTALADO] ", "[NOVO] "):
+                if base.startswith(prefix):
+                    base = base[len(prefix):]
+                    break
+            marker = "[INSTALADO] " if filename.removesuffix(".zip").casefold() in installed else "[NOVO] "
+            item.setText(marker + base)
+
     def refresh_cores(self) -> None:
-        """Atualiza a lista de cores e cria um checkbox para cada entrada."""
+        """Atualiza o índice oficial e identifica os cores existentes pelo nome exato da DLL."""
         try:
             mode, version = self._channel()
             channel = RetroArchDownloadService.channel(mode, version)
-            cores = RetroArchDownloadService().list_cores(channel)
+            service = RetroArchDownloadService()
+            cores = service.list_cores(channel)
             self.core_list.clear()
-            installed = self.config.get_emulator_path("retroarch", "cores")
-            installed_names = {p.stem.removesuffix("_libretro").casefold() for p in Path(installed).glob("*_libretro.dll")} if installed and Path(installed).is_dir() else set()
+            installed = self._installed_core_filenames()
+            installed_count = 0
+            new_count = 0
             for core in cores:
                 item = QListWidgetItem()
                 item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
                 item.setCheckState(Qt.CheckState.Unchecked)
                 item.setData(Qt.ItemDataRole.UserRole, core.filename)
-                marker = "[INSTALADO] " if core.core_name.casefold() in installed_names else "[NOVO] "
+                is_installed = core.dll_filename.casefold() in installed
+                marker = "[INSTALADO] " if is_installed else "[NOVO] "
+                installed_count += int(is_installed)
+                new_count += int(not is_installed)
                 item.setText(f"{marker}{core.core_name} | {core.filename} | {core.date} | CRC {core.crc32}")
                 self.core_list.addItem(item)
-            self._append_log(f"CORES | índice carregado={len(cores)}")
+            self._append_log(f"CORES | índice carregado={len(cores)} | instalados={installed_count} | novos={new_count} | diretório={self.config.get_emulator_path('retroarch', 'cores') or 'não configurado'}")
         except Exception as exc:
             self._append_log(f"ERRO CORES | {type(exc).__name__}: {exc}")
 
@@ -230,11 +262,25 @@ class RetroArchHomeTab(QWidget):
         self._start_worker("core", core_filenames=selected, mode=mode, stable_version=version)
 
     def update_installed_cores(self) -> None:
-        """Atualiza apenas DLLs que já existem na instalação do usuário."""
+        """Escaneia a instalação, marca somente [NOVO] e instala apenas os cores ausentes."""
         if not self.config.retroarch_dir:
             self._append_log("ERRO | selecione o retroarch.exe em Diretórios antes de atualizar cores.")
             return
-        self._start_worker("cores_installed")
+        if self.core_list.count() == 0:
+            self.refresh_cores()
+        self.clear_core_selection()
+        selected: list[str] = []
+        for index in range(self.core_list.count()):
+            item = self.core_list.item(index)
+            if item.text().startswith("[NOVO] "):
+                item.setCheckState(Qt.CheckState.Checked)
+                selected.append(str(item.data(Qt.ItemDataRole.UserRole)))
+        if not selected:
+            self._append_log("CORES | nenhum core novo para instalar. Todos os cores do índice já estão instalados.")
+            return
+        self._append_log(f"CORES | novos selecionados automaticamente={len(selected)}")
+        mode, version = self._channel()
+        self._start_worker("core", core_filenames=selected, mode=mode, stable_version=version)
 
     def _start_worker(self, operation: str, *, core_filename: str | None = None, core_filenames: list[str] | None = None, mode: str | None = None, stable_version: str | None = None) -> None:
         """Cria o worker de download e mantém a GUI responsiva."""
@@ -242,14 +288,7 @@ class RetroArchHomeTab(QWidget):
             return
         selected_mode, selected_version = self._channel()
         self._thread = QThread(self)
-        self._worker = RetroArchDownloadWorker(
-            operation,
-            self._destination(),
-            mode=mode or selected_mode,
-            stable_version=stable_version if mode else selected_version,
-            core_filename=core_filename,
-            core_filenames=core_filenames,
-        )
+        self._worker = RetroArchDownloadWorker(operation, self._destination(), mode=mode or selected_mode, stable_version=stable_version if mode else selected_version, core_filename=core_filename, core_filenames=core_filenames)
         self._worker.moveToThread(self._thread)
         self._worker.progress.connect(self._on_progress)
         self._worker.status.connect(self._on_status)
@@ -287,6 +326,8 @@ class RetroArchHomeTab(QWidget):
         """Registra conclusão e atualiza as sessões relacionadas."""
         self._append_log(f"SUCESSO | tipo={kind} | valor={value} | caminho={path}")
         self.refresh()
+        if kind == "cores":
+            self.refresh_cores()
         catalog = getattr(self.parent_window, "retroarch_catalog_tab", None)
         if catalog is not None:
             catalog.refresh()
