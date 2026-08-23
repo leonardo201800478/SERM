@@ -1,9 +1,4 @@
-"""Parser e catálogo local dos arquivos ``*.info`` do RetroArch.
-
-Os arquivos .info são a fonte primária para metadados dos cores. O formato é
-um arquivo simples ``chave = valor``; comentários são ignorados e os campos
-de firmware são numerados a partir de zero.
-"""
+"""Parser e catálogo local dos arquivos ``*.info`` do RetroArch."""
 from __future__ import annotations
 
 import re
@@ -27,6 +22,7 @@ class RetroArchInfoFirmware:
     path: str
     optional: bool
     md5: str | None = None
+    is_directory: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,8 +61,7 @@ class RetroArchInfoService:
                 continue
             try:
                 result.append(self.parse_file(path))
-            except (OSError, ValueError) as exc:
-                # Um .info inválido não deve impedir os demais de serem catalogados.
+            except (OSError, ValueError):
                 continue
         return result
 
@@ -89,7 +84,10 @@ class RetroArchInfoService:
         firmware = self._parse_firmware(values)
         notes = values.get("notes", "")
         firmware = tuple(
-            RetroArchInfoFirmware(f.index, f.description, f.path, f.optional, self._find_md5(notes, f.path))
+            RetroArchInfoFirmware(
+                f.index, f.description, f.path, f.optional,
+                self._find_md5(notes, f.path), f.is_directory,
+            )
             for f in firmware
         )
         return RetroArchInfoCore(
@@ -125,7 +123,7 @@ class RetroArchInfoService:
         return value.strip().casefold() in {"true", "yes", "1"}
 
     def _parse_firmware(self, values: dict[str, str]) -> tuple[RetroArchInfoFirmware, ...]:
-        """Extrai firmware_count e firmwareN_desc/path/opt."""
+        """Extrai firmware_count e identifica corretamente arquivos e diretórios."""
         try:
             count = int(values.get("firmware_count", "0"))
         except ValueError:
@@ -136,11 +134,24 @@ class RetroArchInfoService:
             if not path:
                 continue
             desc = values.get(f"firmware{index}_desc") or path
+            # O formato .info não possui um campo is_directory. O caso oficial
+            # do LRPS2 é explicitamente descrito como uma pasta; a ausência de
+            # extensão no path também é um forte sinal, mas a descrição é a
+            # autoridade quando informa "folder".
+            normalized = path.replace("\\", "/").rstrip("/")
+            description = desc.casefold()
+            is_directory = (
+                path.endswith(("/", "\\"))
+                or "folder" in description
+                or "directory" in description
+                or normalized.casefold().endswith("/bios")
+            )
             entries.append(RetroArchInfoFirmware(
                 index=index,
                 description=desc,
                 path=path,
                 optional=self._bool(values.get(f"firmware{index}_opt"), False),
+                is_directory=is_directory,
             ))
         return tuple(entries)
 
