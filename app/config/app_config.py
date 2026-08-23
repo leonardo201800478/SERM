@@ -15,8 +15,7 @@ class AppConfig:
     catálogo e futuras rotinas de execução/reconstrução.
 
     Para o Supermodel, o diretório de ROMs é sincronizado com a configuração
-    nativa ``RomsDirectory`` do ``Config/Supermodel.ini`` quando essa chave
-    existe na versão instalada.
+    nativa ``RomsDirectory`` do ``Config/Supermodel.ini``.
     """
 
     CONFIG_DIR = Path.home() / ".mame-set-builder"
@@ -120,9 +119,6 @@ class AppConfig:
                 legacy_rom = self.emulator_paths.get("flycast", {}).get("roms")
                 self.flycast_rom_paths = [legacy_rom] if legacy_rom else []
 
-            # O Supermodel.ini é a fonte de verdade quando RomsDirectory
-            # está presente. O JSON continua servindo como cache compartilhado
-            # pelo restante do aplicativo.
             self._sync_supermodel_from_native()
 
             if self.mame_dir:
@@ -152,7 +148,7 @@ class AppConfig:
         return None
 
     def _sync_supermodel_from_native(self) -> None:
-        """Importa RomsDirectory do Supermodel.ini quando suportado."""
+        """Importa RomsDirectory do Supermodel.ini quando disponível."""
         if not self.supermodel_dir:
             return
         try:
@@ -163,20 +159,18 @@ class AppConfig:
             self.emulator_paths.setdefault("supermodel", {})["roms"] = native
 
     def _sync_supermodel_to_native(self) -> None:
-        """Publica o diretório de ROMs do AppConfig no Supermodel.ini."""
+        """Publica o diretório de ROMs no Supermodel.ini."""
         if not self.supermodel_dir:
             return
         roms = self.emulator_paths.get("supermodel", {}).get("roms")
-        ini = SupermodelConfig(self.supermodel_dir)
-        if not ini.ini_path or not ini.ini_path.is_file():
+        if not roms:
             return
-        # Não cria RomsDirectory em versões que ainda não possuem a chave.
-        # Quando a chave já existe, o serviço atualiza seu valor.
-        if ini.read_rom_directory() is not None:
-            try:
-                ini.write_rom_directory(roms)
-            except OSError:
-                pass
+        try:
+            SupermodelConfig(self.supermodel_dir).write_rom_directory(roms)
+        except (OSError, ValueError):
+            # Falha no arquivo nativo não deve impedir o restante da
+            # configuração do aplicativo de ser persistida.
+            pass
 
     def get_emulator_path(self, emulator: str, name: str) -> Path | None:
         """Retorna um diretório de conteúdo persistido para um emulador."""
