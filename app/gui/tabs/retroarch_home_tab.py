@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.config.app_config import AppConfig
-from app.core.services.retroarch_download_service import RetroArchDownloadService, RetroArchCoreInfo
+from app.core.services.retroarch_download_service import RetroArchDownloadService
 from app.gui.widgets.retroarch_download_worker import RetroArchDownloadWorker
 
 
@@ -166,7 +166,7 @@ class RetroArchHomeTab(QWidget):
         return Path(self.config.retroarch_dir or Path.home() / "RetroArch-Win64").expanduser()
 
     def install_new(self) -> None:
-        """Inicia nova instalação sem apagar configurações pré-existentes por acidente."""
+        """Inicia nova instalação."""
         self._start_worker("install")
 
     def update_retroarch(self) -> None:
@@ -186,7 +186,7 @@ class RetroArchHomeTab(QWidget):
             installed = self.config.get_emulator_path("retroarch", "cores")
             installed_names = {p.stem.casefold() for p in Path(installed).glob("*_libretro.dll")} if installed and Path(installed).is_dir() else set()
             for core in cores:
-                marker = "[INSTALADO] " if any(core.core_name.casefold() in name for name in installed_names) else "[NOVO] "
+                marker = "[INSTALADO] " if any(core.filename[:-4].casefold() in name for name in installed_names) else "[NOVO] "
                 item_text = f"{marker}{core.core_name} | {core.filename} | {core.date} | CRC {core.crc32}"
                 self.core_list.addItem(item_text)
                 self.core_list.item(self.core_list.count() - 1).setData(Qt.ItemDataRole.UserRole, core.filename)
@@ -279,12 +279,7 @@ class RetroArchHomeTab(QWidget):
     def _update_busy_state(self) -> None:
         """Desabilita operações concorrentes durante um download."""
         busy = self._thread is not None
-        for button in (
-            self.install_button,
-            self.update_button,
-            self.core_refresh_button,
-            self.core_install_button,
-        ):
+        for button in (self.install_button, self.update_button, self.core_refresh_button, self.core_install_button):
             button.setEnabled(not busy)
 
     def _append_log(self, message: str) -> None:
@@ -301,11 +296,8 @@ class RetroArchHomeTab(QWidget):
             tab_widget.setCurrentWidget(widget)
 
     def open_directories(self) -> None:
-        """Abre a configuração de diretórios."""
-        self._activate("directories_tab")
-        directories = getattr(self.parent_window, "directories_tab", None)
-        if directories is not None and hasattr(directories, "select_emulator"):
-            directories.select_emulator("retroarch")
+        """Abre a sessão dedicada de diretórios do RetroArch."""
+        self._activate("retroarch_directories_tab")
 
     def open_catalog(self) -> None:
         """Abre a sessão de catálogo de cores."""
