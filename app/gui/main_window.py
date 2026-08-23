@@ -34,7 +34,26 @@ class MainWindow(QMainWindow):
         self.db.connect()
         self.tab_widget = QTabWidget()
         self.setCentralWidget(self.tab_widget)
+
+        # ------------------------------------------------------------------
+        # Home
+        # ------------------------------------------------------------------
+        # A Home deixa de ser uma aba plana para se tornar uma pequena seção
+        # com duas sessões irmãs: a Home tradicional e a Home do RetroArch.
+        # As duas recebem a MainWindow como parent para preservar os atalhos
+        # e a navegação já implementados nas respectivas sessões.
         self.home_tab = HomeTab(self)
+        self.retroarch_home_tab = RetroArchHomeTab(self)
+        self.home_section = QTabWidget()
+        self.home_section.setDocumentMode(True)
+        self.home_section.setTabPosition(QTabWidget.TabPosition.North)
+        self.home_section.addTab(self.home_tab, "Arcade / MAME")
+        self.home_section.addTab(self.retroarch_home_tab, "RetroArch")
+        self.home_section.currentChanged.connect(self._on_home_section_changed)
+
+        # ------------------------------------------------------------------
+        # Demais sessões
+        # ------------------------------------------------------------------
         self.catalogs_tab = EmulatorCatalogsTab(self)
         self.directories_tab = DirectoriesTab(self)
         self.emulator_settings_tab = EmulatorSettingsTab(self)
@@ -42,19 +61,21 @@ class MainWindow(QMainWindow):
         self.shader_test_controller = install_shader_test(self.emulator_settings_tab.shader_test_target)
         self.scan_tab = ScanRomsTab(self)
         self.reconstruction_tab = ReconstructionTab(self)
-        self.retroarch_home_tab = RetroArchHomeTab(self)
         self.retroarch_catalog_tab = RetroArchCatalogTab(self)
         self.retroarch_directories_tab = RetroArchDirectoriesTab(self)
-        self.tab_widget.addTab(self.home_tab, "Home")
+
+        # A Home continua sendo uma única aba na barra principal. O usuário
+        # alterna entre Arcade/MAME e RetroArch dentro dela.
+        self.tab_widget.addTab(self.home_section, "Home")
         self.tab_widget.addTab(self.catalogs_tab, "Catálogos")
         self.tab_widget.addTab(self.directories_tab, "Diretórios")
         self.tab_widget.addTab(self.emulator_settings_tab, "Configurações dos Emuladores")
         self.tab_widget.addTab(self.filters_tab, "Filtragem")
         self.tab_widget.addTab(self.scan_tab, "Scan Roms")
         self.tab_widget.addTab(self.reconstruction_tab, "Reconstrução")
-        self.tab_widget.addTab(self.retroarch_home_tab, "RetroArch Home")
         self.tab_widget.addTab(self.retroarch_catalog_tab, "RetroArch Catálogo")
         self.tab_widget.addTab(self.retroarch_directories_tab, "RetroArch Diretórios")
+
         self.tab_widget.currentChanged.connect(self._on_tab_changed)
         if hasattr(self.directories_tab, "settings_changed"):
             self.directories_tab.settings_changed.connect(self.home_tab.refresh_status)
@@ -66,10 +87,20 @@ class MainWindow(QMainWindow):
         if hasattr(self.filters_tab, "filters_changed"):
             self.filters_tab.filters_changed.connect(self._on_filters_changed)
 
+    def _on_home_section_changed(self, index: int) -> None:
+        """Atualiza a sessão selecionada dentro da Home sem recriá-la."""
+        widget = self.home_section.widget(index)
+        if widget is self.home_tab:
+            self.home_tab.refresh_status()
+        elif widget is self.retroarch_home_tab:
+            self.retroarch_home_tab.refresh()
+
     def _on_tab_changed(self, index):
-        """Atualiza dados transitórios quando uma aba é selecionada."""
+        """Atualiza dados transitórios quando uma aba principal é selecionada."""
         widget = self.tab_widget.widget(index)
-        if widget is self.catalogs_tab:
+        if widget is self.home_section:
+            self._on_home_section_changed(self.home_section.currentIndex())
+        elif widget is self.catalogs_tab:
             self.catalogs_tab.refresh()
         elif widget is self.directories_tab:
             self.directories_tab._refresh_ui_state()
@@ -79,8 +110,6 @@ class MainWindow(QMainWindow):
             self.reconstruction_tab.refresh()
         elif widget is self.emulator_settings_tab:
             self.emulator_settings_tab.refresh()
-        elif widget is self.retroarch_home_tab:
-            self.retroarch_home_tab.refresh()
         elif widget is self.retroarch_catalog_tab:
             self.retroarch_catalog_tab.refresh()
         elif widget is self.retroarch_directories_tab:
