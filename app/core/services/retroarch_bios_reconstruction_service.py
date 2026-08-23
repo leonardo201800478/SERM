@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -54,16 +55,19 @@ class RetroArchBiosReconstructionService:
         definitions = [d for system in self.scanner.systems if not allowed or system.system_id in allowed for d in system.files]
         files = [path for path in source.rglob("*") if path.is_file()]
         by_name: dict[str, list[Path]] = {}
-        for path in files: by_name.setdefault(path.name.casefold(), []).append(path)
+        for path in files:
+            by_name.setdefault(path.name.casefold(), []).append(path)
         return self._copy_definitions(definitions, by_name, files, overwrite)
 
     def _reconstruct_destinations(self, source_directory: str | Path, destinations: set[str], overwrite: bool) -> list[RetroArchBiosReconstructionResult]:
         """Reconstrói um subconjunto de destinos identificado pelo scanner."""
         source = Path(source_directory).expanduser().resolve()
-        if not source.is_dir(): raise ValueError(f"Pasta de origem não encontrada: {source}")
+        if not source.is_dir():
+            raise ValueError(f"Pasta de origem não encontrada: {source}")
         files = [path for path in source.rglob("*") if path.is_file()]
         by_name: dict[str, list[Path]] = {}
-        for path in files: by_name.setdefault(path.name.casefold(), []).append(path)
+        for path in files:
+            by_name.setdefault(path.name.casefold(), []).append(path)
         definitions = [d for system in self.scanner.systems for d in system.files if d.destination in destinations]
         return self._copy_definitions(definitions, by_name, files, overwrite)
 
@@ -71,26 +75,39 @@ class RetroArchBiosReconstructionService:
         """Localiza, valida e materializa definições no destino do catálogo."""
         results: list[RetroArchBiosReconstructionResult] = []
         for definition in definitions:
-            destination = self.system_directory / Path(definition.destination.replace("/", str(Path.sep)))
+            destination = self._target(definition)
             candidate = self._find_candidate(definition, by_name.get(Path(definition.name).name.casefold(), []), files)
             if candidate is None:
-                results.append(RetroArchBiosReconstructionResult(definition, None, destination, "missing", "Nenhum arquivo compatível encontrado")); continue
+                results.append(RetroArchBiosReconstructionResult(definition, None, destination, "missing", "Nenhum arquivo compatível encontrado"))
+                continue
             if destination.exists() and not overwrite:
-                results.append(RetroArchBiosReconstructionResult(definition, candidate, destination, "skipped", "Destino já existe")); continue
-            destination.parent.mkdir(parents=True, exist_ok=True); shutil.copy2(candidate, destination)
+                results.append(RetroArchBiosReconstructionResult(definition, candidate, destination, "skipped", "Destino já existe"))
+                continue
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(candidate, destination)
             results.append(RetroArchBiosReconstructionResult(definition, candidate, destination, "reconstructed", "Arquivo reconstruído e validado"))
         return results
+
+    def _target(self, definition: RetroArchBiosFile) -> Path:
+        """Resolve o destino relativo ao System Directory sem usar Path.sep."""
+        relative = definition.destination.replace("/", os.sep).replace("\\", os.sep)
+        return self.system_directory / Path(relative)
 
     @staticmethod
     def _find_candidate(definition: RetroArchBiosFile, named_candidates: list[Path], all_files: list[Path]) -> Path | None:
         """Encontra candidato válido, priorizando o nome esperado."""
         for candidate in named_candidates or all_files:
-            if definition.size is not None and candidate.stat().st_size != definition.size: continue
+            if definition.size is not None and candidate.stat().st_size != definition.size:
+                continue
             hashes = RetroArchBiosReconstructionService._hashes(candidate)
-            if definition.sha1 and hashes["sha1"].casefold() == definition.sha1.casefold(): return candidate
-            if definition.md5 and hashes["md5"].casefold() == definition.md5.casefold(): return candidate
-            if definition.crc32 and hashes["crc32"].casefold() == str(definition.crc32).casefold().zfill(8): return candidate
-            if not any((definition.sha1, definition.md5, definition.crc32)): return candidate
+            if definition.sha1 and hashes["sha1"].casefold() == definition.sha1.casefold():
+                return candidate
+            if definition.md5 and hashes["md5"].casefold() == definition.md5.casefold():
+                return candidate
+            if definition.crc32 and hashes["crc32"].casefold() == str(definition.crc32).casefold().zfill(8):
+                return candidate
+            if not any((definition.sha1, definition.md5, definition.crc32)):
+                return candidate
         return None
 
     @staticmethod
@@ -99,7 +116,10 @@ class RetroArchBiosReconstructionService:
         import zlib
         sha1, md5, crc = hashlib.sha1(), hashlib.md5(), 0
         with path.open("rb") as stream:
-            while chunk := stream.read(1024 * 1024): sha1.update(chunk); md5.update(chunk); crc = zlib.crc32(chunk, crc)
+            while chunk := stream.read(1024 * 1024):
+                sha1.update(chunk)
+                md5.update(chunk)
+                crc = zlib.crc32(chunk, crc)
         return {"sha1": sha1.hexdigest(), "md5": md5.hexdigest(), "crc32": f"{crc & 0xffffffff:08x}"}
 
 
