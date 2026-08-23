@@ -45,6 +45,18 @@ class RetroArchBiosReconstructionService:
         needed = {item.definition.destination for item in scan if item.status in {"missing", "fixable", "corrupt"}}
         return self._reconstruct_destinations(source_directory, needed, True)
 
+    def reconstruct_one(self, source_directory: str | Path, definition: RetroArchBiosFile, overwrite: bool = True) -> RetroArchBiosReconstructionResult:
+        """Repara uma única BIOS/firmware selecionada na interface."""
+        source = Path(source_directory).expanduser().resolve()
+        if not source.is_dir():
+            raise ValueError(f"Pasta de origem não encontrada: {source}")
+        files = [path for path in source.rglob("*") if path.is_file()]
+        by_name: dict[str, list[Path]] = {}
+        for path in files:
+            by_name.setdefault(path.name.casefold(), []).append(path)
+        results = self._copy_definitions([definition], by_name, files, overwrite)
+        return results[0]
+
     def reconstruct_from_directory(self, source_directory: str | Path, systems: Iterable[str] | None = None, overwrite: bool = False) -> list[RetroArchBiosReconstructionResult]:
         """Reconstrói arquivos compatíveis de uma fonte usando destinos do catálogo."""
         source = Path(source_directory).expanduser().resolve()
