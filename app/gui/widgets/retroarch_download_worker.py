@@ -47,15 +47,20 @@ class RetroArchDownloadWorker(QObject):
                 preserve = self.operation == "update"
                 self.status.emit("Extraindo RetroArch…")
                 executable = service.install_retroarch(archive, self.destination, preserve_config=preserve)
-                version = channel.version or "nightly"
                 config = AppConfig()
-                config.retroarch_path = executable
-                config.retroarch_dir = self.destination
-                config.retroarch_version = version
-                for key in ("config", "cores", "system", "assets", "shaders", "saves", "states", "downloads"):
-                    config.set_emulator_path("retroarch", key, self.destination if key == "config" else self.destination / key)
+                config.retroarch_version = channel.version or "nightly"
+                # O retroarch.cfg é a fonte de verdade. Depois de extrair,
+                # reimportamos todos os diretórios nativos em vez de inventar
+                # uma árvore paralela no AppConfig.
+                try:
+                    config.set_retroarch_executable(executable)
+                except (FileNotFoundError, OSError, ValueError) as exc:
+                    config.retroarch_path = executable
+                    config.retroarch_dir = self.destination
+                    self._log(f"AVISO | retroarch.cfg não pôde ser importado após instalação: {exc}")
+                config.retroarch_version = channel.version or "nightly"
                 config.save()
-                self.finished.emit("retroarch", version, str(executable))
+                self.finished.emit("retroarch", config.retroarch_version or "nightly", str(executable))
                 return
 
             if self.operation in {"core", "cores_installed"}:
@@ -76,7 +81,7 @@ class RetroArchDownloadWorker(QObject):
                         if logical in by_name:
                             selected_cores.append(by_name[logical])
                     if not selected_cores:
-                        raise ValueError("Nenhum core instalado corresponde ao índice oficial deste canal.")
+                        raise ValueError("Nenhum core instalado corresponde ao índice oficial deste canal. Verifique o diretório Cores importado do retroarch.cfg.")
                     self._log(f"CORES INSTALADOS | candidatos={len(selected_cores)}")
 
                 for index, selected in enumerate(selected_cores, start=1):
@@ -86,9 +91,7 @@ class RetroArchDownloadWorker(QObject):
                         channel,
                         selected,
                         cores_dir,
-                        progress=lambda received, total, offset=index - 1, count=len(selected_cores): self.progress.emit(
-                            int(((offset + (received / total if total else 0)) / count) * 100), 100
-                        ),
+                        progress=lambda received, total, offset=index - 1, count=len(selected_cores): self.progress.emit(int(((offset + (received / total if total else 0)) / count) * 100), 100),
                     )
                 self.finished.emit("cores", str(len(selected_cores)), str(cores_dir))
                 return
