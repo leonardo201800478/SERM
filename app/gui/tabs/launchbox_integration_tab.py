@@ -5,25 +5,14 @@ import json
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QFileDialog,
-    QHBoxLayout,
-    QLabel,
-    QMessageBox,
-    QPushButton,
-    QTabWidget,
-    QTreeWidget,
-    QTreeWidgetItem,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QLabel, QMessageBox, QPushButton, QTabWidget, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
 
 from app.config.app_config import AppConfig
 from app.core.services.launchbox_integration_service import LaunchBoxIntegrationService, LaunchBoxSystem
 
 
 class LaunchBoxIntegrationTab(QWidget):
-    """Integra sistemas, cores e emuladores com a base XML do LaunchBox."""
+    """Integra sistemas, cores e emuladores usando os caminhos reais do projeto."""
 
     GROUPS = (("consoles", "Consoles"), ("portables", "Portáteis"), ("computers", "Computadores"), ("arcade", "Arcade"))
 
@@ -31,7 +20,7 @@ class LaunchBoxIntegrationTab(QWidget):
         super().__init__(parent)
         self.parent_window = parent
         self.config = getattr(parent, "config", None) or AppConfig()
-        self.service = LaunchBoxIntegrationService()
+        self.service = LaunchBoxIntegrationService(config=self.config)
         self.systems: list[LaunchBoxSystem] = []
         self.settings_file = self.service.project_root / "data" / "launchbox" / "settings.json"
         self._build_ui()
@@ -44,8 +33,7 @@ class LaunchBoxIntegrationTab(QWidget):
         title.setStyleSheet("font-size:22px;font-weight:bold;")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
-        layout.addWidget(QLabel("Mapeia os .info do RetroArch, emuladores standalone e favoritos por sistema; a exportação grava em Data/Emulators.xml."))
-
+        layout.addWidget(QLabel("Mapeia os .info do RetroArch, emuladores standalone e favoritos por sistema; a exportação faz merge não destrutivo em Data/Emulators.xml."))
         path_row = QHBoxLayout()
         self.path_label = QLabel("LaunchBox.exe: não configurado")
         self.path_label.setWordWrap(True)
@@ -57,7 +45,6 @@ class LaunchBoxIntegrationTab(QWidget):
         self.export_button.clicked.connect(self.export)
         path_row.addWidget(self.export_button)
         layout.addLayout(path_row)
-
         action_row = QHBoxLayout()
         refresh = QPushButton("Atualizar sistemas e cores")
         refresh.clicked.connect(self.refresh)
@@ -68,7 +55,6 @@ class LaunchBoxIntegrationTab(QWidget):
         self.status = QLabel()
         action_row.addWidget(self.status, 1)
         layout.addLayout(action_row)
-
         self.tabs = QTabWidget()
         self.trees: dict[str, QTreeWidget] = {}
         for key, label in self.GROUPS:
@@ -82,7 +68,6 @@ class LaunchBoxIntegrationTab(QWidget):
             self.tabs.addTab(tree, label)
             self.trees[key] = tree
         layout.addWidget(self.tabs, 1)
-
         self.log = QLabel()
         self.log.setWordWrap(True)
         self.log.setStyleSheet("color:#888;")
@@ -94,11 +79,11 @@ class LaunchBoxIntegrationTab(QWidget):
             data = json.loads(self.settings_file.read_text(encoding="utf-8"))
             value = data.get("launchbox_executable")
             return Path(value) if value else None
-        except (OSError, ValueError, TypeError):
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
             return None
 
     def _save_settings(self, executable: Path) -> None:
-        """Persiste o LaunchBox.exe fora do código-fonte."""
+        """Persiste o LaunchBox.exe fora da configuração dos emuladores."""
         self.settings_file.parent.mkdir(parents=True, exist_ok=True)
         self.settings_file.write_text(json.dumps({"launchbox_executable": str(executable)}, indent=2), encoding="utf-8")
 
@@ -119,11 +104,12 @@ class LaunchBoxIntegrationTab(QWidget):
         self.path_label.setText(f"LaunchBox.exe: {path if path else 'não configurado'}")
 
     def refresh(self) -> None:
-        """Reconstrói o mapeamento usando os .info locais do RetroArch."""
+        """Reconstrói o mapeamento usando os .info locais e os caminhos persistidos."""
         self.service.reload_rules()
         launchbox = self._load_settings()
         self._update_path_label(launchbox)
         self.config.load()
+        self.service.config = self.config
         info_dir = self.config.retroarch_native_paths.get("libretro_info_path")
         if not info_dir or not Path(info_dir).is_dir():
             self.systems = []
@@ -136,7 +122,7 @@ class LaunchBoxIntegrationTab(QWidget):
             self._add_standalone_entries()
             self._populate()
             self.status.setText(f"{len(infos)} cores .info | {len(self.systems)} sistemas | 1 padrão por sistema")
-            self.log.setText("Fonte: arquivos .info locais do RetroArch. Regras de classificação e command-lines são editáveis em data/launchbox/.")
+            self.log.setText("Fonte: .info locais + AppConfig para executáveis e diretórios reais. Emulators.xml será alterado somente por merge seletivo.")
         except Exception as exc:
             self.status.setText(f"Erro: {type(exc).__name__}: {exc}")
 
@@ -171,23 +157,24 @@ class LaunchBoxIntegrationTab(QWidget):
                 child = QTreeWidgetItem(parent)
                 child.setText(1, option.name)
                 if option.core_dll:
-                    child.setToolTip(1, option.core_dll)
+                    child.setToolTip(1, f"Core: {option.core_dll}\nCaminho: {option.core_path or 'não encontrado'}")
+                elif option.executable:
+                    child.setToolTip(1, f"Executável: {option.executable}")
                 child.setText(2, "★ Padrão" if option.default else "Alternativa")
                 child.setForeground(2, Qt.GlobalColor.green if option.default else Qt.GlobalColor.gray)
 
     def export(self) -> None:
-        """Exporta o catálogo para Data/Emulators.xml do LaunchBox configurado."""
+        """Exporta por merge seletivo, sem reconstruir o Emulators.xml existente."""
         launchbox = self._load_settings()
         if launchbox is None or not launchbox.is_file():
             QMessageBox.warning(self, "LaunchBox", "Configure primeiro o LaunchBox.exe.")
             return
-        launchbox_dir = launchbox.parent
         try:
-            target = self.service.export_emulators_xml(launchbox_dir, self.systems, overwrite=False)
-            QMessageBox.information(self, "LaunchBox", f"Exportação concluída:\n{target}")
-            self.status.setText(f"Exportado: {target}")
+            target = self.service.export_emulators_xml(launchbox.parent, self.systems, overwrite=False)
+            QMessageBox.information(self, "LaunchBox", f"Merge concluído sem apagar configurações existentes.\n\nArquivo: {target}")
+            self.status.setText(f"Merge concluído: {target}")
         except Exception as exc:
-            QMessageBox.critical(self, "LaunchBox", f"Falha na exportação:\n{type(exc).__name__}: {exc}")
+            QMessageBox.critical(self, "LaunchBox", f"Falha no merge; o arquivo original não foi substituído.\n\n{type(exc).__name__}: {exc}")
 
 
 __all__ = ["LaunchBoxIntegrationTab"]
