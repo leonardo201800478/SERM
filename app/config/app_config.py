@@ -75,6 +75,10 @@ class AppConfig:
             }
             for emulator, paths in self.EMULATOR_PATH_DEFAULTS.items()
         }
+        # O Flycast grava vários diretórios de ROM em uma única opção
+        # Dreamcast.ContentPath, separados por ';'. Os demais diretórios
+        # continuam sendo valores únicos.
+        self.flycast_rom_paths: list[Path] = []
 
         self.chdman_path: Path | None = None
         self.ini_path: Path | None = None
@@ -123,6 +127,18 @@ class AppConfig:
                     value = stored.get(name)
                     self.emulator_paths[emulator][name] = Path(value) if value else None
 
+            # Compatibilidade: versões anteriores armazenavam o primeiro
+            # diretório Flycast em emulator_paths. Ele continua válido como
+            # primeiro caminho caso a nova lista ainda não exista.
+            stored_flycast_roms = data.get("flycast_rom_paths")
+            if isinstance(stored_flycast_roms, list):
+                self.flycast_rom_paths = [Path(value) for value in stored_flycast_roms if value]
+            elif isinstance(stored_flycast_roms, str) and stored_flycast_roms.strip():
+                self.flycast_rom_paths = [Path(value.strip()) for value in stored_flycast_roms.split(";") if value.strip()]
+            else:
+                legacy_rom = self.emulator_paths.get("flycast", {}).get("roms")
+                self.flycast_rom_paths = [legacy_rom] if legacy_rom else []
+
             # O diretório configurado é a autoridade. Se houver mame.exe nele,
             # qualquer caminho antigo é descartado.
             if self.mame_dir:
@@ -161,6 +177,17 @@ class AppConfig:
             self.emulator_paths[emulator] = {}
         self.emulator_paths[emulator][name] = Path(path) if path else None
 
+    def get_flycast_rom_paths(self) -> list[Path]:
+        """Retorna os diretórios de ROM do Flycast, no máximo quatro."""
+        return list(self.flycast_rom_paths[:4])
+
+    def set_flycast_rom_paths(self, paths: list[Path]) -> None:
+        """Define até quatro diretórios de ROM do Flycast."""
+        self.flycast_rom_paths = [Path(path) for path in paths if path][:4]
+        # Mantém o primeiro caminho disponível compatível com consumidores
+        # antigos que ainda consultem emulator_paths['flycast']['roms'].
+        self.emulator_paths.setdefault("flycast", {})["roms"] = self.flycast_rom_paths[0] if self.flycast_rom_paths else None
+
     def save(self):
         """Salva configurações de forma atômica, mantendo apenas executáveis válidos."""
         self.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -189,6 +216,7 @@ class AppConfig:
                 }
                 for emulator, paths in self.emulator_paths.items()
             },
+            "flycast_rom_paths": [str(path) for path in self.flycast_rom_paths[:4]],
             "chdman_path": str(self.chdman_path) if self.chdman_path else "",
             "ini_path": str(self.ini_path) if self.ini_path else "",
             "catver_path": str(self.catver_path) if self.catver_path else "",
