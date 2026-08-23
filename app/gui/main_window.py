@@ -55,16 +55,12 @@ class MainWindow(QMainWindow):
         self.tab_widget.addTab(self.home_tab, "Home")
         self.tab_widget.addTab(self.catalogs_tab, "Catálogos")
         self.tab_widget.addTab(self.directories_tab, "Diretórios")
-        self.tab_widget.addTab(
-            self.emulator_settings_tab,
-            "Configurações dos Emuladores",
-        )
+        self.tab_widget.addTab(self.emulator_settings_tab, "Configurações dos Emuladores")
         self.tab_widget.addTab(self.filters_tab, "Filtragem")
         self.tab_widget.addTab(self.scan_tab, "Scan Roms")
         self.tab_widget.addTab(self.reconstruction_tab, "Reconstrução")
 
-        # Sessões RetroArch mantidas separadas nesta etapa para não alterar a
-        # semântica dos catálogos multi-emulador e da instalação em lote já existente.
+        # Sessões RetroArch independentes, mas compartilhando AppConfig.
         self.tab_widget.addTab(self.retroarch_home_tab, "RetroArch Home")
         self.tab_widget.addTab(self.retroarch_catalog_tab, "RetroArch Catálogo")
         self.tab_widget.addTab(self.retroarch_directories_tab, "RetroArch Diretórios")
@@ -120,9 +116,12 @@ class MainWindow(QMainWindow):
         return FilterCriteria()
 
     def closeEvent(self, event):
-        """Cancela workers, encerra teste de shader e fecha o SQLite com segurança."""
+        """Cancela workers, encerra testes e fecha recursos com segurança."""
         if getattr(self, "shader_test_controller", None) is not None:
             self.shader_test_controller.close()
+        retroarch_home = getattr(self, "retroarch_home_tab", None)
+        if retroarch_home is not None:
+            retroarch_home.close()
         catalog_tab = getattr(self, "catalogs_tab", None)
         if catalog_tab is not None:
             catalog_tab.close()
