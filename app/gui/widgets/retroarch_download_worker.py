@@ -65,7 +65,11 @@ class RetroArchDownloadWorker(QObject):
                 self.status.emit("Consultando lista de cores…")
                 cores = service.list_cores(channel)
                 by_name = {item.core_name.casefold(): item for item in cores}
-                cores_dir = Path(config_dir := self.destination / "cores")
+                app_config = AppConfig()
+                app_config.load()
+                cores_dir = app_config.get_emulator_path("retroarch", "cores") or (self.destination / "cores")
+                cores_dir = Path(cores_dir).expanduser().resolve()
+                self._log(f"DIRETÓRIO CORES | {cores_dir}")
                 if self.operation == "core":
                     selected = next((item for item in cores if item.filename == self.core_filename), None)
                     if selected is None:
