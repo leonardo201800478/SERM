@@ -56,6 +56,7 @@ class RetroArchBiosService:
         self.system_directory = Path(system_directory).expanduser() if system_directory else None
         self.systems: list[RetroArchBiosSystem] = []
         self._hash_index: dict[str, Path] = {}
+        self._name_index: dict[str, list[Path]] = {}
         self._hash_index_ready = False
 
     def load_info_catalog(self, cores: list[RetroArchInfoCore]) -> list[RetroArchBiosSystem]:
@@ -125,7 +126,7 @@ class RetroArchBiosService:
         return {system.system_id: [self._verify(d, self._target(d)) for d in system.files] for system in self.systems_for_core(core_name)}
 
     def _prepare_hash_index(self) -> None:
-        """Indexa hashes dos arquivos existentes uma única vez por varredura."""
+        """Indexa nomes e hashes dos arquivos existentes uma única vez por varredura."""
         if self._hash_index_ready or self.system_directory is None:
             return
         root = self.system_directory.resolve()
@@ -136,6 +137,7 @@ class RetroArchBiosService:
             if not path.is_file():
                 continue
             try:
+                self._name_index.setdefault(path.name.casefold(), []).append(path)
                 values = self._hashes(path)
             except OSError:
                 continue
@@ -146,19 +148,24 @@ class RetroArchBiosService:
     def reset_scan_cache(self) -> None:
         """Invalida o índice para uma nova leitura do System Directory."""
         self._hash_index.clear()
+        self._name_index.clear()
         self._hash_index_ready = False
 
     def _target(self, definition: RetroArchBiosFile) -> Path:
         """Resolve destino relativo ao System Directory de forma portátil."""
         if self.system_directory is None:
             raise ValueError("Diretório System do RetroArch não configurado.")
-        # O catálogo Libretro usa sempre '/' como separador lógico.
-        # Path.sep não existe em pathlib; os.sep é a constante correta para o SO.
         relative = definition.destination.replace("/", os.sep).replace("\\", os.sep)
         return self.system_directory.resolve() / Path(relative)
 
     def _verify(self, definition: RetroArchBiosFile, target: Path) -> RetroArchBiosResult:
-        """Classifica arquivo conforme presença, tamanho e hashes conhecidos."""
+        """Classifica arquivo conforme presença, tamanho e hashes conhecidos.
+
+        Regra deliberada: quando o catálogo não fornece nenhum hash, a
+        identidade do arquivo é determinada exclusivamente pelo nome e pela
+        extensão. Nesse caso não é permitido considerar um arquivo arbitrário
+        como candidato apenas por ter tamanho compatível.
+        """
         if not target.is_file():
             candidate = self._find_matching_file(definition)
             if candidate:
@@ -176,9 +183,29 @@ class RetroArchBiosService:
         return RetroArchBiosResult(definition, target, "corrupt", actual_size, actual_sha1, actual_md5, actual_crc32, "Hash diferente do catálogo")
 
     def _find_matching_file(self, definition: RetroArchBiosFile) -> Path | None:
-        """Procura uma cópia válida com nome/local diferente."""
-        keys = {str(definition.sha1).casefold(), str(definition.md5).casefold(), str(definition.crc32).casefold().zfill(8)}
-        return next((path for key, path in self._hash_index.items() if key in keys), None)
+        """Procura uma cópia válida, respeitando a regra de identidade do catálogo.
+
+        Com hash: o hash é a autoridade e permite corrigir nome/local.
+        Sem hash: somente nome exato (case-insensitive), incluindo extensão,
+        pode ser considerado. O tamanho não é usado para identificar o arquivo.
+        """
+        has_hash = any((definition.sha1, definition.md5, definition.crc32))
+        if not has_hash:
+            candidates = self._name_index.get(Path(definition.name).name.casefold(), [])
+            return candidates[0] if candidates else None
+
+        keys = set()
+        if definition.sha1:
+            keys.add(definition.sha1.casefold())
+        if definition.md5:
+            keys.add(definition.md5.casefold())
+        if definition.crc32:
+            keys.add(str(definition.crc32).casefold().zfill(8))
+        for key in keys:
+            candidate = self._hash_index.get(key)
+            if candidate is not None:
+                return candidate
+        return None
 
     @staticmethod
     def _hashes(path: Path, with_size: bool = False):
