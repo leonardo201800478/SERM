@@ -16,7 +16,7 @@ RETROBIOS_RAW_URL = "https://raw.githubusercontent.com/Abdess/retrobios/main/pla
 
 @dataclass(frozen=True, slots=True)
 class RetroArchBiosFile:
-    """Define um arquivo de BIOS/firmware requerido por um sistema."""
+    """Define um arquivo ou diretório de firmware requerido por um sistema."""
     name: str
     destination: str
     required: bool
@@ -24,6 +24,7 @@ class RetroArchBiosFile:
     md5: str | None = None
     crc32: str | None = None
     size: int | None = None
+    is_directory: bool = False
 
 
 @dataclass(slots=True)
@@ -38,7 +39,7 @@ class RetroArchBiosSystem:
 
 @dataclass(frozen=True, slots=True)
 class RetroArchBiosResult:
-    """Estado encontrado para um arquivo de BIOS."""
+    """Estado encontrado para um arquivo ou diretório de BIOS."""
     definition: RetroArchBiosFile
     path: Path
     status: str
@@ -50,7 +51,7 @@ class RetroArchBiosResult:
 
 
 class RetroArchBiosService:
-    """Carrega catálogo local .info e, opcionalmente, RetroBIOS para hashes complementares."""
+    """Carrega catálogo local .info e verifica BIOS/firmware no System Directory."""
 
     def __init__(self, system_directory: str | Path | None = None) -> None:
         self.system_directory = Path(system_directory).expanduser() if system_directory else None
@@ -67,10 +68,11 @@ class RetroArchBiosService:
                 continue
             files = [
                 RetroArchBiosFile(
-                    name=Path(firmware.path).name,
-                    destination=firmware.path.replace("\\", "/"),
+                    name=Path(firmware.path.rstrip("/\\")).name or firmware.path,
+                    destination=firmware.path.replace("\\", "/").rstrip("/") if firmware.is_directory else firmware.path.replace("\\", "/"),
                     required=not firmware.optional,
                     md5=firmware.md5,
+                    is_directory=firmware.is_directory,
                 )
                 for firmware in core.firmware
             ]
@@ -102,6 +104,7 @@ class RetroArchBiosService:
                 required=bool(entry.get("required", False)), sha1=str(entry.get("sha1")) if entry.get("sha1") else None,
                 md5=str(entry.get("md5")) if entry.get("md5") else None, crc32=str(entry.get("crc32")) if entry.get("crc32") else None,
                 size=int(entry["size"]) if entry.get("size") is not None else None,
+                is_directory=bool(entry.get("is_directory", False)),
             ) for entry in payload.get("files") or []]
             systems.append(RetroArchBiosSystem(system_id=str(system_id), native_id=str(payload.get("native_id") or system_id), core=str(payload.get("core")) if payload.get("core") else None, docs=str(payload.get("docs")) if payload.get("docs") else None, files=files))
         self.systems = systems
@@ -159,14 +162,20 @@ class RetroArchBiosService:
         return self.system_directory.resolve() / Path(relative)
 
     def _verify(self, definition: RetroArchBiosFile, target: Path) -> RetroArchBiosResult:
-        """Classifica arquivo conforme presença, tamanho e hashes conhecidos.
+        """Classifica arquivo/diretório conforme a definição do catálogo."""
+        if definition.is_directory:
+            if target.is_dir():
+                return RetroArchBiosResult(definition, target, "ok", message="Diretório de BIOS presente")
+            if target.exists():
+                return RetroArchBiosResult(definition, target, "corrupt", message="O destino esperado é um diretório, mas existe um arquivo com o mesmo nome")
+            candidate = self._find_matching_directory(definition)
+            if candidate:
+                return RetroArchBiosResult(definition, target, "fixable", message=f"Diretório compatível encontrado em {candidate}")
+            return RetroArchBiosResult(definition, target, "missing", message="Diretório ausente")
 
-        Regra deliberada: quando o catálogo não fornece nenhum hash, a
-        identidade do arquivo é determinada exclusivamente pelo nome e pela
-        extensão. Nesse caso não é permitido considerar um arquivo arbitrário
-        como candidato apenas por ter tamanho compatível.
-        """
         if not target.is_file():
+            if target.exists():
+                return RetroArchBiosResult(definition, target, "corrupt", message="O destino esperado é um arquivo, mas existe um diretório com o mesmo nome")
             candidate = self._find_matching_file(definition)
             if candidate:
                 return RetroArchBiosResult(definition, target, "fixable", message=f"Arquivo compatível encontrado em {candidate}")
@@ -182,18 +191,20 @@ class RetroArchBiosService:
             return RetroArchBiosResult(definition, target, "ok", actual_size, actual_sha1, actual_md5, actual_crc32)
         return RetroArchBiosResult(definition, target, "corrupt", actual_size, actual_sha1, actual_md5, actual_crc32, "Hash diferente do catálogo")
 
-    def _find_matching_file(self, definition: RetroArchBiosFile) -> Path | None:
-        """Procura uma cópia válida, respeitando a regra de identidade do catálogo.
+    def _find_matching_directory(self, definition: RetroArchBiosFile) -> Path | None:
+        """Procura diretório de firmware pelo nome, sem tratar diretório como arquivo."""
+        if self.system_directory is None:
+            return None
+        expected = Path(definition.destination.replace("/", os.sep).replace("\\", os.sep))
+        name = expected.name.casefold()
+        return next((p for p in self.system_directory.resolve().rglob("*") if p.is_dir() and p.name.casefold() == name), None)
 
-        Com hash: o hash é a autoridade e permite corrigir nome/local.
-        Sem hash: somente nome exato (case-insensitive), incluindo extensão,
-        pode ser considerado. O tamanho não é usado para identificar o arquivo.
-        """
+    def _find_matching_file(self, definition: RetroArchBiosFile) -> Path | None:
+        """Procura uma cópia válida, respeitando a regra de identidade do catálogo."""
         has_hash = any((definition.sha1, definition.md5, definition.crc32))
         if not has_hash:
             candidates = self._name_index.get(Path(definition.name).name.casefold(), [])
             return candidates[0] if candidates else None
-
         keys = set()
         if definition.sha1:
             keys.add(definition.sha1.casefold())
