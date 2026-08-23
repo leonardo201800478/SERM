@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import binascii
+import csv
 from pathlib import Path
 
 from PySide6.QtCore import Qt
@@ -11,6 +12,8 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QMenu,
+    QMessageBox,
     QProgressBar,
     QPushButton,
     QPlainTextEdit,
@@ -39,6 +42,7 @@ class RetroArchCatalogTab(QWidget):
         "corrupt": QColor(215, 55, 55),
         "missing": QColor(135, 135, 135),
     }
+    BIOS_DESTINATION_ROLE = Qt.ItemDataRole.UserRole
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -55,7 +59,7 @@ class RetroArchCatalogTab(QWidget):
         self.refresh()
 
     def _build_ui(self) -> None:
-        """Monta catálogo, scanner, progresso e log persistente da sessão."""
+        """Monta catálogo, scanner, progresso, log e ações de BIOS."""
         layout = QVBoxLayout(self)
         title = QLabel("Catálogo RetroArch")
         title.setStyleSheet("font-size:22px;font-weight:bold;")
@@ -77,6 +81,7 @@ class RetroArchCatalogTab(QWidget):
             ("Escanear BIOS dos cores", self.scan_bios),
             ("Reconstruir BIOS", self.rebuild_bios),
             ("Reconstruir a partir de uma pasta", self.rebuild_from_folder),
+            ("Exportar BIOS ausentes", self.export_missing_bios),
         ):
             button = QPushButton(text)
             button.clicked.connect(slot)
@@ -101,6 +106,8 @@ class RetroArchCatalogTab(QWidget):
         self.tree.setUniformRowHeights(False)
         self.tree.setColumnWidth(0, 280)
         self.tree.setColumnWidth(1, 260)
+        self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self._show_context_menu)
         layout.addWidget(self.tree, 1)
 
         log_group = QGroupBox("Log do catálogo / scanner")
@@ -180,12 +187,7 @@ class RetroArchCatalogTab(QWidget):
         self._log(f"SYSTEM | diretório={system_dir or 'não configurado'}")
 
     def _load_core_index(self, installed: dict[str, Path]) -> list[dict]:
-        """Classifica os cores usando .info como catálogo primário.
-
-        O Buildbot é consultado apenas para determinar se a DLL instalada está
-        atualizada. Isso evita que a ausência de um core no índice impeça a
-        árvore de sistemas/BIOS de ser construída.
-        """
+        """Classifica os cores usando .info como catálogo primário."""
         buildbot_by_name = {}
         try:
             cores = self.core_service.list_cores(RetroArchDownloadService.channel("nightly"))
@@ -254,6 +256,8 @@ class RetroArchCatalogTab(QWidget):
                         label += " [obrigatória]" if result.definition.required else " [opcional]"
                         bios_item.setText(2, label)
                         bios_item.setToolTip(2, result.message or result.definition.destination)
+                        bios_item.setData(2, self.BIOS_DESTINATION_ROLE, result.definition.destination)
+                        bios_item.setData(2, self.BIOS_DESTINATION_ROLE + 1, result.status)
                         self._color_item(bios_item, result.status)
                 else:
                     system_item.setText(2, "Sem BIOS/firmware catalogada")
@@ -297,6 +301,63 @@ class RetroArchCatalogTab(QWidget):
         for column in range(3):
             item.setForeground(column, color)
 
+    def _show_context_menu(self, position) -> None:
+        """Abre menu contextual para uma BIOS selecionada."""
+        item = self.tree.itemAt(position)
+        if item is None or item.parent() is None or item.parent().parent() is None:
+            return
+        destination = item.data(2, self.BIOS_DESTINATION_ROLE)
+        if not destination:
+            return
+        menu = QMenu(self)
+        repair = menu.addAction("Reparar BIOS")
+        menu.addSeparator()
+        export = menu.addAction("Exportar esta BIOS")
+        action = menu.exec(self.tree.viewport().mapToGlobal(position))
+        if action == repair:
+            self._repair_selected_bios(str(destination))
+        elif action == export:
+            self._export_single_bios(str(destination))
+
+    def _find_definition(self, destination: str):
+        """Localiza a definição de BIOS pelo destino lógico."""
+        for system in self.bios_service.systems:
+            for definition in system.files:
+                if definition.destination == destination:
+                    return definition
+        return None
+
+    def _repair_selected_bios(self, destination: str) -> None:
+        """Repara uma única BIOS usando a última fonte ou solicitando uma nova."""
+        definition = self._find_definition(destination)
+        if definition is None:
+            self._log(f"REPARAÇÃO | BIOS não encontrada no catálogo: {destination}")
+            return
+        source = self.last_bios_source
+        if source is None or not source.is_dir():
+            selected = QFileDialog.getExistingDirectory(self, "Selecionar pasta de origem da BIOS")
+            if not selected:
+                return
+            source = Path(selected)
+            self.last_bios_source = source
+        try:
+            system_dir = self.config.get_emulator_path("retroarch", "system")
+            if not system_dir:
+                raise ValueError("Diretório System do RetroArch não configurado.")
+            self._log(f"REPARAÇÃO BIOS | arquivo={definition.name} | origem={source}")
+            service = RetroArchBiosReconstructionService(system_dir)
+            service.scanner.systems = list(self.bios_service.systems)
+            result = service.reconstruct_one(source, definition, overwrite=True)
+            self._log(f"REPARAÇÃO BIOS | status={result.status} | destino={result.destination} | {result.message}")
+            if result.status == "reconstructed":
+                self.status_label.setText(f"BIOS reparada: {definition.name}")
+                self.scan_bios()
+            else:
+                QMessageBox.warning(self, "Reparar BIOS", f"Não foi possível reparar {definition.name}.\n\n{result.message}")
+        except Exception as exc:
+            self._log(f"ERRO REPARAÇÃO BIOS | {type(exc).__name__}: {exc}")
+            QMessageBox.critical(self, "Reparar BIOS", f"Erro ao reparar {definition.name}:\n{exc}")
+
     def scan_bios(self) -> None:
         """Executa uma varredura completa com progresso e log detalhado."""
         self.progress.setValue(0)
@@ -324,6 +385,67 @@ class RetroArchCatalogTab(QWidget):
             self._log(f"ERRO SCAN BIOS | {type(exc).__name__}: {exc}")
             self.status_label.setText(f"Erro no scanner de BIOS: {type(exc).__name__}: {exc}")
             self.progress.setValue(0)
+
+    def export_missing_bios(self) -> None:
+        """Exporta CSV com BIOS ausentes e seus hashes conhecidos."""
+        try:
+            self.config.load()
+            self._load_bios_catalog()
+            if self.info_cores:
+                self.bios_service.load_info_catalog(self.info_cores)
+            results = self.bios_service.scan()
+            missing = [result for result in results if result.status == "missing"]
+            if not missing:
+                QMessageBox.information(self, "Exportar BIOS ausentes", "Nenhuma BIOS ausente foi encontrada.")
+                return
+            filename, _ = QFileDialog.getSaveFileName(
+                self,
+                "Exportar BIOS ausentes",
+                "retroarch_bios_ausentes.csv",
+                "CSV (*.csv)",
+            )
+            if not filename:
+                return
+            core_by_destination: dict[str, tuple[str, str]] = {}
+            for core in self.bios_service.systems:
+                for definition in core.files:
+                    core_by_destination[definition.destination] = (core.core or "", core.system_id)
+            with open(filename, "w", encoding="utf-8-sig", newline="") as stream:
+                writer = csv.writer(stream, delimiter=";")
+                writer.writerow(["Core", "Sistema", "BIOS", "Destino", "Obrigatória", "MD5", "SHA1", "CRC32", "Tamanho"])
+                for result in missing:
+                    core_name, system_id = core_by_destination.get(result.definition.destination, ("", ""))
+                    writer.writerow([
+                        core_name,
+                        system_id,
+                        result.definition.name,
+                        result.definition.destination,
+                        "SIM" if result.definition.required else "NÃO",
+                        result.definition.md5 or "",
+                        result.definition.sha1 or "",
+                        result.definition.crc32 or "",
+                        result.definition.size or "",
+                    ])
+            self._log(f"EXPORTAÇÃO BIOS | ausentes={len(missing)} | arquivo={filename}")
+            self.status_label.setText(f"Lista exportada: {len(missing)} BIOS ausentes → {filename}")
+        except Exception as exc:
+            self._log(f"ERRO EXPORTAÇÃO BIOS | {type(exc).__name__}: {exc}")
+            QMessageBox.critical(self, "Exportar BIOS ausentes", f"Erro ao exportar a lista:\n{exc}")
+
+    def _export_single_bios(self, destination: str) -> None:
+        """Exporta uma única BIOS para facilitar pesquisa/reparo manual."""
+        definition = self._find_definition(destination)
+        if definition is None:
+            return
+        filename, _ = QFileDialog.getSaveFileName(self, "Exportar BIOS", f"{definition.name}.txt", "Texto (*.txt)")
+        if not filename:
+            return
+        Path(filename).write_text(
+            f"BIOS: {definition.name}\nDestino: {definition.destination}\nObrigatória: {'SIM' if definition.required else 'NÃO'}\n"
+            f"MD5: {definition.md5 or ''}\nSHA1: {definition.sha1 or ''}\nCRC32: {definition.crc32 or ''}\nTamanho: {definition.size or ''}\n",
+            encoding="utf-8",
+        )
+        self._log(f"EXPORTAÇÃO BIOS | arquivo={definition.name} | destino={filename}")
 
     def rebuild_from_folder(self) -> None:
         """Seleciona uma fonte e inicia reconstrução no System Directory."""
@@ -358,10 +480,11 @@ class RetroArchCatalogTab(QWidget):
             results = service.reconstruct_needed(source)
             rebuilt = sum(r.status == "reconstructed" for r in results)
             missing = sum(r.status == "missing" for r in results)
+            errors = sum(r.status == "error" for r in results)
             self.progress.setValue(100)
-            self._log(f"RECONSTRUÇÃO | reconstruídos={rebuilt} | não encontrados={missing}")
+            self._log(f"RECONSTRUÇÃO | reconstruídos={rebuilt} | não encontrados={missing} | erros={errors}")
             self.status_label.setText(
-                f"Reconstrução concluída | reparados={rebuilt} | não encontrados={missing} | destino={system_dir}"
+                f"Reconstrução concluída | reparados={rebuilt} | não encontrados={missing} | erros={errors} | destino={system_dir}"
             )
             self.scan_bios()
         except Exception as exc:
