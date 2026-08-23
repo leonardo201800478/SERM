@@ -1,11 +1,8 @@
 """Aba central de configurações dos emuladores do ARCADE MANAGER.
 
-Agrupa os cinco emuladores suportados em subabas independentes:
-MAME, Flycast, Supermodel, FBNeo e RetroArch.
-
-Nesta primeira etapa, a implementação completa existente do MAME é preservada
-integralmente. As demais subabas ficam preparadas para receber seus adapters
-nativos sem acoplar suas configurações ao MAME.
+Agrupa MAME, Flycast, Supermodel, FBNeo e RetroArch em subabas independentes.
+A implementação específica de cada emulador permanece isolada em seu widget
+/adaptador nativo.
 """
 from __future__ import annotations
 
@@ -13,6 +10,7 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QLabel, QTabWidget, QVBoxLayout, QWidget
 
 from app.gui.tabs.mame_settings_tab import MameSettingsTab
+from app.gui.tabs.flycast_settings_tab import FlycastSettingsTab
 
 
 class EmulatorSettingsTab(QWidget):
@@ -24,7 +22,7 @@ class EmulatorSettingsTab(QWidget):
         super().__init__(parent)
         self.parent_window = parent
         self.mame_tab: MameSettingsTab | None = None
-        self.flycast_tab: QWidget | None = None
+        self.flycast_tab: FlycastSettingsTab | None = None
         self.supermodel_tab: QWidget | None = None
         self.fbneo_tab: QWidget | None = None
         self.retroarch_tab: QWidget | None = None
@@ -40,9 +38,7 @@ class EmulatorSettingsTab(QWidget):
         self.mame_tab = MameSettingsTab(self)
         self.tab_widget.addTab(self.mame_tab, "MAME")
 
-        self.flycast_tab = self._create_pending_tab(
-            "Flycast", "Configurações do Flycast serão implementadas nesta subaba."
-        )
+        self.flycast_tab = FlycastSettingsTab(self)
         self.tab_widget.addTab(self.flycast_tab, "Flycast")
 
         self.supermodel_tab = self._create_pending_tab(
@@ -67,27 +63,31 @@ class EmulatorSettingsTab(QWidget):
         """Cria a página provisória de um emulador ainda não implementado."""
         page = QWidget()
         layout = QVBoxLayout(page)
-
         title = QLabel(f"Configurações do {emulator}")
         title.setStyleSheet("font-size:20px;font-weight:bold")
         description = QLabel(message)
         description.setWordWrap(True)
         description.setStyleSheet("padding:8px")
-
         layout.addWidget(title)
         layout.addWidget(description)
         layout.addStretch()
         return page
 
     def _on_subtab_changed(self, index: int) -> None:
-        """Recarrega a configuração nativa quando a subaba MAME é selecionada."""
-        if self.tab_widget.widget(index) is self.mame_tab:
+        """Atualiza a subaba selecionada quando ela possui configuração nativa."""
+        widget = self.tab_widget.widget(index)
+        if widget is self.mame_tab:
             self.mame_tab._load_ini()
+        elif widget is self.flycast_tab:
+            self.flycast_tab.refresh()
 
     def refresh(self) -> None:
-        """Recarrega a configuração do emulador atualmente selecionado."""
-        if self.tab_widget.currentWidget() is self.mame_tab:
+        """Recarrega a configuração da subaba atualmente selecionada."""
+        current = self.tab_widget.currentWidget()
+        if current is self.mame_tab:
             self.mame_tab._load_ini()
+        elif current is self.flycast_tab:
+            self.flycast_tab.refresh()
 
     @property
     def shader_test_target(self) -> MameSettingsTab:
