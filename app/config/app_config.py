@@ -2,6 +2,8 @@ import json
 import os
 from pathlib import Path
 
+from app.emulators.supermodel_config import SupermodelConfig
+
 
 class AppConfig:
     """Configuração persistente do ARCADE MANAGER.
@@ -11,6 +13,10 @@ class AppConfig:
     ``*_version`` guarda a última versão confirmada pela instalação/atualização.
     ``emulator_paths`` guarda diretórios de conteúdo compartilhados pela GUI,
     catálogo e futuras rotinas de execução/reconstrução.
+
+    Para o Supermodel, o diretório de ROMs é sincronizado com a configuração
+    nativa ``RomsDirectory`` do ``Config/Supermodel.ini`` quando essa chave
+    existe na versão instalada.
     """
 
     CONFIG_DIR = Path.home() / ".mame-set-builder"
@@ -114,6 +120,11 @@ class AppConfig:
                 legacy_rom = self.emulator_paths.get("flycast", {}).get("roms")
                 self.flycast_rom_paths = [legacy_rom] if legacy_rom else []
 
+            # O Supermodel.ini é a fonte de verdade quando RomsDirectory
+            # está presente. O JSON continua servindo como cache compartilhado
+            # pelo restante do aplicativo.
+            self._sync_supermodel_from_native()
+
             if self.mame_dir:
                 canonical_mame = self.mame_dir.expanduser() / "mame.exe"
                 self.mame_path = canonical_mame if canonical_mame.is_file() else None
@@ -140,6 +151,33 @@ class AppConfig:
             return executable.parent
         return None
 
+    def _sync_supermodel_from_native(self) -> None:
+        """Importa RomsDirectory do Supermodel.ini quando suportado."""
+        if not self.supermodel_dir:
+            return
+        try:
+            native = SupermodelConfig(self.supermodel_dir).read_rom_directory()
+        except (OSError, ValueError):
+            native = None
+        if native:
+            self.emulator_paths.setdefault("supermodel", {})["roms"] = native
+
+    def _sync_supermodel_to_native(self) -> None:
+        """Publica o diretório de ROMs do AppConfig no Supermodel.ini."""
+        if not self.supermodel_dir:
+            return
+        roms = self.emulator_paths.get("supermodel", {}).get("roms")
+        ini = SupermodelConfig(self.supermodel_dir)
+        if not ini.ini_path or not ini.ini_path.is_file():
+            return
+        # Não cria RomsDirectory em versões que ainda não possuem a chave.
+        # Quando a chave já existe, o serviço atualiza seu valor.
+        if ini.read_rom_directory() is not None:
+            try:
+                ini.write_rom_directory(roms)
+            except OSError:
+                pass
+
     def get_emulator_path(self, emulator: str, name: str) -> Path | None:
         """Retorna um diretório de conteúdo persistido para um emulador."""
         return self.emulator_paths.get(emulator, {}).get(name)
@@ -165,6 +203,7 @@ class AppConfig:
         if self.mame_dir:
             canonical_mame = self.mame_dir.expanduser() / "mame.exe"
             self.mame_path = canonical_mame if canonical_mame.is_file() else None
+        self._sync_supermodel_to_native()
         payload = {
             "mame_path": str(self.mame_path) if self.mame_path else "",
             "flycast_path": str(self.flycast_path) if self.flycast_path else "",
