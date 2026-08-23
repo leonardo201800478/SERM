@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QLabel, QTabWidget, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QTabWidget, QVBoxLayout, QWidget
 
 from app.gui.tabs.mame_settings_tab import MameSettingsTab
 from app.gui.tabs.flycast_settings_tab import FlycastSettingsTab
@@ -45,8 +45,19 @@ class EmulatorSettingsTab(QWidget):
         self.tab_widget.addTab(self.retroarch_tab, "RetroArch")
 
         self.tab_widget.currentChanged.connect(self._on_subtab_changed)
-        for widget in (self.mame_tab, self.flycast_tab, self.supermodel_tab, self.fbneo_tab, self.retroarch_tab):
-            widget.settings_changed.connect(self.settings_changed)
+        self._connect_settings_changed(self.flycast_tab)
+        self._connect_settings_changed(self.supermodel_tab)
+        self._connect_settings_changed(self.fbneo_tab)
+        self._connect_settings_changed(self.retroarch_tab)
+        # MAME ainda não expõe o sinal settings_changed; sua implementação
+        # existente continua independente e não deve impedir a inicialização.
+        self._connect_settings_changed(self.mame_tab)
+
+    def _connect_settings_changed(self, widget: QWidget | None) -> None:
+        """Conecta o sinal de alteração somente quando o widget o fornece."""
+        signal = getattr(widget, "settings_changed", None)
+        if signal is not None and hasattr(signal, "connect"):
+            signal.connect(self.settings_changed)
 
     def _on_subtab_changed(self, index: int) -> None:
         """Atualiza a configuração nativa da subaba selecionada."""
