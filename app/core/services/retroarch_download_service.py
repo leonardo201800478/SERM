@@ -91,8 +91,14 @@ class RetroArchDownloadService:
         versions: set[str] = set()
         for href in re.findall(r"href=[\"']([^\"']+)[\"']", html, re.IGNORECASE):
             value = href.strip().strip("/")
-            if re.fullmatch(r"\d+\.\d+(?:\.\d+)*", value):
-                versions.add(value)
+            match = re.search(r"(?:^|/)v?(\d+\.\d+(?:\.\d+)*)$", value)
+            if match:
+                versions.add(match.group(1))
+        # Alguns índices do Buildbot usam links relativos simples e outros
+        # usam caminhos absolutos; a segunda expressão cobre ambos.
+        if not versions:
+            for match in re.findall(r"(?:^|/)v?(\d+\.\d+(?:\.\d+)*)(?:/|\\|\"|')", html):
+                versions.add(match)
         return sorted(versions, key=cls._version_key, reverse=True)
 
     @staticmethod
@@ -111,9 +117,7 @@ class RetroArchDownloadService:
             if re.fullmatch(r"\d{4}-\d{2}-\d{2}_RetroArch\.7z", name, re.IGNORECASE):
                 filenames.append(name)
         if not filenames:
-            raise RetroArchDownloadError(
-                "Não foi possível localizar um pacote RetroArch.7z datado no Buildbot Nightly Windows x64."
-            )
+            raise RetroArchDownloadError("Não foi possível localizar um pacote RetroArch.7z datado no Buildbot Nightly Windows x64.")
         filename = max(filenames, key=lambda value: value[:10])
         return filename, 0, base + filename
 
@@ -125,20 +129,7 @@ class RetroArchDownloadService:
             return None
         for args in (("--version",), ("-v",)):
             try:
-                result = subprocess.run(
-                    [str(executable), *args],
-                    stdin=subprocess.DEVNULL,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                    shell=False,
-                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                    timeout=15,
-                    check=False,
-                    cwd=str(executable.parent),
-                )
+                result = subprocess.run([str(executable), *args], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", shell=False, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), timeout=15, check=False, cwd=str(executable.parent))
             except (OSError, subprocess.SubprocessError):
                 continue
             text = (result.stdout or "").strip()
@@ -258,22 +249,15 @@ class RetroArchDownloadService:
                     with target.open("wb") as output:
                         while True:
                             chunk = response.read(cls.CHUNK_SIZE)
-                            if not chunk:
-                                break
-                            output.write(chunk)
-                            received += len(chunk)
-                            if progress:
-                                progress(received, total)
-                if received <= 0:
-                    raise RetroArchDownloadError(f"Download vazio: {url}")
-                if total and received != total:
-                    raise RetroArchDownloadError(f"Download incompleto: recebido={received}, esperado={total}")
+                            if not chunk: break
+                            output.write(chunk); received += len(chunk)
+                            if progress: progress(received, total)
+                if received <= 0: raise RetroArchDownloadError(f"Download vazio: {url}")
+                if total and received != total: raise RetroArchDownloadError(f"Download incompleto: recebido={received}, esperado={total}")
                 return
             except (HTTPError, URLError, TimeoutError, OSError, RetroArchDownloadError) as exc:
-                last = exc
-                target.unlink(missing_ok=True)
-                if attempt < cls.RETRIES:
-                    time.sleep(attempt * 2)
+                last = exc; target.unlink(missing_ok=True)
+                if attempt < cls.RETRIES: time.sleep(attempt * 2)
         raise RetroArchDownloadError(f"Falha no download após {cls.RETRIES} tentativa(s): {type(last).__name__}: {last}") from last
 
     @staticmethod
@@ -288,8 +272,7 @@ class RetroArchDownloadService:
         """Calcula CRC32 sem carregar o arquivo inteiro na memória."""
         value = 0
         with Path(path).open("rb") as stream:
-            while chunk := stream.read(1024 * 1024):
-                value = binascii.crc32(chunk, value)
+            while chunk := stream.read(1024 * 1024): value = binascii.crc32(chunk, value)
         return value & 0xFFFFFFFF
 
     @staticmethod
@@ -297,11 +280,9 @@ class RetroArchDownloadService:
         """Localiza 7z.exe/7zz.exe no PATH ou nas instalações padrão do Windows."""
         for name in ("7z.exe", "7zz.exe", "7za.exe"):
             found = shutil.which(name)
-            if found:
-                return found
+            if found: return found
         for path in (Path(r"C:\Program Files\7-Zip\7z.exe"), Path(r"C:\Program Files (x86)\7-Zip\7z.exe")):
-            if path.is_file():
-                return str(path)
+            if path.is_file(): return str(path)
         raise RetroArchDownloadError("7-Zip não encontrado. Instale 7-Zip para extrair RetroArch e cores.")
 
     @classmethod
@@ -315,18 +296,11 @@ class RetroArchDownloadService:
     @staticmethod
     def _merge(source: Path, destination: Path, excluded: set[str]) -> None:
         """Mescla uma árvore extraída sem substituir dados protegidos."""
-        source = Path(source).resolve()
-        destination = Path(destination).resolve()
-        excluded_folded = {x.casefold() for x in excluded}
+        source = Path(source).resolve(); destination = Path(destination).resolve(); excluded_folded = {x.casefold() for x in excluded}
         for item in source.rglob("*"):
             relative = item.relative_to(source)
-            if relative.parts and relative.parts[0].casefold() in excluded_folded:
-                continue
-            if relative.name.casefold() in excluded_folded:
-                continue
+            if relative.parts and relative.parts[0].casefold() in excluded_folded: continue
+            if relative.name.casefold() in excluded_folded: continue
             target = destination / relative
-            if item.is_dir():
-                target.mkdir(parents=True, exist_ok=True)
-            else:
-                target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(item, target)
+            if item.is_dir(): target.mkdir(parents=True, exist_ok=True)
+            else: target.parent.mkdir(parents=True, exist_ok=True); shutil.copy2(item, target)
