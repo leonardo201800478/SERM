@@ -4,19 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QThread, Qt, Slot
-from PySide6.QtWidgets import (
-    QComboBox,
-    QFormLayout,
-    QGroupBox,
-    QHBoxLayout,
-    QLabel,
-    QListWidget,
-    QPushButton,
-    QPlainTextEdit,
-    QProgressBar,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QComboBox, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QListWidget, QPushButton, QPlainTextEdit, QProgressBar, QVBoxLayout, QWidget
 
 from app.config.app_config import AppConfig
 from app.core.services.retroarch_download_service import RetroArchDownloadService
@@ -92,6 +80,10 @@ class RetroArchHomeTab(QWidget):
         self.core_install_button = QPushButton("Instalar / atualizar selecionado")
         self.core_install_button.clicked.connect(self.install_selected_core)
         core_actions.addWidget(self.core_install_button)
+        self.core_update_installed_button = QPushButton("Atualizar cores instalados")
+        self.core_update_installed_button.setToolTip("Atualiza somente os cores DLL já presentes na pasta cores, seguindo o .index-extended do canal selecionado.")
+        self.core_update_installed_button.clicked.connect(self.update_installed_cores)
+        core_actions.addWidget(self.core_update_installed_button)
         core_actions.addStretch()
         cores_layout.addLayout(core_actions)
         self.core_list = QListWidget()
@@ -186,7 +178,7 @@ class RetroArchHomeTab(QWidget):
             installed = self.config.get_emulator_path("retroarch", "cores")
             installed_names = {p.stem.casefold() for p in Path(installed).glob("*_libretro.dll")} if installed and Path(installed).is_dir() else set()
             for core in cores:
-                marker = "[INSTALADO] " if any(core.filename[:-4].casefold() in name for name in installed_names) else "[NOVO] "
+                marker = "[INSTALADO] " if core.filename[:-4].casefold() in installed_names else "[NOVO] "
                 item_text = f"{marker}{core.core_name} | {core.filename} | {core.date} | CRC {core.crc32}"
                 self.core_list.addItem(item_text)
                 self.core_list.item(self.core_list.count() - 1).setData(Qt.ItemDataRole.UserRole, core.filename)
@@ -205,6 +197,13 @@ class RetroArchHomeTab(QWidget):
             return
         mode, version = self._channel()
         self._start_worker("core", core_filename=item.data(Qt.ItemDataRole.UserRole), mode=mode, stable_version=version)
+
+    def update_installed_cores(self) -> None:
+        """Atualiza apenas DLLs que já existem na instalação do usuário."""
+        if not self.config.retroarch_dir:
+            self._append_log("ERRO | configure o diretório do RetroArch antes de atualizar cores.")
+            return
+        self._start_worker("cores_installed")
 
     def _start_worker(self, operation: str, *, core_filename: str | None = None, mode: str | None = None, stable_version: str | None = None) -> None:
         """Cria o worker de download e mantém a GUI responsiva."""
@@ -279,7 +278,7 @@ class RetroArchHomeTab(QWidget):
     def _update_busy_state(self) -> None:
         """Desabilita operações concorrentes durante um download."""
         busy = self._thread is not None
-        for button in (self.install_button, self.update_button, self.core_refresh_button, self.core_install_button):
+        for button in (self.install_button, self.update_button, self.core_refresh_button, self.core_install_button, self.core_update_installed_button):
             button.setEnabled(not busy)
 
     def _append_log(self, message: str) -> None:
