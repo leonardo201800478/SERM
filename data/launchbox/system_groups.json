@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "groups": {
+    "consoles": {
+      "label": "Consoles",
+      "generations": ["Pré-1980", "8-bit", "16-bit", "32/64-bit", "128-bit+", "Outros"]
+    },
+    "portables": {
+      "label": "Portáteis",
+      "generations": ["1ª geração", "8-bit", "16-bit", "32-bit", "64-bit+", "Outros"]
+    },
+    "computers": {
+      "label": "Computadores",
+      "generations": ["8-bit", "16-bit", "32-bit", "64-bit", "Outros"]
+    },
+    "arcade": {
+      "label": "Arcade",
+      "generations": ["Clássico", "16-bit", "32-bit", "3D", "Outros"]
+    }
+  },
+  "system_overrides": {
+    "arcade": {"group": "arcade", "generation": "Outros"},
+    "naomi": {"group": "arcade", "generation": "3D"},
+    "naomi2": {"group": "arcade", "generation": "3D"},
+    "atomiswave": {"group": "arcade", "generation": "3D"},
+    "dreamcast": {"group": "consoles", "generation": "128-bit+"},
+    "playstation": {"group": "consoles", "generation": "32/64-bit"},
+    "playstation2": {"group": "consoles", "generation": "128-bit+"},
+    "super_nes": {"group": "consoles", "generation": "16-bit"},
+    "snes": {"group": "consoles", "generation": "16-bit"},
+    "nes": {"group": "consoles", "generation": "8-bit"},
+    "gameboy": {"group": "portables", "generation": "8-bit"},
+    "gb": {"group": "portables", "generation": "8-bit"},
+    "gameboy_color": {"group": "portables", "generation": "8-bit"},
+    "gba": {"group": "portables", "generation": "32-bit"},
+    "nintendo_ds": {"group": "portables", "generation": "32-bit"}
+  }
+}
