@@ -22,10 +22,6 @@ class AppConfig:
         "retroarch": {"config": ".", "cores": "cores", "system": "system", "assets": "assets", "shaders": "shaders", "saves": "saves", "states": "states", "downloads": "downloads"},
     }
 
-    # Chaves de diretório do retroarch.cfg que interessam ao gerenciamento do
-    # ARCADE MANAGER. A lista não limita a leitura: chaves desconhecidas são
-    # preservadas em retroarch_native_paths para que novas versões do RA não
-    # quebrem a descoberta.
     RETROARCH_DIRECTORY_KEYS = (
         "assets_directory", "cache_directory", "cheat_database_path",
         "content_database_path", "content_directory", "core_assets_directory",
@@ -35,6 +31,7 @@ class AppConfig:
         "recording_output_directory", "rgui_browser_directory", "rgui_config_directory",
         "savefile_directory", "savestate_directory", "screenshot_directory",
         "system_directory", "thumbnails_directory", "video_font_path",
+        "video_shader_directory",
     )
 
     def __init__(self):
@@ -166,7 +163,6 @@ class AppConfig:
         value = value.strip()
         if not value or value == "default":
             return value
-        # RetroArch usa :\\ como raiz da instalação/configuração portátil.
         if value.startswith(":\\") or value.startswith(":/"):
             return (root / value[2:].replace("\\", os.sep).replace("/", os.sep)).resolve()
         return Path(value).expanduser().resolve() if Path(value).is_absolute() else (root / value).resolve()
@@ -174,9 +170,7 @@ class AppConfig:
     def import_retroarch_config(self, executable: Path) -> dict[str, Path | str]:
         """Descobre a instalação pelo retroarch.exe e importa diretórios do retroarch.cfg.
 
-        O arquivo nativo é somente lido. O ARCADE MANAGER não o regrava nesta
-        etapa. Windows normalmente procura retroarch.cfg junto do executável,
-        portanto essa é a fonte de verdade para a instalação selecionada.
+        O arquivo nativo é somente lido. O ARCADE MANAGER não o regrava nesta etapa.
         """
         executable = Path(executable).expanduser().resolve()
         if executable.name.casefold() != "retroarch.exe" or not executable.is_file():
@@ -195,8 +189,6 @@ class AppConfig:
         self.retroarch_dir = root
         self.retroarch_config_file = cfg
         self.retroarch_native_paths = native
-
-        # Mapeamento semântico usado pelas demais telas do projeto.
         aliases = {
             "config": cfg.parent,
             "cores": native.get("libretro_directory", root / "cores"),
