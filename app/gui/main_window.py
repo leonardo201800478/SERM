@@ -9,7 +9,7 @@ from app.gui.tabs.emulator_catalogs_tab import EmulatorCatalogsTab
 from app.gui.scan_thread_guard import install as install_scan_thread_guard
 from app.gui.tabs.reconstruction_tab import ReconstructionTab
 from app.gui.tabs.emulator_settings_tab import EmulatorSettingsTab
-from app.gui.tabs.retroarch_home_tab import RetroArchHomeTab
+from app.gui.tabs.retroarch_home_tab_v2 import RetroArchHomeTab
 from app.gui.tabs.retroarch_catalog_tab import RetroArchCatalogTab
 from app.gui.tabs.retroarch_directories_tab import RetroArchDirectoriesTab
 from app.gui.mame_shader_test_widget import install_shader_test
@@ -39,19 +39,12 @@ class MainWindow(QMainWindow):
         self.directories_tab = DirectoriesTab(self)
         self.emulator_settings_tab = EmulatorSettingsTab(self)
         self.filters_tab = FiltersTab(self, db=self.db)
-        self.shader_test_controller = install_shader_test(
-            self.emulator_settings_tab.shader_test_target
-        )
+        self.shader_test_controller = install_shader_test(self.emulator_settings_tab.shader_test_target)
         self.scan_tab = ScanRomsTab(self)
         self.reconstruction_tab = ReconstructionTab(self)
-
-        # Sessões específicas do RetroArch. Elas usam o mesmo AppConfig e não
-        # duplicam a configuração nativa do retroarch.cfg.
         self.retroarch_home_tab = RetroArchHomeTab(self)
         self.retroarch_catalog_tab = RetroArchCatalogTab(self)
         self.retroarch_directories_tab = RetroArchDirectoriesTab(self)
-
-        # Ordem funcional: Home -> Catálogos -> Diretórios -> configuração -> dados -> execução.
         self.tab_widget.addTab(self.home_tab, "Home")
         self.tab_widget.addTab(self.catalogs_tab, "Catálogos")
         self.tab_widget.addTab(self.directories_tab, "Diretórios")
@@ -59,12 +52,9 @@ class MainWindow(QMainWindow):
         self.tab_widget.addTab(self.filters_tab, "Filtragem")
         self.tab_widget.addTab(self.scan_tab, "Scan Roms")
         self.tab_widget.addTab(self.reconstruction_tab, "Reconstrução")
-
-        # Sessões RetroArch independentes, mas compartilhando AppConfig.
         self.tab_widget.addTab(self.retroarch_home_tab, "RetroArch Home")
         self.tab_widget.addTab(self.retroarch_catalog_tab, "RetroArch Catálogo")
         self.tab_widget.addTab(self.retroarch_directories_tab, "RetroArch Diretórios")
-
         self.tab_widget.currentChanged.connect(self._on_tab_changed)
         if hasattr(self.directories_tab, "settings_changed"):
             self.directories_tab.settings_changed.connect(self.home_tab.refresh_status)
@@ -118,20 +108,9 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         """Cancela workers, encerra testes e fecha recursos com segurança."""
         if getattr(self, "shader_test_controller", None) is not None:
-            self.shader_test_controller.close()
-        retroarch_home = getattr(self, "retroarch_home_tab", None)
-        if retroarch_home is not None:
-            retroarch_home.close()
-        catalog_tab = getattr(self, "catalogs_tab", None)
-        if catalog_tab is not None:
-            catalog_tab.close()
-        worker = getattr(self.scan_tab, "worker", None)
-        if worker is not None and worker.isRunning():
-            worker.cancel()
-            worker.wait(10000)
-        loader = getattr(self.scan_tab, "loader", None)
-        if loader is not None and loader.isRunning():
-            loader.wait(5000)
-        if self.db:
-            self.db.close()
+            self.shader_test_controller.stop()
+        self.db.close()
         event.accept()
+
+
+__all__ = ["MainWindow"]
