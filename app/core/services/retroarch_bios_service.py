@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from app.core.services.retroarch_info_service import RetroArchInfoCore
+
 RETROBIOS_RAW_URL = "https://raw.githubusercontent.com/Abdess/retrobios/main/platforms/retroarch.yml"
 
 
@@ -47,17 +49,47 @@ class RetroArchBiosResult:
 
 
 class RetroArchBiosService:
-    """Carrega catálogo RetroBIOS e verifica o System Directory real."""
+    """Carrega catálogo local .info e, opcionalmente, RetroBIOS para hashes complementares."""
 
     def __init__(self, system_directory: str | Path | None = None) -> None:
-        """Inicializa o serviço com o diretório System atual."""
         self.system_directory = Path(system_directory).expanduser() if system_directory else None
         self.systems: list[RetroArchBiosSystem] = []
         self._hash_index: dict[str, Path] = {}
         self._hash_index_ready = False
 
+    def load_info_catalog(self, cores: list[RetroArchInfoCore]) -> list[RetroArchBiosSystem]:
+        """Constrói o catálogo de BIOS diretamente dos .info locais.
+
+        Este é o catálogo primário: firmware_count, firmwareN_path,
+        firmwareN_desc e firmwareN_opt vêm do arquivo oficial de cada core.
+        O MD5, quando publicado no campo notes, também é preservado.
+        """
+        systems: list[RetroArchBiosSystem] = []
+        for core in cores:
+            if not core.system_id:
+                continue
+            files = [
+                RetroArchBiosFile(
+                    name=Path(firmware.path).name,
+                    destination=firmware.path.replace("\\", "/"),
+                    required=not firmware.optional,
+                    md5=firmware.md5,
+                )
+                for firmware in core.firmware
+            ]
+            systems.append(RetroArchBiosSystem(
+                system_id=core.system_id,
+                native_id=core.system_id,
+                core=core.corename,
+                docs=None,
+                files=files,
+            ))
+        self.systems = systems
+        self.reset_scan_cache()
+        return systems
+
     def load_catalog(self, url: str = RETROBIOS_RAW_URL) -> list[RetroArchBiosSystem]:
-        """Baixa o YAML RetroBIOS e o converte para o modelo interno."""
+        """Carrega RetroBIOS externo como fallback/enriquecimento."""
         try:
             import yaml  # type: ignore
         except ImportError as exc:
@@ -68,33 +100,24 @@ class RetroArchBiosService:
         data = yaml.safe_load(raw) or {}
         systems: list[RetroArchBiosSystem] = []
         for system_id, payload in (data.get("systems") or {}).items():
-            files = [
-                RetroArchBiosFile(
-                    name=str(entry.get("name", "")),
-                    destination=str(entry.get("destination") or entry.get("name") or ""),
-                    required=bool(entry.get("required", False)),
-                    sha1=str(entry.get("sha1")) if entry.get("sha1") else None,
-                    md5=str(entry.get("md5")) if entry.get("md5") else None,
-                    crc32=str(entry.get("crc32")) if entry.get("crc32") else None,
-                    size=int(entry["size"]) if entry.get("size") is not None else None,
-                )
-                for entry in payload.get("files") or []
-            ]
-            systems.append(RetroArchBiosSystem(
-                system_id=str(system_id), native_id=str(payload.get("native_id") or system_id),
-                core=str(payload.get("core")) if payload.get("core") else None,
-                docs=str(payload.get("docs")) if payload.get("docs") else None, files=files,
-            ))
+            files = [RetroArchBiosFile(
+                name=str(entry.get("name", "")), destination=str(entry.get("destination") or entry.get("name") or ""),
+                required=bool(entry.get("required", False)), sha1=str(entry.get("sha1")) if entry.get("sha1") else None,
+                md5=str(entry.get("md5")) if entry.get("md5") else None, crc32=str(entry.get("crc32")) if entry.get("crc32") else None,
+                size=int(entry["size"]) if entry.get("size") is not None else None,
+            ) for entry in payload.get("files") or []]
+            systems.append(RetroArchBiosSystem(system_id=str(system_id), native_id=str(payload.get("native_id") or system_id), core=str(payload.get("core")) if payload.get("core") else None, docs=str(payload.get("docs")) if payload.get("docs") else None, files=files))
         self.systems = systems
+        self.reset_scan_cache()
         return systems
 
     def systems_for_core(self, core_name: str) -> list[RetroArchBiosSystem]:
-        """Retorna os sistemas cobertos por um core."""
+        """Retorna os sistemas cobertos pelo core atual."""
         key = core_name.casefold().removesuffix("_libretro")
         return [s for s in self.systems if s.core and s.core.casefold().removesuffix("_libretro") == key]
 
     def scan(self) -> list[RetroArchBiosResult]:
-        """Verifica todo o catálogo e identifica também arquivos corrigíveis."""
+        """Verifica todo o catálogo e identifica OK, corrigível, corrompido ou ausente."""
         if self.system_directory is None:
             raise ValueError("Diretório System do RetroArch não configurado.")
         self._prepare_hash_index()
@@ -103,10 +126,7 @@ class RetroArchBiosService:
     def scan_systems_for_core(self, core_name: str) -> dict[str, list[RetroArchBiosResult]]:
         """Varre somente os sistemas associados ao core informado."""
         self._prepare_hash_index()
-        return {
-            system.system_id: [self._verify(d, self._target(d)) for d in system.files]
-            for system in self.systems_for_core(core_name)
-        }
+        return {system.system_id: [self._verify(d, self._target(d)) for d in system.files] for system in self.systems_for_core(core_name)}
 
     def _prepare_hash_index(self) -> None:
         """Indexa hashes dos arquivos existentes uma única vez por varredura."""
@@ -139,7 +159,7 @@ class RetroArchBiosService:
         return self.system_directory.resolve() / Path(definition.destination.replace("/", str(Path.sep)))
 
     def _verify(self, definition: RetroArchBiosFile, target: Path) -> RetroArchBiosResult:
-        """Classifica arquivo como OK, corrigível, corrompido ou ausente."""
+        """Classifica arquivo conforme presença, tamanho e hashes conhecidos."""
         if not target.is_file():
             candidate = self._find_matching_file(definition)
             if candidate:
@@ -151,17 +171,13 @@ class RetroArchBiosService:
             return RetroArchBiosResult(definition, target, "corrupt", message=str(exc))
         if definition.size is not None and actual_size != definition.size:
             return RetroArchBiosResult(definition, target, "corrupt", actual_size, actual_sha1, actual_md5, actual_crc32, f"Tamanho inválido: {actual_size} != {definition.size}")
-        matches = [
-            bool(definition.sha1 and actual_sha1.casefold() == definition.sha1.casefold()),
-            bool(definition.md5 and actual_md5.casefold() == definition.md5.casefold()),
-            bool(definition.crc32 and actual_crc32.casefold() == str(definition.crc32).casefold().zfill(8)),
-        ]
+        matches = [bool(definition.sha1 and actual_sha1.casefold() == definition.sha1.casefold()), bool(definition.md5 and actual_md5.casefold() == definition.md5.casefold()), bool(definition.crc32 and actual_crc32.casefold() == str(definition.crc32).casefold().zfill(8))]
         if any(matches) or not any((definition.sha1, definition.md5, definition.crc32)):
             return RetroArchBiosResult(definition, target, "ok", actual_size, actual_sha1, actual_md5, actual_crc32)
         return RetroArchBiosResult(definition, target, "corrupt", actual_size, actual_sha1, actual_md5, actual_crc32, "Hash diferente do catálogo")
 
     def _find_matching_file(self, definition: RetroArchBiosFile) -> Path | None:
-        """Procura uma cópia válida com nome diferente ou em subdiretório diferente."""
+        """Procura uma cópia válida com nome/local diferente."""
         keys = {str(definition.sha1).casefold(), str(definition.md5).casefold(), str(definition.crc32).casefold().zfill(8)}
         return next((path for key, path in self._hash_index.items() if key in keys), None)
 
@@ -178,12 +194,7 @@ class RetroArchBiosService:
     @staticmethod
     def serialize_scan(results: list[RetroArchBiosResult]) -> list[dict[str, Any]]:
         """Converte resultados para estruturas serializáveis."""
-        return [{
-            "name": r.definition.name, "destination": r.definition.destination, "required": r.definition.required,
-            "status": r.status, "path": str(r.path), "actual_size": r.actual_size,
-            "actual_sha1": r.actual_sha1, "actual_md5": r.actual_md5, "actual_crc32": r.actual_crc32,
-            "message": r.message,
-        } for r in results]
+        return [{"name": r.definition.name, "destination": r.definition.destination, "required": r.definition.required, "status": r.status, "path": str(r.path), "actual_size": r.actual_size, "actual_sha1": r.actual_sha1, "actual_md5": r.actual_md5, "actual_crc32": r.actual_crc32, "message": r.message} for r in results]
 
 
 __all__ = ["RetroArchBiosService", "RetroArchBiosFile", "RetroArchBiosSystem", "RetroArchBiosResult"]
