@@ -9,19 +9,19 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.emulators.config_resolver import ConfigResolver
+from app.emulators.capabilities import get_capabilities
 from app.emulators.fbneo_config import FBNeoConfig
 from app.emulators.flycast_config import FlycastConfig
 from app.emulators.retroarch_config import RetroArchConfig
 from app.emulators.supermodel_config import SupermodelConfig
 
 
-def test_all_five_emulators_have_configuration_schema() -> None:
-    """Garante que MAME, Flycast, Supermodel, FBNeo e RetroArch possuem schema."""
-    resolver = ConfigResolver(runtime={})
+def test_all_five_emulators_are_registered() -> None:
+    """Garante registro de capacidades para os cinco emuladores."""
     for emulator in ("mame", "flycast", "supermodel", "fbneo", "retroarch"):
-        capabilities = resolver.capabilities(emulator)
-        assert capabilities is not None
+        capabilities = get_capabilities(emulator)
+        assert capabilities.emulator == emulator
+        assert capabilities.domains
 
 
 def test_flycast_preserves_unknown_configuration(tmp_path: Path) -> None:
