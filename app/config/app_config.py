@@ -13,9 +13,6 @@ class AppConfig:
     ``*_version`` guarda a última versão confirmada pela instalação/atualização.
     ``emulator_paths`` guarda diretórios de conteúdo compartilhados pela GUI,
     catálogo e futuras rotinas de execução/reconstrução.
-
-    Para o Supermodel, o diretório de ROMs é sincronizado com a configuração
-    nativa ``RomsDirectory`` do ``Config/Supermodel.ini``.
     """
 
     CONFIG_DIR = Path.home() / ".mame-set-builder"
@@ -34,8 +31,7 @@ class AppConfig:
             "roms": "ROMs", "config": "Config", "nvram": "NVRAM", "saves": "Saves", "assets": "Assets",
         },
         "fbneo": {
-            "roms": "roms",
-            "neocd": "neocdiso",
+            "roms": "roms", "neocd": "neocdiso",
             "previews": "support/previews", "titles": "support/titles", "cheats": "support/cheats",
             "hiscore": "support/hiscores", "samples": "support/samples", "hdd": "support/hdd",
             "ips": "support/ips", "romdata": "support/romdata", "icons": "support/icons",
@@ -46,6 +42,10 @@ class AppConfig:
             "controls": "support/cpanel", "cabinets": "support/cabinets", "pcbs": "support/pcbs",
             "history": "support/history", "commands": "support/commands", "eeprom": "config/games",
         },
+        "retroarch": {
+            "config": ".", "cores": "cores", "system": "system", "assets": "assets",
+            "shaders": "shaders", "saves": "saves", "states": "states", "downloads": "downloads",
+        },
     }
 
     def __init__(self):
@@ -53,14 +53,17 @@ class AppConfig:
         self.flycast_path: Path | None = None
         self.supermodel_path: Path | None = None
         self.fbneo_path: Path | None = None
+        self.retroarch_path: Path | None = None
         self.mame_dir: Path | None = None
         self.flycast_dir: Path | None = None
         self.supermodel_dir: Path | None = None
         self.fbneo_dir: Path | None = None
+        self.retroarch_dir: Path | None = None
         self.mame_version: str | None = None
         self.flycast_version: str | None = None
         self.supermodel_version: str | None = None
         self.fbneo_version: str | None = None
+        self.retroarch_version: str | None = None
         self.emulator_paths: dict[str, dict[str, Path | None]] = {
             emulator: {name: None for name in paths}
             for emulator, paths in self.EMULATOR_PATH_DEFAULTS.items()
@@ -85,7 +88,7 @@ class AppConfig:
         self.SCAN_DIR.mkdir(parents=True, exist_ok=True)
 
     def load(self):
-        """Carrega configurações e saneia caminhos de executáveis antigos."""
+        """Carrega configurações persistidas."""
         if not self.CONFIG_FILE.exists():
             return
         try:
@@ -94,14 +97,17 @@ class AppConfig:
             self.flycast_path = Path(data["flycast_path"]) if data.get("flycast_path") else None
             self.supermodel_path = Path(data["supermodel_path"]) if data.get("supermodel_path") else None
             self.fbneo_path = Path(data["fbneo_path"]) if data.get("fbneo_path") else None
+            self.retroarch_path = Path(data["retroarch_path"]) if data.get("retroarch_path") else None
             self.mame_dir = self._load_dir(data, "mame_dir", self.mame_path)
             self.flycast_dir = self._load_dir(data, "flycast_dir", self.flycast_path)
             self.supermodel_dir = self._load_dir(data, "supermodel_dir", self.supermodel_path)
             self.fbneo_dir = self._load_dir(data, "fbneo_dir", self.fbneo_path)
+            self.retroarch_dir = self._load_dir(data, "retroarch_dir", self.retroarch_path)
             self.mame_version = data.get("mame_version") or None
             self.flycast_version = data.get("flycast_version") or None
             self.supermodel_version = data.get("supermodel_version") or None
             self.fbneo_version = data.get("fbneo_version") or None
+            self.retroarch_version = data.get("retroarch_version") or None
 
             persisted_paths = data.get("emulator_paths", {})
             for emulator, defaults in self.EMULATOR_PATH_DEFAULTS.items():
@@ -118,8 +124,6 @@ class AppConfig:
             else:
                 legacy_rom = self.emulator_paths.get("flycast", {}).get("roms")
                 self.flycast_rom_paths = [legacy_rom] if legacy_rom else []
-
-            self._sync_supermodel_from_native()
 
             if self.mame_dir:
                 canonical_mame = self.mame_dir.expanduser() / "mame.exe"
@@ -147,31 +151,6 @@ class AppConfig:
             return executable.parent
         return None
 
-    def _sync_supermodel_from_native(self) -> None:
-        """Importa RomsDirectory do Supermodel.ini quando disponível."""
-        if not self.supermodel_dir:
-            return
-        try:
-            native = SupermodelConfig(self.supermodel_dir).read_rom_directory()
-        except (OSError, ValueError):
-            native = None
-        if native:
-            self.emulator_paths.setdefault("supermodel", {})["roms"] = native
-
-    def _sync_supermodel_to_native(self) -> None:
-        """Publica o diretório de ROMs no Supermodel.ini."""
-        if not self.supermodel_dir:
-            return
-        roms = self.emulator_paths.get("supermodel", {}).get("roms")
-        if not roms:
-            return
-        try:
-            SupermodelConfig(self.supermodel_dir).write_rom_directory(roms)
-        except (OSError, ValueError):
-            # Falha no arquivo nativo não deve impedir o restante da
-            # configuração do aplicativo de ser persistida.
-            pass
-
     def get_emulator_path(self, emulator: str, name: str) -> Path | None:
         """Retorna um diretório de conteúdo persistido para um emulador."""
         return self.emulator_paths.get(emulator, {}).get(name)
@@ -197,20 +176,22 @@ class AppConfig:
         if self.mame_dir:
             canonical_mame = self.mame_dir.expanduser() / "mame.exe"
             self.mame_path = canonical_mame if canonical_mame.is_file() else None
-        self._sync_supermodel_to_native()
         payload = {
             "mame_path": str(self.mame_path) if self.mame_path else "",
             "flycast_path": str(self.flycast_path) if self.flycast_path else "",
             "supermodel_path": str(self.supermodel_path) if self.supermodel_path else "",
             "fbneo_path": str(self.fbneo_path) if self.fbneo_path else "",
+            "retroarch_path": str(self.retroarch_path) if self.retroarch_path else "",
             "mame_dir": str(self.mame_dir) if self.mame_dir else "",
             "flycast_dir": str(self.flycast_dir) if self.flycast_dir else "",
             "supermodel_dir": str(self.supermodel_dir) if self.supermodel_dir else "",
             "fbneo_dir": str(self.fbneo_dir) if self.fbneo_dir else "",
+            "retroarch_dir": str(self.retroarch_dir) if self.retroarch_dir else "",
             "mame_version": self.mame_version or "",
             "flycast_version": self.flycast_version or "",
             "supermodel_version": self.supermodel_version or "",
             "fbneo_version": self.fbneo_version or "",
+            "retroarch_version": self.retroarch_version or "",
             "emulator_paths": {
                 emulator: {name: str(path) if path else "" for name, path in paths.items()}
                 for emulator, paths in self.emulator_paths.items()
