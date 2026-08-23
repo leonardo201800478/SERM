@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import urllib.request
 import zlib
 from dataclasses import dataclass, field
@@ -58,12 +59,7 @@ class RetroArchBiosService:
         self._hash_index_ready = False
 
     def load_info_catalog(self, cores: list[RetroArchInfoCore]) -> list[RetroArchBiosSystem]:
-        """Constrói o catálogo de BIOS diretamente dos .info locais.
-
-        Este é o catálogo primário: firmware_count, firmwareN_path,
-        firmwareN_desc e firmwareN_opt vêm do arquivo oficial de cada core.
-        O MD5, quando publicado no campo notes, também é preservado.
-        """
+        """Constrói o catálogo de BIOS diretamente dos .info locais."""
         systems: list[RetroArchBiosSystem] = []
         for core in cores:
             if not core.system_id:
@@ -153,10 +149,13 @@ class RetroArchBiosService:
         self._hash_index_ready = False
 
     def _target(self, definition: RetroArchBiosFile) -> Path:
-        """Resolve destino relativo ao System Directory."""
+        """Resolve destino relativo ao System Directory de forma portátil."""
         if self.system_directory is None:
             raise ValueError("Diretório System do RetroArch não configurado.")
-        return self.system_directory.resolve() / Path(definition.destination.replace("/", str(Path.sep)))
+        # O catálogo Libretro usa sempre '/' como separador lógico.
+        # Path.sep não existe em pathlib; os.sep é a constante correta para o SO.
+        relative = definition.destination.replace("/", os.sep).replace("\\", os.sep)
+        return self.system_directory.resolve() / Path(relative)
 
     def _verify(self, definition: RetroArchBiosFile, target: Path) -> RetroArchBiosResult:
         """Classifica arquivo conforme presença, tamanho e hashes conhecidos."""
