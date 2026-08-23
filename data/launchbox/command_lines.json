@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "variables": {
+    "rom": "%romfile%",
+    "no_rom": "%noromfile%"
+  },
+  "retroarch": {
+    "default": "-L \"cores/{core_dll}\"",
+    "platform_overrides": {
+      "Amstrad GX4000": "gx4000 -cart -L \"cores/{core_dll}\"",
+      "Philips CD-i": "cdimono1 -cdrom -L \"cores/{core_dll}\""
+    }
+  },
+  "standalone": {
+    "mame": {
+      "default": "{software_name}"
+    },
+    "flycast": {
+      "default": ""
+    },
+    "fbneo": {
+      "default": ""
+    },
+    "supermodel": {
+      "default": ""
+    }
+  },
+  "mame_software_media": {
+    "cassette": "{system} -cass {rom}",
+    "cartridge": "{system} -cart {rom}",
+    "cdrom": "{system} -cdrom {rom}",
+    "floppy": "{system} -flop {rom}",
+    "harddisk": "{system} -hard {rom}",
+    "harddisk1": "{system} -hard1 {rom}",
+    "harddisk2": "{system} -hard2 {rom}",
+    "generic": "{system} {rom}"
+  }
+}
