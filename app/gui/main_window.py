@@ -9,6 +9,9 @@ from app.gui.tabs.emulator_catalogs_tab import EmulatorCatalogsTab
 from app.gui.scan_thread_guard import install as install_scan_thread_guard
 from app.gui.tabs.reconstruction_tab import ReconstructionTab
 from app.gui.tabs.emulator_settings_tab import EmulatorSettingsTab
+from app.gui.tabs.retroarch_home_tab import RetroArchHomeTab
+from app.gui.tabs.retroarch_catalog_tab import RetroArchCatalogTab
+from app.gui.tabs.retroarch_directories_tab import RetroArchDirectoriesTab
 from app.gui.mame_shader_test_widget import install_shader_test
 from app.database.database import Database
 from app.config.app_config import AppConfig
@@ -42,6 +45,12 @@ class MainWindow(QMainWindow):
         self.scan_tab = ScanRomsTab(self)
         self.reconstruction_tab = ReconstructionTab(self)
 
+        # Sessões específicas do RetroArch. Elas usam o mesmo AppConfig e não
+        # duplicam a configuração nativa do retroarch.cfg.
+        self.retroarch_home_tab = RetroArchHomeTab(self)
+        self.retroarch_catalog_tab = RetroArchCatalogTab(self)
+        self.retroarch_directories_tab = RetroArchDirectoriesTab(self)
+
         # Ordem funcional: Home -> Catálogos -> Diretórios -> configuração -> dados -> execução.
         self.tab_widget.addTab(self.home_tab, "Home")
         self.tab_widget.addTab(self.catalogs_tab, "Catálogos")
@@ -53,6 +62,13 @@ class MainWindow(QMainWindow):
         self.tab_widget.addTab(self.filters_tab, "Filtragem")
         self.tab_widget.addTab(self.scan_tab, "Scan Roms")
         self.tab_widget.addTab(self.reconstruction_tab, "Reconstrução")
+
+        # Sessões RetroArch mantidas separadas nesta etapa para não alterar a
+        # semântica dos catálogos multi-emulador e da instalação em lote já existente.
+        self.tab_widget.addTab(self.retroarch_home_tab, "RetroArch Home")
+        self.tab_widget.addTab(self.retroarch_catalog_tab, "RetroArch Catálogo")
+        self.tab_widget.addTab(self.retroarch_directories_tab, "RetroArch Diretórios")
+
         self.tab_widget.currentChanged.connect(self._on_tab_changed)
         if hasattr(self.directories_tab, "settings_changed"):
             self.directories_tab.settings_changed.connect(self.home_tab.refresh_status)
@@ -77,6 +93,12 @@ class MainWindow(QMainWindow):
             self.reconstruction_tab.refresh()
         elif widget is self.emulator_settings_tab:
             self.emulator_settings_tab.refresh()
+        elif widget is self.retroarch_home_tab:
+            self.retroarch_home_tab.refresh()
+        elif widget is self.retroarch_catalog_tab:
+            self.retroarch_catalog_tab.refresh()
+        elif widget is self.retroarch_directories_tab:
+            self.retroarch_directories_tab.refresh()
 
     def _on_database_updated(self):
         """Atualiza abas dependentes do dataset."""
