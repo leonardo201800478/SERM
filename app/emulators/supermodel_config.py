@@ -1,21 +1,18 @@
 """Adapter de configuração nativa do Supermodel.
 
 O Supermodel utiliza o ``Supermodel.ini`` como arquivo de configuração global.
-Esta classe trata exclusivamente os caminhos que o ARCADE MANAGER precisa
-administrar e preserva as demais opções do arquivo.
-
-A configuração de ROMs usa ``RomsDirectory`` quando a versão instalada do
-Supermodel oferece essa chave. O serviço não inventa uma chave alternativa.
+Esta classe trata caminhos e configurações globais que o ARCADE MANAGER precisa
+administrar, preservando as demais opções do arquivo.
 """
 from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Iterable
+from typing import Any
 
 
 class SupermodelConfig:
-    """Lê e grava diretórios do Supermodel.ini sem destruir outras opções."""
+    """Lê e grava configurações globais do Supermodel.ini sem destruir outras opções."""
 
     ROMS_KEY = "RomsDirectory"
     GLOBAL_SECTION = "Global"
@@ -31,56 +28,46 @@ class SupermodelConfig:
     @property
     def ini_path(self) -> Path | None:
         """Retorna o caminho esperado do Supermodel.ini."""
-        if not self.config_dir:
-            return None
-        return self.config_dir / "Supermodel.ini"
+        return self.config_dir / "Supermodel.ini" if self.config_dir else None
 
     @property
     def games_xml_path(self) -> Path | None:
         """Retorna o caminho esperado do banco Games.xml."""
-        if not self.config_dir:
-            return None
-        return self.config_dir / "Games.xml"
+        return self.config_dir / "Games.xml" if self.config_dir else None
 
     def default_directories(self) -> dict[str, Path]:
         """Retorna os diretórios convencionais da distribuição do Supermodel."""
         if not self.install_dir:
             return {}
-        return {
-            "roms": self.install_dir / "ROMs",
-            "config": self.install_dir / "Config",
-            "nvram": self.install_dir / "NVRAM",
-            "saves": self.install_dir / "Saves",
-            "assets": self.install_dir / "Assets",
-        }
+        return {"roms": self.install_dir / "ROMs", "config": self.install_dir / "Config", "nvram": self.install_dir / "NVRAM", "saves": self.install_dir / "Saves", "assets": self.install_dir / "Assets"}
 
     def read_rom_directory(self) -> Path | None:
-        """Lê ``RomsDirectory`` do bloco ``[ Global ]`` quando presente."""
-        path = self.ini_path
-        if not path or not path.is_file():
-            return None
-        try:
-            text = path.read_text(encoding="utf-8-sig")
-        except OSError:
-            return None
-        value = self._read_global_key(text, self.ROMS_KEY)
+        """Lê ``RomsDirectory`` do bloco Global quando presente."""
+        value = self.read_global_key(self.ROMS_KEY)
         return Path(value) if value else None
 
     def write_rom_directory(self, directory: Path | None) -> Path:
-        """Grava ``RomsDirectory`` preservando o restante do Supermodel.ini.
+        """Grava ``RomsDirectory`` preservando o restante do Supermodel.ini."""
+        return self.write_global_settings({self.ROMS_KEY: self._format_path(directory)})
 
-        O arquivo é atualizado atomicamente. Se o arquivo ainda não existir,
-        é criado com uma seção ``[ Global ]`` mínima.
-        """
+    def read_global_key(self, key: str) -> str | None:
+        """Lê uma chave da seção Global do Supermodel.ini."""
+        path = self.ini_path
+        if not path or not path.is_file():
+            return None
+        text = path.read_text(encoding="utf-8-sig")
+        return self._read_global_key(text, key)
+
+    def write_global_settings(self, values: dict[str, Any]) -> Path:
+        """Atualiza várias chaves globais em uma única escrita atômica."""
         path = self.ini_path
         if not path:
             raise ValueError("Diretório de instalação do Supermodel não configurado")
-
         path.parent.mkdir(parents=True, exist_ok=True)
         text = path.read_text(encoding="utf-8-sig") if path.is_file() else "[ Global ]\n"
-        value = self._format_path(directory)
-        updated = self._write_global_key(text, self.ROMS_KEY, value)
-        self._atomic_write(path, updated)
+        for key, value in values.items():
+            text = self._write_global_key(text, key, self._format_value(value))
+        self._atomic_write(path, text)
         return path
 
     @classmethod
@@ -92,9 +79,7 @@ class SupermodelConfig:
             if stripped.startswith("[") and stripped.endswith("]"):
                 in_global = stripped.strip("[] ").casefold() == cls.GLOBAL_SECTION.casefold()
                 continue
-            if not in_global or not stripped or stripped.startswith(("#", ";")):
-                continue
-            if "=" not in stripped:
+            if not in_global or not stripped or stripped.startswith(("#", ";")) or "=" not in stripped:
                 continue
             current, value = stripped.split("=", 1)
             if current.strip().casefold() == key.casefold():
@@ -103,7 +88,7 @@ class SupermodelConfig:
 
     @classmethod
     def _write_global_key(cls, text: str, key: str, value: str) -> str:
-        """Substitui ou acrescenta uma chave dentro de ``[ Global ]``."""
+        """Substitui ou acrescenta uma chave dentro de Global."""
         lines = text.splitlines(keepends=True)
         start: int | None = None
         end = len(lines)
@@ -115,12 +100,10 @@ class SupermodelConfig:
                 elif start is not None:
                     end = index
                     break
-
         if start is None:
             if text and not text.endswith(("\n", "\r")):
                 text += "\n"
             return f"{text}\n[ Global ]\n{key} = {value}\n"
-
         for index in range(start + 1, end):
             stripped = lines[index].strip()
             if not stripped or stripped.startswith(("#", ";")) or "=" not in stripped:
@@ -130,17 +113,20 @@ class SupermodelConfig:
                 newline = "\n" if lines[index].endswith(("\n", "\r")) else ""
                 lines[index] = f"{key} = {value}{newline}"
                 return "".join(lines)
-
-        insert_at = end
-        lines.insert(insert_at, f"{key} = {value}\n")
+        lines.insert(end, f"{key} = {value}\n")
         return "".join(lines)
 
     @staticmethod
     def _format_path(directory: Path | None) -> str:
         """Normaliza um caminho para o formato textual aceito pelo INI."""
-        if directory is None:
-            return ""
-        return str(Path(directory).expanduser())
+        return str(Path(directory).expanduser()) if directory is not None else ""
+
+    @staticmethod
+    def _format_value(value: Any) -> str:
+        """Serializa valores Python para o formato textual do INI."""
+        if isinstance(value, bool):
+            return "1" if value else "0"
+        return str(value)
 
     @staticmethod
     def _atomic_write(path: Path, text: str) -> None:
@@ -152,20 +138,6 @@ class SupermodelConfig:
     def validate_installation(self) -> dict[str, Path | bool | None]:
         """Valida a estrutura conhecida sem criar diretórios automaticamente."""
         if not self.install_dir:
-            return {
-                "install_dir": None,
-                "executable": None,
-                "config": None,
-                "games_xml": None,
-                "valid": False,
-            }
+            return {"install_dir": None, "executable": None, "config": None, "games_xml": None, "valid": False}
         executable = self.install_dir / "Supermodel.exe"
-        config = self.ini_path
-        games_xml = self.games_xml_path
-        return {
-            "install_dir": self.install_dir,
-            "executable": executable,
-            "config": config,
-            "games_xml": games_xml,
-            "valid": executable.is_file(),
-        }
+        return {"install_dir": self.install_dir, "executable": executable, "config": self.ini_path, "games_xml": self.games_xml_path, "valid": executable.is_file()}
