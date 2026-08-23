@@ -19,7 +19,7 @@ class AppConfig:
         "flycast": {"roms": "roms", "bios": "data", "vmu": "data", "saves": "data", "states": "data", "textures": "data", "boxart": "data", "cheats": "cheats"},
         "supermodel": {"roms": "ROMs", "config": "Config", "nvram": "NVRAM", "saves": "Saves", "assets": "Assets"},
         "fbneo": {"roms": "roms", "neocd": "neocdiso", "previews": "support/previews", "titles": "support/titles", "cheats": "support/cheats", "hiscore": "support/hiscores", "samples": "support/samples", "hdd": "support/hdd", "ips": "support/ips", "romdata": "support/romdata", "icons": "support/icons", "neocd_covers": "support/neocdz", "neocd_previews": "support/neocdzpreviews", "blend": "support/blend", "select": "support/select", "versus": "support/versus", "howto": "support/howto", "scores": "support/scores", "bosses": "support/bosses", "gameover": "support/gameover", "flyers": "support/flyers", "marquees": "support/marquees", "controls": "support/cpanel", "cabinets": "support/cabinets", "pcbs": "support/pcbs", "history": "support/history", "commands": "support/commands", "eeprom": "config/games"},
-        "retroarch": {"config": ".", "cores": "cores", "system": "system", "assets": "assets", "shaders": "shaders", "saves": "saves", "states": "states", "downloads": "downloads"},
+        "retroarch": {"config": "config", "cores": "cores", "system": "system", "assets": "assets", "shaders": "shaders", "saves": "saves", "states": "states", "downloads": "downloads"},
     }
 
     RETROARCH_DIRECTORY_KEYS = (
@@ -168,10 +168,7 @@ class AppConfig:
         return Path(value).expanduser().resolve() if Path(value).is_absolute() else (root / value).resolve()
 
     def import_retroarch_config(self, executable: Path) -> dict[str, Path | str]:
-        """Descobre a instalação pelo retroarch.exe e importa diretórios do retroarch.cfg.
-
-        O arquivo nativo é somente lido. O ARCADE MANAGER não o regrava nesta etapa.
-        """
+        """Descobre a instalação pelo retroarch.exe e importa diretórios do retroarch.cfg."""
         executable = Path(executable).expanduser().resolve()
         if executable.name.casefold() != "retroarch.exe" or not executable.is_file():
             raise FileNotFoundError(f"Selecione o retroarch.exe válido: {executable}")
@@ -189,8 +186,9 @@ class AppConfig:
         self.retroarch_dir = root
         self.retroarch_config_file = cfg
         self.retroarch_native_paths = native
+        config_dir = native.get("rgui_config_directory", root / "config")
         aliases = {
-            "config": cfg.parent,
+            "config": config_dir,
             "cores": native.get("libretro_directory", root / "cores"),
             "system": native.get("system_directory", root / "system"),
             "assets": native.get("assets_directory", root / "assets"),
@@ -210,7 +208,7 @@ class AppConfig:
         return self.import_retroarch_config(executable)
 
     def _derive_retroarch_core_layout(self) -> None:
-        """Calcula a árvore de configurações por core usada pelo RetroArch."""
+        """Calcula a árvore de configurações por core conforme a documentação Libretro."""
         config_root = self.emulator_paths.get("retroarch", {}).get("config") or self.retroarch_dir
         if config_root:
             config_root = Path(config_root)
@@ -219,20 +217,21 @@ class AppConfig:
             self.retroarch_core_shader_dir = config_root
 
     def retroarch_core_directory(self, core_name: str) -> Path:
-        """Retorna a pasta de configuração do core conforme o padrão Libretro."""
+        """Retorna /config/<nome-do-core>."""
         if not self.retroarch_core_config_dir:
             raise RuntimeError("Diretório de configuração do RetroArch ainda não foi descoberto.")
         safe = Path(core_name).stem.replace("/", "_").replace("\\", "_")
         return self.retroarch_core_config_dir / safe
 
     def retroarch_core_paths(self, core_name: str) -> dict[str, Path]:
-        """Retorna os locais previstos para overrides, remaps, opções e shaders do core."""
+        """Retorna locais de override, remap, opções e presets do core."""
         core_dir = self.retroarch_core_directory(core_name)
+        stem = Path(core_name).stem
         return {
             "config": core_dir,
-            "override": core_dir / f"{Path(core_name).stem}.cfg",
-            "remaps": (self.retroarch_core_remap_dir or core_dir / "remaps") / Path(core_name).stem,
-            "options": core_dir / f"{Path(core_name).stem}.opt",
+            "override": core_dir / f"{stem}.cfg",
+            "remaps": (self.retroarch_core_remap_dir or core_dir / "remaps") / stem,
+            "options": core_dir / f"{stem}.opt",
             "shaders": core_dir,
         }
 
