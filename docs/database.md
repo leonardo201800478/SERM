@@ -1,6 +1,6 @@
-# Banco de dados
+# Banco de dados do ARCADE MANAGER
 
-**Referência:** 17/08/2026
+**Referência:** 23/08/2026
 
 SQLite é o banco principal. O schema e as migrations presentes no repositório são a autoridade para qualquer alteração.
 
@@ -13,19 +13,18 @@ Antes de modificar tabelas:
 3. consultar repositories/services;
 4. localizar consumidores;
 5. avaliar compatibilidade;
-6. alterar e testar.
+6. alterar migration;
+7. executar testes.
 
-Não usar o schema descrito em documentos antigos como autoridade.
+Documentação nunca substitui o schema real.
 
 ## Papel do banco
 
-O banco é usado para dados estruturais, filtros e consultas persistentes. O `current_scan.jsonl` representa o resultado físico de uma execução de Scan e não deve ser substituído por consultas improvisadas na GUI.
+O banco persiste dados estruturais, catálogo, configurações de domínio, filtros, perfis e metadados.
 
-## Domínio
+O `current_scan.jsonl` continua sendo o manifesto físico de uma execução de Scan e não deve ser substituído por consultas improvisadas da GUI.
 
-O projeto já possui modelos para entidades como machine, ROM, disk, filtros e resultado de scan. A persistência completa de todos os nós do `listxml` continua sendo uma área de evolução.
-
-## Separação
+## Separação do núcleo de ROM
 
 ```text
 MAME/listxml
@@ -41,10 +40,124 @@ ScanResult
 current_scan.jsonl
 ```
 
-A reconstrução consome o manifesto físico produzido pelo Scan; não deve criar SQL para pesquisar novamente todas as fontes.
+A reconstrução consome o manifesto físico produzido pelo Scan.
+
+## Domínios futuros
+
+A evolução do banco deverá separar claramente:
+
+### Biblioteca
+
+- machine;
+- ROM;
+- disk;
+- CHD;
+- BIOS;
+- device;
+- sample;
+- parent/clone;
+- dependências.
+
+### Emuladores
+
+- emulator;
+- backend;
+- installation;
+- runtime capability;
+- emulator configuration metadata.
+
+### RetroArch
+
+- retroarch installation;
+- core;
+- core version;
+- core installation;
+- core source/provider.
+
+### Plugins
+
+- plugin;
+- plugin version;
+- plugin installation;
+- plugin compatibility;
+- plugin configuration.
+
+### Controles
+
+- physical device;
+- hardware profile;
+- control profile;
+- control family;
+- control mapping;
+- machine override.
+
+### Hardware arcade
+
+- arcade hardware profile;
+- wheel rotation;
+- pedals;
+- transmission;
+- analog ranges;
+- specialized controls.
+
+### Force Feedback
+
+- FFB profile;
+- FFB family assignment;
+- FFB game override;
+- plugin association.
+
+### Downloads
+
+- provider;
+- package;
+- version;
+- download source;
+- installed package;
+- download job/history quando necessário.
+
+## Regra de normalização
+
+Não duplicar uma machine/ROM para representar diferentes modos de execução.
+
+```text
+Machine
+ ├── MAME backend
+ ├── FBNeo backend
+ └── RetroArch + core
+```
+
+As relações de execução devem apontar para a mesma entidade lógica.
+
+## Regra de herança
+
+Perfis de controle e FFB devem poder possuir herança:
+
+```text
+Global
+ ↓
+Family
+ ↓
+Machine
+```
+
+O override específico deve vencer o perfil genérico.
+
+## Migrações
+
+A expansão deverá ocorrer em migrations incrementais. Não remodelar o banco inteiro de uma vez apenas por causa da nova arquitetura.
+
+Cada nova entidade deve ser implementada somente após auditar seus consumidores.
 
 ## Pendências
 
-- Completar/validar persistência dos elementos estruturais do `listxml` que ainda não estejam representados.
-- Consolidar dependências físicas de ROM, BIOS, device, sample, disk e CHD.
-- Ampliar testes de migração e integração entre schema, modelos e services.
+- completar persistência estrutural do listxml;
+- Dependency Resolver;
+- entidades de emuladores/backends;
+- RetroArch/core;
+- plugins;
+- controles/perfis;
+- hardware arcade;
+- FFB;
+- download manager;
+- testes de migration e integração.
