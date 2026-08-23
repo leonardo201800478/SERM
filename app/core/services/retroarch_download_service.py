@@ -1,9 +1,8 @@
 """Downloader oficial do RetroArch e dos cores libretro para Windows.
 
-O Buildbot oficial é a fonte de verdade. A descoberta de pacotes não depende
-mais do nome exato do arquivo dentro de ``latest``: o índice pai é consultado
-para encontrar o último pacote datado e os cores continuam sendo validados
-pelo ``.index-extended``.
+O Buildbot oficial é a fonte de verdade. Pacotes do RetroArch são baixados
+para TEMP, extraídos e mesclados na raiz escolhida pelo usuário. Os cores
+libretro são arquivos ZIP e recebem validação CRC32 antes da instalação.
 """
 from __future__ import annotations
 
@@ -15,6 +14,7 @@ import ssl
 import subprocess
 import tempfile
 import time
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -117,6 +117,36 @@ class RetroArchDownloadService:
         filename = max(filenames, key=lambda value: value[:10])
         return filename, 0, base + filename
 
+    @classmethod
+    def detect_installed_version(cls, executable: Path) -> str | None:
+        """Obtém a versão real do RetroArch executando o próprio executável."""
+        executable = Path(executable).expanduser().resolve()
+        if not executable.is_file():
+            return None
+        for args in (("--version",), ("-v",)):
+            try:
+                result = subprocess.run(
+                    [str(executable), *args],
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    shell=False,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                    timeout=15,
+                    check=False,
+                    cwd=str(executable.parent),
+                )
+            except (OSError, subprocess.SubprocessError):
+                continue
+            text = (result.stdout or "").strip()
+            match = re.search(r"\b(\d+\.\d+(?:\.\d+)*)\b", text)
+            if match:
+                return match.group(1)
+        return None
+
     def list_cores(self, channel: RetroArchChannel) -> list[RetroArchCoreInfo]:
         """Lê ``.index-extended`` e retorna todos os cores Windows x64 publicados."""
         index_url = channel.base_url + ".index-extended"
@@ -155,21 +185,32 @@ class RetroArchDownloadService:
         return archive
 
     def install_retroarch(self, archive: Path, destination: Path, preserve_config: bool = True) -> Path:
-        """Extrai RetroArch no destino e preserva configuração/dados existentes."""
+        """Extrai RetroArch e achata uma pasta raiz do pacote antes de mesclar."""
         destination = Path(destination).expanduser().resolve()
         destination.mkdir(parents=True, exist_ok=True)
         temp_extract = archive.parent / "extracted"
         temp_extract.mkdir(parents=True, exist_ok=True)
         self._extract_7z(archive, temp_extract)
+        source = self._flatten_single_root(temp_extract)
         excluded = {"config", "saves", "states", "retroarch.cfg", "retroarch.default.cfg"} if preserve_config else set()
-        self._merge(temp_extract, destination, excluded)
+        self._merge(source, destination, excluded)
         executable = destination / "retroarch.exe"
         if not executable.is_file():
-            raise RetroArchDownloadError(f"retroarch.exe não encontrado após instalação: {destination}")
+            raise RetroArchDownloadError(f"retroarch.exe não encontrado após instalação na raiz: {destination}")
         return executable
 
+    @staticmethod
+    def _flatten_single_root(source: Path) -> Path:
+        """Retorna a árvore útil, removendo o nível único RetroArch-Win64 quando existir."""
+        entries = [item for item in source.iterdir() if item.name not in {"__MACOSX"}]
+        if len(entries) == 1 and entries[0].is_dir():
+            nested = entries[0]
+            if (nested / "retroarch.exe").is_file():
+                return nested
+        return source
+
     def download_core(self, channel: RetroArchChannel, core: RetroArchCoreInfo, cores_dir: Path, progress=None) -> Path:
-        """Baixa, valida CRC e instala um único core libretro no diretório cores."""
+        """Baixa, valida CRC e instala o ZIP oficial de um core libretro."""
         cores_dir = Path(cores_dir).expanduser().resolve()
         cores_dir.mkdir(parents=True, exist_ok=True)
         temp = Path(tempfile.mkdtemp(prefix="mame-set-builder-core-"))
@@ -180,7 +221,7 @@ class RetroArchDownloadService:
             actual = f"{self._crc32(archive):08x}"
             if expected and expected != actual:
                 raise RetroArchDownloadError(f"CRC32 inválido para {core.filename}: recebido={actual}, índice={expected}")
-            self._extract_7z(archive, cores_dir)
+            self._extract_core_zip(archive, cores_dir)
             dll = cores_dir / core.filename[:-4]
             if not dll.is_file():
                 candidates = list(cores_dir.glob(f"{core.core_name}*_libretro.dll"))
@@ -190,6 +231,18 @@ class RetroArchDownloadService:
             return dll
         finally:
             shutil.rmtree(temp, ignore_errors=True)
+
+    @staticmethod
+    def _extract_core_zip(archive: Path, destination: Path) -> None:
+        """Extrai o ZIP de um core sem executar nenhum conteúdo."""
+        try:
+            with zipfile.ZipFile(archive, "r") as package:
+                bad = package.testzip()
+                if bad:
+                    raise RetroArchDownloadError(f"ZIP corrompido do core: {bad}")
+                package.extractall(destination)
+        except zipfile.BadZipFile as exc:
+            raise RetroArchDownloadError(f"Arquivo de core não é um ZIP válido: {archive.name}") from exc
 
     @classmethod
     def _download(cls, url: str, target: Path, progress=None) -> None:
