@@ -4,14 +4,13 @@ from pathlib import Path
 
 
 class AppConfig:
-    """Configuração persistente do MAME Set Builder.
+    """Configuração persistente do ARCADE MANAGER.
 
     ``*_dir`` é a fonte canônica da instalação de cada emulador.
     ``*_path`` representa somente o executável efetivamente instalado.
     ``*_version`` guarda a última versão confirmada pela instalação/atualização.
-    ``emulator_paths`` guarda os diretórios de conteúdo de cada emulador que
-    não pertencem ao diretório de instalação. Esses caminhos são compartilhados
-    pela GUI, catálogo e futuras rotinas de execução/reconstrução.
+    ``emulator_paths`` guarda diretórios de conteúdo compartilhados pela GUI,
+    catálogo e futuras rotinas de execução/reconstrução.
     """
 
     CONFIG_DIR = Path.home() / ".mame-set-builder"
@@ -23,32 +22,24 @@ class AppConfig:
 
     EMULATOR_PATH_DEFAULTS = {
         "flycast": {
-            "roms": "roms",
-            "bios": "data",
-            "vmu": "data",
-            "saves": "data",
-            "states": "data",
-            "textures": "data",
-            "boxart": "data",
-            "cheats": "cheats",
+            "roms": "roms", "bios": "data", "vmu": "data", "saves": "data",
+            "states": "data", "textures": "data", "boxart": "data", "cheats": "cheats",
         },
         "supermodel": {
-            "roms": "ROMs",
-            "config": "Config",
-            "nvram": "NVRAM",
-            "saves": "Saves",
-            "assets": "Assets",
+            "roms": "ROMs", "config": "Config", "nvram": "NVRAM", "saves": "Saves", "assets": "Assets",
         },
         "fbneo": {
             "roms": "roms",
-            "bios": "roms",
-            "samples": "support/samples",
-            "cheats": "support/cheats",
-            "previews": "support/previews",
-            "titles": "support/titles",
-            "snapshots": "support/snapshots",
-            "history": "support/history",
-            "icons": "support/icons",
+            "neocd": "neocdiso",
+            "previews": "support/previews", "titles": "support/titles", "cheats": "support/cheats",
+            "hiscore": "support/hiscores", "samples": "support/samples", "hdd": "support/hdd",
+            "ips": "support/ips", "romdata": "support/romdata", "icons": "support/icons",
+            "neocd_covers": "support/neocdz", "neocd_previews": "support/neocdzpreviews",
+            "blend": "support/blend", "select": "support/select", "versus": "support/versus",
+            "howto": "support/howto", "scores": "support/scores", "bosses": "support/bosses",
+            "gameover": "support/gameover", "flyers": "support/flyers", "marquees": "support/marquees",
+            "controls": "support/cpanel", "cabinets": "support/cabinets", "pcbs": "support/pcbs",
+            "history": "support/history", "commands": "support/commands", "eeprom": "config/games",
         },
     }
 
@@ -57,29 +48,19 @@ class AppConfig:
         self.flycast_path: Path | None = None
         self.supermodel_path: Path | None = None
         self.fbneo_path: Path | None = None
-
         self.mame_dir: Path | None = None
         self.flycast_dir: Path | None = None
         self.supermodel_dir: Path | None = None
         self.fbneo_dir: Path | None = None
-
         self.mame_version: str | None = None
         self.flycast_version: str | None = None
         self.supermodel_version: str | None = None
         self.fbneo_version: str | None = None
-
-        # Diretórios de conteúdo por emulador.
         self.emulator_paths: dict[str, dict[str, Path | None]] = {
-            emulator: {
-                name: None for name in paths
-            }
+            emulator: {name: None for name in paths}
             for emulator, paths in self.EMULATOR_PATH_DEFAULTS.items()
         }
-        # O Flycast grava vários diretórios de ROM em uma única opção
-        # Dreamcast.ContentPath, separados por ';'. Os demais diretórios
-        # continuam sendo valores únicos.
         self.flycast_rom_paths: list[Path] = []
-
         self.chdman_path: Path | None = None
         self.ini_path: Path | None = None
         self.catver_path: Path | None = None
@@ -104,17 +85,14 @@ class AppConfig:
             return
         try:
             data = json.loads(self.CONFIG_FILE.read_text(encoding="utf-8"))
-
             self.mame_path = Path(data["mame_path"]) if data.get("mame_path") else None
             self.flycast_path = Path(data["flycast_path"]) if data.get("flycast_path") else None
             self.supermodel_path = Path(data["supermodel_path"]) if data.get("supermodel_path") else None
             self.fbneo_path = Path(data["fbneo_path"]) if data.get("fbneo_path") else None
-
             self.mame_dir = self._load_dir(data, "mame_dir", self.mame_path)
             self.flycast_dir = self._load_dir(data, "flycast_dir", self.flycast_path)
             self.supermodel_dir = self._load_dir(data, "supermodel_dir", self.supermodel_path)
             self.fbneo_dir = self._load_dir(data, "fbneo_dir", self.fbneo_path)
-
             self.mame_version = data.get("mame_version") or None
             self.flycast_version = data.get("flycast_version") or None
             self.supermodel_version = data.get("supermodel_version") or None
@@ -127,20 +105,15 @@ class AppConfig:
                     value = stored.get(name)
                     self.emulator_paths[emulator][name] = Path(value) if value else None
 
-            # Compatibilidade: versões anteriores armazenavam o primeiro
-            # diretório Flycast em emulator_paths. Ele continua válido como
-            # primeiro caminho caso a nova lista ainda não exista.
             stored_flycast_roms = data.get("flycast_rom_paths")
             if isinstance(stored_flycast_roms, list):
-                self.flycast_rom_paths = [Path(value) for value in stored_flycast_roms if value]
+                self.flycast_rom_paths = [Path(value) for value in stored_flycast_roms if value][:4]
             elif isinstance(stored_flycast_roms, str) and stored_flycast_roms.strip():
-                self.flycast_rom_paths = [Path(value.strip()) for value in stored_flycast_roms.split(";") if value.strip()]
+                self.flycast_rom_paths = [Path(value.strip()) for value in stored_flycast_roms.split(";") if value.strip()][:4]
             else:
                 legacy_rom = self.emulator_paths.get("flycast", {}).get("roms")
                 self.flycast_rom_paths = [legacy_rom] if legacy_rom else []
 
-            # O diretório configurado é a autoridade. Se houver mame.exe nele,
-            # qualquer caminho antigo é descartado.
             if self.mame_dir:
                 canonical_mame = self.mame_dir.expanduser() / "mame.exe"
                 self.mame_path = canonical_mame if canonical_mame.is_file() else None
@@ -184,18 +157,14 @@ class AppConfig:
     def set_flycast_rom_paths(self, paths: list[Path]) -> None:
         """Define até quatro diretórios de ROM do Flycast."""
         self.flycast_rom_paths = [Path(path) for path in paths if path][:4]
-        # Mantém o primeiro caminho disponível compatível com consumidores
-        # antigos que ainda consultem emulator_paths['flycast']['roms'].
         self.emulator_paths.setdefault("flycast", {})["roms"] = self.flycast_rom_paths[0] if self.flycast_rom_paths else None
 
     def save(self):
-        """Salva configurações de forma atômica, mantendo apenas executáveis válidos."""
+        """Salva configurações de forma atômica."""
         self.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-
         if self.mame_dir:
             canonical_mame = self.mame_dir.expanduser() / "mame.exe"
             self.mame_path = canonical_mame if canonical_mame.is_file() else None
-
         payload = {
             "mame_path": str(self.mame_path) if self.mame_path else "",
             "flycast_path": str(self.flycast_path) if self.flycast_path else "",
@@ -210,10 +179,7 @@ class AppConfig:
             "supermodel_version": self.supermodel_version or "",
             "fbneo_version": self.fbneo_version or "",
             "emulator_paths": {
-                emulator: {
-                    name: str(path) if path else ""
-                    for name, path in paths.items()
-                }
+                emulator: {name: str(path) if path else "" for name, path in paths.items()}
                 for emulator, paths in self.emulator_paths.items()
             },
             "flycast_rom_paths": [str(path) for path in self.flycast_rom_paths[:4]],
