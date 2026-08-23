@@ -7,10 +7,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, Signal, Slot
 
 from app.config.app_config import AppConfig
-from app.core.services.retroarch_download_service import (
-    RetroArchDownloadService,
-    RetroArchCoreInfo,
-)
+from app.core.services.retroarch_download_service import RetroArchDownloadService
 
 
 class RetroArchDownloadWorker(QObject):
@@ -22,14 +19,7 @@ class RetroArchDownloadWorker(QObject):
     finished = Signal(str, str, str)
     failed = Signal(str)
 
-    def __init__(
-        self,
-        operation: str,
-        destination: Path,
-        mode: str = "nightly",
-        stable_version: str | None = None,
-        core_filename: str | None = None,
-    ) -> None:
+    def __init__(self, operation: str, destination: Path, mode: str = "nightly", stable_version: str | None = None, core_filename: str | None = None) -> None:
         """Configura uma operação de instalação/atualização."""
         super().__init__()
         self.operation = operation
@@ -53,11 +43,7 @@ class RetroArchDownloadWorker(QObject):
 
             if self.operation in {"install", "update"}:
                 self.status.emit("Baixando RetroArch…")
-                archive = service.download_retroarch(
-                    channel,
-                    self.destination,
-                    progress=lambda received, total: self.progress.emit(received, total),
-                )
+                archive = service.download_retroarch(channel, self.destination, progress=lambda received, total: self.progress.emit(received, total))
                 preserve = self.operation == "update"
                 self.status.emit("Extraindo RetroArch…")
                 executable = service.install_retroarch(archive, self.destination, preserve_config=preserve)
@@ -66,33 +52,45 @@ class RetroArchDownloadWorker(QObject):
                 config.retroarch_path = executable
                 config.retroarch_dir = self.destination
                 config.retroarch_version = version
-                config.set_emulator_path("retroarch", "config", self.destination)
-                config.set_emulator_path("retroarch", "cores", self.destination / "cores")
-                config.set_emulator_path("retroarch", "system", self.destination / "system")
-                config.set_emulator_path("retroarch", "assets", self.destination / "assets")
-                config.set_emulator_path("retroarch", "shaders", self.destination / "shaders")
-                config.set_emulator_path("retroarch", "saves", self.destination / "saves")
-                config.set_emulator_path("retroarch", "states", self.destination / "states")
-                config.set_emulator_path("retroarch", "downloads", self.destination / "downloads")
+                for key in ("config", "cores", "system", "assets", "shaders", "saves", "states", "downloads"):
+                    config.set_emulator_path("retroarch", key, self.destination if key == "config" else self.destination / key)
                 config.save()
                 self.finished.emit("retroarch", version, str(executable))
                 return
 
-            if self.operation == "core":
+            if self.operation in {"core", "cores_installed"}:
                 self.status.emit("Consultando lista de cores…")
                 cores = service.list_cores(channel)
-                selected = next((item for item in cores if item.filename == self.core_filename), None)
-                if selected is None:
-                    raise ValueError(f"Core não encontrado no índice: {self.core_filename}")
-                self.status.emit(f"Baixando core {selected.core_name}…")
+                by_name = {item.core_name.casefold(): item for item in cores}
                 cores_dir = self.destination / "cores"
-                dll = service.download_core(
-                    channel,
-                    selected,
-                    cores_dir,
-                    progress=lambda received, total: self.progress.emit(received, total),
-                )
-                self.finished.emit("core", selected.core_name, str(dll))
+                if self.operation == "core":
+                    selected = next((item for item in cores if item.filename == self.core_filename), None)
+                    if selected is None:
+                        raise ValueError(f"Core não encontrado no índice: {self.core_filename}")
+                    selected_cores = [selected]
+                else:
+                    installed = sorted(cores_dir.glob("*_libretro.dll")) if cores_dir.is_dir() else []
+                    selected_cores = []
+                    for dll in installed:
+                        logical = dll.stem.removesuffix("_libretro").casefold()
+                        if logical in by_name:
+                            selected_cores.append(by_name[logical])
+                    if not selected_cores:
+                        raise ValueError("Nenhum core instalado corresponde ao índice oficial deste canal.")
+                    self._log(f"CORES INSTALADOS | candidatos={len(selected_cores)}")
+
+                for index, selected in enumerate(selected_cores, start=1):
+                    self.status.emit(f"Baixando core {index}/{len(selected_cores)}: {selected.core_name}…")
+                    self._log(f"CORE {index}/{len(selected_cores)} | {selected.core_name} | CRC={selected.crc32}")
+                    service.download_core(
+                        channel,
+                        selected,
+                        cores_dir,
+                        progress=lambda received, total, offset=index - 1, count=len(selected_cores): self.progress.emit(
+                            int(((offset + (received / total if total else 0)) / count) * 100), 100
+                        ),
+                    )
+                self.finished.emit("cores", str(len(selected_cores)), str(cores_dir))
                 return
 
             raise ValueError(f"Operação RetroArch desconhecida: {self.operation}")
