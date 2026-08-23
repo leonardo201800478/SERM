@@ -69,7 +69,7 @@ class RetroArchCatalogTab(QWidget):
         layout.addWidget(self.status_label)
 
     def refresh(self) -> None:
-        """Atualiza o catálogo local e reconstrói a árvore da interface."""
+        """Atualiza .info, banco, cores e a árvore da interface."""
         self.config.load()
         self.tree.clear()
         self._load_bios_catalog()
@@ -79,6 +79,8 @@ class RetroArchCatalogTab(QWidget):
             try:
                 self.info_cores = self.info_service.scan_directory(info_directory)
                 self.catalog_db.replace_catalog(self.info_cores)
+                # O .info local passa a ser a fonte primária para BIOS.
+                self.bios_service.load_info_catalog(self.info_cores)
             except Exception as exc:
                 self.info_cores = []
                 self.status_label.setText(f"Erro ao atualizar banco de .info: {type(exc).__name__}: {exc}")
@@ -114,16 +116,12 @@ class RetroArchCatalogTab(QWidget):
         except Exception:
             db_cores = db_systems = db_firmware = 0
         self.count_label.setText(f"Cores instalados: {len(installed)} | Cores publicados: {len(self.core_infos)} | Sistemas: {sum(len(i['systems']) for i in self.core_infos)} | Banco .info: {db_cores} cores / {db_systems} sistemas / {db_firmware} firmwares")
-        self.status_label.setText(f"Catálogo atualizado a partir de {len(self.info_cores)} arquivo(s) .info. O SQLite foi sincronizado.")
+        self.status_label.setText(f"Catálogo atualizado a partir de {len(self.info_cores)} arquivo(s) .info. SQLite sincronizado; BIOS usa .info local como fonte primária.")
 
     def _load_bios_catalog(self) -> None:
-        """Carrega RetroBIOS para complementar a validação de hashes."""
+        """Inicializa o scanner; o catálogo local .info será aplicado em seguida."""
         system_dir = self.config.get_emulator_path("retroarch", "system")
         self.bios_service = RetroArchBiosService(system_dir)
-        try:
-            self.bios_service.load_catalog()
-        except Exception as exc:
-            self.status_label.setText(f"Erro ao carregar catálogo RetroBIOS: {type(exc).__name__}: {exc}")
 
     def _load_core_index(self, installed: dict[str, Path]) -> list[dict]:
         """Classifica cores pelo Buildbot e usa .info local para o nome do core."""
@@ -176,6 +174,8 @@ class RetroArchCatalogTab(QWidget):
         """Executa varredura completa e atualiza a árvore."""
         try:
             self._load_bios_catalog()
+            if self.info_cores:
+                self.bios_service.load_info_catalog(self.info_cores)
             results = self.bios_service.scan()
             counts = {k: sum(r.status == k for r in results) for k in ("ok", "fixable", "missing", "corrupt")}
             self.status_label.setText(f"BIOS escaneadas: {len(results)} | OK={counts['ok']} | corrigíveis={counts['fixable']} | ausentes={counts['missing']} | corrompidas={counts['corrupt']}")
@@ -205,7 +205,10 @@ class RetroArchCatalogTab(QWidget):
             return
         try:
             service = RetroArchBiosReconstructionService(system_dir)
-            service.load_catalog()
+            if self.info_cores:
+                service.scanner.load_info_catalog(self.info_cores)
+            else:
+                service.load_catalog()
             results = service.reconstruct_needed(source)
             rebuilt = sum(r.status == "reconstructed" for r in results)
             missing = sum(r.status == "missing" for r in results)
