@@ -89,7 +89,10 @@ class RetroArchBiosReconstructionService:
         for definition in definitions:
             destination = self._target(definition)
             candidates = list(by_name.get(Path(definition.name).name.casefold(), []))
-            candidates.extend(path for path in files if path not in candidates)
+            # Sem hash, o nome/extensão são a identidade. Não procurar em todos
+            # os arquivos por tamanho, pois isso poderia associar uma BIOS errada.
+            if any((definition.sha1, definition.md5, definition.crc32)):
+                candidates.extend(path for path in files if path not in candidates)
             candidate = self._find_candidate(definition, candidates)
             if candidate is None:
                 results.append(RetroArchBiosReconstructionResult(definition, None, destination, "missing", "Nenhum arquivo compatível encontrado"))
@@ -127,9 +130,16 @@ class RetroArchBiosReconstructionService:
 
     @staticmethod
     def _find_candidate(definition: RetroArchBiosFile, candidates: list[Path]) -> Path | None:
-        """Encontra candidato válido por tamanho e hash, priorizando o nome esperado."""
+        """Encontra candidato pela regra de identidade da BIOS.
+
+        Com hash, o hash é a autoridade e permite corrigir nome/local.
+        Sem hash, somente o nome exato, incluindo extensão, é aceito.
+        """
+        has_hash = any((definition.sha1, definition.md5, definition.crc32))
         for candidate in candidates:
             try:
+                if not has_hash:
+                    return candidate
                 if definition.size is not None and candidate.stat().st_size != definition.size:
                     continue
                 hashes = RetroArchBiosReconstructionService._hashes(candidate)
@@ -140,8 +150,6 @@ class RetroArchBiosReconstructionService:
             if definition.md5 and hashes["md5"].casefold() == definition.md5.casefold():
                 return candidate
             if definition.crc32 and hashes["crc32"].casefold() == str(definition.crc32).casefold().zfill(8):
-                return candidate
-            if not any((definition.sha1, definition.md5, definition.crc32)):
                 return candidate
         return None
 
