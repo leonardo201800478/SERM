@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QLabel, QTabWidget, QVBoxLayout, QWidget
 from app.gui.tabs.mame_settings_tab import MameSettingsTab
 from app.gui.tabs.flycast_settings_tab import FlycastSettingsTab
 from app.gui.tabs.supermodel_settings_tab import SupermodelSettingsTab
+from app.gui.tabs.fbneo_settings_tab import FBNeoSettingsTab
 
 
 class EmulatorSettingsTab(QWidget):
@@ -20,7 +21,7 @@ class EmulatorSettingsTab(QWidget):
         self.mame_tab: MameSettingsTab | None = None
         self.flycast_tab: FlycastSettingsTab | None = None
         self.supermodel_tab: SupermodelSettingsTab | None = None
-        self.fbneo_tab: QWidget | None = None
+        self.fbneo_tab: FBNeoSettingsTab | None = None
         self.retroarch_tab: QWidget | None = None
         self._build_ui()
 
@@ -40,7 +41,7 @@ class EmulatorSettingsTab(QWidget):
         self.supermodel_tab = SupermodelSettingsTab(self)
         self.tab_widget.addTab(self.supermodel_tab, "Supermodel")
 
-        self.fbneo_tab = self._create_pending_tab("FBNeo", "Configurações do FBNeo serão implementadas nesta subaba.")
+        self.fbneo_tab = FBNeoSettingsTab(self)
         self.tab_widget.addTab(self.fbneo_tab, "FBNeo")
 
         self.retroarch_tab = self._create_pending_tab("RetroArch", "Configurações do RetroArch serão implementadas nesta subaba.")
@@ -51,6 +52,7 @@ class EmulatorSettingsTab(QWidget):
         self.mame_tab.settings_changed.connect(self.settings_changed)
         self.flycast_tab.settings_changed.connect(self.settings_changed)
         self.supermodel_tab.settings_changed.connect(self.settings_changed)
+        self.fbneo_tab.settings_changed.connect(self.settings_changed)
 
     @staticmethod
     def _create_pending_tab(emulator: str, message: str) -> QWidget:
@@ -76,6 +78,8 @@ class EmulatorSettingsTab(QWidget):
             self.flycast_tab.refresh()
         elif widget is self.supermodel_tab:
             self.supermodel_tab._load_installation()
+        elif widget is self.fbneo_tab:
+            self.fbneo_tab.refresh()
 
     def refresh(self) -> None:
         """Recarrega a configuração da subaba atualmente selecionada."""
@@ -86,6 +90,8 @@ class EmulatorSettingsTab(QWidget):
             self.flycast_tab.refresh()
         elif current is self.supermodel_tab:
             self.supermodel_tab._load_installation()
+        elif current is self.fbneo_tab:
+            self.fbneo_tab.refresh()
 
     @property
     def shader_test_target(self) -> MameSettingsTab:
