@@ -8,6 +8,7 @@ from app.gui.tabs.mame_settings_tab import MameSettingsTab
 from app.gui.tabs.flycast_settings_tab import FlycastSettingsTab
 from app.gui.tabs.supermodel_settings_tab import SupermodelSettingsTab
 from app.gui.tabs.fbneo_settings_tab import FBNeoSettingsTab
+from app.gui.tabs.retroarch_settings_tab import RetroArchSettingsTab
 
 
 class EmulatorSettingsTab(QWidget):
@@ -22,7 +23,7 @@ class EmulatorSettingsTab(QWidget):
         self.flycast_tab: FlycastSettingsTab | None = None
         self.supermodel_tab: SupermodelSettingsTab | None = None
         self.fbneo_tab: FBNeoSettingsTab | None = None
-        self.retroarch_tab: QWidget | None = None
+        self.retroarch_tab: RetroArchSettingsTab | None = None
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -34,40 +35,18 @@ class EmulatorSettingsTab(QWidget):
 
         self.mame_tab = MameSettingsTab(self)
         self.tab_widget.addTab(self.mame_tab, "MAME")
-
         self.flycast_tab = FlycastSettingsTab(self)
         self.tab_widget.addTab(self.flycast_tab, "Flycast")
-
         self.supermodel_tab = SupermodelSettingsTab(self)
         self.tab_widget.addTab(self.supermodel_tab, "Supermodel")
-
         self.fbneo_tab = FBNeoSettingsTab(self)
         self.tab_widget.addTab(self.fbneo_tab, "FBNeo")
-
-        self.retroarch_tab = self._create_pending_tab("RetroArch", "Configurações do RetroArch serão implementadas nesta subaba.")
+        self.retroarch_tab = RetroArchSettingsTab(self)
         self.tab_widget.addTab(self.retroarch_tab, "RetroArch")
 
         self.tab_widget.currentChanged.connect(self._on_subtab_changed)
-
-        self.mame_tab.settings_changed.connect(self.settings_changed)
-        self.flycast_tab.settings_changed.connect(self.settings_changed)
-        self.supermodel_tab.settings_changed.connect(self.settings_changed)
-        self.fbneo_tab.settings_changed.connect(self.settings_changed)
-
-    @staticmethod
-    def _create_pending_tab(emulator: str, message: str) -> QWidget:
-        """Cria a página provisória de um emulador ainda não implementado."""
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        title = QLabel(f"Configurações do {emulator}")
-        title.setStyleSheet("font-size:20px;font-weight:bold")
-        description = QLabel(message)
-        description.setWordWrap(True)
-        description.setStyleSheet("padding:8px")
-        layout.addWidget(title)
-        layout.addWidget(description)
-        layout.addStretch()
-        return page
+        for widget in (self.mame_tab, self.flycast_tab, self.supermodel_tab, self.fbneo_tab, self.retroarch_tab):
+            widget.settings_changed.connect(self.settings_changed)
 
     def _on_subtab_changed(self, index: int) -> None:
         """Atualiza a configuração nativa da subaba selecionada."""
@@ -80,6 +59,8 @@ class EmulatorSettingsTab(QWidget):
             self.supermodel_tab._load_installation()
         elif widget is self.fbneo_tab:
             self.fbneo_tab.refresh()
+        elif widget is self.retroarch_tab:
+            self.retroarch_tab.refresh()
 
     def refresh(self) -> None:
         """Recarrega a configuração da subaba atualmente selecionada."""
@@ -92,6 +73,8 @@ class EmulatorSettingsTab(QWidget):
             self.supermodel_tab._load_installation()
         elif current is self.fbneo_tab:
             self.fbneo_tab.refresh()
+        elif current is self.retroarch_tab:
+            self.retroarch_tab.refresh()
 
     @property
     def shader_test_target(self) -> MameSettingsTab:
