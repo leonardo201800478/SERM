@@ -221,7 +221,10 @@ class RetroArchHomeTab(QWidget):
                 item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
                 item.setCheckState(Qt.CheckState.Unchecked)
                 item.setData(Qt.ItemDataRole.UserRole, core.filename)
-                is_installed = core.dll_filename.casefold() in installed
+                # RetroArchCoreInfo expõe o arquivo publicado como `filename`.
+                # O índice usa <core>_libretro.dll.zip; a instalação contém <core>_libretro.dll.
+                dll_filename = core.filename.removesuffix(".zip")
+                is_installed = dll_filename.casefold() in installed
                 marker = "[INSTALADO] " if is_installed else "[NOVO] "
                 installed_count += int(is_installed)
                 new_count += int(not is_installed)
@@ -326,8 +329,7 @@ class RetroArchHomeTab(QWidget):
         """Registra conclusão e atualiza as sessões relacionadas."""
         self._append_log(f"SUCESSO | tipo={kind} | valor={value} | caminho={path}")
         self.refresh()
-        if kind == "cores":
-            self.refresh_cores()
+        self._refresh_installed_markers()
         catalog = getattr(self.parent_window, "retroarch_catalog_tab", None)
         if catalog is not None:
             catalog.refresh()
