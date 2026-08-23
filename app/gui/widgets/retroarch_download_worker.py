@@ -19,7 +19,7 @@ class RetroArchDownloadWorker(QObject):
     finished = Signal(str, str, str)
     failed = Signal(str)
 
-    def __init__(self, operation: str, destination: Path, mode: str = "nightly", stable_version: str | None = None, core_filename: str | None = None) -> None:
+    def __init__(self, operation: str, destination: Path, mode: str = "nightly", stable_version: str | None = None, core_filename: str | None = None, core_filenames: list[str] | None = None) -> None:
         """Configura uma operação de instalação/atualização."""
         super().__init__()
         self.operation = operation
@@ -27,6 +27,7 @@ class RetroArchDownloadWorker(QObject):
         self.mode = mode
         self.stable_version = stable_version
         self.core_filename = core_filename
+        self.core_filenames = list(core_filenames or [])
 
     def _log(self, message: str) -> None:
         """Publica uma mensagem operacional."""
@@ -64,17 +65,19 @@ class RetroArchDownloadWorker(QObject):
             if self.operation in {"core", "cores_installed"}:
                 self.status.emit("Consultando lista de cores…")
                 cores = service.list_cores(channel)
+                by_filename = {item.filename: item for item in cores}
                 by_name = {item.core_name.casefold(): item for item in cores}
                 app_config = AppConfig()
                 app_config.load()
                 cores_dir = app_config.get_emulator_path("retroarch", "cores") or (self.destination / "cores")
                 cores_dir = Path(cores_dir).expanduser().resolve()
                 self._log(f"DIRETÓRIO CORES | {cores_dir}")
+
                 if self.operation == "core":
-                    selected = next((item for item in cores if item.filename == self.core_filename), None)
-                    if selected is None:
-                        raise ValueError(f"Core não encontrado no índice: {self.core_filename}")
-                    selected_cores = [selected]
+                    requested = self.core_filenames or ([self.core_filename] if self.core_filename else [])
+                    selected_cores = [by_filename[name] for name in requested if name in by_filename]
+                    if not selected_cores:
+                        raise ValueError("Nenhum dos cores selecionados foi encontrado no índice oficial.")
                 else:
                     installed = sorted(cores_dir.glob("*_libretro.dll")) if cores_dir.is_dir() else []
                     selected_cores = []
