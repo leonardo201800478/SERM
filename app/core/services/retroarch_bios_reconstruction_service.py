@@ -76,30 +76,53 @@ class RetroArchBiosReconstructionService:
         results: list[RetroArchBiosReconstructionResult] = []
         for definition in definitions:
             destination = self._target(definition)
-            candidate = self._find_candidate(definition, by_name.get(Path(definition.name).name.casefold(), []), files)
+            candidates = list(by_name.get(Path(definition.name).name.casefold(), []))
+            candidates.extend(path for path in files if path not in candidates)
+            candidate = self._find_candidate(definition, candidates)
             if candidate is None:
                 results.append(RetroArchBiosReconstructionResult(definition, None, destination, "missing", "Nenhum arquivo compatível encontrado"))
                 continue
-            if destination.exists() and not overwrite:
-                results.append(RetroArchBiosReconstructionResult(definition, candidate, destination, "skipped", "Destino já existe"))
-                continue
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(candidate, destination)
-            results.append(RetroArchBiosReconstructionResult(definition, candidate, destination, "reconstructed", "Arquivo reconstruído e validado"))
+            try:
+                self._ensure_destination_parent(destination)
+                if destination.exists() and destination.is_dir():
+                    results.append(RetroArchBiosReconstructionResult(definition, candidate, destination, "error", "O destino esperado é um arquivo, mas existe uma pasta com o mesmo nome"))
+                    continue
+                if destination.exists() and not overwrite:
+                    results.append(RetroArchBiosReconstructionResult(definition, candidate, destination, "skipped", "Destino já existe"))
+                    continue
+                shutil.copy2(candidate, destination)
+                results.append(RetroArchBiosReconstructionResult(definition, candidate, destination, "reconstructed", "Arquivo reconstruído e validado"))
+            except (OSError, shutil.Error) as exc:
+                results.append(RetroArchBiosReconstructionResult(definition, candidate, destination, "error", str(exc)))
         return results
 
+    def _ensure_destination_parent(self, destination: Path) -> None:
+        """Garante que somente o diretório pai seja criado, sem tentar criar o arquivo."""
+        parent = destination.parent
+        if parent.exists():
+            if not parent.is_dir():
+                raise OSError(f"Diretório pai inválido: {parent}")
+            return
+        parent.mkdir(parents=True, exist_ok=True)
+
     def _target(self, definition: RetroArchBiosFile) -> Path:
-        """Resolve o destino relativo ao System Directory sem usar Path.sep."""
+        """Resolve o destino relativo ao System Directory de forma portátil."""
         relative = definition.destination.replace("/", os.sep).replace("\\", os.sep)
-        return self.system_directory / Path(relative)
+        relative_path = Path(relative)
+        if relative_path.is_absolute() or ".." in relative_path.parts:
+            raise ValueError(f"Destino de BIOS inválido no catálogo: {definition.destination}")
+        return self.system_directory / relative_path
 
     @staticmethod
-    def _find_candidate(definition: RetroArchBiosFile, named_candidates: list[Path], all_files: list[Path]) -> Path | None:
-        """Encontra candidato válido, priorizando o nome esperado."""
-        for candidate in named_candidates or all_files:
-            if definition.size is not None and candidate.stat().st_size != definition.size:
+    def _find_candidate(definition: RetroArchBiosFile, candidates: list[Path]) -> Path | None:
+        """Encontra candidato válido por tamanho e hash, priorizando o nome esperado."""
+        for candidate in candidates:
+            try:
+                if definition.size is not None and candidate.stat().st_size != definition.size:
+                    continue
+                hashes = RetroArchBiosReconstructionService._hashes(candidate)
+            except OSError:
                 continue
-            hashes = RetroArchBiosReconstructionService._hashes(candidate)
             if definition.sha1 and hashes["sha1"].casefold() == definition.sha1.casefold():
                 return candidate
             if definition.md5 and hashes["md5"].casefold() == definition.md5.casefold():
