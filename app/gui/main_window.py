@@ -8,7 +8,7 @@ from app.gui.tabs.scan_roms_tab import ScanRomsTab
 from app.gui.tabs.emulator_catalogs_tab import EmulatorCatalogsTab
 from app.gui.scan_thread_guard import install as install_scan_thread_guard
 from app.gui.tabs.reconstruction_tab import ReconstructionTab
-from app.gui.tabs.mame_settings_tab import MameSettingsTab
+from app.gui.tabs.emulator_settings_tab import EmulatorSettingsTab
 from app.gui.mame_shader_test_widget import install_shader_test
 from app.database.database import Database
 from app.config.app_config import AppConfig
@@ -17,7 +17,7 @@ install_scan_thread_guard()
 
 
 class MainWindow(QMainWindow):
-    """Janela principal e orquestradora das abas do MAME Set Builder."""
+    """Janela principal e orquestradora das abas do ARCADE MANAGER."""
 
     def __init__(self):
         super().__init__()
@@ -34,9 +34,11 @@ class MainWindow(QMainWindow):
         self.home_tab = HomeTab(self)
         self.catalogs_tab = EmulatorCatalogsTab(self)
         self.directories_tab = DirectoriesTab(self)
-        self.mame_settings_tab = MameSettingsTab(self)
+        self.emulator_settings_tab = EmulatorSettingsTab(self)
         self.filters_tab = FiltersTab(self, db=self.db)
-        self.shader_test_controller = install_shader_test(self.mame_settings_tab)
+        self.shader_test_controller = install_shader_test(
+            self.emulator_settings_tab.shader_test_target
+        )
         self.scan_tab = ScanRomsTab(self)
         self.reconstruction_tab = ReconstructionTab(self)
 
@@ -44,7 +46,10 @@ class MainWindow(QMainWindow):
         self.tab_widget.addTab(self.home_tab, "Home")
         self.tab_widget.addTab(self.catalogs_tab, "Catálogos")
         self.tab_widget.addTab(self.directories_tab, "Diretórios")
-        self.tab_widget.addTab(self.mame_settings_tab, "Configurações MAME")
+        self.tab_widget.addTab(
+            self.emulator_settings_tab,
+            "Configurações dos Emuladores",
+        )
         self.tab_widget.addTab(self.filters_tab, "Filtragem")
         self.tab_widget.addTab(self.scan_tab, "Scan Roms")
         self.tab_widget.addTab(self.reconstruction_tab, "Reconstrução")
@@ -70,8 +75,8 @@ class MainWindow(QMainWindow):
             self.scan_tab.refresh_profiles()
         elif widget is self.reconstruction_tab:
             self.reconstruction_tab.refresh()
-        elif widget is self.mame_settings_tab:
-            self.mame_settings_tab._load_ini()
+        elif widget is self.emulator_settings_tab:
+            self.emulator_settings_tab.refresh()
 
     def _on_database_updated(self):
         """Atualiza abas dependentes do dataset."""
