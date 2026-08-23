@@ -48,17 +48,15 @@ class RetroArchDownloadWorker(QObject):
                 self.status.emit("Extraindo RetroArch…")
                 executable = service.install_retroarch(archive, self.destination, preserve_config=preserve)
                 config = AppConfig()
-                config.retroarch_version = channel.version or "nightly"
-                # O retroarch.cfg é a fonte de verdade. Depois de extrair,
-                # reimportamos todos os diretórios nativos em vez de inventar
-                # uma árvore paralela no AppConfig.
+                config.retroarch_path = executable
+                config.retroarch_dir = self.destination
+                detected = service.detect_installed_version(executable)
+                config.retroarch_version = detected or channel.version or "nightly"
+                self._log(f"VERSÃO | detectada={detected or 'não detectada'} | canal={channel.name}")
                 try:
                     config.set_retroarch_executable(executable)
                 except (FileNotFoundError, OSError, ValueError) as exc:
-                    config.retroarch_path = executable
-                    config.retroarch_dir = self.destination
                     self._log(f"AVISO | retroarch.cfg não pôde ser importado após instalação: {exc}")
-                config.retroarch_version = channel.version or "nightly"
                 config.save()
                 self.finished.emit("retroarch", config.retroarch_version or "nightly", str(executable))
                 return
@@ -67,7 +65,7 @@ class RetroArchDownloadWorker(QObject):
                 self.status.emit("Consultando lista de cores…")
                 cores = service.list_cores(channel)
                 by_name = {item.core_name.casefold(): item for item in cores}
-                cores_dir = self.destination / "cores"
+                cores_dir = Path(config_dir := self.destination / "cores")
                 if self.operation == "core":
                     selected = next((item for item in cores if item.filename == self.core_filename), None)
                     if selected is None:
