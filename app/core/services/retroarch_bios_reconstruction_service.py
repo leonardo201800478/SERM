@@ -22,7 +22,7 @@ class RetroArchBiosReconstructionResult:
 
 
 class RetroArchBiosReconstructionService:
-    """Reconstrói arquivos de BIOS a partir de uma pasta de origem."""
+    """Reconstrói arquivos e diretórios de firmware para o RetroArch."""
 
     def __init__(self, system_directory: str | Path) -> None:
         """Inicializa a reconstrução apontando para o System Directory real."""
@@ -40,7 +40,7 @@ class RetroArchBiosReconstructionService:
         return self._reconstruct_destinations(source_directory, needed, overwrite)
 
     def reconstruct_needed(self, source_directory: str | Path) -> list[RetroArchBiosReconstructionResult]:
-        """Reconstrói BIOS ausentes, corrigíveis ou corrompidas, preservando as OK."""
+        """Reconstrói BIOS ausentes, corrigíveis ou corrompidas."""
         scan = self.scanner.scan()
         needed = {item.definition.destination for item in scan if item.status in {"missing", "fixable", "corrupt"}}
         return self._reconstruct_destinations(source_directory, needed, True)
@@ -50,108 +50,117 @@ class RetroArchBiosReconstructionService:
         source = Path(source_directory).expanduser().resolve()
         if not source.is_dir():
             raise ValueError(f"Pasta de origem não encontrada: {source}")
-        files = [path for path in source.rglob("*") if path.is_file()]
-        by_name: dict[str, list[Path]] = {}
-        for path in files:
-            by_name.setdefault(path.name.casefold(), []).append(path)
-        results = self._copy_definitions([definition], by_name, files, overwrite)
-        return results[0]
+        return self._reconstruct_definitions(source, [definition], overwrite)[0]
 
     def reconstruct_from_directory(self, source_directory: str | Path, systems: Iterable[str] | None = None, overwrite: bool = False) -> list[RetroArchBiosReconstructionResult]:
-        """Reconstrói arquivos compatíveis de uma fonte usando destinos do catálogo."""
+        """Reconstrói arquivos e diretórios compatíveis de uma fonte."""
         source = Path(source_directory).expanduser().resolve()
         if not source.is_dir():
             raise ValueError(f"Pasta de origem não encontrada: {source}")
         self.system_directory.mkdir(parents=True, exist_ok=True)
         allowed = set(systems or ())
         definitions = [d for system in self.scanner.systems if not allowed or system.system_id in allowed for d in system.files]
-        files = [path for path in source.rglob("*") if path.is_file()]
-        by_name: dict[str, list[Path]] = {}
-        for path in files:
-            by_name.setdefault(path.name.casefold(), []).append(path)
-        return self._copy_definitions(definitions, by_name, files, overwrite)
+        return self._reconstruct_definitions(source, definitions, overwrite)
 
     def _reconstruct_destinations(self, source_directory: str | Path, destinations: set[str], overwrite: bool) -> list[RetroArchBiosReconstructionResult]:
         """Reconstrói um subconjunto de destinos identificado pelo scanner."""
         source = Path(source_directory).expanduser().resolve()
         if not source.is_dir():
             raise ValueError(f"Pasta de origem não encontrada: {source}")
-        files = [path for path in source.rglob("*") if path.is_file()]
-        by_name: dict[str, list[Path]] = {}
-        for path in files:
-            by_name.setdefault(path.name.casefold(), []).append(path)
         definitions = [d for system in self.scanner.systems for d in system.files if d.destination in destinations]
-        return self._copy_definitions(definitions, by_name, files, overwrite)
+        return self._reconstruct_definitions(source, definitions, overwrite)
 
-    def _copy_definitions(self, definitions: list[RetroArchBiosFile], by_name: dict[str, list[Path]], files: list[Path], overwrite: bool) -> list[RetroArchBiosReconstructionResult]:
-        """Localiza, valida e materializa definições no destino do catálogo."""
+    def _reconstruct_definitions(self, source: Path, definitions: list[RetroArchBiosFile], overwrite: bool) -> list[RetroArchBiosReconstructionResult]:
+        """Reconstrói cada definição preservando a distinção entre arquivo e diretório."""
         results: list[RetroArchBiosReconstructionResult] = []
         for definition in definitions:
             destination = self._target(definition)
-            candidates = list(by_name.get(Path(definition.name).name.casefold(), []))
-            # Sem hash, o nome/extensão são a identidade. Não procurar em todos
-            # os arquivos por tamanho, pois isso poderia associar uma BIOS errada.
-            if any((definition.sha1, definition.md5, definition.crc32)):
-                candidates.extend(path for path in files if path not in candidates)
-            candidate = self._find_candidate(definition, candidates)
-            if candidate is None:
-                results.append(RetroArchBiosReconstructionResult(definition, None, destination, "missing", "Nenhum arquivo compatível encontrado"))
-                continue
             try:
-                self._ensure_destination_parent(destination)
-                if destination.exists() and destination.is_dir():
-                    results.append(RetroArchBiosReconstructionResult(definition, candidate, destination, "error", "O destino esperado é um arquivo, mas existe uma pasta com o mesmo nome"))
-                    continue
-                if destination.exists() and not overwrite:
-                    results.append(RetroArchBiosReconstructionResult(definition, candidate, destination, "skipped", "Destino já existe"))
-                    continue
-                shutil.copy2(candidate, destination)
-                results.append(RetroArchBiosReconstructionResult(definition, candidate, destination, "reconstructed", "Arquivo reconstruído e validado"))
-            except (OSError, shutil.Error) as exc:
-                results.append(RetroArchBiosReconstructionResult(definition, candidate, destination, "error", str(exc)))
+                if definition.is_directory:
+                    result = self._reconstruct_directory(source, definition, destination, overwrite)
+                else:
+                    result = self._reconstruct_file(source, definition, destination, overwrite)
+                results.append(result)
+            except (OSError, shutil.Error, ValueError) as exc:
+                results.append(RetroArchBiosReconstructionResult(definition, None, destination, "error", str(exc)))
         return results
 
-    def _ensure_destination_parent(self, destination: Path) -> None:
-        """Garante que somente o diretório pai seja criado, sem tentar criar o arquivo."""
-        parent = destination.parent
-        if parent.exists():
-            if not parent.is_dir():
-                raise OSError(f"Diretório pai inválido: {parent}")
-            return
-        parent.mkdir(parents=True, exist_ok=True)
+    def _reconstruct_directory(self, source: Path, definition: RetroArchBiosFile, destination: Path, overwrite: bool) -> RetroArchBiosReconstructionResult:
+        """Reconstrói uma entrada declarada como pasta, copiando seu conteúdo."""
+        candidate = self._find_source_directory(source, definition)
+        if candidate is None:
+            return RetroArchBiosReconstructionResult(definition, None, destination, "missing", "Diretório de firmware não encontrado na origem")
+        if destination.exists() and destination.is_file():
+            return RetroArchBiosReconstructionResult(definition, candidate, destination, "error", "O destino esperado é um diretório, mas existe um arquivo com o mesmo nome")
+        if destination.exists() and not overwrite:
+            return RetroArchBiosReconstructionResult(definition, candidate, destination, "skipped", "Diretório já existe")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if destination.exists() and overwrite:
+            shutil.rmtree(destination)
+        shutil.copytree(candidate, destination, dirs_exist_ok=True)
+        return RetroArchBiosReconstructionResult(definition, candidate, destination, "reconstructed", "Diretório reconstruído")
 
-    def _target(self, definition: RetroArchBiosFile) -> Path:
-        """Resolve o destino relativo ao System Directory de forma portátil."""
-        relative = definition.destination.replace("/", os.sep).replace("\\", os.sep)
-        relative_path = Path(relative)
-        if relative_path.is_absolute() or ".." in relative_path.parts:
-            raise ValueError(f"Destino de BIOS inválido no catálogo: {definition.destination}")
-        return self.system_directory / relative_path
+    def _reconstruct_file(self, source: Path, definition: RetroArchBiosFile, destination: Path, overwrite: bool) -> RetroArchBiosReconstructionResult:
+        """Reconstrói uma entrada declarada como arquivo."""
+        candidate = self._find_source_file(source, definition)
+        if candidate is None:
+            return RetroArchBiosReconstructionResult(definition, None, destination, "missing", "Arquivo de firmware não encontrado na origem")
+        if destination.exists() and destination.is_dir():
+            return RetroArchBiosReconstructionResult(definition, candidate, destination, "error", "O destino esperado é um arquivo, mas existe uma pasta com o mesmo nome")
+        if destination.exists() and not overwrite:
+            return RetroArchBiosReconstructionResult(definition, candidate, destination, "skipped", "Destino já existe")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(candidate, destination)
+        return RetroArchBiosReconstructionResult(definition, candidate, destination, "reconstructed", "Arquivo reconstruído e validado")
 
-    @staticmethod
-    def _find_candidate(definition: RetroArchBiosFile, candidates: list[Path]) -> Path | None:
-        """Encontra candidato pela regra de identidade da BIOS.
-
-        Com hash, o hash é a autoridade e permite corrigir nome/local.
-        Sem hash, somente o nome exato, incluindo extensão, é aceito.
-        """
-        has_hash = any((definition.sha1, definition.md5, definition.crc32))
-        for candidate in candidates:
-            try:
-                if not has_hash:
-                    return candidate
-                if definition.size is not None and candidate.stat().st_size != definition.size:
-                    continue
-                hashes = RetroArchBiosReconstructionService._hashes(candidate)
-            except OSError:
-                continue
-            if definition.sha1 and hashes["sha1"].casefold() == definition.sha1.casefold():
-                return candidate
-            if definition.md5 and hashes["md5"].casefold() == definition.md5.casefold():
-                return candidate
-            if definition.crc32 and hashes["crc32"].casefold() == str(definition.crc32).casefold().zfill(8):
+    def _find_source_directory(self, source: Path, definition: RetroArchBiosFile) -> Path | None:
+        """Localiza a pasta pelo caminho relativo ou pelo nome final."""
+        relative = self._relative(definition.destination)
+        direct = source / relative
+        if direct.is_dir():
+            return direct
+        expected_name = relative.name.casefold()
+        for candidate in source.rglob("*"):
+            if candidate.is_dir() and candidate.name.casefold() == expected_name:
                 return candidate
         return None
+
+    def _find_source_file(self, source: Path, definition: RetroArchBiosFile) -> Path | None:
+        """Localiza arquivo por nome quando não há hash ou por hash quando existe."""
+        relative = self._relative(definition.destination)
+        direct = source / relative
+        if direct.is_file() and self._matches(definition, direct):
+            return direct
+        candidates = [p for p in source.rglob("*") if p.is_file() and p.name.casefold() == Path(definition.name).name.casefold()]
+        if any((definition.sha1, definition.md5, definition.crc32)):
+            candidates.extend(p for p in source.rglob("*") if p.is_file() and p not in candidates)
+        return next((p for p in candidates if self._matches(definition, p)), None)
+
+    def _matches(self, definition: RetroArchBiosFile, candidate: Path) -> bool:
+        """Aplica hash quando existe; caso contrário exige nome + extensão."""
+        if definition.size is not None and candidate.stat().st_size != definition.size:
+            return False
+        if not any((definition.sha1, definition.md5, definition.crc32)):
+            return candidate.name.casefold() == Path(definition.name).name.casefold()
+        hashes = self._hashes(candidate)
+        return bool(
+            (definition.sha1 and hashes["sha1"].casefold() == definition.sha1.casefold())
+            or (definition.md5 and hashes["md5"].casefold() == definition.md5.casefold())
+            or (definition.crc32 and hashes["crc32"].casefold() == str(definition.crc32).casefold().zfill(8))
+        )
+
+    def _target(self, definition: RetroArchBiosFile) -> Path:
+        """Resolve o destino relativo ao System Directory sem permitir traversal."""
+        return self.system_directory / self._relative(definition.destination)
+
+    @staticmethod
+    def _relative(value: str) -> Path:
+        """Normaliza caminho Libretro e rejeita caminhos absolutos ou traversal."""
+        normalized = value.replace("/", os.sep).replace("\\", os.sep).rstrip(os.sep)
+        path = Path(normalized)
+        if path.is_absolute() or ".." in path.parts:
+            raise ValueError(f"Destino de BIOS inválido no catálogo: {value}")
+        return path
 
     @staticmethod
     def _hashes(path: Path) -> dict[str, str]:
