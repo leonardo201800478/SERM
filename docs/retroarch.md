@@ -75,6 +75,26 @@ O runtime deverá permitir configurar, conforme suporte da versão instalada:
 - states;
 - downloads.
 
+## Renderer e Presentation
+
+O renderer gráfico do RetroArch e o sistema de shaders devem ser tratados como parte do Execution/Graphics Profile.
+
+```text
+RetroArch
+   ↓
+Core
+   ↓
+Renderer
+   ↓
+RetroArch Shader / Presentation Profile
+   ↓
+Display
+```
+
+Quando um jogo estiver sendo executado por RetroArch e houver um shader adequado, o ARCADE MANAGER deve preferir o mecanismo nativo de shaders do RetroArch.
+
+ReShade não deve ser aplicado automaticamente sobre RetroArch apenas para duplicar uma função já disponível no runtime.
+
 ## Configuração
 
 Não sobrescrever `retroarch.cfg` válido para simplesmente registrar configurações no banco.
