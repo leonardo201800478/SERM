@@ -1,10 +1,30 @@
-# MAME SET BUILDER — PROMPT MESTRE v4
+# ARCADE MANAGER — PROMPT MESTRE v5
 
-**Estado de referência:** 21/08/2026
+**Estado de referência:** 23/08/2026
 
-## 1. Fonte de verdade
+## 1. Identidade do projeto
 
-O código do repositório `leonardo201800478/mame-set-builder` é a fonte de verdade da implementação.
+O produto chama-se **ARCADE MANAGER**.
+
+O repositório continua sendo `leonardo201800478/mame-set-builder` por compatibilidade histórica, mas o nome funcional, arquitetural e documental do produto é ARCADE MANAGER.
+
+O projeto nasceu como MAME Set Builder e agora abrange:
+
+- biblioteca e dataset arcade;
+- Scan e auditoria de ROMs;
+- reconstrução de sets;
+- dependências MAME;
+- gerenciamento de emuladores;
+- RetroArch e cores;
+- plugins;
+- controles;
+- perfis de hardware arcade;
+- Force Feedback;
+- downloads e atualizações.
+
+## 2. Fonte de verdade
+
+O código do GitHub é a fonte de verdade da implementação.
 
 Antes de alterar código:
 
@@ -13,251 +33,416 @@ Antes de alterar código:
 3. consultar consumidores;
 4. verificar commits recentes;
 5. preservar funções ativas;
-6. implementar e testar;
-7. atualizar a documentação apenas com fatos verificados.
+6. implementar;
+7. testar o fluxo real;
+8. atualizar documentação somente com fatos verificados.
 
 Documentação antiga não supera o código.
 
-## 2. Objetivo
-
-Construir uma aplicação desktop Python/Qt capaz de:
+## 3. Arquitetura de alto nível
 
 ```text
-MAME/listxml + fontes dos emuladores
+GUI
  ↓
-dataset / discovery
+Application Services
  ↓
-filtros
+Domain
+ ├── Library / Dataset / ROM
+ ├── Reconstruction / Dependencies
+ ├── Emulator / Backend / Core
+ ├── Controls / Hardware
+ ├── FFB / Plugins
+ └── Downloads / Packages
  ↓
-seleção
+SQLite + Filesystem + Runtime executables + External APIs
+```
+
+A GUI coordena. Regras de negócio permanecem em services e modelos.
+
+## 4. Núcleo de preservação
+
+O núcleo original do MAME Set Builder permanece protegido.
+
+```text
+MAME listxml
  ↓
-Scan físico
+Dataset
+ ↓
+Filtros
+ ↓
+Scan
  ↓
 current_scan.jsonl
  ↓
-reconstrução
+Dependency Resolver
+ ↓
+Reconstrução
  ↓
 Meu Set
- ↓
-residual
- ↓
-Torrent futuro
 ```
 
-O produto é um gerenciador de dataset, auditor e construtor de sets orientado a dependências.
+### Regras absolutas
 
-## 3. Machine ≠ arquivo
+- FULLSET/origens são somente leitura.
+- Nunca mover, apagar, renomear ou sobrescrever ROMs de origem.
+- Machine é entidade lógica; arquivo é artefato físico.
+- Nunca assumir `machine == machine.zip` sem resolver dependências.
+- Não criar cache permanente de ROMs.
+- Processar ROMs em streaming.
+- Staging é temporário e fica no destino.
+- Publicar somente depois de validar.
 
-Machine é entidade lógica. Arquivo é artefato físico.
+## 5. Scan
 
-Nunca assumir `machine == machine.zip` sem resolver ROMs compartilhadas, parent/clone, BIOS, devices, samples, disks e CHDs.
+O Scan registra o estado físico e a origem de cada ROM quando possível.
 
-## 4. FULLSET
+O `current_scan.jsonl` é a ponte para reconstrução.
 
-O FULLSET/origens são **somente leitura**. É proibido modificar, mover, renomear, apagar ou sobrescrever arquivos de origem durante Scan ou reconstrução.
+A reconstrução não deve repetir uma varredura global apenas para descobrir origens que já foram registradas.
 
-## 5. Configurações e artefatos dos emuladores
+## 6. Reconstrução
 
-Arquivos de configuração existentes são preservados. **Nunca regenerar ou sobrescrever uma configuração válida apenas para alimentar o banco.**
+Arquitetura obrigatória:
 
-A política obrigatória é:
+```text
+current_scan.jsonl
+ ↓
+machine
+ ↓
+ROM
+ ↓
+source registrada
+ ↓
+streaming
+ ↓
+CRC / tamanho / SHA-1
+ ↓
+staging
+ ↓
+ZIP
+ ↓
+validação
+ ↓
+os.replace()
+```
+
+Uma ROM encontrada com nome físico diferente recebe no destino o nome lógico exigido pelo set. A origem nunca é renomeada.
+
+## 7. Dependency Resolver
+
+O resolvedor deve evoluir para cobrir:
+
+- ROM;
+- parent/clone;
+- BIOS;
+- device;
+- sample;
+- disk;
+- CHD;
+- compartilhamentos.
+
+Não implementar uma dependência por heurística quando a estrutura do MAME fornecer informação suficiente.
+
+## 8. Emuladores, backends e cores
+
+Distinguir sempre:
+
+```text
+Emulator
+Backend
+Core
+```
+
+MAME, Flycast, FBNeo e Supermodel podem possuir backends standalone.
+
+RetroArch é um runtime. MAME, FBNeo e Flycast são cores executados por ele.
+
+Não duplicar entidades de catálogo só porque existem dois modos de execução.
+
+## 9. RetroArch
+
+O projeto deverá suportar:
+
+- RetroArch runtime;
+- core MAME;
+- core FBNeo;
+- core Flycast;
+- diretórios system/assets/shaders/saves/states;
+- detecção de versão;
+- instalação e atualização de cores;
+- execução com seleção explícita do core.
+
+A versão do core deve ser tratada como dado importante para compatibilidade. Nunca declarar que um ROM set é compatível apenas porque o arquivo existe.
+
+## 10. Plugins
+
+Plugins são componentes auxiliares, não emuladores.
+
+Criar arquitetura genérica de Plugin Manager.
+
+O primeiro plugin é o **FFBArcadePlugin**, baseado no fork de referência:
+
+`https://github.com/leonardo201800478/FFBArcadePlugin`
+
+O plugin possui suporte a MAME, Supermodel, Flycast e outros ambientes e conhecimento específico de jogos de Force Feedback. A integração deve aproveitar essa capacidade sem transformar a base do ARCADE MANAGER em uma cópia do plugin.
+
+## 11. Controles
+
+Criar domínio independente de controles:
+
+```text
+Physical Device
+ ↓
+Hardware Profile
+ ↓
+Control Profile
+ ↓
+Control Family / Game Group
+ ↓
+Machine Override
+ ↓
+Backend Mapping
+```
+
+O objetivo é permitir configurar uma máquina e replicar a configuração para um grupo.
+
+Exemplos:
+
+- Street Fighter;
+- Mortal Kombat;
+- Neo Geo;
+- beat'em ups;
+- shooters;
+- lightgun;
+- driving;
+- motorcycle;
+- flight stick;
+- spinner;
+- trackball.
+
+## 12. Aplicação em lote
+
+A replicação em lote deve ser uma operação de domínio, não uma simples cópia de arquivo.
+
+A seleção poderá usar:
+
+- família;
+- sistema;
+- fabricante;
+- tipo de controle;
+- características do input;
+- lista manual.
+
+Sempre permitir override individual.
+
+## 13. Hardware arcade
+
+Separar hardware original do dispositivo físico do usuário.
+
+Exemplo:
+
+```text
+Arcade Game
+  original wheel = 270°
+        ↓
+User Hardware Profile
+  G27
+        ↓
+Backend mapping
+  G27 limitado a 270°
+```
+
+Para jogos de corrida, representar também:
+
+- volante;
+- pedais;
+- clutch;
+- câmbio H-pattern/sequencial;
+- botões;
+- eixos;
+- faixas analógicas;
+- rotações;
+- peculiaridades do gabinete.
+
+Casos complexos como Hard Drivin' devem ser tratados como perfis de hardware/mapeamento avançado, não como simples teclas.
+
+## 14. Force Feedback
+
+FFB deve possuir:
+
+- dispositivo;
+- perfil global;
+- perfil por família;
+- perfil por jogo;
+- plugin/backend;
+- parâmetros específicos.
+
+Herança recomendada:
+
+```text
+Global
+ ↓
+Family
+ ↓
+Game
+```
+
+O nível mais específico vence o mais genérico.
+
+## 15. Configuração dos emuladores
+
+Arquivos nativos são preservados.
+
+Política:
 
 ```text
 arquivo existe
-   ↓
+ ↓
 validar
-   ├── válido → reutilizar/importar
-   └── inválido → preservar backup → gerar somente se houver gerador oficial
-
-arquivo não existe
-   ↓
-gerar somente se houver gerador oficial
+ ├── válido → importar/reutilizar
+ └── inválido → backup → regenerar somente com mecanismo oficial
 ```
 
-Se não houver gerador configurado, o sistema não inventa conteúdo e não apaga o arquivo inválido.
+Nunca sobrescrever configuração válida para alimentar o banco.
 
-A implementação central fica em `app/core/services/emulator_config_service.py`.
+Nunca inventar comandos de geração.
 
-### Emuladores
+No Windows, processos de geração/probe devem ser silenciosos, sem `shell=True`, com stdin apropriado, stdout/stderr capturados e validação posterior.
 
-- **MAME:** reutilizar `mame.ini` e arquivos existentes; `-createconfig` é recuperação, não operação normal de importação.
-- **Flycast:** reutilizar `emu.cfg` e mappings; não criar XML artificial.
-- **Supermodel:** reutilizar `Supermodel.ini`; `Games.xml` e `Music.xml` são artefatos diferentes de configuração.
-- **FBNeo:** reutilizar configuração existente; DAT/listinfo são artefatos de catálogo e só podem ser gerados quando ausentes/inválidos e quando o comando correspondente estiver explicitamente definido.
+## 16. Downloads e atualização
 
-A geração deve ser silenciosa no Windows, sem `shell=True`, com `stdin=DEVNULL`, stdout/stderr capturados e validação posterior.
-
-Arquivo inválido é preservado como `.corrupt.<timestamp>.bak` antes da tentativa de regeneração.
-
-## 6. Scan ROMs
-
-O Scan descobre e registra o estado físico. Seu resultado `current_scan.jsonl` é a ponte para a reconstrução.
-
-Quando disponível, o manifesto deve preservar:
-
-- machine;
-- ROM esperada;
-- tamanho;
-- CRC;
-- SHA-1;
-- status;
-- `source.kind`;
-- `source.archive`;
-- `source.member`;
-- demais dados necessários para reuso da origem.
-
-A reconstrução não deve repetir uma varredura global para descobrir aquilo que o Scan já registrou.
-
-## 7. Reconstrução — arquitetura obrigatória
-
-A reconstrução deve ser segura, sequencial e orientada ao manifesto:
+Criar um Download Manager genérico com providers.
 
 ```text
-current_scan.jsonl
-      ↓
-1 machine
-      ↓
-1 ROM
-      ↓
-source registrada
-      ↓
-streaming em blocos
-      ↓
-CRC + tamanho + SHA-1 quando disponível
-      ↓
-staging no destino
-      ↓
-próxima ROM
-      ↓
-ZIP completo
-      ↓
-validação final
-      ↓
-os.replace()
-      ↓
-próxima machine
+Provider
+ ↓
+Package metadata
+ ↓
+Download
+ ↓
+Hash/size validation
+ ↓
+Staging
+ ↓
+Install
+ ↓
+Backup
+ ↓
+Rollback quando possível
 ```
 
-### Regras
+O gerenciador RetroArch será inspirado conceitualmente no StellarUpdater/Stellar, sem copiar sua implementação.
 
-- uma machine por vez;
-- uma ROM por vez;
-- RAM limitada por buffer;
-- nenhuma cópia permanente em cache;
-- staging apenas no destino;
-- origem somente leitura;
-- conteúdo deve ser validado antes de publicação;
-- falhas devem permitir retry limitado;
-- arquivo parcial nunca deve ser considerado concluído.
+Provider inicial esperado:
 
-## 8. Correção de nome
+- RetroArch;
+- cores;
+- assets/system quando houver fonte confiável.
 
-Se a ROM encontrada possui conteúdo correto mas nome diferente, o destino recebe o nome esperado pelo set. Nunca renomear a origem.
+## 17. Banco de dados
 
-## 9. ROM compartilhada
+SQLite/migrations continuam sendo autoridade.
 
-Se uma machine precisa de uma ROM presente em outra machine, usar a origem registrada no Scan. Transferir somente a ROM necessária para o destino da machine em processamento.
+A expansão deverá criar entidades para:
 
-Não construir cache permanente nem copiar coleções intermediárias desnecessárias.
+- emulator;
+- backend;
+- retroarch_core;
+- plugin;
+- control_profile;
+- control_family;
+- control_mapping;
+- hardware_profile;
+- arcade_hardware_profile;
+- ffb_profile;
+- package/provider/download.
 
-## 10. Integridade
+Não duplicar ROM/machine para representar diferentes backends.
 
-Verificar tamanho e CRC. Quando SHA-1 existir no dataset, utilizar também SHA-1 para confirmação. Sempre que possível calcular os hashes durante o mesmo streaming da transferência.
+## 18. GUI planejada
 
-## 11. Set types
-
-A interface deve oferecer:
-
-- Split — padrão;
-- Merged;
-- Non-Merged.
-
-A implementação deve respeitar a semântica MAME de parent/clone. Não considerar a semântica final validada sem testes reais com fixtures.
-
-## 12. Residual
-
-Após reconstrução:
+A navegação deverá evoluir para algo semelhante a:
 
 ```text
-concluído → destino
-não resolvido → current_reconstruction.jsonl
+Home
+Biblioteca
+  ├── Dataset
+  ├── Filtros
+  ├── Scan ROMs
+  └── Reconstrução
+
+Emuladores
+  ├── MAME
+  ├── Flycast
+  ├── FBNeo
+  ├── Supermodel
+  └── RetroArch
+
+Controles
+  ├── Dispositivos
+  ├── Perfis
+  ├── Famílias
+  ├── Mapeamentos
+  └── Arcade Hardware
+
+Force Feedback
+Plugins
+Downloads
+Configurações
 ```
 
-O residual deve conter **somente** ROMs/dependências ainda não resolvidas. O `current_scan.jsonl` original permanece preservado.
+A organização final pode mudar durante implementação, mas os domínios devem permanecer separados.
 
-O residual será a entrada da futura aba Torrent.
-
-## 13. GUI
-
-A GUI apresenta e coordena; regras de negócio ficam em services/modelos.
-
-Menus contextuais de widgets devem ser encapsulados no próprio widget para manutenção e reuso.
-
-Operações pesadas devem rodar fora da thread da interface, com progresso, logs e cancelamento cooperativo.
-
-## 14. Banco
-
-SQLite e migrations atuais são autoridade. Nunca alterar SQL por suposição baseada em documentação antiga. Antes de alterar schema, auditar modelos, services e consumidores.
-
-## 15. listxml
-
-O listxml do mesmo MAME é a fonte estrutural primária. Preservar os elementos necessários ao produto. Não reconstruir XML a partir de um modelo reduzido quando isso perder informação.
-
-## 16. Filtros
-
-Separar classificação de seleção. A GUI produz configuração; a camada de negócio executa as regras.
-
-## 17. Torrent
-
-qBittorrent é futuro. Deve consumir o residual e adquirir somente os artefatos necessários. Não assumir que torrent metadata está disponível antes de obtê-la e não selecionar arquivos por posição arbitrária.
-
-## 18. Estado real em 21/08/2026
+## 19. Estado de referência em 23/08/2026
 
 ### Implementado
 
-- dataset/listxml e modelos em evolução;
+- dataset/listxml;
 - SQLite/migrations;
-- filtros e classificação;
-- geração de XML filtrado;
+- filtros/classificação;
+- geração de XML;
 - Scan ROMs;
 - manifesto `current_scan.jsonl`;
-- origem física no resultado do Scan quando disponível;
-- aba Reconstrução;
-- serviço de reconstrução;
-- opções Split/Merged/Non-Merged;
-- streaming e staging como arquitetura da reconstrução;
-- política central de preservação/regeneração segura de arquivos de configuração;
-- testes unitários da política de configuração.
+- origem física no Scan;
+- Reconstrução estrutural;
+- Split/Merged/Non-Merged;
+- streaming/staging;
+- política de configuração de emuladores;
+- capabilities/runtime para MAME, Flycast, Supermodel e FBNeo;
+- diretórios de ROM do Flycast com até quatro entradas consolidadas no `Dreamcast.ContentPath`.
 
 ### Em validação
 
 - protocolo transacional completo;
-- validação pós-escrita/retry;
-- residual preciso;
-- recuperação após interrupção;
-- semântica completa dos três layouts;
-- todos os `source.kind`;
-- integração do discovery/importer com MAME, Flycast, Supermodel e FBNeo.
+- residual;
+- retry/recuperação;
+- semântica final dos layouts;
+- todos os source kinds;
+- integração completa de discovery/importer.
 
-### Pendente
+### Planejado
 
-- conectar o `EmulatorConfigService` ao fluxo de discovery/importação;
-- fechar comandos específicos de geração por versão instalada de Flycast, Supermodel e FBNeo;
-- persistir no banco origem/versão/data dos artefatos importados;
-- Torrent/qBittorrent;
+- RetroArch backend;
+- cores MAME/FBNeo/Flycast;
+- Plugin Manager;
+- FFBArcadePlugin;
+- GUI de controles;
+- Control Profiles/Families;
+- Hardware Profiles;
+- Arcade Hardware Profiles;
+- G27/volantes/pedais/câmbios;
+- FFB Profiles;
+- Download Manager;
 - Dependency Resolver completo;
-- integração completa de BIOS/device/sample/disk/CHD;
-- testes de integração abrangentes.
+- torrent/qBittorrent.
 
-## 19. Regras de implementação
+## 20. Regras finais
 
-- Não remover função ativa sem justificativa e auditoria.
-- Não duplicar entidades/modelos existentes.
+- Não remover função ativa sem auditoria.
+- Não duplicar entidades existentes.
 - Não colocar SQL de negócio na GUI.
-- Não fazer trabalho de I/O global quando o manifesto já contém a origem.
-- Não otimizar por paralelismo sem medir I/O e memória.
-- Não afirmar que código foi testado se não foi executado.
-- Ao modificar um arquivo, verificar os arquivos dependentes.
-- Nunca sobrescrever configuração válida para gerar dados.
-- Nunca apagar configuração inválida antes de criar backup.
-- Sempre documentar o estado real, distinguindo **implementado**, **em validação** e **pendente**.
+- Não confundir documentação futura com funcionalidade implementada.
+- Não afirmar que algo foi testado sem execução real.
+- Sempre verificar o código-fonte atual no GitHub antes de modificar um componente.
+- Sempre verificar documentação oficial das bibliotecas/emuladores quando a implementação depender de comportamento externo.
+- Preservar compatibilidade com configurações existentes.
