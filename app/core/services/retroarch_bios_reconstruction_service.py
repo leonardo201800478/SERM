@@ -73,7 +73,12 @@ class RetroArchBiosReconstructionService:
     def _reconstruct_definitions(self, source: Path, definitions: list[RetroArchBiosFile], overwrite: bool) -> list[RetroArchBiosReconstructionResult]:
         """Reconstrói cada definição preservando arquivo, pasta e caminho aninhado."""
         results: list[RetroArchBiosReconstructionResult] = []
+        seen: set[tuple[str, bool]] = set()
         for definition in definitions:
+            key = (definition.destination.casefold(), definition.is_directory)
+            if key in seen:
+                continue
+            seen.add(key)
             try:
                 destination = self._target(definition)
                 if definition.is_directory:
@@ -87,7 +92,7 @@ class RetroArchBiosReconstructionService:
         return results
 
     def _reconstruct_directory(self, source: Path, definition: RetroArchBiosFile, destination: Path, overwrite: bool) -> RetroArchBiosReconstructionResult:
-        """Reconstrói uma entrada declarada como pasta, copiando seu conteúdo."""
+        """Reconstrói uma entrada declarada explicitamente como pasta."""
         candidate = self._find_source_directory(source, definition)
         if candidate is None:
             return RetroArchBiosReconstructionResult(definition, None, destination, "missing", "Diretório de firmware não encontrado na origem")
@@ -95,22 +100,22 @@ class RetroArchBiosReconstructionService:
             return RetroArchBiosReconstructionResult(definition, candidate, destination, "error", "O destino esperado é um diretório, mas existe um arquivo com o mesmo nome")
         if destination.exists() and not overwrite:
             return RetroArchBiosReconstructionResult(definition, candidate, destination, "skipped", "Diretório já existe")
-        destination.parent.mkdir(parents=True, exist_ok=True)
+        self._ensure_parent_directory(destination)
         if destination.exists() and overwrite:
             shutil.rmtree(destination)
         shutil.copytree(candidate, destination, dirs_exist_ok=True)
         return RetroArchBiosReconstructionResult(definition, candidate, destination, "reconstructed", "Diretório reconstruído")
 
     def _reconstruct_file(self, source: Path, definition: RetroArchBiosFile, destination: Path, overwrite: bool) -> RetroArchBiosReconstructionResult:
-        """Reconstrói um arquivo, criando automaticamente todos os diretórios pais."""
+        """Reconstrói arquivo e cria automaticamente todos os diretórios pais."""
         candidate = self._find_source_file(source, definition)
         if candidate is None:
             return RetroArchBiosReconstructionResult(definition, None, destination, "missing", "Arquivo de firmware não encontrado na origem")
         if destination.exists() and destination.is_dir():
             return RetroArchBiosReconstructionResult(definition, candidate, destination, "error", "O destino esperado é um arquivo, mas existe uma pasta com o mesmo nome")
-        self._ensure_parent_directory(destination)
         if destination.exists() and not overwrite:
             return RetroArchBiosReconstructionResult(definition, candidate, destination, "skipped", "Destino já existe")
+        self._ensure_parent_directory(destination)
         shutil.copy2(candidate, destination)
         return RetroArchBiosReconstructionResult(definition, candidate, destination, "reconstructed", "Arquivo reconstruído e validado")
 
@@ -138,8 +143,6 @@ class RetroArchBiosReconstructionService:
         if not any((definition.sha1, definition.md5, definition.crc32)):
             return next((p for p in named if self._matches(definition, p)), None)
 
-        # Com hash, o nome deixa de ser obrigatório: podemos recuperar uma
-        # BIOS renomeada ou armazenada em outro diretório da fonte.
         for candidate in named:
             if self._matches(definition, candidate):
                 return candidate
@@ -185,7 +188,7 @@ class RetroArchBiosReconstructionService:
 
     @staticmethod
     def _ensure_parent_directory(destination: Path) -> None:
-        """Cria a árvore de diretórios necessária para um arquivo aninhado."""
+        """Cria a árvore de diretórios necessária para um arquivo ou pasta."""
         parent = destination.parent
         if parent.exists() and not parent.is_dir():
             raise OSError(f"O diretório pai esperado é um arquivo: {parent}")
