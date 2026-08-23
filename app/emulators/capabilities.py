@@ -1,8 +1,8 @@
 """Capability descriptors used by the emulator configuration layer.
 
-The layer intentionally describes *verified configuration concepts* rather than
-inventing settings. GUI code consumes these descriptors without knowing how a
-specific emulator stores its configuration.
+The layer intentionally describes verified configuration concepts rather than
+inventing settings. GUI code consumes these descriptors without knowing how
+a specific emulator stores its configuration.
 """
 from __future__ import annotations
 
@@ -67,11 +67,24 @@ FBNEO_CAPABILITIES = EmulatorCapabilities(
     }),
 )
 
+RETROARCH_CAPABILITIES = EmulatorCapabilities(
+    emulator="retroarch",
+    domains=frozenset({"general", "video", "audio", "input", "latency", "shaders", "paths", "cores"}),
+    features=frozenset({
+        "video-driver", "fullscreen", "vsync", "threaded-video", "hdr", "audio",
+        "audio-latency", "audio-sync", "input", "joypad", "input-autodetect",
+        "deadzone", "analog-sensitivity", "remapping", "shader", "shader-directory",
+        "core-directory", "system-directory", "content-directory", "save-directory",
+        "state-directory",
+    }),
+)
+
 CAPABILITIES = {
     "mame": MAME_CAPABILITIES,
     "flycast": FLYCAST_CAPABILITIES,
     "supermodel": SUPERMODEL_CAPABILITIES,
     "fbneo": FBNEO_CAPABILITIES,
+    "retroarch": RETROARCH_CAPABILITIES,
 }
 
 
