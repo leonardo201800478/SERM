@@ -12,6 +12,7 @@ from app.gui.tabs.emulator_settings_tab import EmulatorSettingsTab
 from app.gui.tabs.retroarch_home_tab_v2 import RetroArchHomeTab
 from app.gui.tabs.retroarch_catalog_tab import RetroArchCatalogTab
 from app.gui.tabs.retroarch_directories_tab import RetroArchDirectoriesTab
+from app.gui.tabs.launchbox_integration_tab import LaunchBoxIntegrationTab
 from app.gui.mame_shader_test_widget import install_shader_test
 from app.database.database import Database
 from app.config.app_config import AppConfig
@@ -38,10 +39,6 @@ class MainWindow(QMainWindow):
         # ------------------------------------------------------------------
         # Home
         # ------------------------------------------------------------------
-        # A Home deixa de ser uma aba plana para se tornar uma pequena seção
-        # com duas sessões irmãs: a Home tradicional e a Home do RetroArch.
-        # As duas recebem a MainWindow como parent para preservar os atalhos
-        # e a navegação já implementados nas respectivas sessões.
         self.home_tab = HomeTab(self)
         self.retroarch_home_tab = RetroArchHomeTab(self)
         self.home_section = QTabWidget()
@@ -63,9 +60,9 @@ class MainWindow(QMainWindow):
         self.reconstruction_tab = ReconstructionTab(self)
         self.retroarch_catalog_tab = RetroArchCatalogTab(self)
         self.retroarch_directories_tab = RetroArchDirectoriesTab(self)
+        self.launchbox_integration_tab = LaunchBoxIntegrationTab(self)
 
-        # A Home continua sendo uma única aba na barra principal. O usuário
-        # alterna entre Arcade/MAME e RetroArch dentro dela.
+        # Home permanece uma única aba principal; RetroArch é uma sessão interna.
         self.tab_widget.addTab(self.home_section, "Home")
         self.tab_widget.addTab(self.catalogs_tab, "Catálogos")
         self.tab_widget.addTab(self.directories_tab, "Diretórios")
@@ -75,6 +72,7 @@ class MainWindow(QMainWindow):
         self.tab_widget.addTab(self.reconstruction_tab, "Reconstrução")
         self.tab_widget.addTab(self.retroarch_catalog_tab, "RetroArch Catálogo")
         self.tab_widget.addTab(self.retroarch_directories_tab, "RetroArch Diretórios")
+        self.tab_widget.addTab(self.launchbox_integration_tab, "LaunchBox")
 
         self.tab_widget.currentChanged.connect(self._on_tab_changed)
         if hasattr(self.directories_tab, "settings_changed"):
@@ -114,6 +112,8 @@ class MainWindow(QMainWindow):
             self.retroarch_catalog_tab.refresh()
         elif widget is self.retroarch_directories_tab:
             self.retroarch_directories_tab.refresh()
+        elif widget is self.launchbox_integration_tab:
+            self.launchbox_integration_tab.refresh()
 
     def _on_database_updated(self):
         """Atualiza abas dependentes do dataset."""
