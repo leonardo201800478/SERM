@@ -94,7 +94,6 @@
     "Mattel Intellivision": {"group": "consoles", "generation": "8-bit"},
     "Microsoft MSX": {"group": "computers", "generation": "8-bit"},
     "Microsoft MSX2": {"group": "computers", "generation": "8-bit"},
-    "Microsoft Xbox": {"group": "consoles", "generation": "128-bit+"},
     "MS-DOS": {"group": "computers", "generation": "16-bit"},
     "NEC TurboGrafx-16": {"group": "consoles", "generation": "16-bit"},
     "NEC TurboGrafx-CD": {"group": "consoles", "generation": "16-bit"},
