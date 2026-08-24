@@ -1,7 +1,7 @@
 {
-  "version": 5,
+  "version": 6,
   "source": "https://emulation.gametechwiki.com/index.php/Main_Page",
-  "source_note": "LaunchBox platform names are authoritative when present in Platforms.xml. Explicit platform-name overrides below use the exact names supplied by the LaunchBox installation and prevent generic RetroArch system names from creating duplicate platforms.",
+  "source_note": "LaunchBox platform names are authoritative when present in Platforms.xml. RetroArch .info database names are also resolved to the canonical systems below, allowing one core to appear under every requested platform it actually supports.",
   "groups": {
     "consoles": {"label": "Consoles", "generations": ["Pré-1980", "8-bit", "16-bit", "32-bit", "64-bit", "128-bit+", "Outros"]},
     "portables": {"label": "Portáteis", "generations": ["1ª geração", "8-bit", "16-bit", "32-bit", "64-bit+", "Outros"]},
@@ -36,7 +36,6 @@
     "pcengine": {"group": "consoles", "generation": "16-bit"},
     "pcenginecd": {"group": "consoles", "generation": "16-bit"},
     "mastersystem": {"group": "consoles", "generation": "8-bit"},
-
     "Nintendo DS": {"group": "portables", "generation": "32-bit"},
     "Nintendo Entertainment System": {"group": "consoles", "generation": "8-bit"},
     "Nintendo Famicom Disk System": {"group": "consoles", "generation": "8-bit"},
@@ -53,7 +52,6 @@
     "Nintendo 64": {"group": "consoles", "generation": "64-bit"},
     "Nintendo 64DD": {"group": "consoles", "generation": "64-bit"},
     "Super Nintendo Entertainment System": {"group": "consoles", "generation": "16-bit"},
-
     "PC Engine SuperGrafx": {"group": "consoles", "generation": "16-bit"},
     "Sega 32X": {"group": "consoles", "generation": "16-bit"},
     "Sega CD 32X": {"group": "consoles", "generation": "16-bit"},
@@ -96,12 +94,10 @@
     "Mattel Intellivision": {"group": "consoles", "generation": "8-bit"},
     "Microsoft MSX": {"group": "computers", "generation": "8-bit"},
     "Microsoft MSX2": {"group": "computers", "generation": "8-bit"},
-    "Microsoft Xbox 360": {"group": "consoles", "generation": "128-bit+"},
     "Microsoft Xbox": {"group": "consoles", "generation": "128-bit+"},
     "MS-DOS": {"group": "computers", "generation": "16-bit"},
     "NEC TurboGrafx-16": {"group": "consoles", "generation": "16-bit"},
     "NEC TurboGrafx-CD": {"group": "consoles", "generation": "16-bit"},
-
     "gameboy": {"group": "portables", "generation": "8-bit"},
     "gb": {"group": "portables", "generation": "8-bit"},
     "gameboy color": {"group": "portables", "generation": "8-bit"},
