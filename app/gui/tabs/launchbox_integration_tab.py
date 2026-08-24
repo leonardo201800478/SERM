@@ -5,10 +5,10 @@ import json
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QLabel, QMessageBox, QPushButton, QTabWidget, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QTabWidget, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, QMenu
 
 from app.config.app_config import AppConfig
-from app.core.services.launchbox_integration_service import LaunchBoxInstallation, LaunchBoxIntegrationService, LaunchBoxSystem
+from app.core.services.launchbox_integration_service import LaunchBoxInstallation, LaunchBoxIntegrationService, LaunchBoxSystem, LaunchBoxCoreOption
 
 
 class LaunchBoxIntegrationTab(QWidget):
@@ -24,17 +24,18 @@ class LaunchBoxIntegrationTab(QWidget):
         self.systems: list[LaunchBoxSystem] = []
         self.installation: LaunchBoxInstallation | None = None
         self.settings_file = self.service.project_root / "data" / "launchbox" / "settings.json"
+        self.filters: dict[str, QLineEdit] = {}
         self._build_ui()
         self.refresh()
 
     def _build_ui(self) -> None:
-        """Monta configuração da instalação, sistemas e exportação."""
+        """Monta configuração, filtros, sistemas e exportação."""
         layout = QVBoxLayout(self)
         title = QLabel("Integração LaunchBox")
         title.setStyleSheet("font-size:22px;font-weight:bold;")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
-        layout.addWidget(QLabel("O LaunchBox existente é carregado primeiro. O ARCADE MANAGER apenas completa dados ausentes e nunca reconstrói os XMLs."))
+        layout.addWidget(QLabel("O LaunchBox existente é carregado primeiro. O ARCADE MANAGER apenas completa dados ausentes e permite escolher um único padrão por sistema."))
         path_row = QHBoxLayout()
         self.path_label = QLabel("LaunchBox.exe: não configurado")
         self.path_label.setWordWrap(True)
@@ -42,7 +43,7 @@ class LaunchBoxIntegrationTab(QWidget):
         select = QPushButton("Selecionar LaunchBox.exe")
         select.clicked.connect(self.select_launchbox)
         path_row.addWidget(select)
-        self.export_button = QPushButton("Exportar somente faltantes")
+        self.export_button = QPushButton("Exportar / Aplicar alterações")
         self.export_button.clicked.connect(self.export)
         self.export_button.setEnabled(False)
         path_row.addWidget(self.export_button)
@@ -65,11 +66,22 @@ class LaunchBoxIntegrationTab(QWidget):
             tree.setHeaderLabels(["Sistema oficial / LaunchBox", "Core / Emulador", "Estado", "Padrão"])
             tree.setAlternatingRowColors(True)
             tree.setRootIsDecorated(True)
+            tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            tree.customContextMenuRequested.connect(lambda pos, t=tree: self._show_context_menu(t, pos))
             tree.setColumnWidth(0, 350)
             tree.setColumnWidth(1, 400)
             tree.setColumnWidth(2, 110)
+            tree.setColumnWidth(3, 110)
             self.tabs.addTab(tree, label)
             self.trees[key] = tree
+            filter_row = QHBoxLayout()
+            filter_row.addWidget(QLabel("Filtro:"))
+            edit = QLineEdit()
+            edit.setPlaceholderText("Filtrar sistema, core/emulador, estado ou padrão...")
+            edit.textChanged.connect(lambda text, k=key: self._filter_tree(k, text))
+            filter_row.addWidget(edit)
+            layout.addLayout(filter_row)
+            self.filters[key] = edit
         layout.addWidget(self.tabs, 1)
         self.log = QLabel()
         self.log.setWordWrap(True)
@@ -100,11 +112,10 @@ class LaunchBoxIntegrationTab(QWidget):
             QMessageBox.warning(self, "LaunchBox", "Selecione o arquivo LaunchBox.exe.")
             return
         try:
-            installation = self.service.load_launchbox_installation(path)
+            self.installation = self.service.load_launchbox_installation(path)
         except Exception as exc:
             QMessageBox.critical(self, "LaunchBox", f"Não foi possível carregar a instalação. Nenhum XML foi alterado.\n\n{type(exc).__name__}: {exc}")
             return
-        self.installation = installation
         self._save_settings(path)
         self._update_path_label(path)
         self._update_launchbox_status()
@@ -118,11 +129,7 @@ class LaunchBoxIntegrationTab(QWidget):
         """Mostra quais arquivos de configuração foram encontrados."""
         if not self.installation:
             return
-        self.log.setText(
-            f"LaunchBox carregado sem alterações | Emulators.xml: {'OK' if self.installation.emulators_loaded else 'não encontrado'} | "
-            f"Platforms.xml: {'OK' if self.installation.platforms_loaded else 'não encontrado'} | "
-            f"Emuladores: {len(self.installation.emulators)} | Plataformas: {len(self.installation.platforms)}"
-        )
+        self.log.setText(f"LaunchBox carregado sem alterações | Emulators.xml: {'OK' if self.installation.emulators_loaded else 'não encontrado'} | Platforms.xml: {'OK' if self.installation.platforms_loaded else 'não encontrado'} | Emuladores: {len(self.installation.emulators)} | Plataformas: {len(self.installation.platforms)}")
 
     def refresh(self) -> None:
         """Recarrega LaunchBox e depois completa a visão com o catálogo do projeto."""
@@ -179,7 +186,7 @@ class LaunchBoxIntegrationTab(QWidget):
             tree.clear()
 
     def _populate(self) -> None:
-        """Preenche Sistema → Core/Emulador e distingue estado existente/faltante."""
+        """Preenche Sistema → Core/Emulador e distingue estado."""
         self._clear_trees()
         for system in self.systems:
             tree = self.trees.get(system.group)
@@ -191,21 +198,67 @@ class LaunchBoxIntegrationTab(QWidget):
             parent.setExpanded(True)
             parent.setText(2, "EXISTENTE" if system.existing else "NOVO")
             parent.setForeground(2, Qt.GlobalColor.green if system.existing else Qt.GlobalColor.darkYellow)
+            parent.setData(0, Qt.ItemDataRole.UserRole, system.system_id)
             for option in sorted(system.options, key=lambda x: (not x.default, not x.existing, -x.score, x.name.casefold())):
                 child = QTreeWidgetItem(parent)
                 child.setText(1, option.name)
+                child.setText(2, "EXISTENTE" if option.existing else "A ADICIONAR")
+                child.setForeground(2, Qt.GlobalColor.green if option.existing else Qt.GlobalColor.darkYellow)
+                child.setText(3, "★ Padrão" if option.default else "Alternativa")
+                child.setForeground(3, Qt.GlobalColor.green if option.default else Qt.GlobalColor.gray)
+                child.setData(0, Qt.ItemDataRole.UserRole, system.system_id)
+                child.setData(1, Qt.ItemDataRole.UserRole, option.key)
                 if option.core_dll:
                     child.setToolTip(1, f"Core: {option.core_dll}\nCaminho: {option.core_path or 'não encontrado'}")
                 elif option.executable:
                     child.setToolTip(1, f"Executável: {option.executable}")
-                child.setText(2, "EXISTENTE" if option.existing else "A ADICIONAR")
-                child.setForeground(2, Qt.GlobalColor.green if option.existing else Qt.GlobalColor.darkYellow)
-                child.setText(3, "★ Padrão" if option.default else "Alternativa")
-                if option.default:
-                    child.setForeground(3, Qt.GlobalColor.green)
+
+    def _filter_tree(self, key: str, text: str) -> None:
+        """Filtra linhas mantendo sistemas pais visíveis quando algum filho corresponde."""
+        tree = self.trees[key]
+        needle = text.casefold().strip()
+        for i in range(tree.topLevelItemCount()):
+            parent = tree.topLevelItem(i)
+            parent_match = not needle or any(needle in parent.text(c).casefold() for c in range(tree.columnCount()))
+            child_match = False
+            for j in range(parent.childCount()):
+                child = parent.child(j)
+                match = not needle or any(needle in child.text(c).casefold() for c in range(tree.columnCount()))
+                child.setHidden(not match)
+                child_match = child_match or match
+            parent.setHidden(bool(needle) and not parent_match and not child_match)
+            parent.setExpanded(not needle or child_match)
+
+    def _show_context_menu(self, tree: QTreeWidget, pos) -> None:
+        """Abre menu contextual para tornar um core/emulador o único padrão."""
+        item = tree.itemAt(pos)
+        if item is None or item.parent() is None:
+            return
+        system_id = item.data(0, Qt.ItemDataRole.UserRole)
+        option_key = item.data(1, Qt.ItemDataRole.UserRole)
+        system = next((s for s in self.systems if s.system_id == system_id), None)
+        if system is None:
+            return
+        option = next((o for o in system.options if o.key == option_key), None)
+        if option is None:
+            return
+        menu = QMenu(self)
+        action = menu.addAction("★ Definir como padrão deste sistema")
+        action.setEnabled(not option.default)
+        action.triggered.connect(lambda: self._set_default(system, option))
+        menu.addSeparator()
+        info = menu.addAction(f"Sistema: {system.name}")
+        info.setEnabled(False)
+        menu.exec(tree.viewport().mapToGlobal(pos))
+
+    def _set_default(self, system: LaunchBoxSystem, option: LaunchBoxCoreOption) -> None:
+        """Troca o padrão removendo automaticamente o anterior."""
+        self.service.set_default_option(system, option)
+        self._populate()
+        self.status.setText(f"Padrão alterado: {system.name} → {option.name}. Apenas um candidato permanece como padrão.")
 
     def export(self) -> None:
-        """Completa o LaunchBox sem reconstruir configurações existentes."""
+        """Completa o LaunchBox e aplica somente mudanças de padrão solicitadas."""
         if not self.installation:
             QMessageBox.warning(self, "LaunchBox", "Selecione primeiro o LaunchBox.exe.")
             return
@@ -213,7 +266,7 @@ class LaunchBoxIntegrationTab(QWidget):
             target = self.service.export_emulators_xml(self.installation.root, self.systems, overwrite=False)
             self.installation = self.service.load_launchbox_installation(self.installation.executable)
             self._populate()
-            QMessageBox.information(self, "LaunchBox", f"Integração concluída. Apenas itens ausentes foram adicionados.\n\nArquivo: {target}")
+            QMessageBox.information(self, "LaunchBox", f"Integração concluída sem reconstruir os XMLs.\n\nArquivo: {target}")
             self.status.setText(f"Integração concluída: {target}")
         except Exception as exc:
             QMessageBox.critical(self, "LaunchBox", f"Falha na integração; o XML original não foi substituído.\n\n{type(exc).__name__}: {exc}")
