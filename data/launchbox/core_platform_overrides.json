@@ -1,5 +1,7 @@
 {
   "retroarch": {
+    "mame": ["Arcade"],
+    "fbneo": ["Arcade"],
     "flycast": [
       "Sega Dreamcast",
       "Sega Naomi",
