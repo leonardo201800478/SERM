@@ -1,38 +1,70 @@
 {
-  "version": 1,
+  "version": 2,
+  "source": "https://emulation.gametechwiki.com/index.php/Main_Page",
+  "source_note": "Classification overrides are maintained externally so corrections do not require Python changes.",
   "groups": {
-    "consoles": {
-      "label": "Consoles",
-      "generations": ["Pré-1980", "8-bit", "16-bit", "32/64-bit", "128-bit+", "Outros"]
-    },
-    "portables": {
-      "label": "Portáteis",
-      "generations": ["1ª geração", "8-bit", "16-bit", "32-bit", "64-bit+", "Outros"]
-    },
-    "computers": {
-      "label": "Computadores",
-      "generations": ["8-bit", "16-bit", "32-bit", "64-bit", "Outros"]
-    },
-    "arcade": {
-      "label": "Arcade",
-      "generations": ["Clássico", "16-bit", "32-bit", "3D", "Outros"]
-    }
+    "consoles": {"label": "Consoles", "generations": ["Pré-1980", "8-bit", "16-bit", "32/64-bit", "128-bit+", "Outros"]},
+    "portables": {"label": "Portáteis", "generations": ["1ª geração", "8-bit", "16-bit", "32-bit", "64-bit+", "Outros"]},
+    "computers": {"label": "Computadores", "generations": ["8-bit", "16-bit", "32-bit", "64-bit", "Outros"]},
+    "arcade": {"label": "Arcade", "generations": ["Clássico", "16-bit", "32-bit", "3D", "Outros"]}
   },
   "system_overrides": {
     "arcade": {"group": "arcade", "generation": "Outros"},
+    "mame": {"group": "arcade", "generation": "Outros"},
+    "fbneo": {"group": "arcade", "generation": "16-bit"},
     "naomi": {"group": "arcade", "generation": "3D"},
     "naomi2": {"group": "arcade", "generation": "3D"},
     "atomiswave": {"group": "arcade", "generation": "3D"},
+    "model2": {"group": "arcade", "generation": "3D"},
+    "model3": {"group": "arcade", "generation": "3D"},
     "dreamcast": {"group": "consoles", "generation": "128-bit+"},
     "playstation": {"group": "consoles", "generation": "32/64-bit"},
     "playstation2": {"group": "consoles", "generation": "128-bit+"},
-    "super_nes": {"group": "consoles", "generation": "16-bit"},
-    "snes": {"group": "consoles", "generation": "16-bit"},
+    "playstation3": {"group": "consoles", "generation": "128-bit+"},
+    "saturn": {"group": "consoles", "generation": "32/64-bit"},
+    "n64": {"group": "consoles", "generation": "32/64-bit"},
+    "gamecube": {"group": "consoles", "generation": "128-bit+"},
+    "wii": {"group": "consoles", "generation": "128-bit+"},
+    "wiiu": {"group": "consoles", "generation": "128-bit+"},
+    "switch": {"group": "consoles", "generation": "128-bit+"},
     "nes": {"group": "consoles", "generation": "8-bit"},
+    "fds": {"group": "consoles", "generation": "8-bit"},
+    "snes": {"group": "consoles", "generation": "16-bit"},
+    "super_nes": {"group": "consoles", "generation": "16-bit"},
+    "megadrive": {"group": "consoles", "generation": "16-bit"},
+    "genesis": {"group": "consoles", "generation": "16-bit"},
+    "pcengine": {"group": "consoles", "generation": "16-bit"},
+    "pcenginecd": {"group": "consoles", "generation": "16-bit"},
+    "mastersystem": {"group": "consoles", "generation": "8-bit"},
     "gameboy": {"group": "portables", "generation": "8-bit"},
     "gb": {"group": "portables", "generation": "8-bit"},
     "gameboy_color": {"group": "portables", "generation": "8-bit"},
+    "gbc": {"group": "portables", "generation": "8-bit"},
+    "gamegear": {"group": "portables", "generation": "8-bit"},
     "gba": {"group": "portables", "generation": "32-bit"},
-    "nintendo_ds": {"group": "portables", "generation": "32-bit"}
+    "nintendo_ds": {"group": "portables", "generation": "32-bit"},
+    "nds": {"group": "portables", "generation": "32-bit"},
+    "psp": {"group": "portables", "generation": "32-bit"},
+    "psvita": {"group": "portables", "generation": "32-bit"},
+    "lynx": {"group": "portables", "generation": "8-bit"},
+    "neogeo_pocket": {"group": "portables", "generation": "16-bit"},
+    "ngp": {"group": "portables", "generation": "16-bit"},
+    "wonderswan": {"group": "portables", "generation": "16-bit"},
+    "wonderswan_color": {"group": "portables", "generation": "16-bit"},
+    "gamepark": {"group": "portables", "generation": "32-bit"},
+    "pokemini": {"group": "portables", "generation": "8-bit"},
+    "c64": {"group": "computers", "generation": "8-bit"},
+    "commodore": {"group": "computers", "generation": "8-bit"},
+    "amiga": {"group": "computers", "generation": "16-bit"},
+    "amstrad": {"group": "computers", "generation": "8-bit"},
+    "msx": {"group": "computers", "generation": "8-bit"},
+    "msx1": {"group": "computers", "generation": "8-bit"},
+    "msx2": {"group": "computers", "generation": "8-bit"},
+    "spectrum": {"group": "computers", "generation": "8-bit"},
+    "zxspectrum": {"group": "computers", "generation": "8-bit"},
+    "apple2": {"group": "computers", "generation": "8-bit"},
+    "dos": {"group": "computers", "generation": "16-bit"},
+    "pc98": {"group": "computers", "generation": "16-bit"},
+    "x68000": {"group": "computers", "generation": "16-bit"}
   }
 }
