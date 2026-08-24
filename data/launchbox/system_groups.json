@@ -1,9 +1,9 @@
 {
-  "version": 3,
+  "version": 4,
   "source": "https://emulation.gametechwiki.com/index.php/Main_Page",
   "source_note": "Classification overrides are maintained externally so corrections do not require Python changes. LaunchBox platform names are authoritative when present in Platforms.xml.",
   "groups": {
-    "consoles": {"label": "Consoles", "generations": ["Pré-1980", "8-bit", "16-bit", "32/64-bit", "128-bit+", "Outros"]},
+    "consoles": {"label": "Consoles", "generations": ["Pré-1980", "8-bit", "16-bit", "32-bit", "64-bit", "128-bit+", "Outros"]},
     "portables": {"label": "Portáteis", "generations": ["1ª geração", "8-bit", "16-bit", "32-bit", "64-bit+", "Outros"]},
     "computers": {"label": "Computadores", "generations": ["8-bit", "16-bit", "32-bit", "64-bit", "Outros"]},
     "arcade": {"label": "Arcade", "generations": ["Clássico", "16-bit", "32-bit", "3D", "Outros"]}
@@ -19,11 +19,11 @@
     "model3": {"group": "arcade", "generation": "3D"},
 
     "dreamcast": {"group": "consoles", "generation": "128-bit+"},
-    "playstation": {"group": "consoles", "generation": "32/64-bit"},
+    "playstation": {"group": "consoles", "generation": "32-bit"},
     "playstation2": {"group": "consoles", "generation": "128-bit+"},
     "playstation3": {"group": "consoles", "generation": "128-bit+"},
-    "saturn": {"group": "consoles", "generation": "32/64-bit"},
-    "n64": {"group": "consoles", "generation": "32/64-bit"},
+    "saturn": {"group": "consoles", "generation": "32-bit"},
+    "n64": {"group": "consoles", "generation": "64-bit"},
     "gamecube": {"group": "consoles", "generation": "128-bit+"},
     "wii": {"group": "consoles", "generation": "128-bit+"},
     "wiiu": {"group": "consoles", "generation": "128-bit+"},
@@ -39,19 +39,19 @@
     "mastersystem": {"group": "consoles", "generation": "8-bit"},
 
     "sega master system": {"group": "consoles", "generation": "8-bit"},
+    "sega sg-1000": {"group": "consoles", "generation": "8-bit"},
     "sega genesis": {"group": "consoles", "generation": "16-bit"},
     "sega mega drive": {"group": "consoles", "generation": "16-bit"},
     "sega cd": {"group": "consoles", "generation": "16-bit"},
     "sega mega cd": {"group": "consoles", "generation": "16-bit"},
-    "sega cd 32x": {"group": "consoles", "generation": "16-bit"},
-    "sega mega cd 32x": {"group": "consoles", "generation": "16-bit"},
     "sega 32x": {"group": "consoles", "generation": "16-bit"},
     "sega genesis 32x": {"group": "consoles", "generation": "16-bit"},
     "sega super 32x": {"group": "consoles", "generation": "16-bit"},
+    "sega cd 32x": {"group": "consoles", "generation": "16-bit"},
+    "sega mega cd 32x": {"group": "consoles", "generation": "16-bit"},
     "sega game gear": {"group": "portables", "generation": "8-bit"},
     "sega pico": {"group": "consoles", "generation": "16-bit"},
-    "sega sg-1000": {"group": "consoles", "generation": "8-bit"},
-    "sega saturn": {"group": "consoles", "generation": "32/64-bit"},
+    "sega saturn": {"group": "consoles", "generation": "32-bit"},
     "sega dreamcast": {"group": "consoles", "generation": "128-bit+"},
     "sega naomi": {"group": "arcade", "generation": "3D"},
     "sega naomi 2": {"group": "arcade", "generation": "3D"},
@@ -60,6 +60,7 @@
 
     "gameboy": {"group": "portables", "generation": "8-bit"},
     "gb": {"group": "portables", "generation": "8-bit"},
+    "gameboy color": {"group": "portables", "generation": "8-bit"},
     "gameboy_color": {"group": "portables", "generation": "8-bit"},
     "gbc": {"group": "portables", "generation": "8-bit"},
     "gamegear": {"group": "portables", "generation": "8-bit"},
@@ -90,21 +91,14 @@
     "pc98": {"group": "computers", "generation": "16-bit"},
     "x68000": {"group": "computers", "generation": "16-bit"},
 
-    "commodore amiga": {"group": "computers", "generation": "16-bit"},
     "commodore amiga 500": {"group": "computers", "generation": "16-bit"},
     "commodore amiga 500 plus": {"group": "computers", "generation": "16-bit"},
     "commodore amiga 600": {"group": "computers", "generation": "16-bit"},
-    "commodore amiga 1000": {"group": "computers", "generation": "16-bit"},
-    "commodore amiga 1200": {"group": "computers", "generation": "32-bit"},
     "commodore amiga 1200 aga": {"group": "computers", "generation": "32-bit"},
-    "commodore amiga 2000": {"group": "computers", "generation": "16-bit"},
-    "commodore amiga 2500": {"group": "computers", "generation": "16-bit"},
-    "commodore amiga 3000": {"group": "computers", "generation": "32-bit"},
     "commodore amiga 3000 aga": {"group": "computers", "generation": "32-bit"},
-    "commodore amiga 4000": {"group": "computers", "generation": "32-bit"},
     "commodore amiga 4000 aga": {"group": "computers", "generation": "32-bit"},
-    "commodore amiga cd32": {"group": "consoles", "generation": "32/64-bit"},
-    "commodore amiga cd-tv": {"group": "consoles", "generation": "16-bit"},
-    "commodore amiga cdtv": {"group": "consoles", "generation": "16-bit"}
+    "commodore amiga cd32": {"group": "consoles", "generation": "32-bit"},
+    "commodore amiga cdtv": {"group": "consoles", "generation": "16-bit"},
+    "commodore amiga cd-tv": {"group": "consoles", "generation": "16-bit"}
   }
 }
