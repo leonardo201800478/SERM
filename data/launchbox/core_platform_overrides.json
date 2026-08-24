@@ -1,0 +1,33 @@
+{
+  "retroarch": {
+    "flycast": [
+      "Sega Dreamcast",
+      "Sega Naomi",
+      "Sega Naomi 2",
+      "Sammy Atomiswave",
+      "SEGA System SP"
+    ],
+    "picodrive": [
+      "Sega Master System",
+      "Sega Game Gear",
+      "Sega Genesis",
+      "Sega CD",
+      "Sega 32X",
+      "Sega CD 32X"
+    ],
+    "puae": [
+      "Commodore Amiga",
+      "Commodore Amiga CD32",
+      "Commodore CDTV"
+    ],
+    "puae2021": [
+      "Commodore Amiga",
+      "Commodore Amiga CD32",
+      "Commodore CDTV"
+    ],
+    "o2em": [
+      "Magnavox Odyssey 2",
+      "Philips Videopac+"
+    ]
+  }
+}
