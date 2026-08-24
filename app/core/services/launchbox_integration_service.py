@@ -26,6 +26,11 @@ class LaunchBoxCoreOption:
     command_line: str = ""
     existing: bool = False
 
+    @property
+    def key(self) -> str:
+        """Identificador estável do candidato."""
+        return f"{self.emulator}:{self.core_dll or self.executable or self.name}".casefold()
+
 
 @dataclass(slots=True)
 class LaunchBoxSystem:
@@ -48,6 +53,7 @@ class LaunchBoxInstallation:
     platforms_xml: Path
     emulators: dict[str, dict[str, str]] = field(default_factory=dict)
     platforms: dict[str, dict[str, str]] = field(default_factory=dict)
+    default_options: dict[str, str] = field(default_factory=dict)
     emulators_loaded: bool = False
     platforms_loaded: bool = False
 
@@ -90,15 +96,10 @@ class LaunchBoxIntegrationService:
         data_dir = root / "Data"
         if not data_dir.is_dir():
             raise FileNotFoundError(f"Pasta Data não encontrada: {data_dir}")
-        installation = LaunchBoxInstallation(
-            executable=executable,
-            root=root,
-            data_dir=data_dir,
-            emulators_xml=data_dir / "Emulators.xml",
-            platforms_xml=data_dir / "Platforms.xml",
-        )
+        installation = LaunchBoxInstallation(executable, root, data_dir, data_dir / "Emulators.xml", data_dir / "Platforms.xml")
         if installation.emulators_xml.is_file():
             installation.emulators = self._read_named_records(installation.emulators_xml, ("Emulator",), ("Title", "Name"))
+            installation.default_options = self._read_default_associations(installation.emulators_xml)
             installation.emulators_loaded = True
         if installation.platforms_xml.is_file():
             installation.platforms = self._read_named_records(installation.platforms_xml, ("Platform",), ("Name", "Title"))
@@ -109,55 +110,61 @@ class LaunchBoxIntegrationService:
     def _read_named_records(path: Path, element_names: tuple[str, ...], name_fields: tuple[str, ...]) -> dict[str, dict[str, str]]:
         """Lê registros de XML de forma tolerante a pequenas diferenças de schema."""
         tree = ET.parse(path)
-        root = tree.getroot()
         records: dict[str, dict[str, str]] = {}
         wanted = {name.casefold() for name in element_names}
-        for element in root.iter():
+        for element in tree.getroot().iter():
             if element.tag.rsplit("}", 1)[-1].casefold() not in wanted:
                 continue
-            fields: dict[str, str] = {}
-            for child in element:
-                key = child.tag.rsplit("}", 1)[-1]
-                value = (child.text or "").strip()
-                if value:
-                    fields[key] = value
+            fields = {child.tag.rsplit("}", 1)[-1]: (child.text or "").strip() for child in element if (child.text or "").strip()}
             name = next((fields.get(field) for field in name_fields if fields.get(field)), None)
             if name:
                 records[name.casefold()] = fields
         return records
+
+    @staticmethod
+    def _read_default_associations(path: Path) -> dict[str, str]:
+        """Obtém o candidato padrão por plataforma quando o XML já o informa."""
+        tree = ET.parse(path)
+        result: dict[str, str] = {}
+        for emulator in tree.getroot().iter():
+            if emulator.tag.rsplit("}", 1)[-1].casefold() != "emulator":
+                continue
+            title = emulator.findtext("Title", "")
+            for row in emulator.iter():
+                if row.tag.rsplit("}", 1)[-1].casefold() not in {"associatedplatform", "platform"}:
+                    continue
+                platform = row.findtext("Platform", "") if row.tag.rsplit("}", 1)[-1].casefold() == "associatedplatform" else (row.text or "")
+                if not platform:
+                    continue
+                default_text = row.findtext("DefaultEmulator", "").casefold()
+                if default_text in {"true", "1", "yes"}:
+                    core = row.findtext("Core", "")
+                    result[platform.casefold()] = f"{title}:{core}".casefold()
+        return result
 
     def scan_retroarch(self, info_directory: Path) -> list[RetroArchInfoCore]:
         """Lê os .info locais do RetroArch."""
         return self.info_service.scan_directory(Path(info_directory))
 
     def build_systems(self, infos: Iterable[RetroArchInfoCore], installation: LaunchBoxInstallation | None = None) -> list[LaunchBoxSystem]:
-        """Agrupa cores e marca sistemas/core já presentes no LaunchBox."""
+        """Agrupa cores e preserva o único candidato padrão já existente."""
         systems: dict[str, LaunchBoxSystem] = {}
         core_root = self.config.get_emulator_path("retroarch", "cores")
         retroarch_exe = self.config.retroarch_path
         existing_platforms = installation.platforms if installation else {}
         existing_retroarch = self._existing_core_names(installation) if installation else set()
+        defaults = installation.default_options if installation else {}
         for info in infos:
             system_id = (info.system_id or info.corename).casefold()
             name = info.system_name or info.display_name or info.corename
             group, generation = self.classify_system(system_id, name)
             platform_key = self._platform_key(name, existing_platforms)
-            system = systems.setdefault(
-                system_id,
-                LaunchBoxSystem(system_id, existing_platforms.get(platform_key, {}).get("Name", name), group, generation, existing=bool(platform_key)),
-            )
+            system = systems.setdefault(system_id, LaunchBoxSystem(system_id, existing_platforms.get(platform_key, {}).get("Name", name), group, generation, existing=bool(platform_key)))
             dll = f"{info.corename}_libretro.dll"
             core_path = (Path(core_root) / dll).resolve() if core_root else None
-            option = LaunchBoxCoreOption(
-                name=info.display_name or info.corename,
-                emulator="retroarch",
-                core_dll=dll,
-                core_path=core_path,
-                executable=retroarch_exe,
-                score=self._score_core(info),
-                command_line=self.command_line(name, core_path),
-                existing=info.corename.casefold() in existing_retroarch or dll.casefold() in existing_retroarch,
-            )
+            option = LaunchBoxCoreOption(name=info.display_name or info.corename, emulator="retroarch", core_dll=dll, core_path=core_path, executable=retroarch_exe, score=self._score_core(info), command_line=self.command_line(name, core_path), existing=info.corename.casefold() in existing_retroarch or dll.casefold() in existing_retroarch)
+            if defaults.get(name.casefold(), "") == option.key or defaults.get(name.casefold(), "").endswith(f":{dll}".casefold()):
+                option.default = True
             if not any(o.core_dll == option.core_dll for o in system.options):
                 system.options.append(option)
         for system in systems.values():
@@ -166,29 +173,28 @@ class LaunchBoxIntegrationService:
 
     @staticmethod
     def _platform_key(name: str, platforms: dict[str, dict[str, str]]) -> str | None:
-        """Encontra a plataforma local por nome exato, sem alterar seu nome."""
+        """Encontra a plataforma local por nome exato."""
         return name.casefold() if name.casefold() in platforms else None
 
     @staticmethod
     def _existing_core_names(installation: LaunchBoxInstallation) -> set[str]:
-        """Extrai cores RetroArch já configurados nas associações existentes."""
+        """Extrai cores RetroArch já configurados."""
         result: set[str] = set()
+        if not installation:
+            return result
         for emulator in installation.emulators.values():
-            if emulator.get("Title", "").casefold() != "retroarch":
-                continue
-            result.update(value.casefold() for key, value in emulator.items() if key.casefold() == "core")
+            if emulator.get("Title", "").casefold() == "retroarch":
+                result.update(value.casefold() for key, value in emulator.items() if key.casefold() == "core")
         try:
-            tree = ET.parse(installation.emulators_xml)
-            for element in tree.getroot().iter():
-                tag = element.tag.rsplit("}", 1)[-1].casefold()
-                if tag == "core" and element.text:
+            for element in ET.parse(installation.emulators_xml).getroot().iter():
+                if element.tag.rsplit("}", 1)[-1].casefold() == "core" and element.text:
                     result.add(element.text.strip().casefold())
         except (OSError, ET.ParseError):
             pass
         return result
 
     def add_standalones(self, systems: list[LaunchBoxSystem], standalone: list[dict] | None = None) -> list[LaunchBoxSystem]:
-        """Adiciona standalones usando os executáveis já descobertos no AppConfig."""
+        """Adiciona standalones usando os executáveis já descobertos."""
         executable_map = {"mame": self.config.mame_path, "flycast": self.config.flycast_path, "fbneo": self.config.fbneo_path, "supermodel": self.config.supermodel_path}
         for item in standalone or []:
             system_id = str(item.get("system_id", "")).casefold()
@@ -201,7 +207,7 @@ class LaunchBoxIntegrationService:
                 systems.append(target)
             emulator = str(item.get("emulator", "mame")).casefold()
             executable = executable_map.get(emulator)
-            target.options.append(LaunchBoxCoreOption(name=item.get("name", self._label(emulator)), emulator=emulator, executable=executable, score=int(item.get("score", 90)), command_line=self.standalone_command(emulator, item.get("command_line", "")), existing=False))
+            target.options.append(LaunchBoxCoreOption(name=item.get("name", self._label(emulator)), emulator=emulator, executable=executable, score=int(item.get("score", 90)), command_line=self.standalone_command(emulator, item.get("command_line", ""))))
             self._select_default(target)
         return sorted(systems, key=lambda s: (self.GROUP_ORDER.index(s.group), s.generation, s.name.casefold()))
 
@@ -210,16 +216,16 @@ class LaunchBoxIntegrationService:
         return {"retroarch": "RetroArch", "mame": "MAME", "flycast": "Flycast", "fbneo": "FBNeo", "supermodel": "Supermodel"}.get(emulator, emulator)
 
     def classify_system(self, system_id: str, name: str) -> tuple[str, str]:
-        """Classifica primeiro por regras externas e depois por fallback."""
+        """Classifica por overrides externos e fallback conservador."""
         override = self.group_rules.get("system_overrides", {}).get(system_id, {})
         if override:
             return override.get("group", "consoles"), override.get("generation", "Outros")
         text = f"{system_id} {name}".casefold()
         if any(k in text for k in ("arcade", "naomi", "atomiswave", "mame", "fbneo", "model 2", "model 3")):
             return "arcade", "Outros"
-        if any(k in text for k in ("game boy", "gameboy", "game gear", "lynx", "neo geo pocket", "wonderswan", "nintendo ds", "gba", "gamepark")):
+        if any(k in text for k in ("game boy", "gameboy", "game gear", "lynx", "neo geo pocket", "wonderswan", "nintendo ds", "gba", "gamepark", "psp", "vita")):
             return "portables", "Outros"
-        if any(k in text for k in ("apple ii", "amstrad", "commodore", "msx", "zx spectrum", "dos", "pc-98", "computer")):
+        if any(k in text for k in ("apple ii", "amstrad", "commodore", "msx", "zx spectrum", "dos", "pc-98", "x68000", "computer", "amiga")):
             return "computers", "Outros"
         return "consoles", "Outros"
 
@@ -237,23 +243,25 @@ class LaunchBoxIntegrationService:
 
     @staticmethod
     def _select_default(system: LaunchBoxSystem) -> None:
-        """Preserva um padrão existente; caso contrário escolhe o melhor score."""
+        """Garante exatamente um padrão por sistema."""
         if not system.options:
             return
-        existing_defaults = [o for o in system.options if o.existing and o.default]
-        best = max(range(len(system.options)), key=lambda i: (system.options[i].score, system.options[i].name.casefold()))
+        selected = next((o for o in system.options if o.default), None)
+        if selected is None:
+            selected = max(system.options, key=lambda o: (o.score, o.name.casefold()))
         for option in system.options:
-            option.default = False
-        if existing_defaults:
-            existing_defaults[0].default = True
-        else:
-            system.options[best].default = True
+            option.default = option is selected
+
+    def set_default_option(self, system: LaunchBoxSystem, option: LaunchBoxCoreOption) -> None:
+        """Define manualmente um único padrão e remove o padrão anterior."""
+        if option not in system.options:
+            raise ValueError("A opção não pertence ao sistema selecionado.")
+        for candidate in system.options:
+            candidate.default = candidate is option
 
     def command_line(self, platform: str, core_path: Path | None) -> str:
         """Gera a linha RetroArch com caminho real do core."""
-        template = self.rules.get("retroarch", {}).get("platform_overrides", {}).get(platform)
-        if not template:
-            template = self.rules.get("retroarch", {}).get("default", "-L \"{core_path}\"")
+        template = self.rules.get("retroarch", {}).get("platform_overrides", {}).get(platform) or self.rules.get("retroarch", {}).get("default", "-L \"{core_path}\"")
         return template.format(core_path=str(core_path) if core_path else "{core_path}", core_dll=core_path.name if core_path else "{core_dll}", platform=platform)
 
     def standalone_command(self, emulator: str, template: str = "") -> str:
@@ -261,7 +269,7 @@ class LaunchBoxIntegrationService:
         return template or self.rules.get("standalone", {}).get(emulator, {}).get("default", "")
 
     def export_emulators_xml(self, launchbox_dir: Path, systems: Iterable[LaunchBoxSystem], overwrite: bool = False) -> Path:
-        """Faz merge não destrutivo de Emulators.xml, preservando configurações existentes."""
+        """Faz merge não destrutivo de Emulators.xml."""
         data_dir = Path(launchbox_dir) / "Data"
         if not data_dir.is_dir():
             raise FileNotFoundError(f"Pasta Data não encontrada: {data_dir}")
@@ -276,25 +284,13 @@ class LaunchBoxIntegrationService:
         else:
             root = ET.Element("LaunchBox")
             tree = ET.ElementTree(root)
-        retroarch_options = [o for s in systems for o in s.options if o.emulator == "retroarch"]
-        if retroarch_options:
-            emulator = self._find_emulator(root, "RetroArch")
-            if emulator is None:
-                emulator = self._create_emulator(root, "RetroArch", self.config.retroarch_path)
-            for system in systems:
-                for option in system.options:
-                    if option.emulator == "retroarch" and not option.existing:
-                        self._merge_association(emulator, system.name, option)
-        standalone_by_emulator: dict[str, list[tuple[LaunchBoxSystem, LaunchBoxCoreOption]]] = {}
         for system in systems:
             for option in system.options:
-                if option.emulator != "retroarch" and not option.existing:
-                    standalone_by_emulator.setdefault(option.emulator, []).append((system, option))
-        for emulator_name, entries in standalone_by_emulator.items():
-            emulator = self._find_emulator(root, self._label(emulator_name))
-            if emulator is None:
-                emulator = self._create_emulator(root, self._label(emulator_name), entries[0][1].executable)
-            for system, option in entries:
+                if option.existing:
+                    continue
+                emulator = self._find_emulator(root, self._label(option.emulator))
+                if emulator is None:
+                    emulator = self._create_emulator(root, self._label(option.emulator), option.executable)
                 self._merge_association(emulator, system.name, option)
         ET.indent(root, space="  ")
         tmp = target.with_name(target.name + ".tmp")
@@ -324,7 +320,7 @@ class LaunchBoxIntegrationService:
 
     @staticmethod
     def _merge_association(emulator: ET.Element, platform: str, option: LaunchBoxCoreOption) -> None:
-        """Insere uma associação ausente sem alterar outras associações."""
+        """Insere associação ausente sem alterar outras associações."""
         container = emulator.find("AssociatedPlatforms")
         if container is None:
             container = ET.SubElement(emulator, "AssociatedPlatforms")
