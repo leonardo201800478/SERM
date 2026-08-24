@@ -8,7 +8,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QTabWidget, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, QMenu
 
 from app.config.app_config import AppConfig
-from app.core.services.launchbox_integration_service import LaunchBoxInstallation, LaunchBoxIntegrationService, LaunchBoxSystem, LaunchBoxCoreOption
+from app.core.services.launchbox_integration_service import LaunchBoxInstallation, LaunchBoxIntegrationService, LaunchBoxSystem
 
 
 class LaunchBoxIntegrationTab(QWidget):
@@ -61,6 +61,18 @@ class LaunchBoxIntegrationTab(QWidget):
         self.tabs = QTabWidget()
         self.trees: dict[str, QTreeWidget] = {}
         for key, label in self.GROUPS:
+            page = QWidget()
+            page_layout = QVBoxLayout(page)
+            filter_row = QHBoxLayout()
+            filter_row.addWidget(QLabel("Filtro das colunas:"))
+            edit = QLineEdit()
+            edit.setPlaceholderText("Sistema, core/emulador, estado ou padrão...")
+            edit.textChanged.connect(lambda text, k=key: self._filter_tree(k, text))
+            filter_row.addWidget(edit)
+            clear = QPushButton("Limpar")
+            clear.clicked.connect(edit.clear)
+            filter_row.addWidget(clear)
+            page_layout.addLayout(filter_row)
             tree = QTreeWidget()
             tree.setColumnCount(4)
             tree.setHeaderLabels(["Sistema oficial / LaunchBox", "Core / Emulador", "Estado", "Padrão"])
@@ -72,15 +84,9 @@ class LaunchBoxIntegrationTab(QWidget):
             tree.setColumnWidth(1, 400)
             tree.setColumnWidth(2, 110)
             tree.setColumnWidth(3, 110)
-            self.tabs.addTab(tree, label)
+            page_layout.addWidget(tree, 1)
+            self.tabs.addTab(page, label)
             self.trees[key] = tree
-            filter_row = QHBoxLayout()
-            filter_row.addWidget(QLabel("Filtro:"))
-            edit = QLineEdit()
-            edit.setPlaceholderText("Filtrar sistema, core/emulador, estado ou padrão...")
-            edit.textChanged.connect(lambda text, k=key: self._filter_tree(k, text))
-            filter_row.addWidget(edit)
-            layout.addLayout(filter_row)
             self.filters[key] = edit
         layout.addWidget(self.tabs, 1)
         self.log = QLabel()
@@ -214,7 +220,7 @@ class LaunchBoxIntegrationTab(QWidget):
                     child.setToolTip(1, f"Executável: {option.executable}")
 
     def _filter_tree(self, key: str, text: str) -> None:
-        """Filtra linhas mantendo sistemas pais visíveis quando algum filho corresponde."""
+        """Filtra as quatro colunas mantendo o sistema pai se um filho corresponder."""
         tree = self.trees[key]
         needle = text.casefold().strip()
         for i in range(tree.topLevelItemCount()):
@@ -251,14 +257,14 @@ class LaunchBoxIntegrationTab(QWidget):
         info.setEnabled(False)
         menu.exec(tree.viewport().mapToGlobal(pos))
 
-    def _set_default(self, system: LaunchBoxSystem, option: LaunchBoxCoreOption) -> None:
+    def _set_default(self, system: LaunchBoxSystem, option) -> None:
         """Troca o padrão removendo automaticamente o anterior."""
         self.service.set_default_option(system, option)
         self._populate()
         self.status.setText(f"Padrão alterado: {system.name} → {option.name}. Apenas um candidato permanece como padrão.")
 
     def export(self) -> None:
-        """Completa o LaunchBox e aplica somente mudanças de padrão solicitadas."""
+        """Completa o LaunchBox e aplica somente mudanças controladas."""
         if not self.installation:
             QMessageBox.warning(self, "LaunchBox", "Selecione primeiro o LaunchBox.exe.")
             return
