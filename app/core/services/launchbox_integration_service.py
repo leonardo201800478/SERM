@@ -1,9 +1,7 @@
 """Integração segura com LaunchBox.
 
-O LaunchBox mantém os emuladores e suas associações de plataformas como
-registros irmãos no XML: ``Emulator`` e ``EmulatorPlatform``. O serviço
-preserva esses registros existentes e só cria/atualiza o que o ARCADE
-MANAGER controla.
+O serviço importa as plataformas existentes, completa-as com o catálogo local
+Libretro e adiciona os emuladores standalone controlados pelo projeto.
 """
 from __future__ import annotations
 
@@ -78,6 +76,60 @@ class LaunchBoxIntegrationService:
 
     GROUP_ORDER = ("consoles", "portables", "computers", "arcade")
 
+    # Plataformas genéricas/duplicadas que não devem mais aparecer na GUI.
+    EXCLUDED_SYSTEM_NAMES = {
+        "sega 8-bit",
+        "sega 8 bit",
+        "game boy/game boy color",
+        "game boy / game boy color",
+        "game boy color/game boy",
+        "neo geo pocket (color)",
+        "neo geo pocket (color)",
+        "c64",
+        "commodore c64",
+        "microsoft xbox",
+    }
+
+    # Core de teste que pode existir no diretório .info, mas não pertence ao
+    # catálogo funcional do projeto.
+    EXCLUDED_CORE_TERMS = ("advanced test core", "advanced test", "advanced_test")
+
+    # Sistemas que precisam existir mesmo quando a instalação atual não possui
+    # a plataforma correspondente no Platforms.xml. As aliases permitem casar
+    # nomes diferentes usados pelos .info do RetroArch.
+    REQUIRED_SYSTEMS = {
+        "sega naomi": ("Sega Naomi", "arcade", "3D", ("naomi", "sega naomi")),
+        "sega naomi 2": ("Sega Naomi 2", "arcade", "3D", ("naomi2", "naomi 2", "sega naomi 2")),
+        "sammy atomiswave": ("Sammy Atomiswave", "arcade", "3D", ("atomiswave", "sammy atomiswave")),
+        "sega system sp": ("SEGA System SP", "arcade", "3D", ("systemsp", "system sp", "sega system sp")),
+        "sega model 3": ("Sega Model 3", "arcade", "3D", ("model3", "model 3", "sega model 3")),
+        "sega model 2": ("Sega Model 2", "arcade", "3D", ("model2", "model 2", "sega model 2")),
+        "neo geo aes": ("Neo Geo AES", "arcade", "16-bit", ("neo geo aes", "neogeo aes", "aes")),
+        "nintendo wii": ("Nintendo Wii", "consoles", "128-bit+", ("wii", "nintendo wii")),
+        "commodore cdtv": ("Commodore CDTV", "consoles", "16-bit", ("cdtv", "commodore cdtv")),
+        "nec turbografx-16": ("NEC TurboGrafx-16", "consoles", "16-bit", ("turbografx-16", "turbografx16", "pc engine", "pcengine")),
+        "nec turbografx-cd": ("NEC TurboGrafx-CD", "consoles", "16-bit", ("turbografx-cd", "turbografxcd", "pc engine cd", "pcenginecd")),
+        "nintendo satellaview": ("Nintendo Satellaview", "consoles", "16-bit", ("satellaview", "nintendo satellaview")),
+        "nintendo sufami": ("Nintendo Sufami", "consoles", "16-bit", ("sufami", "nintendo sufami")),
+        "sega 32x": ("Sega 32X", "consoles", "16-bit", ("32x", "sega 32x")),
+        "sega cd 32x": ("Sega CD 32X", "consoles", "16-bit", ("sega cd 32x", "sega32xcd", "32x cd")),
+        "sega genesis": ("Sega Genesis", "consoles", "16-bit", ("genesis", "sega genesis", "megadrive", "mega drive")),
+        "commodore amiga cd32": ("Commodore Amiga CD32", "consoles", "32-bit", ("amiga cd32", "commodore amiga cd32", "cd32")),
+        "atari jaguar": ("Atari Jaguar", "consoles", "64-bit", ("jaguar", "atari jaguar")),
+        "nintendo 64dd": ("Nintendo 64DD", "consoles", "64-bit", ("64dd", "nintendo 64dd", "n64dd")),
+        "nintendo famicom disk system": ("Nintendo Famicom Disk System", "consoles", "8-bit", ("famicom disk system", "fds", "nintendo fds")),
+        "sega sg-1000": ("Sega SG-1000", "consoles", "8-bit", ("sg-1000", "sg1000", "sega sg-1000")),
+        "snk neo geo pocket": ("SNK Neo Geo Pocket", "portables", "16-bit", ("neo geo pocket", "neogeo pocket", "ngp")),
+        "wonderswan color": ("WonderSwan Color", "portables", "16-bit", ("wonderswan color", "wonderswan_color")),
+        "nintendo game boy": ("Nintendo Game Boy", "portables", "8-bit", ("game boy", "gameboy", "nintendo game boy")),
+        "nintendo game boy color": ("Nintendo Game Boy Color", "portables", "8-bit", ("game boy color", "gameboy color", "gameboy_color", "nintendo game boy color")),
+        "commodore amiga": ("Commodore Amiga", "computers", "16-bit", ("commodore amiga", "amiga")),
+        "commodore amiga aga": ("Commodore Amiga AGA", "computers", "32-bit", ("amiga aga", "commodore amiga aga")),
+        "commodore 64": ("Commodore 64", "computers", "8-bit", ("commodore 64", "c64")),
+        "microsoft msx": ("Microsoft MSX", "computers", "8-bit", ("msx", "microsoft msx")),
+        "sinclair zx spectrum": ("Sinclair ZX Spectrum", "computers", "8-bit", ("zx spectrum", "zxspectrum", "spectrum", "sinclair zx spectrum")),
+    }
+
     def __init__(self, project_root: Path | None = None, config: AppConfig | None = None) -> None:
         """Inicializa usando AppConfig como fonte dos executáveis."""
         self.project_root = project_root or Path(__file__).resolve().parents[3]
@@ -111,7 +163,13 @@ class LaunchBoxIntegrationService:
         data_dir = root / "Data"
         if not data_dir.is_dir():
             raise FileNotFoundError(f"Pasta Data não encontrada: {data_dir}")
-        installation = LaunchBoxInstallation(executable=executable, root=root, data_dir=data_dir, emulators_xml=data_dir / "Emulators.xml", platforms_xml=data_dir / "Platforms.xml")
+        installation = LaunchBoxInstallation(
+            executable=executable,
+            root=root,
+            data_dir=data_dir,
+            emulators_xml=data_dir / "Emulators.xml",
+            platforms_xml=data_dir / "Platforms.xml",
+        )
         if installation.emulators_xml.is_file():
             installation.emulators = self._read_named_records(installation.emulators_xml, ("Emulator",), ("Title", "Name"))
             installation.emulator_platforms = self._read_emulator_platforms(installation.emulators_xml)
@@ -154,9 +212,7 @@ class LaunchBoxIntegrationService:
         result: dict[str, str] = {}
         for row in rows:
             platform = row.get("Platform", "").strip()
-            if not platform:
-                continue
-            if row.get("Default", "").casefold() in {"true", "1", "yes"}:
+            if platform and row.get("Default", "").casefold() in {"true", "1", "yes"}:
                 result[platform.casefold()] = f"{row.get('Emulator', '')}:{row.get('Core', '')}".casefold()
         return result
 
@@ -167,17 +223,53 @@ class LaunchBoxIntegrationService:
             return ""
         return " ".join(value.replace("\\", "/").split()).casefold()
 
+    @staticmethod
+    def _system_key(name: str) -> str:
+        """Cria uma chave estável para o nome local da plataforma."""
+        return " ".join(name.casefold().split())
+
     @classmethod
-    def _association_key(cls, row: dict[str, str]) -> tuple[str, str, str]:
-        """Chave única de uma associação LaunchBox: emulador + plataforma + core/executável."""
-        emulator = row.get("Emulator", "") or row.get("EmulatorId", "")
-        platform = row.get("Platform", "")
-        core = row.get("Core", "") or row.get("CoreDll", "") or row.get("CorePath", "")
-        return cls._normalize(emulator), cls._normalize(platform), cls._normalize(core)
+    def _canonical_system(cls, value: str) -> tuple[str, str, str] | None:
+        """Retorna sistema canônico, grupo e geração para uma alias conhecida."""
+        normalized = cls._system_key(value)
+        for _, (name, group, generation, aliases) in cls.REQUIRED_SYSTEMS.items():
+            if normalized == cls._system_key(name) or any(normalized == cls._system_key(alias) for alias in aliases):
+                return name, group, generation
+        return None
+
+    @classmethod
+    def _is_excluded_system(cls, value: str) -> bool:
+        """Informa se o nome corresponde a uma plataforma explicitamente removida."""
+        return cls._system_key(value) in {cls._system_key(item) for item in cls.EXCLUDED_SYSTEM_NAMES}
+
+    @classmethod
+    def _is_excluded_core(cls, info: RetroArchInfoCore) -> bool:
+        """Remove cores de teste do catálogo funcional."""
+        text = " ".join((info.corename, info.display_name, info.system_name or "", info.system_id or "")).casefold()
+        return any(term in text for term in cls.EXCLUDED_CORE_TERMS)
+
+    @classmethod
+    def _find_platform(cls, name: str, systems: dict[str, LaunchBoxSystem], system_id: str | None = None, databases: Iterable[str] = ()) -> LaunchBoxSystem | None:
+        """Localiza a plataforma por nome, alias, systemid ou database."""
+        candidates = [name, system_id or "", *databases]
+        canonical_names = []
+        for candidate in candidates:
+            canonical = cls._canonical_system(candidate)
+            if canonical:
+                canonical_names.append(canonical[0])
+        normalized = [cls._system_key(value) for value in [*candidates, *canonical_names] if value]
+        for key in normalized:
+            if key in systems:
+                return systems[key]
+        for system in systems.values():
+            system_key = cls._system_key(system.name)
+            if any(key == system_key or key in system_key or system_key in key for key in normalized):
+                return system
+        return None
 
     @classmethod
     def _deduplicate_options(cls, options: Iterable[LaunchBoxCoreOption]) -> list[LaunchBoxCoreOption]:
-        """Remove duplicatas da GUI usando Emulador + Sistema + Core como identidade."""
+        """Remove duplicatas usando Emulador + opção + core/executável."""
         result: list[LaunchBoxCoreOption] = []
         seen: set[tuple[str, str, str]] = set()
         for option in options:
@@ -194,7 +286,7 @@ class LaunchBoxIntegrationService:
         return self.info_service.scan_directory(Path(info_directory))
 
     def build_systems(self, infos: Iterable[RetroArchInfoCore], installation: LaunchBoxInstallation | None = None) -> list[LaunchBoxSystem]:
-        """Começa por TODOS os sistemas do Platforms.xml e adiciona cada core uma única vez."""
+        """Monta as plataformas finais, aplicando exclusões e aliases canônicas."""
         systems: dict[str, LaunchBoxSystem] = {}
         existing_platforms = installation.platforms if installation else {}
         defaults = installation.default_options if installation else {}
@@ -202,20 +294,51 @@ class LaunchBoxIntegrationService:
         retroarch_exe = self.config.retroarch_path
 
         for platform_key, fields in existing_platforms.items():
-            name = fields.get("Name") or fields.get("Title") or platform_key
-            group, generation = self.classify_system(platform_key, name)
-            systems[self._system_key(name)] = LaunchBoxSystem(system_id=self._system_key(name), name=name, group=group, generation=generation, existing=True)
+            raw_name = fields.get("Name") or fields.get("Title") or platform_key
+            if self._is_excluded_system(raw_name):
+                continue
+            canonical = self._canonical_system(raw_name)
+            name = canonical[0] if canonical else raw_name
+            group, generation = (canonical[1], canonical[2]) if canonical else self.classify_system(platform_key, raw_name)
+            systems[self._system_key(name)] = LaunchBoxSystem(
+                system_id=self._system_key(name), name=name, group=group, generation=generation, existing=True
+            )
+
+        # Garante que os sistemas solicitados existam mesmo quando não há
+        # plataforma equivalente no Platforms.xml atual.
+        for _, (name, group, generation, _) in self.REQUIRED_SYSTEMS.items():
+            key = self._system_key(name)
+            if key not in systems:
+                systems[key] = LaunchBoxSystem(key, name, group, generation, existing=False)
 
         for info in infos:
+            if self._is_excluded_core(info):
+                continue
             name = info.system_name or info.display_name or info.corename
+            if self._is_excluded_system(name):
+                continue
             platform = self._find_platform(name, systems, info.system_id, info.databases)
             if platform is None:
-                group, generation = self.classify_system(info.system_id or info.corename, name)
-                platform = LaunchBoxSystem(system_id=self._system_key(name), name=name, group=group, generation=generation, existing=False)
-                systems[platform.system_id] = platform
+                canonical = self._canonical_system(name) or self._canonical_system(info.system_id or "")
+                if canonical:
+                    platform = systems.get(self._system_key(canonical[0]))
+                if platform is None:
+                    group, generation = self.classify_system(info.system_id or info.corename, name)
+                    platform = LaunchBoxSystem(self._system_key(name), name, group, generation, existing=False)
+                    systems[platform.system_id] = platform
+
             dll = f"{info.corename}_libretro.dll"
             core_path = (Path(core_root) / dll).resolve() if core_root else None
-            option = LaunchBoxCoreOption(name=info.display_name or info.corename, emulator="retroarch", core_dll=dll, core_path=core_path, executable=retroarch_exe, score=self._score_core(info), command_line=self.command_line(platform.name, core_path), existing=self._core_is_existing(installation, dll, platform.name))
+            option = LaunchBoxCoreOption(
+                name=info.display_name or info.corename,
+                emulator="retroarch",
+                core_dll=dll,
+                core_path=core_path,
+                executable=retroarch_exe,
+                score=self._score_core(info),
+                command_line=self.command_line(platform.name, core_path),
+                existing=self._core_is_existing(installation, dll, platform.name),
+            )
             default_key = defaults.get(platform.name.casefold(), "")
             if default_key.endswith(f":{dll}".casefold()):
                 option.default = True
@@ -229,40 +352,20 @@ class LaunchBoxIntegrationService:
 
     @classmethod
     def _option_identity(cls, option: LaunchBoxCoreOption) -> tuple[str, str, str]:
-        """Identidade da associação candidata, independente do texto exibido na GUI."""
+        """Identidade da associação candidata."""
         target = option.core_dll or (option.executable.as_posix() if option.executable else option.name)
         return cls._normalize(option.emulator), cls._normalize(option.name), cls._normalize(target)
-
-    @staticmethod
-    def _system_key(name: str) -> str:
-        """Cria uma chave estável para o nome local da plataforma."""
-        return " ".join(name.casefold().split())
-
-    @classmethod
-    def _find_platform(cls, name: str, systems: dict[str, LaunchBoxSystem], system_id: str | None = None, databases: Iterable[str] = ()) -> LaunchBoxSystem | None:
-        """Localiza a plataforma por nome, systemid ou database antes de criar uma nova."""
-        candidates = [name, system_id or "", *databases]
-        normalized = [cls._system_key(value) for value in candidates if value]
-        for key in normalized:
-            if key in systems:
-                return systems[key]
-        for system in systems.values():
-            system_key = cls._system_key(system.name)
-            if any(key == system_key or key in system_key or system_key in key for key in normalized):
-                return system
-        return None
 
     @staticmethod
     def _core_is_existing(installation: LaunchBoxInstallation | None, dll: str, platform: str) -> bool:
         """Verifica se a associação específica plataforma + core já existe no XML."""
         if installation is None:
             return False
-        for row in installation.emulator_platforms:
-            if row.get("Platform", "").casefold() != platform.casefold():
-                continue
-            if row.get("Core", "").casefold() == dll.casefold():
-                return True
-        return False
+        return any(
+            row.get("Platform", "").casefold() == platform.casefold()
+            and row.get("Core", "").casefold() == dll.casefold()
+            for row in installation.emulator_platforms
+        )
 
     @staticmethod
     def _label(emulator: str) -> str:
@@ -270,21 +373,37 @@ class LaunchBoxIntegrationService:
         return {"retroarch": "RetroArch", "mame": "MAME", "flycast": "Flycast", "fbneo": "FBNeo", "supermodel": "Supermodel"}.get(emulator, emulator)
 
     def add_standalones(self, systems: list[LaunchBoxSystem], standalone: list[dict] | None = None) -> list[LaunchBoxSystem]:
-        """Adiciona standalones sem remover sistemas vindos do Platforms.xml."""
-        executable_map = {"mame": self.config.mame_path, "flycast": self.config.flycast_path, "fbneo": self.config.fbneo_path, "supermodel": self.config.supermodel_path}
+        """Adiciona standalones às plataformas corretas, nunca como plataforma própria."""
+        executable_map = {
+            "mame": self.config.mame_path,
+            "flycast": self.config.flycast_path,
+            "fbneo": self.config.fbneo_path,
+            "supermodel": self.config.supermodel_path,
+        }
         for item in standalone or []:
             system_id = str(item.get("system_id", "")).casefold()
             if not system_id:
                 continue
+            canonical = self._canonical_system(system_id)
+            if canonical:
+                system_id = self._system_key(canonical[0])
+                name = canonical[0]
+            else:
+                name = str(item.get("name", system_id))
             target = next((s for s in systems if s.system_id == system_id), None)
             if target is None:
-                name = str(item.get("name", system_id))
                 group, generation = self.classify_system(system_id, name)
                 target = LaunchBoxSystem(system_id, name, group, generation, existing=False)
                 systems.append(target)
             emulator = str(item.get("emulator", "mame")).casefold()
             executable = executable_map.get(emulator)
-            option = LaunchBoxCoreOption(name=item.get("name", self._label(emulator)), emulator=emulator, executable=executable, score=int(item.get("score", 90)), command_line=self.standalone_command(emulator, item.get("command_line", "")))
+            option = LaunchBoxCoreOption(
+                name=item.get("name", self._label(emulator)),
+                emulator=emulator,
+                executable=executable,
+                score=int(item.get("score", 90)),
+                command_line=self.standalone_command(emulator, item.get("command_line", "")),
+            )
             if not any(o.key == option.key for o in target.options):
                 target.options.append(option)
             self._select_default(target)
@@ -296,6 +415,9 @@ class LaunchBoxIntegrationService:
         override = overrides.get(system_id, {}) or overrides.get(name, {})
         if override:
             return override.get("group", "consoles"), override.get("generation", "Outros")
+        canonical = self._canonical_system(name) or self._canonical_system(system_id)
+        if canonical:
+            return canonical[1], canonical[2]
         text = f"{system_id} {name}".casefold()
         if any(k in text for k in ("arcade", "naomi", "atomiswave", "mame", "fbneo", "model 2", "model 3")):
             return "arcade", "Outros"
@@ -377,9 +499,7 @@ class LaunchBoxIntegrationService:
     def _find_emulator(root: ET.Element, title: str) -> ET.Element | None:
         """Localiza um Emulator existente pelo título."""
         for element in root:
-            if element.tag.rsplit("}", 1)[-1].casefold() != "emulator":
-                continue
-            if element.findtext("Title", "").casefold() == title.casefold():
+            if element.tag.rsplit("}", 1)[-1].casefold() == "emulator" and element.findtext("Title", "").casefold() == title.casefold():
                 return element
         return None
 
@@ -417,9 +537,7 @@ class LaunchBoxIntegrationService:
                 continue
             if row.findtext("Platform", "").casefold() != platform.casefold():
                 continue
-            existing_core = row.findtext("Core", "").casefold()
-            requested_core = (option.core_dll or "").casefold()
-            if existing_core == requested_core:
+            if row.findtext("Core", "").casefold() == (option.core_dll or "").casefold():
                 target = row
                 break
         if target is None:
@@ -444,18 +562,15 @@ class LaunchBoxIntegrationService:
             return
         selected_emulator = LaunchBoxIntegrationService._label(selected.emulator).casefold()
         for row in root:
-            if row.tag.rsplit("}", 1)[-1].casefold() != "emulatorplatform":
-                continue
-            if row.findtext("Platform", "").casefold() != system.name.casefold():
+            if row.tag.rsplit("}", 1)[-1].casefold() != "emulatorplatform" or row.findtext("Platform", "").casefold() != system.name.casefold():
                 continue
             emulator_id = row.findtext("Emulator", "").casefold()
             emulator = next((e for e in root if e.tag.rsplit("}", 1)[-1].casefold() == "emulator" and e.findtext("ID", "").casefold() == emulator_id), None)
             if emulator is None:
                 continue
             is_selected = emulator.findtext("Title", "").casefold() == selected_emulator
-            row_core = row.findtext("Core", "").casefold()
             if selected.core_dll:
-                is_selected = is_selected and row_core == selected.core_dll.casefold()
+                is_selected = is_selected and row.findtext("Core", "").casefold() == selected.core_dll.casefold()
             _set_child(row, "Default", "true" if is_selected else "false")
 
 
