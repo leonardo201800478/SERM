@@ -27,18 +27,20 @@ from app.core.services.retroarch_info_service import RetroArchInfoCore
 class LaunchBoxIntegrationService(_LaunchBoxIntegrationService):
     """Integração LaunchBox usando o nome físico correto dos cores RetroArch.
 
-    O arquivo ``mesen_libretro.info`` sempre corresponde a
-    ``mesen_libretro.dll``; o valor ``corename = "Mesen"`` não é usado para
-    reconstruir o nome do DLL. Isso evita associações quebradas como
-    ``VICE x64sc_libretro.dll``.
+    O arquivo ``mesen_libretro.info`` corresponde a
+    ``mesen_libretro.dll``. O serviço-base acrescenta ``_libretro.dll``
+    ao valor técnico de ``corename``; portanto, para um arquivo
+    ``*_libretro.info``, o ``corename`` técnico precisa ser apenas o stem
+    anterior a ``_libretro``. O nome amigável permanece intacto.
     """
 
     @staticmethod
     def _core_filename(info: RetroArchInfoCore) -> str:
-        """Retorna o nome exato do DLL correspondente ao ``.info``.
+        """Retorna o nome físico do DLL correspondente ao arquivo ``.info``.
 
-        A transformação é deliberadamente baseada no nome do arquivo .info.
-        O catálogo oficial usa o mesmo stem para os pares ``.info``/``.dll``.
+        A transformação é deliberadamente baseada no nome do arquivo .info,
+        e não em ``corename``. O catálogo oficial usa o mesmo stem para os
+        pares ``.info``/``.dll``.
         """
         filename = Path(info.filename).name
         if filename.casefold().endswith("_libretro.info"):
@@ -48,21 +50,37 @@ class LaunchBoxIntegrationService(_LaunchBoxIntegrationService):
         return f"{filename}_libretro.dll"
 
     @classmethod
-    def _normalize_core_identity(cls, infos: Iterable[RetroArchInfoCore]) -> list[RetroArchInfoCore]:
-        """Normaliza o identificador técnico do core sem alterar sua exibição.
+    def _technical_corename(cls, info: RetroArchInfoCore) -> str:
+        """Converte o nome físico do DLL para o identificador esperado pelo serviço-base.
 
-        ``display_name`` permanece intacto para a interface; ``corename`` é
-        substituído apenas na cópia enviada ao motor legado para que ele gere
-        o DLL a partir do stem físico do .info.
+        ``launchbox_integration_service_v2`` constrói o DLL como
+        ``{corename}_libretro.dll``. Assim, ``mesen_libretro.dll`` deve ser
+        representado internamente como ``mesen`` e não como
+        ``mesen_libretro``. Isso evita o erro ``*_libretro_libretro.dll``.
+        """
+        dll_name = cls._core_filename(info)
+        stem = Path(dll_name).stem
+        if stem.casefold().endswith("_libretro"):
+            stem = stem[:-len("_libretro")]
+        return stem
+
+    @classmethod
+    def _normalize_core_identity(cls, infos: Iterable[RetroArchInfoCore]) -> list[RetroArchInfoCore]:
+        """Normaliza apenas a identidade técnica, preservando a apresentação.
+
+        ``display_name`` não é alterado. Apenas a cópia enviada ao motor
+        legado recebe o ``corename`` técnico sem o sufixo ``_libretro``.
         """
         normalized: list[RetroArchInfoCore] = []
         for info in infos:
-            filename = cls._core_filename(info)
-            stem = filename[:-len(".dll")] if filename.casefold().endswith(".dll") else Path(filename).stem
-            normalized.append(replace(info, corename=stem))
+            normalized.append(replace(info, corename=cls._technical_corename(info)))
         return normalized
 
-    def build_systems(self, infos: Iterable[RetroArchInfoCore], installation: LaunchBoxInstallation | None = None) -> list[LaunchBoxSystem]:
+    def build_systems(
+        self,
+        infos: Iterable[RetroArchInfoCore],
+        installation: LaunchBoxInstallation | None = None,
+    ) -> list[LaunchBoxSystem]:
         """Constrói as plataformas usando DLLs fisicamente correspondentes aos .info."""
         return super().build_systems(self._normalize_core_identity(infos), installation)
 
