@@ -181,7 +181,8 @@ class LaunchBoxIntegrationService:
         result: list[LaunchBoxCoreOption] = []
         seen: set[tuple[str, str, str]] = set()
         for option in options:
-            key = (cls._normalize(option.emulator), cls._normalize(option.name), cls._normalize(option.core_dll or option.executable.as_posix() if option.executable else option.name))
+            target = option.core_dll or (option.executable.as_posix() if option.executable else option.name)
+            key = (cls._normalize(option.emulator), cls._normalize(option.name), cls._normalize(target))
             if key in seen:
                 continue
             seen.add(key)
@@ -250,3 +251,220 @@ class LaunchBoxIntegrationService:
             if any(key == system_key or key in system_key or system_key in key for key in normalized):
                 return system
         return None
+
+    @staticmethod
+    def _core_is_existing(installation: LaunchBoxInstallation | None, dll: str, platform: str) -> bool:
+        """Verifica se a associação específica plataforma + core já existe no XML."""
+        if installation is None:
+            return False
+        for row in installation.emulator_platforms:
+            if row.get("Platform", "").casefold() != platform.casefold():
+                continue
+            if row.get("Core", "").casefold() == dll.casefold():
+                return True
+        return False
+
+    @staticmethod
+    def _label(emulator: str) -> str:
+        """Retorna o título conhecido do emulador."""
+        return {"retroarch": "RetroArch", "mame": "MAME", "flycast": "Flycast", "fbneo": "FBNeo", "supermodel": "Supermodel"}.get(emulator, emulator)
+
+    def add_standalones(self, systems: list[LaunchBoxSystem], standalone: list[dict] | None = None) -> list[LaunchBoxSystem]:
+        """Adiciona standalones sem remover sistemas vindos do Platforms.xml."""
+        executable_map = {"mame": self.config.mame_path, "flycast": self.config.flycast_path, "fbneo": self.config.fbneo_path, "supermodel": self.config.supermodel_path}
+        for item in standalone or []:
+            system_id = str(item.get("system_id", "")).casefold()
+            if not system_id:
+                continue
+            target = next((s for s in systems if s.system_id == system_id), None)
+            if target is None:
+                name = str(item.get("name", system_id))
+                group, generation = self.classify_system(system_id, name)
+                target = LaunchBoxSystem(system_id, name, group, generation, existing=False)
+                systems.append(target)
+            emulator = str(item.get("emulator", "mame")).casefold()
+            executable = executable_map.get(emulator)
+            option = LaunchBoxCoreOption(name=item.get("name", self._label(emulator)), emulator=emulator, executable=executable, score=int(item.get("score", 90)), command_line=self.standalone_command(emulator, item.get("command_line", "")))
+            if not any(o.key == option.key for o in target.options):
+                target.options.append(option)
+            self._select_default(target)
+        return sorted(systems, key=lambda s: (self.GROUP_ORDER.index(s.group), s.generation.casefold(), s.name.casefold()))
+
+    def classify_system(self, system_id: str, name: str) -> tuple[str, str]:
+        """Classifica por overrides externos e fallback conservador."""
+        overrides = self.group_rules.get("system_overrides", {})
+        override = overrides.get(system_id, {}) or overrides.get(name, {})
+        if override:
+            return override.get("group", "consoles"), override.get("generation", "Outros")
+        text = f"{system_id} {name}".casefold()
+        if any(k in text for k in ("arcade", "naomi", "atomiswave", "mame", "fbneo", "model 2", "model 3")):
+            return "arcade", "Outros"
+        if any(k in text for k in ("game boy", "gameboy", "game gear", "lynx", "neo geo pocket", "wonderswan", "nintendo ds", "gba", "gamepark", "psp", "vita", "pokemon mini")):
+            return "portables", "Outros"
+        if any(k in text for k in ("apple ii", "amstrad", "commodore", "msx", "zx spectrum", "dos", "pc-98", "x68000", "computer", "amiga", "windows")):
+            return "computers", "Outros"
+        return "consoles", "Outros"
+
+    def _score_core(self, info: RetroArchInfoCore) -> int:
+        """Calcula uma preferência inicial determinística."""
+        text = f"{info.corename} {info.display_name}".casefold()
+        score = 50
+        if "accuracy" in text or "beetle" in text or "bsnes" in text or "mesen" in text:
+            score += 20
+        if "retroachievement" in text:
+            score += 10
+        if "hardware" in text or "vulkan" in text:
+            score += 5
+        return score
+
+    @staticmethod
+    def _select_default(system: LaunchBoxSystem) -> None:
+        """Garante exatamente um padrão entre as opções do sistema."""
+        if not system.options:
+            return
+        selected = next((o for o in system.options if o.default), None)
+        if selected is None:
+            selected = max(system.options, key=lambda o: (o.score, o.name.casefold()))
+        for option in system.options:
+            option.default = option is selected
+
+    def set_default_option(self, system: LaunchBoxSystem, option: LaunchBoxCoreOption) -> None:
+        """Define manualmente um único padrão e remove automaticamente o anterior."""
+        if option not in system.options:
+            raise ValueError("A opção não pertence ao sistema selecionado.")
+        for candidate in system.options:
+            candidate.default = candidate is option
+
+    def command_line(self, platform: str, core_path: Path | None) -> str:
+        """Obtém o command line configurado para a plataforma/core."""
+        template = self.rules.get("retroarch", {}).get("platform_overrides", {}).get(platform) or self.rules.get("retroarch", {}).get("default", "-L \"{core_path}\"")
+        return template.format(core_path=str(core_path) if core_path else "{core_path}", core_dll=core_path.name if core_path else "{core_dll}", platform=platform)
+
+    def standalone_command(self, emulator: str, template: str = "") -> str:
+        """Obtém o command line externo para um standalone."""
+        return template or self.rules.get("standalone", {}).get(emulator, {}).get("default", "")
+
+    def export_emulators_xml(self, launchbox_dir: Path, systems: Iterable[LaunchBoxSystem], overwrite: bool = False) -> Path:
+        """Faz merge usando Emulator + EmulatorPlatform, preservando múltiplos cores por plataforma."""
+        data_dir = Path(launchbox_dir) / "Data"
+        if not data_dir.is_dir():
+            raise FileNotFoundError(f"Pasta Data não encontrada: {data_dir}")
+        target = data_dir / "Emulators.xml"
+        if target.exists():
+            try:
+                tree = ET.parse(target)
+            except ET.ParseError as exc:
+                raise ValueError(f"Emulators.xml inválido; nenhuma alteração foi feita: {exc}") from exc
+            root = tree.getroot()
+            shutil.copy2(target, target.with_name(target.name + ".arcademanager.bak"))
+        else:
+            root = ET.Element("LaunchBox")
+            tree = ET.ElementTree(root)
+        for system in systems:
+            for option in system.options:
+                emulator = self._find_emulator(root, self._label(option.emulator))
+                if emulator is None:
+                    emulator = self._create_emulator(root, self._label(option.emulator), option.executable)
+                self._merge_emulator_platform(root, emulator, system.name, option)
+            self._normalize_defaults(root, system)
+        ET.indent(root, space="  ")
+        tmp = target.with_name(target.name + ".tmp")
+        tree.write(tmp, encoding="utf-8", xml_declaration=True)
+        tmp.replace(target)
+        return target
+
+    @staticmethod
+    def _find_emulator(root: ET.Element, title: str) -> ET.Element | None:
+        """Localiza um Emulator existente pelo título."""
+        for element in root:
+            if element.tag.rsplit("}", 1)[-1].casefold() != "emulator":
+                continue
+            if element.findtext("Title", "").casefold() == title.casefold():
+                return element
+        return None
+
+    @staticmethod
+    def _create_emulator(root: ET.Element, title: str, executable: Path | None) -> ET.Element:
+        """Cria somente o registro Emulator necessário."""
+        emulator = ET.Element("Emulator")
+        _set_child(emulator, "ID", str(uuid.uuid4()))
+        _set_child(emulator, "Title", title)
+        _set_child(emulator, "ApplicationPath", str(executable) if executable else "")
+        _set_child(emulator, "CommandLine", "")
+        _set_child(emulator, "DefaultPlatform", "")
+        _set_child(emulator, "NoQuotes", "false")
+        _set_child(emulator, "NoSpace", "false")
+        root.append(emulator)
+        return emulator
+
+    @staticmethod
+    def _emulator_id(emulator: ET.Element) -> str:
+        """Retorna o ID persistido de um Emulator."""
+        return emulator.findtext("ID", "").strip()
+
+    @staticmethod
+    def _merge_emulator_platform(root: ET.Element, emulator: ET.Element, platform: str, option: LaunchBoxCoreOption) -> None:
+        """Insere ou atualiza uma associação sem colapsar cores diferentes."""
+        emulator_id = LaunchBoxIntegrationService._emulator_id(emulator)
+        if not emulator_id:
+            emulator_id = str(uuid.uuid4())
+            _set_child(emulator, "ID", emulator_id)
+        target = None
+        for row in root:
+            if row.tag.rsplit("}", 1)[-1].casefold() != "emulatorplatform":
+                continue
+            if row.findtext("Emulator", "").casefold() != emulator_id.casefold():
+                continue
+            if row.findtext("Platform", "").casefold() != platform.casefold():
+                continue
+            existing_core = row.findtext("Core", "").casefold()
+            requested_core = (option.core_dll or "").casefold()
+            if existing_core == requested_core:
+                target = row
+                break
+        if target is None:
+            target = ET.Element("EmulatorPlatform")
+            _set_child(target, "Emulator", emulator_id)
+            _set_child(target, "Platform", platform)
+            _set_child(target, "CommandLine", option.command_line)
+            _set_child(target, "Default", "true" if option.default else "false")
+            if option.core_dll:
+                _set_child(target, "Core", option.core_dll)
+            root.append(target)
+        else:
+            _set_child(target, "CommandLine", option.command_line)
+            if option.core_dll:
+                _set_child(target, "Core", option.core_dll)
+
+    @staticmethod
+    def _normalize_defaults(root: ET.Element, system: LaunchBoxSystem) -> None:
+        """Garante exatamente um Default=true entre todos os candidatos do sistema."""
+        selected = next((o for o in system.options if o.default), None)
+        if selected is None:
+            return
+        selected_emulator = LaunchBoxIntegrationService._label(selected.emulator).casefold()
+        for row in root:
+            if row.tag.rsplit("}", 1)[-1].casefold() != "emulatorplatform":
+                continue
+            if row.findtext("Platform", "").casefold() != system.name.casefold():
+                continue
+            emulator_id = row.findtext("Emulator", "").casefold()
+            emulator = next((e for e in root if e.tag.rsplit("}", 1)[-1].casefold() == "emulator" and e.findtext("ID", "").casefold() == emulator_id), None)
+            if emulator is None:
+                continue
+            is_selected = emulator.findtext("Title", "").casefold() == selected_emulator
+            row_core = row.findtext("Core", "").casefold()
+            if selected.core_dll:
+                is_selected = is_selected and row_core == selected.core_dll.casefold()
+            _set_child(row, "Default", "true" if is_selected else "false")
+
+
+def _set_child(parent: ET.Element, name: str, value: str) -> None:
+    """Atualiza/cria um elemento XML sem remover os demais campos."""
+    node = parent.find(name)
+    if node is None:
+        node = ET.SubElement(parent, name)
+    node.text = value
+
+
+__all__ = ["LaunchBoxIntegrationService", "LaunchBoxSystem", "LaunchBoxCoreOption", "LaunchBoxInstallation"]
