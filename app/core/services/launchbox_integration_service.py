@@ -69,10 +69,13 @@ class LaunchBoxIntegrationService:
 
     GROUP_ORDER = ("consoles", "portables", "computers", "arcade")
 
+    # Nomes antigos/genéricos que devem desaparecer da árvore. C64 não fica
+    # aqui porque é convertido para o sistema canônico "Commodore 64".
     EXCLUDED_SYSTEM_NAMES = {
-        "sega 8-bit", "sega 8 bit", "game boy/game boy color",
-        "game boy / game boy color", "neo geo pocket (color)", "c64",
-        "commodore c64", "microsoft xbox",
+        "sega 8-bit", "sega 8 bit", "sega 8-bit (ms/gg/sg-1000)",
+        "sega 8 bit (ms/gg/sg-1000)", "game boy/game boy color",
+        "game boy / game boy color", "neo geo pocket (color)",
+        "microsoft xbox",
     }
     EXCLUDED_CORE_TERMS = ("advanced test core", "advanced test", "advanced_test")
 
@@ -183,28 +186,25 @@ class LaunchBoxIntegrationService:
     def _read_emulator_platforms(path: Path) -> list[dict[str, str]]:
         """Lê EmulatorPlatform como registros irmãos dos Emulator."""
         tree = ET.parse(path)
-        result: list[dict[str, str]] = []
-        for element in tree.getroot().iter():
-            if element.tag.rsplit("}", 1)[-1].casefold() == "emulatorplatform":
-                result.append({child.tag.rsplit("}", 1)[-1]: (child.text or "").strip() for child in element})
-        return result
+        return [
+            {child.tag.rsplit("}", 1)[-1]: (child.text or "").strip() for child in element}
+            for element in tree.getroot().iter()
+            if element.tag.rsplit("}", 1)[-1].casefold() == "emulatorplatform"
+        ]
 
     @staticmethod
     def _read_default_associations(rows: list[dict[str, str]]) -> dict[str, str]:
         """Obtém o candidato padrão por plataforma a partir do XML."""
-        result: dict[str, str] = {}
-        for row in rows:
-            platform = row.get("Platform", "").strip()
-            if platform and row.get("Default", "").casefold() in {"true", "1", "yes"}:
-                result[platform.casefold()] = f"{row.get('Emulator', '')}:{row.get('Core', '')}".casefold()
-        return result
+        return {
+            row["Platform"].strip().casefold(): f"{row.get('Emulator', '')}:{row.get('Core', '')}".casefold()
+            for row in rows
+            if row.get("Platform", "").strip() and row.get("Default", "").casefold() in {"true", "1", "yes"}
+        }
 
     @staticmethod
     def _normalize(value: str | None) -> str:
-        """Normaliza nomes para comparação de identidade sem alterar o valor original."""
-        if not value:
-            return ""
-        return " ".join(value.replace("\\", "/").split()).casefold()
+        """Normaliza nomes para comparação de identidade."""
+        return " ".join(value.replace("\\", "/").split()).casefold() if value else ""
 
     @staticmethod
     def _system_key(name: str) -> str:
@@ -292,9 +292,15 @@ class LaunchBoxIntegrationService:
             if self._is_excluded_core(info):
                 continue
             name = info.system_name or info.display_name or info.corename
-            if self._is_excluded_system(name):
+            # C64 é alias válido de Commodore 64; os demais nomes excluídos
+            # continuam fora da árvore.
+            if self._is_excluded_system(name) and not self._canonical_system(name):
                 continue
             platform = self._find_platform(name, systems, info.system_id, info.databases)
+            if platform is None:
+                canonical = self._canonical_system(name) or self._canonical_system(info.system_id or "")
+                if canonical:
+                    platform = systems.get(self._system_key(canonical[0]))
             if platform is None:
                 group, generation = self.classify_system(info.system_id or info.corename, name)
                 platform = LaunchBoxSystem(self._system_key(name), name, group, generation, existing=False)
@@ -343,28 +349,32 @@ class LaunchBoxIntegrationService:
     def add_standalones(self, systems: list[LaunchBoxSystem], standalone: list[dict] | None = None) -> list[LaunchBoxSystem]:
         """Adiciona os standalones às plataformas corretas, nunca como sistema próprio."""
         executable_map = {"mame": self.config.mame_path, "flycast": self.config.flycast_path, "fbneo": self.config.fbneo_path, "supermodel": self.config.supermodel_path}
-        requested = list(standalone or [])
-        requested.extend(self.MANDATORY_STANDALONES)
+        requested = list(standalone or []) + list(self.MANDATORY_STANDALONES)
         seen_requests: set[tuple[str, str]] = set()
         for item in requested:
             system_id = str(item.get("system_id", "")).casefold()
             emulator = str(item.get("emulator", "mame")).casefold()
-            if not system_id or (system_id, emulator) in seen_requests:
-                continue
-            seen_requests.add((system_id, emulator))
             canonical = self._canonical_system(system_id)
             if canonical:
-                system_id = self._system_key(canonical[0])
-                name = canonical[0]
+                system_id, name = self._system_key(canonical[0]), canonical[0]
             else:
                 name = str(item.get("name", system_id))
+            request_key = (system_id, emulator)
+            if not system_id or request_key in seen_requests:
+                continue
+            seen_requests.add(request_key)
             target = next((s for s in systems if s.system_id == system_id), None)
             if target is None:
                 group, generation = self.classify_system(system_id, name)
                 target = LaunchBoxSystem(system_id, name, group, generation, existing=False)
                 systems.append(target)
-            executable = executable_map.get(emulator)
-            option = LaunchBoxCoreOption(name=item.get("name", self._label(emulator)), emulator=emulator, executable=executable, score=int(item.get("score", 90)), command_line=self.standalone_command(emulator, item.get("command_line", "")))
+            option = LaunchBoxCoreOption(
+                name=item.get("name", self._label(emulator)),
+                emulator=emulator,
+                executable=executable_map.get(emulator),
+                score=int(item.get("score", 90)),
+                command_line=self.standalone_command(emulator, item.get("command_line", "")),
+            )
             if not any(o.key == option.key for o in target.options):
                 target.options.append(option)
             self._select_default(target)
@@ -457,10 +467,7 @@ class LaunchBoxIntegrationService:
     @staticmethod
     def _find_emulator(root: ET.Element, title: str) -> ET.Element | None:
         """Localiza um Emulator existente pelo título."""
-        for element in root:
-            if element.tag.rsplit("}", 1)[-1].casefold() == "emulator" and element.findtext("Title", "").casefold() == title.casefold():
-                return element
-        return None
+        return next((element for element in root if element.tag.rsplit("}", 1)[-1].casefold() == "emulator" and element.findtext("Title", "").casefold() == title.casefold()), None)
 
     @staticmethod
     def _create_emulator(root: ET.Element, title: str, executable: Path | None) -> ET.Element:
@@ -492,9 +499,7 @@ class LaunchBoxIntegrationService:
         for row in root:
             if row.tag.rsplit("}", 1)[-1].casefold() != "emulatorplatform":
                 continue
-            if row.findtext("Emulator", "").casefold() != emulator_id.casefold():
-                continue
-            if row.findtext("Platform", "").casefold() != platform.casefold():
+            if row.findtext("Emulator", "").casefold() != emulator_id.casefold() or row.findtext("Platform", "").casefold() != platform.casefold():
                 continue
             if row.findtext("Core", "").casefold() == (option.core_dll or "").casefold():
                 target = row
