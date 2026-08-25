@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "profiles": [
+    {
+      "id": "sega-sg1000-fidelity-v1",
+      "name": "SG-1000 — Fidelity CRT v1",
+      "description": "Perfil de referência para Sega SG-1000: Genesis Plus GX, áudio mono, 1:1 PAR, no sprite limit e CRT Guest Advanced NTSC nítido com Composite moderado. O overlay 16:9/4:3 existente do usuário é preservado.",
+      "systems": [
+        "Sega SG-1000",
+        "sg-1000",
+        "sg1000"
+      ],
+      "core": "Genesis Plus GX",
+      "overlay_asset": "",
+      "targets": {
+        "options": "config/Genesis Plus GX/Sega SG-1000.opt",
+        "override": "config/Genesis Plus GX/Sega SG-1000.cfg",
+        "shader": "config/Genesis Plus GX/Sega SG-1000.slangp",
+        "remap": "config/remaps/Genesis Plus GX/Sega SG-1000.rmp"
+      },
+      "files": {
+        "options": "genesis_plus_gx_audio_filter = \"disabled\"\ngenesis_plus_gx_blargg_ntsc_filter = \"disabled\"\ngenesis_plus_gx_force_dtack_patch = \"disabled\"\ngenesis_plus_gx_ym2413 = \"auto\"\ngenesis_plus_gx_no_sprite_limit = \"enabled\"\ngenesis_plus_gx_sound_output = \"mono\"\ngenesis_plus_gx_system_hw = \"auto\"\ngenesis_plus_gx_region_detect = \"auto\"\ngenesis_plus_gx_overscan = \"disabled\"\ngenesis_plus_gx_lcd_filter = \"disabled\"\ngenesis_plus_gx_psg_preamp = \"150\"",
+        "override": "video_smooth = \"false\"\naspect_ratio_index = \"21\"\ninput_overlay = \":\\\\overlays\\\\2k Systems\\\\Sega-SG-1000-Bezel-16x9-2560x1440.cfg\"\ninput_overlay_enable = \"true\"\nvideo_shader_enable = \"true\"\nvideo_shader = \":\\\\config\\\\Genesis Plus GX\\\\Sega SG-1000.slangp\"",
+        "shader": "; Sega SG-1000 — CRT Guest Advanced NTSC — Fidelity v1\n; Perfil de teste aprovado como padrão do sistema.\n; Objetivo: imagem CRT nítida, Composite NTSC moderado, sem RF e sem curvatura.\n#reference \":/shaders/shaders_slang/crt/crt-guest-advanced-ntsc.slangp\n\nquality = 1.0\ncust_artifacting = 0.55\ncust_fringing = 0.35\nntsc_fields = -1.0\nntsc_phase = 1.0\nntsc_scale = 1.0\nntsc_sat = 0.95\nntsc_bright = 1.0\nntsc_gamma = 1.0\nntsc_rainbow1 = 0.0\nntsc_taps = 32.0\nntsc_charp = 0.50\nntsc_charp3 = 0.75\nfilter_res = 1.0\nauto_res = 0.0\nspeedup = 1.0\n\nHSHARPNESS = 1.45\nSIGMA_HOR = 0.65\nS_SHARP = 1.05\nHSHARP = 1.20\nMAXS = 0.15\nHARNG = 0.20\nspike = 0.80\n\nglow = 0.04\nbloom = 0.02\nmask_bloom = 0.00\nbloom_dist = 0.00\nhalation = 0.015\nbmask1 = 0.00\nhmask1 = 0.20\ngamma_c = 1.00\ngamma_c2 = 1.00\nbrightboost = 1.15\nbrightboost1 = 1.05\nclips = 0.00\n\ngsl = 0.0\nscanline1 = 6.0\nscanline2 = 8.0\nbeam_min = 1.15\nbeam_max = 1.00\ntds = 0.00\nbeam_size = 0.55\nscans = 0.35\nscan_falloff = 1.00\nscangamma = 2.40\nrolling_scan = 0.00\nno_scanlines = 0.00\n\nwarpX = 0.00\nwarpY = 0.00\nc_shape = 0.25\noverscanX = 0.0\noverscanY = 0.0\nVShift = 0.0\n\nintres = 0.0\nIOS = 0.0\nOS = 1.0\nBLOOM = 0.0",
+        "remap": "input_libretro_device_p1 = \"769\"\ninput_libretro_device_p2 = \"1\"\ninput_player1_analog_dpad_mode = \"1\"\ninput_player2_analog_dpad_mode = \"1\"\ninput_remap_port_p1 = \"0\"\ninput_remap_port_p2 = \"1\"\ninput_player1_turbo_btn = \"\"\ninput_player2_turbo_btn = \"\""
+      }
+    }
+  ]
+}
