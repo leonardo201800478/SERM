@@ -165,19 +165,9 @@ class SystemOptimizationService:
         if legacy_core and legacy_core not in core_optimizations:
             files = item.get("files", {})
             targets = item.get("targets", {})
-            legacy_files = (
-                {str(k): str(v) for k, v in files.items() if k != "shader"}
-                if isinstance(files, dict) else {}
-            )
-            legacy_targets = (
-                {str(k): str(v) for k, v in targets.items() if k != "shader"}
-                if isinstance(targets, dict) else {}
-            )
-            core_optimizations[legacy_core] = CoreOptimization(
-                core=legacy_core,
-                files=legacy_files,
-                targets=legacy_targets,
-            )
+            legacy_files = {str(k): str(v) for k, v in files.items() if k != "shader"} if isinstance(files, dict) else {}
+            legacy_targets = {str(k): str(v) for k, v in targets.items() if k != "shader"} if isinstance(targets, dict) else {}
+            core_optimizations[legacy_core] = CoreOptimization(core=legacy_core, files=legacy_files, targets=legacy_targets)
 
         return SystemOptimizationProfile(
             profile_id=profile_id,
