@@ -10,6 +10,18 @@ from app.core.services.system_optimization_service import SystemOptimizationServ
 CATALOG_SOURCE = Path(__file__).resolve().parents[1] / "data" / "launchbox" / "system_optimizations.json"
 
 
+OVERLAYS = {
+    "Sega SG-1000": "Sega-SG-1000-Bezel-16x9-2560x1440.cfg",
+    "NES": "Nintendo-Entertainment-System-Bezel-16x9-2560x1440.cfg",
+    "Super Nintendo Entertainment System": "Super-Nintendo-Entertainment-System-Bezel-16x9-2560x1440.cfg",
+    "Master System": "Sega-Master-System-Bezel-16x9-2560x1440.cfg",
+    "Mega Drive": "Sega-Genesis-16bit-Bezel-16x9-2560x1440.cfg",
+    "PlayStation": "Sony-Playstation-Bezel-16x9-2560x1440.cfg",
+    "Sega Saturn": "Sega-Saturn-Bezel-16x9-2560x1440.cfg",
+    "Nintendo 64": "Nintendo-64-Bezel-16x9-2560x1440.cfg",
+}
+
+
 def _service(tmp_path: Path) -> SystemOptimizationService:
     """Cria um serviço isolado apontando para um catálogo temporário."""
     project_root = tmp_path / "project"
@@ -23,7 +35,16 @@ def _service(tmp_path: Path) -> SystemOptimizationService:
     config = AppConfig()
     config.retroarch_dir = tmp_path / "retroarch"
     config.emulator_paths["retroarch"]["config"] = config.retroarch_dir / "config"
+    config.retroarch_native_paths["overlay_directory"] = config.retroarch_dir / "overlays"
     return SystemOptimizationService(project_root=project_root, config=config)
+
+
+def _create_overlay(config: AppConfig, filename: str) -> Path:
+    """Cria um bezel fictício para validar a resolução automática do serviço."""
+    path = Path(config.retroarch_native_paths["overlay_directory"]) / "2k Systems" / filename
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("overlay", encoding="utf-8")
+    return path
 
 
 def test_all_console_profiles_are_catalogued(tmp_path: Path) -> None:
@@ -65,9 +86,10 @@ def test_profiles_match_system_aliases(tmp_path: Path) -> None:
 
 
 def test_sg1000_profile_applies_with_backup_and_correct_paths(tmp_path: Path) -> None:
-    """A aplicação preserva o existente e não cria a pasta config/config."""
+    """A aplicação preserva o existente e instala shader/overlay no formato correto."""
     service = _service(tmp_path)
     config_root = service.config.emulator_paths["retroarch"]["config"]
+    overlay = _create_overlay(service.config, OVERLAYS["Sega SG-1000"])
     target = config_root / "Genesis Plus GX" / "Sega SG-1000.cfg"
     target.parent.mkdir(parents=True)
     target.write_text("old = \"value\"\n", encoding="utf-8")
@@ -79,26 +101,48 @@ def test_sg1000_profile_applies_with_backup_and_correct_paths(tmp_path: Path) ->
     assert target.is_file()
     assert not (config_root / "config" / "Genesis Plus GX").exists()
     assert target.read_text(encoding="utf-8").startswith("video_smooth")
+    assert 'video_shader = ":/config/Genesis Plus GX/Sega SG-1000.slangp"' in target.read_text(encoding="utf-8")
+    assert 'input_overlay = ":/overlays/2k Systems/Sega-SG-1000-Bezel-16x9-2560x1440.cfg"' in target.read_text(encoding="utf-8")
+    assert (config_root / "Genesis Plus GX" / "Sega SG-1000.slangp").is_file()
+    assert overlay.is_file()
     assert target.with_name(target.name + ".arcademanager.bak").read_text(encoding="utf-8") == 'old = "value"\n'
 
 
-def test_new_profiles_write_under_retroarch_config_root(tmp_path: Path) -> None:
-    """Os novos presets devem escrever somente dentro da árvore Config do RetroArch."""
+def test_all_profiles_use_slang_and_resolve_bezels(tmp_path: Path) -> None:
+    """Cada perfil instala um preset Slang e injeta o bezel correspondente."""
     service = _service(tmp_path)
     config_root = service.config.emulator_paths["retroarch"]["config"]
 
     cases = [
-        ("NES", "nes-fidelity-v1", "NES.cfg"),
-        ("Super Nintendo Entertainment System", "snes-fidelity-v1", "Super Nintendo.cfg"),
-        ("Master System", "master-system-fidelity-v1", "Sega Master System.cfg"),
-        ("Mega Drive", "mega-drive-fidelity-v1", "Sega Mega Drive.cfg"),
-        ("PlayStation", "playstation-fidelity-v1", "PlayStation.cfg"),
-        ("Sega Saturn", "sega-saturn-fidelity-v1", "Sega Saturn.cfg"),
-        ("Nintendo 64", "nintendo-64-fidelity-v1", "Nintendo 64.cfg"),
+        ("NES", "nes-fidelity-v1", "NES.slangp", OVERLAYS["NES"]),
+        ("Super Nintendo Entertainment System", "snes-fidelity-v1", "Super Nintendo.slangp", OVERLAYS["Super Nintendo Entertainment System"]),
+        ("Master System", "master-system-fidelity-v1", "Sega Master System.slangp", OVERLAYS["Master System"]),
+        ("Mega Drive", "mega-drive-fidelity-v1", "Sega Mega Drive.slangp", OVERLAYS["Mega Drive"]),
+        ("PlayStation", "playstation-fidelity-v1", "PlayStation.slangp", OVERLAYS["PlayStation"]),
+        ("Sega Saturn", "sega-saturn-fidelity-v1", "Sega Saturn.slangp", OVERLAYS["Sega Saturn"]),
+        ("Nintendo 64", "nintendo-64-fidelity-v1", "Nintendo 64.slangp", OVERLAYS["Nintendo 64"]),
     ]
 
-    for system_name, profile_id, filename in cases:
+    for system_name, profile_id, shader_filename, overlay_filename in cases:
+        _create_overlay(service.config, overlay_filename)
         result = service.apply(system_name, system_name.casefold(), profile_id)
+        profile = service.get(profile_id)
+        assert profile is not None
         assert result["written"]
-        assert all(config_root in path.parents for path in result["written"])
-        assert (config_root / next(profile for profile in service.profiles.values() if profile.profile_id == profile_id).targets["override"]).name == filename
+        assert (config_root / profile.core / shader_filename).is_file()
+        override = next(path for path in result["written"] if path.suffix == ".cfg")
+        text = override.read_text(encoding="utf-8")
+        assert 'video_shader_enable = "true"' in text
+        assert 'video_shader = ":/config/' in text
+        assert f'input_overlay = ":/overlays/2k Systems/{overlay_filename}"' in text
+        assert "\\config\\" not in text
+        assert "\\overlays\\" not in text
+
+
+def test_missing_overlay_is_warning_not_failure(tmp_path: Path) -> None:
+    """A ausência do bezel não impede a aplicação do restante do perfil."""
+    service = _service(tmp_path)
+    result = service.apply("Nintendo 64", "nintendo 64", "nintendo-64-fidelity-v1")
+
+    assert result["written"]
+    assert any("Bezel" in warning for warning in result["warnings"])
