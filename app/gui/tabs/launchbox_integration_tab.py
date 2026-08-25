@@ -6,6 +6,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QComboBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -27,10 +28,11 @@ from app.core.services.launchbox_integration_service import (
     LaunchBoxIntegrationService,
     LaunchBoxSystem,
 )
+from app.core.services.system_optimization_service import SystemOptimizationProfile, SystemOptimizationService
 
 
 class LaunchBoxIntegrationTab(QWidget):
-    """Integra sistemas, cores e executáveis preservando o estado do LaunchBox."""
+    """Integra sistemas, cores e otimizações preservando o estado do LaunchBox."""
 
     GROUPS = (
         ("consoles", "Consoles"),
@@ -45,22 +47,30 @@ class LaunchBoxIntegrationTab(QWidget):
     COL_COMMAND = 3
     COL_STATUS = 4
     COL_DEFAULT = 5
+    COL_OPTIMIZATION = 6
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.parent_window = parent
         self.config = getattr(parent, "config", None) or AppConfig()
         self.service = LaunchBoxIntegrationService(config=self.config)
+        self.optimization_service = SystemOptimizationService(
+            project_root=self.service.project_root,
+            config=self.config,
+        )
         self.systems: list[LaunchBoxSystem] = []
         self.installation: LaunchBoxInstallation | None = None
         self.settings_file = self.service.project_root / "data" / "launchbox" / "settings.json"
+        self.optimization_settings_file = self.service.project_root / "data" / "launchbox" / "optimization_settings.json"
+        self.optimization_selections: dict[str, str] = {}
         self.filters: dict[str, QLineEdit] = {}
+        self.trees: dict[str, QTreeWidget] = {}
         self._updating_tree = False
         self._build_ui()
         self.refresh()
 
     def _build_ui(self) -> None:
-        """Monta configuração, filtros, tabela e exportação."""
+        """Monta configuração, filtros, tabela, otimização e exportação."""
         layout = QVBoxLayout(self)
         title = QLabel("Integração LaunchBox")
         title.setStyleSheet("font-size:22px;font-weight:bold;")
@@ -68,7 +78,8 @@ class LaunchBoxIntegrationTab(QWidget):
         layout.addWidget(title)
         layout.addWidget(QLabel(
             "Todos os sistemas do Platforms.xml são importados. Cada sistema pode ter várias opções, "
-            "mas somente uma é marcada como padrão. CommandLine pode ser editado diretamente."
+            "mas somente uma é marcada como padrão. CommandLine pode ser editado diretamente. "
+            "Otimização de Sistema aplica perfis RetroArch prontos por plataforma."
         ))
 
         path_row = QHBoxLayout()
@@ -96,14 +107,13 @@ class LaunchBoxIntegrationTab(QWidget):
         layout.addLayout(action_row)
 
         self.tabs = QTabWidget()
-        self.trees: dict[str, QTreeWidget] = {}
         for key, label in self.GROUPS:
             page = QWidget()
             page_layout = QVBoxLayout(page)
             filter_row = QHBoxLayout()
             filter_row.addWidget(QLabel("Filtro:"))
             edit = QLineEdit()
-            edit.setPlaceholderText("Sistema, emulador/core, tipo, command line, estado ou padrão...")
+            edit.setPlaceholderText("Sistema, emulador/core, tipo, command line, estado, padrão ou otimização...")
             edit.textChanged.connect(lambda text, k=key: self._filter_tree(k, text))
             filter_row.addWidget(edit)
             clear = QPushButton("Limpar")
@@ -112,7 +122,7 @@ class LaunchBoxIntegrationTab(QWidget):
             page_layout.addLayout(filter_row)
 
             tree = QTreeWidget()
-            tree.setColumnCount(6)
+            tree.setColumnCount(7)
             tree.setHeaderLabels([
                 "Sistema oficial / LaunchBox",
                 "Emulador / Core",
@@ -120,18 +130,20 @@ class LaunchBoxIntegrationTab(QWidget):
                 "CommandLine",
                 "Estado",
                 "Padrão",
+                "Otimização de Sistema",
             ])
             tree.setAlternatingRowColors(True)
             tree.setRootIsDecorated(True)
             tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
             tree.customContextMenuRequested.connect(lambda pos, t=tree: self._show_context_menu(t, pos))
             tree.itemChanged.connect(self._on_item_changed)
-            tree.setColumnWidth(self.COL_SYSTEM, 320)
-            tree.setColumnWidth(self.COL_EMULATOR, 360)
+            tree.setColumnWidth(self.COL_SYSTEM, 300)
+            tree.setColumnWidth(self.COL_EMULATOR, 340)
             tree.setColumnWidth(self.COL_TYPE, 70)
-            tree.setColumnWidth(self.COL_COMMAND, 470)
+            tree.setColumnWidth(self.COL_COMMAND, 430)
             tree.setColumnWidth(self.COL_STATUS, 110)
             tree.setColumnWidth(self.COL_DEFAULT, 100)
+            tree.setColumnWidth(self.COL_OPTIMIZATION, 250)
             page_layout.addWidget(tree, 1)
             self.tabs.addTab(page, label)
             self.trees[key] = tree
@@ -157,6 +169,25 @@ class LaunchBoxIntegrationTab(QWidget):
         self.settings_file.parent.mkdir(parents=True, exist_ok=True)
         self.settings_file.write_text(
             json.dumps({"launchbox_executable": str(executable)}, indent=2),
+            encoding="utf-8",
+        )
+
+    def _load_optimization_settings(self) -> None:
+        """Carrega as escolhas de otimização por sistema."""
+        try:
+            data = json.loads(self.optimization_settings_file.read_text(encoding="utf-8"))
+            values = data.get("systems", {}) if isinstance(data, dict) else {}
+            self.optimization_selections = {
+                str(key): str(value) for key, value in values.items() if str(value).strip()
+            }
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            self.optimization_selections = {}
+
+    def _save_optimization_settings(self) -> None:
+        """Persiste as escolhas sem tocar nos XMLs do LaunchBox."""
+        self.optimization_settings_file.parent.mkdir(parents=True, exist_ok=True)
+        self.optimization_settings_file.write_text(
+            json.dumps({"systems": self.optimization_selections}, indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
 
@@ -206,12 +237,16 @@ class LaunchBoxIntegrationTab(QWidget):
         )
 
     def refresh(self) -> None:
-        """Recarrega os XMLs do LaunchBox e completa com o catálogo RetroArch."""
+        """Recarrega LaunchBox, catálogo RetroArch e perfis de otimização."""
         self.service.reload_rules()
+        self.optimization_service.config = self.config
+        self.optimization_service.reload()
+        self._load_optimization_settings()
         launchbox = self._load_settings()
         self._update_path_label(launchbox)
         self.config.load()
         self.service.config = self.config
+        self.optimization_service.config = self.config
         self.installation = None
         if launchbox and launchbox.is_file():
             try:
@@ -266,8 +301,32 @@ class LaunchBoxIntegrationTab(QWidget):
         for tree in self.trees.values():
             tree.clear()
 
+    def _optimization_profiles(self, system: LaunchBoxSystem) -> list[SystemOptimizationProfile]:
+        """Retorna perfis prontos compatíveis com o sistema exibido."""
+        return self.optimization_service.profiles_for_system(system.name, system.system_id)
+
+    def _create_optimization_selector(self, system: LaunchBoxSystem) -> QComboBox:
+        """Cria o seletor de otimização inline do sistema."""
+        combo = QComboBox()
+        combo.setMinimumWidth(235)
+        combo.setToolTip(
+            "Selecione um perfil pronto para aplicar configurações de core, vídeo, shader e remap."
+        )
+        combo.addItem("Sem otimização", "")
+        profiles = self._optimization_profiles(system)
+        for profile in profiles:
+            combo.addItem(profile.name, profile.profile_id)
+            combo.setItemData(combo.count() - 1, profile.description, Qt.ItemDataRole.ToolTipRole)
+        selected = self.optimization_selections.get(system.system_id, "")
+        index = combo.findData(selected)
+        combo.setCurrentIndex(index if index >= 0 else 0)
+        combo.currentIndexChanged.connect(
+            lambda _index, s=system, c=combo: self._optimization_changed(s, c)
+        )
+        return combo
+
     def _populate(self) -> None:
-        """Preenche Sistema → Emulador/Core → Tipo → CommandLine."""
+        """Preenche Sistema → Emulador/Core → Tipo → CommandLine + otimização."""
         self._updating_tree = True
         try:
             self._clear_trees()
@@ -285,6 +344,8 @@ class LaunchBoxIntegrationTab(QWidget):
                     Qt.GlobalColor.green if system.existing else Qt.GlobalColor.darkYellow,
                 )
                 parent.setData(self.COL_SYSTEM, Qt.ItemDataRole.UserRole, system.system_id)
+                selector = self._create_optimization_selector(system)
+                tree.setItemWidget(parent, self.COL_OPTIMIZATION, selector)
 
                 for option in sorted(
                     system.options,
@@ -316,6 +377,58 @@ class LaunchBoxIntegrationTab(QWidget):
                         child.setToolTip(self.COL_EMULATOR, f"Executável: {option.executable}")
         finally:
             self._updating_tree = False
+
+    def _optimization_changed(self, system: LaunchBoxSystem, combo: QComboBox) -> None:
+        """Aplica imediatamente o perfil escolhido para o sistema."""
+        if self._updating_tree:
+            return
+        profile_id = str(combo.currentData() or "")
+        if not profile_id:
+            self.optimization_selections.pop(system.system_id, None)
+            self._save_optimization_settings()
+            self.status.setText(f"Otimização removida da seleção: {system.name}")
+            return
+
+        profile = self.optimization_service.get(profile_id)
+        if profile is None:
+            return
+        answer = QMessageBox.question(
+            self,
+            "Otimização de Sistema",
+            f"Aplicar '{profile.name}' ao sistema '{system.name}'?\n\n"
+            "Serão criados backups .arcademanager.bak antes de substituir arquivos.\n"
+            "O retroarch.cfg global não será alterado.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            self._updating_tree = True
+            combo.setCurrentIndex(0)
+            self._updating_tree = False
+            return
+        try:
+            result = self.optimization_service.apply(system.name, system.system_id, profile_id)
+            self.optimization_selections[system.system_id] = profile_id
+            self._save_optimization_settings()
+            written = len(result["written"])
+            backups = len(result["backups"])
+            warning_text = ""
+            if result["warnings"]:
+                warning_text = "\n\nAvisos:\n" + "\n".join(result["warnings"])
+            self.status.setText(
+                f"Otimização aplicada: {system.name} → {profile.name} | "
+                f"arquivos={written} | backups={backups}{warning_text}"
+            )
+        except Exception as exc:
+            self._updating_tree = True
+            combo.setCurrentIndex(0)
+            self._updating_tree = False
+            QMessageBox.critical(
+                self,
+                "Otimização de Sistema",
+                f"Não foi possível aplicar o perfil. Nenhum arquivo adicional foi alterado após a falha.\n\n"
+                f"{type(exc).__name__}: {exc}",
+            )
 
     def _on_item_changed(self, item: QTreeWidgetItem, column: int) -> None:
         """Persiste alterações de CommandLine feitas diretamente na tabela."""
@@ -349,6 +462,10 @@ class LaunchBoxIntegrationTab(QWidget):
                 )
                 child.setHidden(not match)
                 child_match = child_match or match
+            optimization_widget = tree.itemWidget(parent, self.COL_OPTIMIZATION)
+            if optimization_widget is not None and needle:
+                optimization_match = needle in optimization_widget.currentText().casefold()
+                parent_match = parent_match or optimization_match
             parent.setHidden(bool(needle) and not parent_match and not child_match)
             parent.setExpanded(not needle or child_match)
 
