@@ -1,6 +1,6 @@
 """Perfis de otimização por sistema para RetroArch.
 
-A otimização de sistema é uma camada declarativa acima dos overrides nativos
+A otimização de sistema é uma camada declarativa acima dos mecanismos nativos
  do RetroArch. Cada perfil descreve arquivos completos que podem ser aplicados
 à instalação configurada, sem modificar o retroarch.cfg global.
 """
@@ -35,7 +35,21 @@ class SystemOptimizationService:
     Os arquivos são escritos nos diretórios nativos do RetroArch definidos
     pelo AppConfig. Antes de substituir um arquivo existente, é criado um
     backup ``.arcademanager.bak``. O retroarch.cfg global nunca é alterado.
+
+    A instalação também normaliza referências RetroArch com ``:/`` e injeta
+    automaticamente o bezel 2K Systems correspondente quando ele existe.
     """
+
+    OVERLAY_CANDIDATES: dict[str, str] = {
+        "sega-sg1000-fidelity-v1": "Sega-SG-1000-Bezel-16x9-2560x1440.cfg",
+        "nes-fidelity-v1": "Nintendo-Entertainment-System-Bezel-16x9-2560x1440.cfg",
+        "snes-fidelity-v1": "Super-Nintendo-Entertainment-System-Bezel-16x9-2560x1440.cfg",
+        "master-system-fidelity-v1": "Sega-Master-System-Bezel-16x9-2560x1440.cfg",
+        "mega-drive-fidelity-v1": "Sega-Genesis-16bit-Bezel-16x9-2560x1440.cfg",
+        "playstation-fidelity-v1": "Sony-Playstation-Bezel-16x9-2560x1440.cfg",
+        "sega-saturn-fidelity-v1": "Sega-Saturn-Bezel-16x9-2560x1440.cfg",
+        "nintendo-64-fidelity-v1": "Nintendo-64-Bezel-16x9-2560x1440.cfg",
+    }
 
     def __init__(self, project_root: Path | None = None, config: AppConfig | None = None) -> None:
         """Inicializa o catálogo de perfis."""
@@ -104,6 +118,94 @@ class SystemOptimizationService:
             return Path(self.config.retroarch_dir) / "config"
         raise RuntimeError("Configure o RetroArch antes de aplicar uma otimização de sistema.")
 
+    def _retroarch_root(self) -> Path:
+        """Retorna a raiz física da instalação do RetroArch."""
+        if self.config.retroarch_dir:
+            return Path(self.config.retroarch_dir)
+        config_root = self._retroarch_config_root()
+        if config_root.name.casefold() == "config":
+            return config_root.parent
+        return config_root
+
+    def _overlay_root(self) -> Path:
+        """Retorna a pasta de overlays configurada no RetroArch."""
+        native = self.config.retroarch_native_paths.get("overlay_directory")
+        if native:
+            return Path(native)
+        return self._retroarch_root() / "overlays"
+
+    def _overlay_config(self, profile: SystemOptimizationProfile) -> tuple[str | None, Path | None]:
+        """Localiza o bezel 16:9 correspondente ao perfil.
+
+        A coleção usada pelo projeto fica em ``overlays/2k Systems``. O método
+        aceita também um caminho explícito em ``overlay_asset`` para futuros
+        perfis que não sigam essa convenção.
+        """
+        filename = profile.overlay_asset or self.OVERLAY_CANDIDATES.get(profile.profile_id)
+        if not filename:
+            return None, None
+
+        configured = Path(filename).expanduser()
+        if configured.is_absolute():
+            candidate = configured
+            relative = None
+        else:
+            overlay_root = self._overlay_root()
+            candidate = overlay_root / "2k Systems" / filename
+            if not candidate.is_file():
+                candidate = overlay_root / filename
+            relative = Path("overlays") / "2k Systems" / filename
+
+        if not candidate.is_file():
+            return relative.as_posix() if relative else None, candidate
+        return relative.as_posix() if relative else None, candidate
+
+    @staticmethod
+    def _normalize_retroarch_paths(content: str) -> str:
+        """Corrige raízes RetroArch escritas como ``:\\`` para o formato ``:/``.
+
+        O formato ``:/`` é a sintaxe de raiz documentada pelo RetroArch e é
+        necessário para referências como ``:/config/...`` e ``:/overlays/...``.
+        """
+        return (
+            content
+            .replace("= \":\\\\", '= ":/')
+            .replace("= \"\\\\", '= ":/')
+            .replace(":\\\\config", ":/config")
+            .replace(":\\\\overlays", ":/overlays")
+            .replace(":\\config", ":/config")
+            .replace(":\\overlays", ":/overlays")
+        )
+
+    def _prepare_files(
+        self,
+        profile: SystemOptimizationProfile,
+    ) -> tuple[dict[str, str], list[str]]:
+        """Prepara arquivos do perfil e injeta o overlay quando disponível."""
+        files = dict(profile.files)
+        warnings: list[str] = []
+
+        for key, content in list(files.items()):
+            files[key] = self._normalize_retroarch_paths(content)
+
+        overlay_relative, overlay_file = self._overlay_config(profile)
+        if overlay_file is not None and not overlay_file.is_file():
+            warnings.append(f"Bezel não encontrado: {overlay_file}")
+
+        if overlay_relative and "override" in files and overlay_file and overlay_file.is_file():
+            override = files["override"]
+            if "input_overlay" not in override:
+                override = (
+                    override.rstrip()
+                    + f'\ninput_overlay = ":/{overlay_relative.replace(chr(92), "/")}"'
+                    + '\ninput_overlay_enable = "true"'
+                )
+            files["override"] = override
+        elif overlay_relative and "override" in files:
+            warnings.append(f"Bezel esperado não encontrado: {overlay_file}")
+
+        return files, warnings
+
     def _target_path(self, profile: SystemOptimizationProfile, target_name: str) -> Path:
         """Resolve um destino relativo à árvore nativa do RetroArch."""
         relative = profile.targets.get(target_name)
@@ -137,10 +239,11 @@ class SystemOptimizationService:
         if not self.profiles_for_system(system_name, system_id) or profile not in self.profiles_for_system(system_name, system_id):
             raise ValueError(f"O perfil '{profile.name}' não é compatível com '{system_name}'.")
 
+        files, warnings = self._prepare_files(profile)
         written: list[Path] = []
         backups: list[Path] = []
-        warnings: list[str] = []
-        for file_key, content in profile.files.items():
+
+        for file_key, content in files.items():
             target = self._target_path(profile, file_key)
             target.parent.mkdir(parents=True, exist_ok=True)
             backup = self._backup(target)
@@ -148,13 +251,6 @@ class SystemOptimizationService:
                 backups.append(backup)
             target.write_text(content.rstrip() + "\n", encoding="utf-8")
             written.append(target)
-
-        if profile.overlay_asset:
-            overlay = Path(profile.overlay_asset).expanduser()
-            if not overlay.is_file():
-                warnings.append(f"Asset do overlay não encontrado: {overlay}")
-            else:
-                warnings.append("O asset do overlay é externo ao catálogo e não foi copiado automaticamente.")
 
         return {
             "profile": profile,
