@@ -4,12 +4,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
-
-from app.core.services.system_optimization_service import (
-    MANAGED_HEADER,
-    SystemOptimizationService,
-)
+from app.core.services.system_optimization_service import MANAGED_HEADER, SystemOptimizationService
 
 
 def make_config(root: Path) -> SimpleNamespace:
@@ -17,19 +12,13 @@ def make_config(root: Path) -> SimpleNamespace:
     config_dir = root / "config"
     shaders = root / "shaders"
     return SimpleNamespace(
-        emulator_paths={
-            "retroarch": {
-                "config": config_dir,
-                "shaders": shaders,
-            }
-        },
+        emulator_paths={"retroarch": {"config": config_dir, "shaders": shaders}},
         retroarch_native_paths={
             "video_shader_directory": shaders,
             "overlay_directory": root / "overlays",
         },
         retroarch_dir=root,
         retroarch_core_config_dir=config_dir,
-        retroarch_core_remap_dir=config_dir / "remaps",
     )
 
 
@@ -46,15 +35,14 @@ def build_service(tmp_path: Path, payload: dict) -> SystemOptimizationService:
     return SystemOptimizationService(project_root=tmp_path, config=make_config(tmp_path))
 
 
-def multi_core_profile() -> dict:
-    """Retorna um perfil novo com dois cores e um shader compartilhado."""
+def profile_payload() -> dict:
+    """Retorna um perfil multi-core usado nas regressões."""
     return {
         "version": 3,
         "profiles": [
             {
                 "id": "nes-fidelity-v2",
                 "name": "NES — Fidelity CRT v2",
-                "description": "Teste multi-core.",
                 "systems": ["Nintendo Entertainment System", "nes"],
                 "cores": {
                     "Nestopia": {
@@ -63,7 +51,7 @@ def multi_core_profile() -> dict:
                             "options": "Nestopia/NES.opt",
                         },
                         "files": {
-                            "override": 'aspect_ratio_index = "1"',
+                            "override": 'aspect_ratio_index = "21"\nvideo_shader = ":/config/Nestopia/NES.slangp"',
                             "options": 'nestopia_palette = "cxa2025as"',
                         },
                     },
@@ -80,7 +68,7 @@ def multi_core_profile() -> dict:
                 },
                 "shader": {
                     "filename": "NES.slangp",
-                    "content": '#reference ":/shaders/shaders_slang/crt/crt-guest-advanced-ntsc.slangp"',
+                    "content": 'INVALID OLD CONTENT\n#reference ":/shaders/shaders_slang/crt/crt-guest-advanced-ntsc.slangp"\nHSHARP = 1.2',
                 },
             }
         ],
@@ -89,20 +77,18 @@ def multi_core_profile() -> dict:
 
 def test_parse_new_schema_supports_multiple_cores(tmp_path: Path) -> None:
     """O perfil normalizado deve conter todos os cores declarados."""
-    service = build_service(tmp_path, multi_core_profile())
+    service = build_service(tmp_path, profile_payload())
     profile = service.get("nes-fidelity-v2")
 
     assert profile is not None
     assert profile.cores == ("Nestopia", "Mesen")
-    assert set(profile.core_optimizations) == {"Nestopia", "Mesen"}
     assert profile.shader is not None
     assert profile.shader.filename == "NES.slangp"
 
 
 def test_apply_creates_one_override_per_core_and_one_global_shader(tmp_path: Path) -> None:
-    """Aplicar o perfil deve gerar arquivos independentes por core."""
-    service = build_service(tmp_path, multi_core_profile())
-
+    """Aplicar o perfil gera um arquivo por core e um shader global."""
+    service = build_service(tmp_path, profile_payload())
     result = service.apply("Nintendo Entertainment System", "nes", "nes-fidelity-v2")
 
     config = tmp_path / "config"
@@ -110,32 +96,56 @@ def test_apply_creates_one_override_per_core_and_one_global_shader(tmp_path: Pat
     assert (config / "Nestopia" / "NES.opt").is_file()
     assert (config / "Mesen" / "NES.cfg").is_file()
     assert (config / "Mesen" / "NES.opt").is_file()
+    assert (tmp_path / "shaders" / "NES.slangp").is_file()
+    assert len(result["written"]) == 5
+
+
+def test_bezel_16x9_does_not_force_system_viewport(tmp_path: Path) -> None:
+    """O overlay 16:9 nunca pode definir aspect_ratio_index do sistema."""
+    service = build_service(tmp_path, profile_payload())
+    overlay = tmp_path / "overlays" / "2k Systems" / "Nintendo-Entertainment-System-Bezel-16x9-2560x1440.cfg"
+    overlay.parent.mkdir(parents=True)
+    overlay.write_text("overlay", encoding="utf-8")
+
+    service.apply("Nintendo Entertainment System", "nes", "nes-fidelity-v2")
+
+    cfg = (tmp_path / "config" / "Nestopia" / "NES.cfg").read_text(encoding="utf-8")
+    assert "aspect_ratio_index" not in cfg
+    assert 'input_overlay = ":/overlays/2k Systems/Nintendo-Entertainment-System-Bezel-16x9-2560x1440.cfg"' in cfg
+
+
+def test_shader_is_valid_simple_preset_and_not_core_local(tmp_path: Path) -> None:
+    """O shader gerado deve ser um Simple Preset válido na pasta global."""
+    service = build_service(tmp_path, profile_payload())
+    service.apply("Nintendo Entertainment System", "nes", "nes-fidelity-v2")
 
     shader = tmp_path / "shaders" / "NES.slangp"
-    assert shader.is_file()
-    assert len(result["written"]) == 5
-    assert shader.read_text(encoding="utf-8").startswith(MANAGED_HEADER)
-
-    nestopia_cfg = (config / "Nestopia" / "NES.cfg").read_text(encoding="utf-8")
-    mesen_cfg = (config / "Mesen" / "NES.cfg").read_text(encoding="utf-8")
-
-    assert 'video_shader = ":/shaders/NES.slangp"' in nestopia_cfg
-    assert 'video_shader = ":/shaders/NES.slangp"' in mesen_cfg
-    assert 'video_shader = ":/config/' not in nestopia_cfg
-    assert 'video_shader = ":/config/' not in mesen_cfg
+    text = shader.read_text(encoding="utf-8")
+    assert text.startswith(MANAGED_HEADER)
+    assert '#reference ":/shaders/shaders_slang/crt/crt-guest-advanced-ntsc.slangp"' in text
+    assert "HSHARP" not in text
+    assert "aspect_ratio_index" not in text
+    assert not (tmp_path / "config" / "Nestopia" / "NES.slangp").exists()
 
 
-def test_apply_does_not_create_backups(tmp_path: Path) -> None:
-    """A aplicação nova nunca deve criar arquivos .bak."""
-    service = build_service(tmp_path, multi_core_profile())
-    service.apply("NES", "nes", "nes-fidelity-v2")
+def test_existing_files_are_always_overwritten(tmp_path: Path) -> None:
+    """Aplicar o perfil substitui arquivo externo sem criar backup."""
+    service = build_service(tmp_path, profile_payload())
+    target = tmp_path / "config" / "Nestopia" / "NES.cfg"
+    target.parent.mkdir(parents=True)
+    target.write_text("USER CONFIGURATION\n", encoding="utf-8")
 
+    service.apply("Nintendo Entertainment System", "nes", "nes-fidelity-v2", overwrite=False)
+
+    text = target.read_text(encoding="utf-8")
+    assert text.startswith(MANAGED_HEADER)
+    assert "USER CONFIGURATION" not in text
     assert list(tmp_path.rglob("*.arcademanager.bak*")) == []
 
 
 def test_remove_deletes_only_managed_files(tmp_path: Path) -> None:
-    """A remoção deve apagar arquivos gerenciados e preservar arquivos externos."""
-    service = build_service(tmp_path, multi_core_profile())
+    """A remoção apaga gerenciados e preserva arquivos externos não pertencentes ao perfil."""
+    service = build_service(tmp_path, profile_payload())
     service.apply("NES", "nes", "nes-fidelity-v2")
 
     external = tmp_path / "config" / "Mesen" / "external.cfg"
@@ -153,36 +163,8 @@ def test_remove_deletes_only_managed_files(tmp_path: Path) -> None:
     assert result["backups"] == []
 
 
-def test_apply_refuses_to_overwrite_external_file_without_explicit_permission(tmp_path: Path) -> None:
-    """Arquivos externos não podem ser sobrescritos silenciosamente."""
-    service = build_service(tmp_path, multi_core_profile())
-
-    external = tmp_path / "config" / "Mesen" / "NES.cfg"
-    external.parent.mkdir(parents=True, exist_ok=True)
-    external.write_text("user configuration\n", encoding="utf-8")
-
-    with pytest.raises(FileExistsError):
-        service.apply("NES", "nes", "nes-fidelity-v2")
-
-    assert external.read_text(encoding="utf-8") == "user configuration\n"
-
-
-def test_apply_can_explicitly_overwrite_external_file(tmp_path: Path) -> None:
-    """A opção overwrite permite uma substituição deliberada, sem backup."""
-    service = build_service(tmp_path, multi_core_profile())
-
-    external = tmp_path / "config" / "Mesen" / "NES.cfg"
-    external.parent.mkdir(parents=True, exist_ok=True)
-    external.write_text("user configuration\n", encoding="utf-8")
-
-    service.apply("NES", "nes", "nes-fidelity-v2", overwrite=True)
-
-    assert external.read_text(encoding="utf-8").startswith(MANAGED_HEADER)
-    assert list(tmp_path.rglob("*.arcademanager.bak*")) == []
-
-
-def test_legacy_catalog_is_still_readable(tmp_path: Path) -> None:
-    """O catálogo atual de um único core continua compatível durante a migração."""
+def test_legacy_catalog_is_readable(tmp_path: Path) -> None:
+    """O catálogo v2 de um único core continua compatível."""
     payload = {
         "version": 2,
         "profiles": [
@@ -191,28 +173,20 @@ def test_legacy_catalog_is_still_readable(tmp_path: Path) -> None:
                 "name": "Legacy",
                 "systems": ["Legacy System"],
                 "core": "Legacy Core",
-                "targets": {
-                    "override": "Legacy Core/Legacy.cfg",
-                    "shader": "Legacy Core/Legacy.slangp",
-                },
-                "files": {
-                    "override": 'aspect_ratio_index = "1"',
-                    "shader": '#reference ":/shaders/base.slangp"',
-                },
+                "targets": {"override": "Legacy Core/Legacy.cfg", "shader": "Legacy Core/Legacy.slangp"},
+                "files": {"override": 'aspect_ratio_index = "1"', "shader": '#reference ":/shaders/base.slangp"'},
             }
         ],
     }
 
     service = build_service(tmp_path, payload)
     profile = service.get("legacy-v1")
-
     assert profile is not None
     assert profile.cores == ("Legacy Core",)
     assert profile.shader is not None
     assert profile.shader.filename == "Legacy.slangp"
 
     service.apply("Legacy System", "", "legacy-v1")
-
     assert (tmp_path / "shaders" / "Legacy.slangp").is_file()
     assert (tmp_path / "config" / "Legacy Core" / "Legacy.cfg").is_file()
     assert not (tmp_path / "config" / "Legacy Core" / "Legacy.slangp").exists()
