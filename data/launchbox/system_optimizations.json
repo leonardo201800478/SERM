@@ -1,10 +1,10 @@
 {
-  "version": 1,
+  "version": 2,
   "profiles": [
     {
       "id": "sega-sg1000-fidelity-v1",
       "name": "SG-1000 — Fidelity CRT v1",
-      "description": "Perfil de referência para Sega SG-1000: Genesis Plus GX, áudio mono, 1:1 PAR, no sprite limit e CRT Guest Advanced NTSC nítido com Composite moderado. O overlay 16:9/4:3 existente do usuário é preservado.",
+      "description": "Perfil de referência para Sega SG-1000: Genesis Plus GX, áudio mono, 1:1 PAR, CRT Guest Advanced NTSC nítido com Composite moderado. O overlay 16:9/4:3 existente do usuário é preservado.",
       "systems": [
         "Sega SG-1000",
         "sg-1000",
@@ -13,16 +13,196 @@
       "core": "Genesis Plus GX",
       "overlay_asset": "",
       "targets": {
-        "options": "config/Genesis Plus GX/Sega SG-1000.opt",
-        "override": "config/Genesis Plus GX/Sega SG-1000.cfg",
-        "shader": "config/Genesis Plus GX/Sega SG-1000.slangp",
-        "remap": "config/remaps/Genesis Plus GX/Sega SG-1000.rmp"
+        "options": "Genesis Plus GX/Sega SG-1000.opt",
+        "override": "Genesis Plus GX/Sega SG-1000.cfg",
+        "shader": "Genesis Plus GX/Sega SG-1000.slangp",
+        "remap": "remaps/Genesis Plus GX/Sega SG-1000.rmp"
       },
       "files": {
         "options": "genesis_plus_gx_audio_filter = \"disabled\"\ngenesis_plus_gx_blargg_ntsc_filter = \"disabled\"\ngenesis_plus_gx_force_dtack_patch = \"disabled\"\ngenesis_plus_gx_ym2413 = \"auto\"\ngenesis_plus_gx_no_sprite_limit = \"enabled\"\ngenesis_plus_gx_sound_output = \"mono\"\ngenesis_plus_gx_system_hw = \"auto\"\ngenesis_plus_gx_region_detect = \"auto\"\ngenesis_plus_gx_overscan = \"disabled\"\ngenesis_plus_gx_lcd_filter = \"disabled\"\ngenesis_plus_gx_psg_preamp = \"150\"",
         "override": "video_smooth = \"false\"\naspect_ratio_index = \"21\"\ninput_overlay = \":\\\\overlays\\\\2k Systems\\\\Sega-SG-1000-Bezel-16x9-2560x1440.cfg\"\ninput_overlay_enable = \"true\"\nvideo_shader_enable = \"true\"\nvideo_shader = \":\\\\config\\\\Genesis Plus GX\\\\Sega SG-1000.slangp\"",
-        "shader": "; Sega SG-1000 — CRT Guest Advanced NTSC — Fidelity v1\n; Perfil de teste aprovado como padrão do sistema.\n; Objetivo: imagem CRT nítida, Composite NTSC moderado, sem RF e sem curvatura.\n#reference \":/shaders/shaders_slang/crt/crt-guest-advanced-ntsc.slangp\n\nquality = 1.0\ncust_artifacting = 0.55\ncust_fringing = 0.35\nntsc_fields = -1.0\nntsc_phase = 1.0\nntsc_scale = 1.0\nntsc_sat = 0.95\nntsc_bright = 1.0\nntsc_gamma = 1.0\nntsc_rainbow1 = 0.0\nntsc_taps = 32.0\nntsc_charp = 0.50\nntsc_charp3 = 0.75\nfilter_res = 1.0\nauto_res = 0.0\nspeedup = 1.0\n\nHSHARPNESS = 1.45\nSIGMA_HOR = 0.65\nS_SHARP = 1.05\nHSHARP = 1.20\nMAXS = 0.15\nHARNG = 0.20\nspike = 0.80\n\nglow = 0.04\nbloom = 0.02\nmask_bloom = 0.00\nbloom_dist = 0.00\nhalation = 0.015\nbmask1 = 0.00\nhmask1 = 0.20\ngamma_c = 1.00\ngamma_c2 = 1.00\nbrightboost = 1.15\nbrightboost1 = 1.05\nclips = 0.00\n\ngsl = 0.0\nscanline1 = 6.0\nscanline2 = 8.0\nbeam_min = 1.15\nbeam_max = 1.00\ntds = 0.00\nbeam_size = 0.55\nscans = 0.35\nscan_falloff = 1.00\nscangamma = 2.40\nrolling_scan = 0.00\nno_scanlines = 0.00\n\nwarpX = 0.00\nwarpY = 0.00\nc_shape = 0.25\noverscanX = 0.0\noverscanY = 0.0\nVShift = 0.0\n\nintres = 0.0\nIOS = 0.0\nOS = 1.0\nBLOOM = 0.0",
+        "shader": "; SG-1000 — CRT Guest Advanced NTSC — Fidelity v1\n; Perfil de referência do sistema.\n; Objetivo: imagem CRT nítida, Composite NTSC moderado, sem curvatura.\n#reference \":/shaders/shaders_slang/crt/crt-guest-advanced-ntsc.slangp\n\nquality = 1.0\ncust_artifacting = 0.55\ncust_fringing = 0.35\nntsc_fields = -1.0\nntsc_phase = 1.0\nntsc_scale = 1.0\nntsc_sat = 0.95\nntsc_bright = 1.0\nntsc_gamma = 1.0\nntsc_rainbow1 = 0.0\nntsc_taps = 32.0\nntsc_charp = 0.50\nntsc_charp3 = 0.75\nfilter_res = 1.0\nauto_res = 0.0\nspeedup = 1.0\n\nHSHARPNESS = 1.45\nSIGMA_HOR = 0.65\nS_SHARP = 1.05\nHSHARP = 1.20\nMAXS = 0.15\nHARNG = 0.20\nspike = 0.80\n\nglow = 0.04\nbloom = 0.02\nmask_bloom = 0.00\nbloom_dist = 0.00\nhalation = 0.015\nbmask1 = 0.00\nhmask1 = 0.20\ngamma_c = 1.00\ngamma_c2 = 1.00\nbrightboost = 1.15\nbrightboost1 = 1.05\nclips = 0.00\n\ngsl = 0.0\nscanline1 = 6.0\nscanline2 = 8.0\nbeam_min = 1.15\nbeam_max = 1.00\ntds = 0.00\nbeam_size = 0.55\nscans = 0.35\nscan_falloff = 1.00\nscangamma = 2.40\nrolling_scan = 0.00\nno_scanlines = 0.00\n\nwarpX = 0.00\nwarpY = 0.00\nc_shape = 0.25\noverscanX = 0.0\noverscanY = 0.0\nVShift = 0.0\n\nintres = 0.0\nIOS = 0.0\nOS = 1.0\nBLOOM = 0.0",
         "remap": "input_libretro_device_p1 = \"769\"\ninput_libretro_device_p2 = \"1\"\ninput_player1_analog_dpad_mode = \"1\"\ninput_player2_analog_dpad_mode = \"1\"\ninput_remap_port_p1 = \"0\"\ninput_remap_port_p2 = \"1\"\ninput_player1_turbo_btn = \"\"\ninput_player2_turbo_btn = \"\""
+      }
+    },
+    {
+      "id": "nes-fidelity-v1",
+      "name": "NES — Fidelity CRT v1",
+      "description": "Perfil de referência para NES/Famicom com Nestopia: sem hacks de overclock ou remoção do limite de sprites, palette CXA2025AS, NTSC limpo e CRT Guest Advanced. Mantém a proporção 4:3.",
+      "systems": [
+        "Nintendo Entertainment System",
+        "Nintendo - Nintendo Entertainment System",
+        "Nintendo NES",
+        "NES",
+        "Famicom",
+        "Nintendo - NES / Famicom",
+        "nes"
+      ],
+      "core": "Nestopia",
+      "overlay_asset": "",
+      "targets": {
+        "options": "Nestopia/NES.opt",
+        "override": "Nestopia/NES.cfg",
+        "shader": "Nestopia/NES.slangp"
+      },
+      "files": {
+        "options": "nestopia_blargg_ntsc_filter = \"disabled\"\nnestopia_palette = \"cxa2025as\"\nnestopia_nospritelimit = \"disabled\"\nnestopia_overclock = \"1x\"\nnestopia_overscan_v = \"enabled\"\nnestopia_overscan_h = \"enabled\"\nnestopia_aspect = \"4:3\"\nnestopia_favored_system = \"auto\"",
+        "override": "video_smooth = \"false\"\naspect_ratio_index = \"1\"\nvideo_shader_enable = \"true\"\nvideo_shader = \":\\\\config\\\\Nestopia\\\\NES.slangp\"",
+        "shader": "; NES — CRT Guest Advanced NTSC — Fidelity v1\n; Perfil de referência do sistema.\n; Objetivo: imagem CRT nítida, Composite NTSC moderado, sem curvatura.\n#reference \":/shaders/shaders_slang/crt/crt-guest-advanced-ntsc.slangp\n\nquality = 1.0\ncust_artifacting = 0.55\ncust_fringing = 0.35\nntsc_fields = -1.0\nntsc_phase = 1.0\nntsc_scale = 1.0\nntsc_sat = 0.95\nntsc_bright = 1.0\nntsc_gamma = 1.0\nntsc_rainbow1 = 0.0\nntsc_taps = 32.0\nntsc_charp = 0.50\nntsc_charp3 = 0.75\nfilter_res = 1.0\nauto_res = 0.0\nspeedup = 1.0\n\nHSHARPNESS = 1.45\nSIGMA_HOR = 0.65\nS_SHARP = 1.05\nHSHARP = 1.20\nMAXS = 0.15\nHARNG = 0.20\nspike = 0.80\n\nglow = 0.04\nbloom = 0.02\nmask_bloom = 0.00\nbloom_dist = 0.00\nhalation = 0.015\nbmask1 = 0.00\nhmask1 = 0.20\ngamma_c = 1.00\ngamma_c2 = 1.00\nbrightboost = 1.15\nbrightboost1 = 1.05\nclips = 0.00\n\ngsl = 0.0\nscanline1 = 6.0\nscanline2 = 8.0\nbeam_min = 1.15\nbeam_max = 1.00\ntds = 0.00\nbeam_size = 0.55\nscans = 0.35\nscan_falloff = 1.00\nscangamma = 2.40\nrolling_scan = 0.00\nno_scanlines = 0.00\n\nwarpX = 0.00\nwarpY = 0.00\nc_shape = 0.25\noverscanX = 0.0\noverscanY = 0.0\nVShift = 0.0\n\nintres = 0.0\nIOS = 0.0\nOS = 1.0\nBLOOM = 0.0"
+      }
+    },
+    {
+      "id": "snes-fidelity-v1",
+      "name": "Super Nintendo — Fidelity CRT v1",
+      "description": "Perfil de referência para SNES/Famicom com Snes9x: sem overclock ou hacks de slowdown, filtro NTSC interno desativado para deixar o CRT Guest controlar a apresentação e proporção 4:3.",
+      "systems": [
+        "Super Nintendo Entertainment System",
+        "Nintendo Super Nintendo Entertainment System",
+        "Nintendo - Super Nintendo Entertainment System",
+        "Nintendo SNES",
+        "SNES",
+        "Super Famicom",
+        "snes",
+        "sfc"
+      ],
+      "core": "Snes9x",
+      "overlay_asset": "",
+      "targets": {
+        "options": "Snes9x/Super Nintendo.opt",
+        "override": "Snes9x/Super Nintendo.cfg",
+        "shader": "Snes9x/Super Nintendo.slangp"
+      },
+      "files": {
+        "options": "snes9x_up_down_allowed = \"disabled\"\nsnes9x_overclock = \"100%\"\nsnes9x_overclock_cycles = \"disabled\"\nsnes9x_reduce_sprite_flicker = \"disabled\"\nsnes9x_hires_blend = \"disabled\"\nsnes9x_audio_interpolation = \"sinc\"\nsnes9x_blargg = \"disabled\"\nsnes9x_overscan = \"disabled\"\nsnes9x_aspect = \"4:3\"\nsnes9x_region = \"auto\"\nsnes9x_gfx_hires = \"enabled\"",
+        "override": "video_smooth = \"false\"\naspect_ratio_index = \"1\"\nvideo_shader_enable = \"true\"\nvideo_shader = \":\\\\config\\\\Snes9x\\\\Super Nintendo.slangp\"",
+        "shader": "; Super Nintendo — CRT Guest Advanced NTSC — Fidelity v1\n; Perfil de referência do sistema.\n; Objetivo: imagem CRT nítida, Composite NTSC moderado, sem curvatura.\n#reference \":/shaders/shaders_slang/crt/crt-guest-advanced-ntsc.slangp\n\nquality = 1.0\ncust_artifacting = 0.55\ncust_fringing = 0.35\nntsc_fields = -1.0\nntsc_phase = 1.0\nntsc_scale = 1.0\nntsc_sat = 0.95\nntsc_bright = 1.0\nntsc_gamma = 1.0\nntsc_rainbow1 = 0.0\nntsc_taps = 32.0\nntsc_charp = 0.50\nntsc_charp3 = 0.75\nfilter_res = 1.0\nauto_res = 0.0\nspeedup = 1.0\n\nHSHARPNESS = 1.45\nSIGMA_HOR = 0.65\nS_SHARP = 1.05\nHSHARP = 1.20\nMAXS = 0.15\nHARNG = 0.20\nspike = 0.80\n\nglow = 0.04\nbloom = 0.02\nmask_bloom = 0.00\nbloom_dist = 0.00\nhalation = 0.015\nbmask1 = 0.00\nhmask1 = 0.20\ngamma_c = 1.00\ngamma_c2 = 1.00\nbrightboost = 1.15\nbrightboost1 = 1.05\nclips = 0.00\n\ngsl = 0.0\nscanline1 = 6.0\nscanline2 = 8.0\nbeam_min = 1.15\nbeam_max = 1.00\ntds = 0.00\nbeam_size = 0.55\nscans = 0.35\nscan_falloff = 1.00\nscangamma = 2.40\nrolling_scan = 0.00\nno_scanlines = 0.00\n\nwarpX = 0.00\nwarpY = 0.00\nc_shape = 0.25\noverscanX = 0.0\noverscanY = 0.0\nVShift = 0.0\n\nintres = 0.0\nIOS = 0.0\nOS = 1.0\nBLOOM = 0.0"
+      }
+    },
+    {
+      "id": "master-system-fidelity-v1",
+      "name": "Master System — Fidelity CRT v1",
+      "description": "Perfil de referência para Master System/Mark III com Genesis Plus GX: detecção automática de região, FM YM2413 automático, núcleo Nuked para o FM quando aplicável e CRT Guest Advanced NTSC.",
+      "systems": [
+        "Sega Master System",
+        "Sega Master System - Mark III",
+        "Master System",
+        "Sega Mark III",
+        "Mark III",
+        "sms",
+        "master-system"
+      ],
+      "core": "Genesis Plus GX",
+      "overlay_asset": "",
+      "targets": {
+        "options": "Genesis Plus GX/Sega Master System.opt",
+        "override": "Genesis Plus GX/Sega Master System.cfg",
+        "shader": "Genesis Plus GX/Sega Master System.slangp"
+      },
+      "files": {
+        "options": "genesis_plus_gx_system_hw = \"master system\"\ngenesis_plus_gx_region_detect = \"auto\"\ngenesis_plus_gx_ym2413 = \"auto\"\ngenesis_plus_gx_ym2413_core = \"nuked\"\ngenesis_plus_gx_audio_filter = \"disabled\"\ngenesis_plus_gx_blargg_ntsc_filter = \"disabled\"\ngenesis_plus_gx_no_sprite_limit = \"disabled\"\ngenesis_plus_gx_overscan = \"disabled\"\ngenesis_plus_gx_sound_output = \"stereo\"",
+        "override": "video_smooth = \"false\"\naspect_ratio_index = \"1\"\nvideo_shader_enable = \"true\"\nvideo_shader = \":\\\\config\\\\Genesis Plus GX\\\\Sega Master System.slangp\"",
+        "shader": "; Master System — CRT Guest Advanced NTSC — Fidelity v1\n; Perfil de referência do sistema.\n; Objetivo: imagem CRT nítida, Composite NTSC moderado, sem curvatura.\n#reference \":/shaders/shaders_slang/crt/crt-guest-advanced-ntsc.slangp\n\nquality = 1.0\ncust_artifacting = 0.55\ncust_fringing = 0.35\nntsc_fields = -1.0\nntsc_phase = 1.0\nntsc_scale = 1.0\nntsc_sat = 0.95\nntsc_bright = 1.0\nntsc_gamma = 1.0\nntsc_rainbow1 = 0.0\nntsc_taps = 32.0\nntsc_charp = 0.50\nntsc_charp3 = 0.75\nfilter_res = 1.0\nauto_res = 0.0\nspeedup = 1.0\n\nHSHARPNESS = 1.45\nSIGMA_HOR = 0.65\nS_SHARP = 1.05\nHSHARP = 1.20\nMAXS = 0.15\nHARNG = 0.20\nspike = 0.80\n\nglow = 0.04\nbloom = 0.02\nmask_bloom = 0.00\nbloom_dist = 0.00\nhalation = 0.015\nbmask1 = 0.00\nhmask1 = 0.20\ngamma_c = 1.00\ngamma_c2 = 1.00\nbrightboost = 1.15\nbrightboost1 = 1.05\nclips = 0.00\n\ngsl = 0.0\nscanline1 = 6.0\nscanline2 = 8.0\nbeam_min = 1.15\nbeam_max = 1.00\ntds = 0.00\nbeam_size = 0.55\nscans = 0.35\nscan_falloff = 1.00\nscangamma = 2.40\nrolling_scan = 0.00\nno_scanlines = 0.00\n\nwarpX = 0.00\nwarpY = 0.00\nc_shape = 0.25\noverscanX = 0.0\noverscanY = 0.0\nVShift = 0.0\n\nintres = 0.0\nIOS = 0.0\nOS = 1.0\nBLOOM = 0.0"
+      }
+    },
+    {
+      "id": "mega-drive-fidelity-v1",
+      "name": "Mega Drive — Fidelity CRT v1",
+      "description": "Perfil de referência para Mega Drive/Genesis com Genesis Plus GX: hardware Mega Drive/Genesis explícito, região automática, FM YM2612 Nuked, filtros internos desativados e CRT Guest Advanced NTSC.",
+      "systems": [
+        "Sega Mega Drive",
+        "Sega Mega Drive - Genesis",
+        "Sega Genesis",
+        "Mega Drive",
+        "Genesis",
+        "Sega - Mega Drive - Genesis",
+        "md",
+        "genesis"
+      ],
+      "core": "Genesis Plus GX",
+      "overlay_asset": "",
+      "targets": {
+        "options": "Genesis Plus GX/Sega Mega Drive.opt",
+        "override": "Genesis Plus GX/Sega Mega Drive.cfg",
+        "shader": "Genesis Plus GX/Sega Mega Drive.slangp"
+      },
+      "files": {
+        "options": "genesis_plus_gx_system_hw = \"mega drive / genesis\"\ngenesis_plus_gx_region_detect = \"auto\"\ngenesis_plus_gx_ym2612 = \"nuked (ym2612)\"\ngenesis_plus_gx_audio_filter = \"disabled\"\ngenesis_plus_gx_blargg_ntsc_filter = \"disabled\"\ngenesis_plus_gx_no_sprite_limit = \"disabled\"\ngenesis_plus_gx_overscan = \"disabled\"\ngenesis_plus_gx_sound_output = \"stereo\"",
+        "override": "video_smooth = \"false\"\naspect_ratio_index = \"1\"\nvideo_shader_enable = \"true\"\nvideo_shader = \":\\\\config\\\\Genesis Plus GX\\\\Sega Mega Drive.slangp\"",
+        "shader": "; Mega Drive — CRT Guest Advanced NTSC — Fidelity v1\n; Perfil de referência do sistema.\n; Objetivo: imagem CRT nítida, Composite NTSC moderado, sem curvatura.\n#reference \":/shaders/shaders_slang/crt/crt-guest-advanced-ntsc.slangp\n\nquality = 1.0\ncust_artifacting = 0.55\ncust_fringing = 0.35\nntsc_fields = -1.0\nntsc_phase = 1.0\nntsc_scale = 1.0\nntsc_sat = 0.95\nntsc_bright = 1.0\nntsc_gamma = 1.0\nntsc_rainbow1 = 0.0\nntsc_taps = 32.0\nntsc_charp = 0.50\nntsc_charp3 = 0.75\nfilter_res = 1.0\nauto_res = 0.0\nspeedup = 1.0\n\nHSHARPNESS = 1.45\nSIGMA_HOR = 0.65\nS_SHARP = 1.05\nHSHARP = 1.20\nMAXS = 0.15\nHARNG = 0.20\nspike = 0.80\n\nglow = 0.04\nbloom = 0.02\nmask_bloom = 0.00\nbloom_dist = 0.00\nhalation = 0.015\nbmask1 = 0.00\nhmask1 = 0.20\ngamma_c = 1.00\ngamma_c2 = 1.00\nbrightboost = 1.15\nbrightboost1 = 1.05\nclips = 0.00\n\ngsl = 0.0\nscanline1 = 6.0\nscanline2 = 8.0\nbeam_min = 1.15\nbeam_max = 1.00\ntds = 0.00\nbeam_size = 0.55\nscans = 0.35\nscan_falloff = 1.00\nscangamma = 2.40\nrolling_scan = 0.00\nno_scanlines = 0.00\n\nwarpX = 0.00\nwarpY = 0.00\nc_shape = 0.25\noverscanX = 0.0\noverscanY = 0.0\nVShift = 0.0\n\nintres = 0.0\nIOS = 0.0\nOS = 1.0\nBLOOM = 0.0"
+      }
+    },
+    {
+      "id": "playstation-fidelity-v1",
+      "name": "PlayStation — Fidelity CRT v1",
+      "description": "Perfil de referência para PlayStation com Beetle PSX HW: Vulkan, resolução interna 4x, PGXP memory only, framebuffer software habilitado e proporção corrigida. Mantém dithering de aparência próxima ao hardware.",
+      "systems": [
+        "Sony PlayStation",
+        "Sony - PlayStation",
+        "PlayStation",
+        "PS1",
+        "PSX",
+        "Sony - PlayStation - PS1",
+        "playstation"
+      ],
+      "core": "Beetle PSX HW",
+      "overlay_asset": "",
+      "targets": {
+        "options": "Beetle PSX HW/PlayStation.opt",
+        "override": "Beetle PSX HW/PlayStation.cfg",
+        "shader": "Beetle PSX HW/PlayStation.slangp"
+      },
+      "files": {
+        "options": "beetle_psx_hw_renderer = \"hardware_vk\"\nbeetle_psx_hw_renderer_software_fb = \"enabled\"\nbeetle_psx_hw_internal_resolution = \"4x\"\nbeetle_psx_hw_depth = \"16bpp(native)\"\nbeetle_psx_hw_dither_mode = \"internal resolution\"\nbeetle_psx_hw_filter = \"nearest\"\nbeetle_psx_hw_adaptive_smoothing = \"disabled\"\nbeetle_psx_hw_super_sampling = \"disabled\"\nbeetle_psx_hw_msaa = \"4x\"\nbeetle_psx_hw_mdec_yuv = \"enabled\"\nbeetle_psx_hw_pgxp_mode = \"memory only\"\nbeetle_psx_hw_pgxp_vertex = \"disabled\"\nbeetle_psx_hw_pgxp_texture = \"enabled\"\nbeetle_psx_hw_widescreen_hack = \"disabled\"\nbeetle_psx_hw_crop_overscan = \"enabled\"\nbeetle_psx_hw_aspect_ratio = \"corrected\"",
+        "override": "video_smooth = \"false\"\naspect_ratio_index = \"1\"\nvideo_shader_enable = \"true\"\nvideo_shader = \":\\\\config\\\\Beetle PSX HW\\\\PlayStation.slangp\"",
+        "shader": "; PlayStation — CRT Guest Advanced NTSC — Fidelity v1\n; Perfil de referência do sistema.\n; Objetivo: imagem CRT nítida, Composite NTSC moderado, sem curvatura.\n#reference \":/shaders/shaders_slang/crt/crt-guest-advanced-ntsc.slangp\n\nquality = 1.0\ncust_artifacting = 0.55\ncust_fringing = 0.35\nntsc_fields = -1.0\nntsc_phase = 1.0\nntsc_scale = 1.0\nntsc_sat = 0.95\nntsc_bright = 1.0\nntsc_gamma = 1.0\nntsc_rainbow1 = 0.0\nntsc_taps = 32.0\nntsc_charp = 0.50\nntsc_charp3 = 0.75\nfilter_res = 1.0\nauto_res = 0.0\nspeedup = 1.0\n\nHSHARPNESS = 1.45\nSIGMA_HOR = 0.65\nS_SHARP = 1.05\nHSHARP = 1.20\nMAXS = 0.15\nHARNG = 0.20\nspike = 0.80\n\nglow = 0.04\nbloom = 0.02\nmask_bloom = 0.00\nbloom_dist = 0.00\nhalation = 0.015\nbmask1 = 0.00\nhmask1 = 0.20\ngamma_c = 1.00\ngamma_c2 = 1.00\nbrightboost = 1.15\nbrightboost1 = 1.05\nclips = 0.00\n\ngsl = 0.0\nscanline1 = 6.0\nscanline2 = 8.0\nbeam_min = 1.15\nbeam_max = 1.00\ntds = 0.00\nbeam_size = 0.55\nscans = 0.35\nscan_falloff = 1.00\nscangamma = 2.40\nrolling_scan = 0.00\nno_scanlines = 0.00\n\nwarpX = 0.00\nwarpY = 0.00\nc_shape = 0.25\noverscanX = 0.0\noverscanY = 0.0\nVShift = 0.0\n\nintres = 0.0\nIOS = 0.0\nOS = 1.0\nBLOOM = 0.0"
+      }
+    },
+    {
+      "id": "sega-saturn-fidelity-v1",
+      "name": "Sega Saturn — Fidelity CRT v1",
+      "description": "Perfil de referência para Sega Saturn com Beetle Saturn: foco em precisão, região automática, proporção nativa 4:3 e CRT Guest Advanced. Não força hacks de velocidade ou aprimoramentos incompatíveis com a proposta de fidelidade.",
+      "systems": [
+        "Sega Saturn",
+        "Sega - Saturn",
+        "Saturn",
+        "Sega Saturno",
+        "saturn"
+      ],
+      "core": "Beetle Saturn",
+      "overlay_asset": "",
+      "targets": {
+        "options": "Beetle Saturn/Sega Saturn.opt",
+        "override": "Beetle Saturn/Sega Saturn.cfg",
+        "shader": "Beetle Saturn/Sega Saturn.slangp"
+      },
+      "files": {
+        "options": "beetle_saturn_region = \"Auto Detect\"\nbeetle_saturn_cart = \"Auto Detect\"",
+        "override": "video_smooth = \"false\"\naspect_ratio_index = \"1\"\nvideo_shader_enable = \"true\"\nvideo_shader = \":\\\\config\\\\Beetle Saturn\\\\Sega Saturn.slangp\"",
+        "shader": "; Sega Saturn — CRT Guest Advanced NTSC — Fidelity v1\n; Perfil de referência do sistema.\n; Objetivo: imagem CRT nítida, Composite NTSC moderado, sem curvatura.\n#reference \":/shaders/shaders_slang/crt/crt-guest-advanced-ntsc.slangp\n\nquality = 1.0\ncust_artifacting = 0.55\ncust_fringing = 0.35\nntsc_fields = -1.0\nntsc_phase = 1.0\nntsc_scale = 1.0\nntsc_sat = 0.95\nntsc_bright = 1.0\nntsc_gamma = 1.0\nntsc_rainbow1 = 0.0\nntsc_taps = 32.0\nntsc_charp = 0.50\nntsc_charp3 = 0.75\nfilter_res = 1.0\nauto_res = 0.0\nspeedup = 1.0\n\nHSHARPNESS = 1.45\nSIGMA_HOR = 0.65\nS_SHARP = 1.05\nHSHARP = 1.20\nMAXS = 0.15\nHARNG = 0.20\nspike = 0.80\n\nglow = 0.04\nbloom = 0.02\nmask_bloom = 0.00\nbloom_dist = 0.00\nhalation = 0.015\nbmask1 = 0.00\nhmask1 = 0.20\ngamma_c = 1.00\ngamma_c2 = 1.00\nbrightboost = 1.15\nbrightboost1 = 1.05\nclips = 0.00\n\ngsl = 0.0\nscanline1 = 6.0\nscanline2 = 8.0\nbeam_min = 1.15\nbeam_max = 1.00\ntds = 0.00\nbeam_size = 0.55\nscans = 0.35\nscan_falloff = 1.00\nscangamma = 2.40\nrolling_scan = 0.00\nno_scanlines = 0.00\n\nwarpX = 0.00\nwarpY = 0.00\nc_shape = 0.25\noverscanX = 0.0\noverscanY = 0.0\nVShift = 0.0\n\nintres = 0.0\nIOS = 0.0\nOS = 1.0\nBLOOM = 0.0"
+      }
+    },
+    {
+      "id": "nintendo-64-fidelity-v1",
+      "name": "Nintendo 64 — Fidelity CRT v1",
+      "description": "Perfil de referência para Nintendo 64 com Mupen64Plus-Next: renderização 4:3 em 1920x1440, framebuffer ativo, filtro 3-point, cache de shaders e sem texture enhancement forçado. Mantém a apresentação CRT sem esticar o conteúdo.",
+      "systems": [
+        "Nintendo 64",
+        "Nintendo - Nintendo 64",
+        "N64",
+        "Nintendo64",
+        "Nintendo 64DD"
+      ],
+      "core": "Mupen64Plus-Next",
+      "overlay_asset": "",
+      "targets": {
+        "options": "Mupen64Plus-Next/Nintendo 64.opt",
+        "override": "Mupen64Plus-Next/Nintendo 64.cfg",
+        "shader": "Mupen64Plus-Next/Nintendo 64.slangp"
+      },
+      "files": {
+        "options": "mupen64plus-cpucore = \"dynamic_recompiler\"\nmupen64plus-rspmode = \"HLE\"\nmupen64plus-43screensize = \"1920x1440\"\nmupen64plus-aspect = \"4:3\"\nmupen64plus-BilinearMode = \"3point\"\nmupen64plus-MultiSampling = \"0\"\nmupen64plus-EnableFBEmulation = \"True\"\nmupen64plus-EnableCopyColorToRDRAM = \"Async\"\nmupen64plus-EnableCopyDepthToRDRAM = \"Software\"\nmupen64plus-EnableHWLighting = \"False\"\nmupen64plus-CorrectTexrectCoords = \"Auto\"\nmupen64plus-EnableNativeResTexrects = \"False\"\nmupen64plus-EnableShadersStorage = \"True\"\nmupen64plus-CropMode = \"Auto\"\nmupen64plus-EnableTextureCache = \"True\"\nmupen64plus-EnableEnhancedTextureStorage = \"False\"\nmupen64plus-EnableEnhancedHighResStorage = \"False\"\nmupen64plus-txHiresEnable = \"False\"\nmupen64plus-EnableLODEmulation = \"True\"",
+        "override": "video_smooth = \"false\"\naspect_ratio_index = \"1\"\nvideo_shader_enable = \"true\"\nvideo_shader = \":\\\\config\\\\Mupen64Plus-Next\\\\Nintendo 64.slangp\"",
+        "shader": "; Nintendo 64 — CRT Guest Advanced NTSC — Fidelity v1\n; Perfil de referência do sistema.\n; Objetivo: imagem CRT nítida, Composite NTSC moderado, sem curvatura.\n#reference \":/shaders/shaders_slang/crt/crt-guest-advanced-ntsc.slangp\n\nquality = 1.0\ncust_artifacting = 0.55\ncust_fringing = 0.35\nntsc_fields = -1.0\nntsc_phase = 1.0\nntsc_scale = 1.0\nntsc_sat = 0.95\nntsc_bright = 1.0\nntsc_gamma = 1.0\nntsc_rainbow1 = 0.0\nntsc_taps = 32.0\nntsc_charp = 0.50\nntsc_charp3 = 0.75\nfilter_res = 1.0\nauto_res = 0.0\nspeedup = 1.0\n\nHSHARPNESS = 1.45\nSIGMA_HOR = 0.65\nS_SHARP = 1.05\nHSHARP = 1.20\nMAXS = 0.15\nHARNG = 0.20\nspike = 0.80\n\nglow = 0.04\nbloom = 0.02\nmask_bloom = 0.00\nbloom_dist = 0.00\nhalation = 0.015\nbmask1 = 0.00\nhmask1 = 0.20\ngamma_c = 1.00\ngamma_c2 = 1.00\nbrightboost = 1.15\nbrightboost1 = 1.05\nclips = 0.00\n\ngsl = 0.0\nscanline1 = 6.0\nscanline2 = 8.0\nbeam_min = 1.15\nbeam_max = 1.00\ntds = 0.00\nbeam_size = 0.55\nscans = 0.35\nscan_falloff = 1.00\nscangamma = 2.40\nrolling_scan = 0.00\nno_scanlines = 0.00\n\nwarpX = 0.00\nwarpY = 0.00\nc_shape = 0.25\noverscanX = 0.0\noverscanY = 0.0\nVShift = 0.0\n\nintres = 0.0\nIOS = 0.0\nOS = 1.0\nBLOOM = 0.0"
       }
     }
   ]
