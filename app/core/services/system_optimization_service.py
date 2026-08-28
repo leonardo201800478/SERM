@@ -14,6 +14,7 @@ overlay embutido são elegíveis como padrão automático.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -27,7 +28,6 @@ DEFAULT_SHADER_ID = "libretro-crt-guest-advanced-ntsc"
 @dataclass(frozen=True, slots=True)
 class CoreOptimization:
     """Configuração específica de um core para um sistema."""
-
     core: str
     files: dict[str, str]
     targets: dict[str, str] = field(default_factory=dict)
@@ -37,7 +37,6 @@ class CoreOptimization:
 @dataclass(frozen=True, slots=True)
 class ShaderProfile:
     """Metadados de um shader/preset instalável localmente."""
-
     shader_id: str
     name: str
     filename: str
@@ -54,17 +53,12 @@ class ShaderProfile:
     @property
     def safe_default(self) -> bool:
         """Indica se o shader pode ser usado automaticamente."""
-        return (
-            self.performance in {"light", "medium"}
-            and not self.reflection
-            and not self.embedded_overlay
-        )
+        return self.performance in {"light", "medium"} and not self.reflection and not self.embedded_overlay
 
 
 @dataclass(frozen=True, slots=True)
 class ShaderOptimization:
     """Preset Slang do sistema gerado pelo Arcade Manager."""
-
     filename: str
     reference: str
     shader_id: str = DEFAULT_SHADER_ID
@@ -80,14 +74,12 @@ class ShaderOptimization:
         )
 
 
-# Compatibilidade com consumidores que usavam este nome.
 ShaderOptimizationProfile = ShaderProfile
 
 
 @dataclass(frozen=True, slots=True)
 class SystemOptimizationProfile:
     """Perfil completo: Core + Override + Shader + Overlay."""
-
     profile_id: str
     name: str
     description: str
@@ -101,10 +93,7 @@ class SystemOptimizationProfile:
     @property
     def core(self) -> str:
         """Retorna o core preferido ou o primeiro core."""
-        preferred = next(
-            (name for name, item in self.core_optimizations.items() if item.preferred),
-            None,
-        )
+        preferred = next((name for name, item in self.core_optimizations.items() if item.preferred), None)
         return preferred or (self.cores[0] if self.cores else "")
 
     @property
@@ -150,6 +139,12 @@ class SystemOptimizationService:
         return " ".join((value or "").replace("_", " ").replace("-", " ").split()).casefold()
 
     @staticmethod
+    def _filename(value: str) -> str:
+        """Converte nome de sistema em nome seguro para arquivo."""
+        value = re.sub(r"[^A-Za-z0-9._ -]+", "", value).strip()
+        return value or "System"
+
+    @staticmethod
     def _managed_content(content: str) -> str:
         """Marca um arquivo como gerenciado pelo Arcade Manager."""
         if content.startswith(MANAGED_HEADER):
@@ -158,7 +153,7 @@ class SystemOptimizationService:
 
     @staticmethod
     def _is_managed(path: Path) -> bool:
-        """Verifica se o primeiro comentário identifica o Arcade Manager."""
+        """Verifica se o arquivo foi gerado pelo Arcade Manager."""
         if not path.is_file():
             return False
         try:
@@ -204,7 +199,7 @@ class SystemOptimizationService:
             )
 
     def _load_profiles(self) -> None:
-        """Carrega os perfis mantendo compatibilidade com schemas anteriores."""
+        """Carrega perfis mantendo compatibilidade com schemas anteriores."""
         try:
             raw = json.loads(self.catalog_path.read_text(encoding="utf-8"))
         except (OSError, ValueError, TypeError, json.JSONDecodeError):
@@ -221,6 +216,8 @@ class SystemOptimizationService:
         profile_id = str(item.get("id", "")).strip()
         if not profile_id:
             return None
+        systems = tuple(str(v).strip() for v in item.get("systems", []) if str(v).strip())
+        system_filename = self._filename(systems[0]) if systems else self._filename(profile_id)
 
         cores: dict[str, CoreOptimization] = {}
         raw_cores = item.get("cores", {})
@@ -240,7 +237,6 @@ class SystemOptimizationService:
                     preferred=bool(raw_core.get("preferred", False)),
                 )
 
-        # Compatibilidade com o catálogo v2: um core por perfil.
         legacy_core = str(item.get("core", "")).strip()
         if legacy_core and legacy_core not in cores:
             files = item.get("files", {})
@@ -252,20 +248,21 @@ class SystemOptimizationService:
                 preferred=True,
             )
 
+        shader = self._parse_shader(item, system_filename)
         return SystemOptimizationProfile(
             profile_id=profile_id,
             name=str(item.get("name", profile_id)),
             description=str(item.get("description", "")),
-            systems=tuple(str(v).strip() for v in item.get("systems", []) if str(v).strip()),
+            systems=systems,
             cores=tuple(cores),
             core_optimizations=cores,
-            shader=self._parse_shader(item),
+            shader=shader,
             overlay_asset=str(item.get("overlay_asset") or "").strip() or None,
             shader_options=tuple(str(v) for v in item.get("shader_options", [])),
         )
 
-    def _parse_shader(self, item: dict[str, Any]) -> ShaderOptimization | None:
-        """Resolve o shader escolhido sem copiar parâmetros potencialmente obsoletos."""
+    def _parse_shader(self, item: dict[str, Any], system_filename: str) -> ShaderOptimization | None:
+        """Resolve o shader escolhido e materializa templates como {system}."""
         raw = item.get("shader")
         shader_id = ""
         filename = ""
@@ -284,36 +281,33 @@ class SystemOptimizationService:
                 raise ValueError(f"Shader não cadastrado na biblioteca: {shader_id}")
             if not selected.safe_default and not bool(item.get("allow_heavy_shader", False)):
                 raise ValueError(
-                    f"Shader '{shader_id}' não é elegível como padrão: "
-                    "possui reflexos/overlay embutido ou custo elevado."
+                    f"Shader '{shader_id}' não é elegível como padrão: possui reflexos, overlay embutido ou custo elevado."
                 )
-            return ShaderOptimization(selected.filename, selected.reference, selected.shader_id)
+            filename = selected.filename.replace("{system}", system_filename)
+            reference = selected.reference.replace("{system}", system_filename)
+            return ShaderOptimization(filename, reference, selected.shader_id)
 
         targets = item.get("targets")
         if isinstance(targets, dict):
             target = str(targets.get("shader", "")).replace("\\", "/")
             filename = filename or Path(target).name
-
         if filename and reference:
-            return ShaderOptimization(filename, reference, "custom")
+            return ShaderOptimization(filename.replace("{system}", system_filename), reference.replace("{system}", system_filename), "custom")
 
-        # Catálogo legado: preserva o nome do arquivo, mas substitui o conteúdo
-        # antigo pelo Simple Preset oficial atual.
+        # Catálogo legado: preserva o nome, mas usa a referência oficial atual.
         if filename:
             selected = self.shader_library.get(DEFAULT_SHADER_ID)
             if selected:
-                return ShaderOptimization(filename, selected.reference, selected.shader_id)
+                return ShaderOptimization(filename.replace("{system}", system_filename), selected.reference, selected.shader_id)
         return None
 
     def shader_options_for_system(self, system_name: str) -> list[ShaderProfile]:
-        """Lista shaders seguros para um sistema, priorizando os recomendados."""
+        """Lista shaders seguros para um sistema, priorizando recomendados."""
         key = self._key(system_name)
-        result = []
-        for shader in self.shader_library.values():
-            if shader.systems and not any(self._key(system) == key for system in shader.systems):
-                continue
-            if shader.safe_default:
-                result.append(shader)
+        result = [
+            shader for shader in self.shader_library.values()
+            if (not shader.systems or any(self._key(system) == key for system in shader.systems)) and shader.safe_default
+        ]
         return sorted(result, key=lambda item: (not item.recommended, item.performance, item.name.casefold()))
 
     def shader_profile(self, shader_id: str) -> ShaderProfile | None:
@@ -329,7 +323,7 @@ class SystemOptimizationService:
         )
 
     def get(self, profile_id: str) -> SystemOptimizationProfile | None:
-        """Obtém um perfil por ID."""
+        """Obtém um perfil por identificador estável."""
         return self.profiles.get(profile_id)
 
     def _retroarch_config_root(self) -> Path:
@@ -481,12 +475,7 @@ class SystemOptimizationService:
         return prepared, warnings
 
     def apply(self, system_name: str, system_id: str, profile_id: str, overwrite: bool = True) -> dict[str, Any]:
-        """Aplica o perfil e sempre sobrescreve os arquivos definidos por ele.
-
-        ``overwrite`` permanece na assinatura por compatibilidade. A política
-        oficial é sempre sobrescrever: o perfil é a fonte de verdade dos
-        arquivos que ele gerencia.
-        """
+        """Aplica o perfil e sempre sobrescreve os arquivos definidos por ele."""
         profile = self.get(profile_id)
         if profile is None:
             raise KeyError(f"Perfil de otimização não encontrado: {profile_id}")
