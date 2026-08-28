@@ -60,8 +60,7 @@ class MainWindow(QMainWindow):
         self.tab_widget = QTabWidget()
         self.setCentralWidget(self.tab_widget)
 
-        # As abas Home, Diretórios e Filtragem permanecem leves e disponíveis
-        # imediatamente porque participam da configuração/estado inicial.
+        # Estas telas são leves e participam do estado/configuração inicial.
         self.home_tab = HomeTab(self)
         self.retroarch_home_tab = RetroArchHomeTab(self)
         self.home_section = QTabWidget()
@@ -74,14 +73,10 @@ class MainWindow(QMainWindow):
         self.directories_tab = DirectoriesTab(self)
         self.filters_tab = FiltersTab(self, db=self.db)
 
-        # Os componentes pesados não são instanciados durante o startup.
         self._lazy_factories: dict[str, Callable[[], QWidget]] = {}
         self._lazy_placeholders: dict[str, _LazyTabPlaceholder] = {}
         self._register_lazy_tabs()
 
-        # O teste de shaders continua usando a configuração MAME. Somente a
-        # subaba MAME do EmulatorSettingsTab é criada neste ponto; as demais
-        # subabas continuam lazy.
         self.shader_test_controller = None
 
         self.tab_widget.addTab(self.home_section, "Home")
@@ -96,9 +91,14 @@ class MainWindow(QMainWindow):
         self._add_lazy_tab("launchbox_integration_tab", "LaunchBox")
 
         self.tab_widget.currentChanged.connect(self._on_tab_changed)
-        self.home_tab.refresh_status()
         self._connect_directory_signals()
         self._connect_filter_signals()
+
+        # Compatibilidade: o teste de shaders exige a subaba MAME, mas não
+        # deve materializar Flycast/Supermodel/FBNeo/RetroArch.
+        settings = self._ensure_lazy_tab("emulator_settings_tab")
+        self.shader_test_controller = install_shader_test(settings.shader_test_target)
+        self.home_tab.refresh_status()
 
     def _register_lazy_tabs(self) -> None:
         """Registra fábricas sem construir os widgets associados."""
@@ -227,9 +227,10 @@ class MainWindow(QMainWindow):
             self.shader_test_controller.stop()
         for attr, _label, _widget_type in self._LAZY_TABS:
             widget = getattr(self, attr, None)
-            if widget is not None and hasattr(widget, "closeEvent"):
-                # Widgets com workers próprios recebem o fechamento normal.
+            if widget is not None and widget is not self.emulator_settings_tab and hasattr(widget, "closeEvent"):
                 widget.close()
+        if self.emulator_settings_tab is not None:
+            self.emulator_settings_tab.close()
         self.db.close()
         event.accept()
 
