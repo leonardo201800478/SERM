@@ -2,6 +2,9 @@
 
 The schema remains emulator-agnostic. This module is the only place where a
 canonical GUI key is translated to a key stored by a specific emulator.
+
+Mappings are deliberately limited to keys verified against the emulator
+adapters. Unsupported settings remain unmapped instead of being guessed.
 """
 from __future__ import annotations
 
@@ -11,14 +14,14 @@ from dataclasses import dataclass
 @dataclass(frozen=True, slots=True)
 class ConfigMapping:
     """Physical representation of one canonical configuration setting."""
+
     emulator: str
     canonical_key: str
     physical_key: str
 
 
-# These mappings intentionally start with keys whose physical representation
-# is stable. Unsupported/unknown mappings are not guessed: they remain absent.
 _MAPPINGS: tuple[ConfigMapping, ...] = (
+    # MAME
     ConfigMapping("mame", "fullscreen", "window"),
     ConfigMapping("mame", "vsync", "waitvsync"),
     ConfigMapping("mame", "sync_refresh", "syncrefresh"),
@@ -30,16 +33,29 @@ _MAPPINGS: tuple[ConfigMapping, ...] = (
     ConfigMapping("mame", "joystick", "joystick"),
     ConfigMapping("mame", "mouse", "mouse"),
     ConfigMapping("mame", "lightgun", "lightgun"),
+    # Flycast
     ConfigMapping("flycast", "fullscreen", "fullscreen"),
     ConfigMapping("flycast", "vsync", "vsync"),
     ConfigMapping("flycast", "audio_latency", "audio_latency"),
     ConfigMapping("flycast", "retroachievements", "retroachievements"),
+    # Supermodel
     ConfigMapping("supermodel", "fullscreen", "FullScreen"),
     ConfigMapping("supermodel", "vsync", "VSync"),
     ConfigMapping("supermodel", "show_fps", "ShowFPS"),
     ConfigMapping("supermodel", "music_volume", "MusicVolume"),
     ConfigMapping("supermodel", "sound_volume", "SoundVolume"),
     ConfigMapping("supermodel", "stereo_swap", "StereoSwap"),
+    # RetroArch: these are native retroarch.cfg keys, not core .opt keys.
+    ConfigMapping("retroarch", "fullscreen", "video_fullscreen"),
+    ConfigMapping("retroarch", "vsync", "video_vsync"),
+    ConfigMapping("retroarch", "video_threaded", "video_threaded"),
+    ConfigMapping("retroarch", "audio_enable", "audio_enable"),
+    ConfigMapping("retroarch", "audio_out_rate", "audio_out_rate"),
+    ConfigMapping("retroarch", "audio_latency", "audio_latency"),
+    ConfigMapping("retroarch", "input_joypad_driver", "input_joypad_driver"),
+    ConfigMapping("retroarch", "input_autodetect_enable", "input_autodetect_enable"),
+    ConfigMapping("retroarch", "video_shader", "video_shader"),
+    ConfigMapping("retroarch", "video_shader_enable", "video_shader_enable"),
 )
 
 _INDEX = {(item.emulator, item.canonical_key): item for item in _MAPPINGS}
