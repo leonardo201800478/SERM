@@ -138,7 +138,6 @@ class ReconstructionEngine:
         manifest = Path(path)
         if not manifest.is_file():
             raise FileNotFoundError(f"Manifesto não encontrado: {manifest}")
-
         with manifest.open("r", encoding="utf-8") as handle:
             for line_number, line in enumerate(handle, 1):
                 if not line.strip():
@@ -148,7 +147,6 @@ class ReconstructionEngine:
                 except json.JSONDecodeError as exc:
                     logger.warning("JSONL inválido na linha %d: %s", line_number, exc)
                     continue
-
                 record_type = record.get("record_type")
                 if record_type == "machine":
                     data = record.get("machine") or {}
@@ -159,39 +157,18 @@ class ReconstructionEngine:
                     machine.description = str(data.get("description") or machine.description)
                     machine.cloneof = data.get("cloneof") or machine.cloneof
                     continue
-
                 if record_type not in {"rom", "disk"}:
                     continue
-
                 data = record.get("record") or record.get("rom") or record.get("disk") or {}
                 machine_name = str(data.get("machine") or "")
                 item_name = str(data.get("rom_name") or data.get("disk_name") or "")
                 if not machine_name or not item_name:
                     continue
-
                 source = data.get("source") or {}
                 is_disk = record_type == "disk"
-                # CHDs precisam chegar ao motor com um nome físico .chd e
-                # source.kind=chd; isso elimina qualquer ambiguidade com ROMs.
                 rom_name = item_name if not is_disk else (item_name if item_name.lower().endswith(".chd") else f"{item_name}.chd")
                 machine = machines.setdefault(machine_name, ReconstructionMachine(name=machine_name))
-                machine.roms.append(
-                    ReconstructionRom(
-                        machine=machine_name,
-                        rom_name=rom_name,
-                        expected_size=int(data.get("expected_size") or 0),
-                        expected_crc=str(data.get("expected_crc") or "").strip().lower(),
-                        expected_sha1=(str(data.get("expected_sha1") or "").strip().lower() or None),
-                        status=str(data.get("status") or "missing").lower(),
-                        source_archive=source.get("archive"),
-                        source_member=source.get("member"),
-                        source_kind="chd" if is_disk else source.get("kind"),
-                        merge=data.get("merge"),
-                        optional=bool(data.get("optional", False)),
-                        required=bool(data.get("required", not data.get("optional", False))),
-                    )
-                )
-
+                machine.roms.append(ReconstructionRom(machine=machine_name, rom_name=rom_name, expected_size=int(data.get("expected_size") or 0), expected_crc=str(data.get("expected_crc") or "").strip().lower(), expected_sha1=(str(data.get("expected_sha1") or "").strip().lower() or None), status=str(data.get("status") or "missing").lower(), source_archive=source.get("archive"), source_member=source.get("member"), source_kind="chd" if is_disk else source.get("kind"), merge=data.get("merge"), optional=bool(data.get("optional", False)), required=bool(data.get("required", not data.get("optional", False))))
         return list(machines.values())
 
     @staticmethod
@@ -302,7 +279,6 @@ class ReconstructionEngine:
                 source_handle.close()
             if archive is not None:
                 archive.close()
-
         actual_crc = f"{crc & 0xFFFFFFFF:08x}"
         actual_sha1 = sha1.hexdigest().lower()
         if item.expected_size > 0 and total != item.expected_size:
@@ -480,19 +456,7 @@ class ReconstructionEngine:
     @staticmethod
     def _unresolved(machine: ReconstructionMachine, rom: ReconstructionRom | None, reason: str, error: str | None = None) -> dict[str, Any]:
         """Cria um registro residual compatível com a próxima etapa."""
-        return {
-            "machine": machine.name,
-            "description": machine.description,
-            "cloneof": machine.cloneof,
-            "rom_name": rom.rom_name if rom else None,
-            "item_type": "chd" if rom and rom.is_chd else "rom",
-            "expected_size": rom.expected_size if rom else None,
-            "expected_crc": rom.expected_crc if rom else None,
-            "expected_sha1": rom.expected_sha1 if rom else rom.chd_sha1 if rom else None,
-            "source": {"kind": rom.source_kind if rom else None, "archive": rom.source_archive if rom else None, "member": rom.source_member if rom else None} if rom else None,
-            "reason": reason,
-            "error": error,
-        }
+        return {"machine": machine.name, "description": machine.description, "cloneof": machine.cloneof, "rom_name": rom.rom_name if rom else None, "item_type": "chd" if rom and rom.is_chd else "rom", "expected_size": rom.expected_size if rom else None, "expected_crc": rom.expected_crc if rom else None, "expected_sha1": rom.expected_sha1 if rom else rom.chd_sha1 if rom else None, "source": {"kind": rom.source_kind if rom else None, "archive": rom.source_archive if rom else None, "member": rom.source_member if rom else None} if rom else None, "reason": reason, "error": error}
 
     def _process_machine(self, machine: ReconstructionMachine, roms: list[ReconstructionRom], chds: list[ReconstructionRom], target_name: str, result: ReconstructionResult, total: int, progress_ref: list[int], *, copy_perfect: bool, repair: bool) -> bool:
         """Processa ROMs e CHDs, aproveitando artefatos válidos já publicados."""
@@ -503,7 +467,6 @@ class ReconstructionEngine:
         target_zip = self.destination_path / f"{target_name}.zip"
         zip_valid = self._validate_existing_machine_zip(target_zip, roms) if roms else True
         staged_roms: list[tuple[ReconstructionRom, Path]] = []
-
         if roms and not zip_valid:
             machine_stage = self._staging_root / f"{target_name}_roms"
             shutil.rmtree(machine_stage, ignore_errors=True)
@@ -511,7 +474,9 @@ class ReconstructionEngine:
             try:
                 for rom in roms:
                     self._check_cancel()
-                    is_perfect = rom.status in {"valid", "ok", "good"}
+                    source_name = Path(rom.source_member).name if rom.source_member else ""
+                    name_normalization = bool(source_name and source_name != rom.rom_name)
+                    is_perfect = rom.status in {"valid", "ok", "good"} and not name_normalization
                     if not is_perfect and not repair:
                         result.unresolved.append(self._unresolved(machine, rom, "reparo_desativado"))
                         self._log(f"[MACHINE] ROM não perfeita sem reparo: {machine.name} -> {rom.rom_name}")
@@ -549,7 +514,6 @@ class ReconstructionEngine:
                 if rom.machine == machine.name:
                     progress_ref[0] += 1
                     self._progress(progress_ref[0], total, f"{target_name}: {rom.rom_name} (já existente)")
-
         for chd in chds:
             self._check_cancel()
             target = self.destination_path / target_name / chd.output_name
@@ -591,7 +555,6 @@ class ReconstructionEngine:
                         self._progress(progress_ref[0], total, f"{target_name}: {chd.output_name}")
             finally:
                 shutil.rmtree(machine_stage, ignore_errors=True)
-
         return published_any or (zip_valid and bool(roms)) or bool(chds)
 
     def reconstruct(self, machines: list[ReconstructionMachine], *, set_type: str = SET_SPLIT, copy_perfect: bool = True, repair: bool = True) -> ReconstructionResult:
@@ -617,10 +580,8 @@ class ReconstructionEngine:
                     rom_map: dict[str, ReconstructionRom] = {}
                     chd_map: dict[str, ReconstructionRom] = {}
                     for member in group:
-                        for rom in self._expected(member):
-                            rom_map.setdefault(rom.rom_name, rom)
-                        for chd in self._expected_chds(member):
-                            chd_map.setdefault(chd.output_name, chd)
+                        for rom in self._expected(member): rom_map.setdefault(rom.rom_name, rom)
+                        for chd in self._expected_chds(member): chd_map.setdefault(chd.output_name, chd)
                     self._process_machine(group[0], list(rom_map.values()), list(chd_map.values()), root_name, result, total, progress_ref, copy_perfect=copy_perfect, repair=repair)
             else:
                 for machine in machines:
@@ -651,8 +612,7 @@ class ReconstructionEngine:
             handle.write(json.dumps({"record_type": "header", "schema_version": 3, "manifest_type": "reconstruction_residual", "source_manifest": str(source_manifest), "set_type": set_type}, ensure_ascii=False, separators=(",", ":")) + "\n")
             for item in unresolved:
                 key = (str(item.get("machine", "")), item.get("rom_name"), str(item.get("item_type", "rom")))
-                if key in seen:
-                    continue
+                if key in seen: continue
                 seen.add(key)
                 handle.write(json.dumps({"record_type": "unresolved", "record": item}, ensure_ascii=False, separators=(",", ":")) + "\n")
         return output
