@@ -7,6 +7,7 @@ instalação normal do RetroArch; shaders de terceiros passam pelo
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -45,6 +46,32 @@ class ShaderDependencyService:
     def __init__(self, config: AppConfig, catalog_path: Path) -> None:
         """Inicializa o resolvedor usando a mesma configuração do RetroArch."""
         self.manager = ShaderManagerService(config, catalog_path)
+        self.catalog_path = catalog_path
+
+    def _catalog_profile(self, shader_id: str) -> ShaderProfile | None:
+        """Converte uma entrada do catálogo em ``ShaderProfile``."""
+        try:
+            raw = json.loads(self.catalog_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+            raise RuntimeError(f"Não foi possível ler o catálogo de shaders: {self.catalog_path}") from exc
+        for item in raw.get("shaders", []) if isinstance(raw, dict) else []:
+            if not isinstance(item, dict) or str(item.get("id", "")).strip() != shader_id:
+                continue
+            return ShaderProfile(
+                shader_id=shader_id,
+                name=str(item.get("name", shader_id)),
+                filename=str(item.get("filename", "")),
+                reference=str(item.get("reference", "")),
+                source=str(item.get("source", "")),
+                source_url=str(item.get("source_url", "")),
+                performance=str(item.get("performance", "light")),
+                reflection=bool(item.get("reflection", False)),
+                embedded_overlay=bool(item.get("embedded_overlay", False)),
+                recommended=bool(item.get("recommended", False)),
+                systems=tuple(str(value) for value in item.get("systems", []) if str(value).strip()),
+                notes=str(item.get("notes", "")),
+            )
+        return None
 
     @staticmethod
     def _is_third_party(profile: ShaderProfile | None) -> bool:
@@ -55,8 +82,9 @@ class ShaderDependencyService:
         source_url = profile.source_url.casefold().strip()
         return bool(source_url) and not source.startswith("libretro")
 
-    def inspect(self, shader: ShaderOptimization, profile: ShaderProfile | None) -> ShaderDependency:
+    def inspect(self, shader: ShaderOptimization, profile: ShaderProfile | None = None) -> ShaderDependency:
         """Audita um shader e determina se ele é de terceiro."""
+        profile = profile or self._catalog_profile(shader.shader_id)
         third_party = self._is_third_party(profile)
         status = self.manager.status(shader.shader_id) if third_party else None
         return ShaderDependency(
@@ -66,6 +94,10 @@ class ShaderDependencyService:
             installed=bool(status and status.installed),
             status=status,
         )
+
+    def inspect_by_id(self, shader: ShaderOptimization) -> ShaderDependency:
+        """Audita um shader usando diretamente o catálogo configurado."""
+        return self.inspect(shader, self._catalog_profile(shader.shader_id))
 
     def install(
         self,
@@ -84,12 +116,7 @@ class ShaderDependencyService:
         *,
         progress: Callable[[int, int], None] | None = None,
     ) -> ShaderStatus | None:
-        """Garante a instalação somente quando a dependência for de terceiro.
-
-        Para shaders oficiais não há qualquer operação de filesystem ou download;
-        o método retorna ``None`` porque a dependência é satisfeita pela instalação
-        normal do RetroArch.
-        """
+        """Garante a instalação somente quando a dependência for de terceiro."""
         if not dependency.third_party:
             return None
         if dependency.installed and dependency.status is not None:
