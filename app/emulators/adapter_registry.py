@@ -1,4 +1,4 @@
-"""Registro único que conecta schema, capabilities e adapter nativo.
+"""Registro único que conecta schema, capabilities, adapters e diretórios.
 
 A GUI não deve conhecer o formato físico de cada emulador. O registro expõe
 um contrato comum e mantém as implementações nativas existentes como detalhes
@@ -20,6 +20,18 @@ from .supermodel_config import SupermodelConfig
 
 
 @dataclass(frozen=True, slots=True)
+class DirectorySpec:
+    """Descreve um diretório de conteúdo exposto pela GUI."""
+
+    key: str
+    label: str
+    native_key: str | None = None
+    multiple: bool = False
+    max_entries: int = 1
+    relative_default: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class EmulatorAdapterSpec:
     """Contrato consolidado de um emulador suportado."""
 
@@ -31,6 +43,7 @@ class EmulatorAdapterSpec:
     config_format: str
     capabilities: EmulatorCapabilities
     config_factory: Callable[[Path, Path], Any]
+    directories: tuple[DirectorySpec, ...] = ()
 
     def schema(self, domain: str | None = None) -> dict[str, tuple[Setting, ...]] | tuple[Setting, ...]:
         """Retorna o schema canônico inteiro ou um domínio específico."""
@@ -57,6 +70,17 @@ class EmulatorAdapterSpec:
     def backend(self, install_dir: str | Path, *, backup: bool = True) -> EmulatorConfigBackend:
         """Cria o backend genérico para formatos simples quando aplicável."""
         return EmulatorConfigBackend(self.emulator, self.config_path(install_dir), backup=backup)
+
+    def directory(self, key: str) -> DirectorySpec:
+        """Retorna a definição de um diretório do emulador."""
+        for item in self.directories:
+            if item.key == key:
+                return item
+        raise ValueError(f"Diretório não suportado: {self.emulator}/{key}")
+
+    def directory_labels(self) -> tuple[tuple[str, str], ...]:
+        """Retorna pares estáveis ``(chave, rótulo)`` para construção da GUI."""
+        return tuple((item.key, item.label) for item in self.directories)
 
 
 def _mame_factory(root: Path, config: Path) -> EmulatorConfigBackend:
@@ -85,11 +109,74 @@ def _retroarch_factory(root: Path, config: Path) -> RetroArchConfig:
 
 
 ADAPTERS: dict[str, EmulatorAdapterSpec] = {
-    "mame": EmulatorAdapterSpec("mame", "MAME", "mame.exe", "mame.ini", "", "mame-ini", get_capabilities("mame"), _mame_factory),
-    "flycast": EmulatorAdapterSpec("flycast", "Flycast", "flycast.exe", "emu.cfg", "", "ini-sectioned", get_capabilities("flycast"), _flycast_factory),
-    "supermodel": EmulatorAdapterSpec("supermodel", "Supermodel", "Supermodel.exe", "Supermodel.ini", "Config", "ini-sectioned", get_capabilities("supermodel"), _supermodel_factory),
-    "fbneo": EmulatorAdapterSpec("fbneo", "FBNeo", "fbneo64.ini", "fbneo64.ini", "config", "key-value-space", get_capabilities("fbneo"), _fbneo_factory),
-    "retroarch": EmulatorAdapterSpec("retroarch", "RetroArch", "retroarch.exe", "retroarch.cfg", "", "retroarch-cfg", get_capabilities("retroarch"), _retroarch_factory),
+    "mame": EmulatorAdapterSpec(
+        "mame", "MAME", "mame.exe", "mame.ini", "", "mame-ini",
+        get_capabilities("mame"), _mame_factory,
+        directories=(
+            DirectorySpec("roms", "ROMs", "rompath", multiple=True, max_entries=5),
+            DirectorySpec("samples", "Samples", "samplepath"),
+            DirectorySpec("artwork", "Artwork", "artpath"),
+            DirectorySpec("cfg", "CFG", "cfgpath"),
+            DirectorySpec("nvram", "NVRAM", "nvrampath"),
+            DirectorySpec("states", "Save states", "statepath"),
+            DirectorySpec("snapshots", "Snapshots", "snappath"),
+            DirectorySpec("diff", "Diff", "diffpath"),
+            DirectorySpec("ini", "INI", "inipath"),
+        ),
+    ),
+    "flycast": EmulatorAdapterSpec(
+        "flycast", "Flycast", "flycast.exe", "emu.cfg", "", "ini-sectioned",
+        get_capabilities("flycast"), _flycast_factory,
+        directories=(
+            DirectorySpec("roms", "ROMs", "Dreamcast.ContentPath", multiple=True, max_entries=4),
+            DirectorySpec("bios", "BIOS", "Dreamcast.BiosPath"),
+            DirectorySpec("vmu", "VMU", "Dreamcast.VMUPath"),
+            DirectorySpec("saves", "Saves", "Dreamcast.SavePath"),
+            DirectorySpec("states", "Save states", "Dreamcast.SavestatePath"),
+            DirectorySpec("textures", "Textures", "Dreamcast.TexturePath"),
+            DirectorySpec("boxart", "Boxart", "Dreamcast.BoxartPath"),
+            DirectorySpec("cheats", "Cheats", "Dreamcast.CheatPath"),
+        ),
+    ),
+    "supermodel": EmulatorAdapterSpec(
+        "supermodel", "Supermodel", "Supermodel.exe", "Supermodel.ini", "Config", "ini-sectioned",
+        get_capabilities("supermodel"), _supermodel_factory,
+        directories=(
+            DirectorySpec("roms", "ROMs", "roms"),
+            DirectorySpec("config", "Config", "config"),
+            DirectorySpec("nvram", "NVRAM", "nvram"),
+            DirectorySpec("saves", "Saves / save states", "saves"),
+            DirectorySpec("assets", "Assets", "assets"),
+        ),
+    ),
+    "fbneo": EmulatorAdapterSpec(
+        "fbneo", "FBNeo", "fbneo64.ini", "fbneo64.ini", "config", "key-value-space",
+        get_capabilities("fbneo"), _fbneo_factory,
+        directories=(
+            DirectorySpec("roms", "ROMs", "roms"),
+            DirectorySpec("bios", "BIOS / ROM suplementar", "bios"),
+            DirectorySpec("samples", "Samples", "samples"),
+            DirectorySpec("cheats", "Cheats", "cheats"),
+            DirectorySpec("previews", "Previews", "previews"),
+            DirectorySpec("titles", "Titles", "titles"),
+            DirectorySpec("snapshots", "Snapshots", "snapshots"),
+            DirectorySpec("history", "History", "history"),
+            DirectorySpec("icons", "Icons", "icons"),
+        ),
+    ),
+    "retroarch": EmulatorAdapterSpec(
+        "retroarch", "RetroArch", "retroarch.exe", "retroarch.cfg", "", "retroarch-cfg",
+        get_capabilities("retroarch"), _retroarch_factory,
+        directories=(
+            DirectorySpec("cores", "Cores", relative_default="cores"),
+            DirectorySpec("system", "System / BIOS", relative_default="system"),
+            DirectorySpec("saves", "Saves", relative_default="saves"),
+            DirectorySpec("states", "States", relative_default="states"),
+            DirectorySpec("shaders", "Shaders", relative_default="shaders"),
+            DirectorySpec("overlays", "Overlays", relative_default="overlays"),
+            DirectorySpec("downloads", "Downloads", relative_default="downloads"),
+        ),
+    ),
 }
 
 
