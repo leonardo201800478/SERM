@@ -168,7 +168,7 @@ class ReconstructionEngine:
                 is_disk = record_type == "disk"
                 rom_name = item_name if not is_disk else (item_name if item_name.lower().endswith(".chd") else f"{item_name}.chd")
                 machine = machines.setdefault(machine_name, ReconstructionMachine(name=machine_name))
-                machine.roms.append(ReconstructionRom(machine=machine_name, rom_name=rom_name, expected_size=int(data.get("expected_size") or 0), expected_crc=str(data.get("expected_crc") or "").strip().lower(), expected_sha1=(str(data.get("expected_sha1") or "").strip().lower() or None), status=str(data.get("status") or "missing").lower(), source_archive=source.get("archive"), source_member=source.get("member"), source_kind="chd" if is_disk else source.get("kind"), merge=data.get("merge"), optional=bool(data.get("optional", False)), required=bool(data.get("required", not data.get("optional", False))))
+                machine.roms.append(ReconstructionRom(machine=machine_name, rom_name=rom_name, expected_size=int(data.get("expected_size") or 0), expected_crc=str(data.get("expected_crc") or "").strip().lower(), expected_sha1=(str(data.get("expected_sha1") or "").strip().lower() or None), status=str(data.get("status") or "missing").lower(), source_archive=source.get("archive"), source_member=source.get("member"), source_kind="chd" if is_disk else source.get("kind"), merge=data.get("merge"), optional=bool(data.get("optional", False)), required=bool(data.get("required", not data.get("optional", False)))))
         return list(machines.values())
 
     @staticmethod
@@ -580,8 +580,10 @@ class ReconstructionEngine:
                     rom_map: dict[str, ReconstructionRom] = {}
                     chd_map: dict[str, ReconstructionRom] = {}
                     for member in group:
-                        for rom in self._expected(member): rom_map.setdefault(rom.rom_name, rom)
-                        for chd in self._expected_chds(member): chd_map.setdefault(chd.output_name, chd)
+                        for rom in self._expected(member):
+                            rom_map.setdefault(rom.rom_name, rom)
+                        for chd in self._expected_chds(member):
+                            chd_map.setdefault(chd.output_name, chd)
                     self._process_machine(group[0], list(rom_map.values()), list(chd_map.values()), root_name, result, total, progress_ref, copy_perfect=copy_perfect, repair=repair)
             else:
                 for machine in machines:
@@ -612,7 +614,8 @@ class ReconstructionEngine:
             handle.write(json.dumps({"record_type": "header", "schema_version": 3, "manifest_type": "reconstruction_residual", "source_manifest": str(source_manifest), "set_type": set_type}, ensure_ascii=False, separators=(",", ":")) + "\n")
             for item in unresolved:
                 key = (str(item.get("machine", "")), item.get("rom_name"), str(item.get("item_type", "rom")))
-                if key in seen: continue
+                if key in seen:
+                    continue
                 seen.add(key)
                 handle.write(json.dumps({"record_type": "unresolved", "record": item}, ensure_ascii=False, separators=(",", ":")) + "\n")
         return output
