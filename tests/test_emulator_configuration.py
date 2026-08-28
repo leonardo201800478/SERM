@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.emulators.capabilities import get_capabilities
+from app.emulators.config_mapping import physical_key
 from app.emulators.fbneo_config import FBNeoConfig
 from app.emulators.flycast_config import FlycastConfig
 from app.emulators.retroarch_config import RetroArchConfig
@@ -123,3 +124,13 @@ def test_retroarch_round_trip_managed_values(tmp_path: Path) -> None:
     assert reloaded.get("audio_out_rate") == "48000"
     assert reloaded.get("video_shader_enable") == "true"
     assert reloaded.get("video_shader_dir") == r"G:\RetroArch\shaders"
+
+
+def test_canonical_mappings_use_only_semantically_identical_keys() -> None:
+    """Mapeamentos não podem inverter semântica nem inventar chave física."""
+    assert physical_key("mame", "window") == "window"
+    assert physical_key("mame", "fullscreen") is None
+    assert physical_key("retroarch", "fullscreen") == "video_fullscreen"
+    assert physical_key("retroarch", "vsync") == "video_vsync"
+    assert physical_key("retroarch", "video_shader") == "video_shader"
+    assert physical_key("retroarch", "core_option") is None
