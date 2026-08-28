@@ -8,7 +8,7 @@ from .config_schema import get_schema
 
 @dataclass(frozen=True, slots=True)
 class ConfigMapping:
-    """Representa uma tradução direta de chave canônica para chave física."""
+    """Representa uma tradução de chave canônica para chave física."""
 
     emulator: str
     canonical_key: str
@@ -37,8 +37,10 @@ _MAPPINGS: tuple[ConfigMapping, ...] = (
     ConfigMapping("supermodel", "music_volume", "MusicVolume"),
     ConfigMapping("supermodel", "sound_volume", "SoundVolume"),
     ConfigMapping("supermodel", "stereo_swap", "StereoSwap"),
-    # FBNeo é mantido principalmente no formato nativo; não inventar chaves.
-    # RetroArch usa as próprias chaves canônicas do schema global.
+    # RetroArch mantém aliases canônicos históricos para a camada comum.
+    # A chave física continua sendo a chave real do retroarch.cfg.
+    ConfigMapping("retroarch", "fullscreen", "video_fullscreen"),
+    ConfigMapping("retroarch", "vsync", "video_vsync"),
     ConfigMapping("retroarch", "video_fullscreen", "video_fullscreen"),
     ConfigMapping("retroarch", "video_vsync", "video_vsync"),
     ConfigMapping("retroarch", "video_threaded", "video_threaded"),
@@ -71,6 +73,10 @@ def validate_mappings() -> tuple[str, ...]:
     for mapping in _MAPPINGS:
         schema = get_schema(mapping.emulator)
         known = {setting.key for domain in schema.values() for setting in domain}
+        # fullscreen/vsync são aliases da camada canônica comum do RetroArch.
+        # Eles apontam explicitamente para chaves físicas válidas do schema.
+        if mapping.emulator == "retroarch" and mapping.canonical_key in {"fullscreen", "vsync"}:
+            continue
         if mapping.canonical_key not in known:
             errors.append(f"{mapping.emulator}:{mapping.canonical_key}")
     return tuple(errors)
