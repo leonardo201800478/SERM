@@ -110,6 +110,9 @@ def test_shader_preset_is_simple_reference_only(tmp_path: Path) -> None:
         "reflection": False, "embedded_overlay": False, "recommended": True,
     }
     service = make_service(tmp_path, shader)
+    base = tmp_path / "shaders" / "base.slangp"
+    base.parent.mkdir(parents=True, exist_ok=True)
+    base.write_text("shaders = 0\n", encoding="utf-8")
     service.apply("Test System", "", "test")
     text = (tmp_path / "shaders" / "Test System.slangp").read_text(encoding="utf-8")
     assert text.count("#reference") == 1
