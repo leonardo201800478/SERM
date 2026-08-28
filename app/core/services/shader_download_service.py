@@ -83,6 +83,15 @@ class ShaderDownloadService:
             raise ValueError(f"Caminho inseguro no pacote de shader: {path}")
         return candidate
 
+    def _validate_destination(self, destination_subdir: str) -> Path:
+        """Valida o destino antes de qualquer operação de rede."""
+        shader_root = self._shader_root().resolve()
+        relative = self._safe_relative(destination_subdir)
+        destination = (shader_root / relative).resolve()
+        if shader_root not in destination.parents and destination != shader_root:
+            raise ValueError("Destino do shader está fora da pasta de shaders do RetroArch.")
+        return destination
+
     def _download_archive(self, spec: ShaderDownloadSpec) -> bytes:
         """Baixa o ZIP do branch/tag diretamente do GitHub."""
         repository = self._validate_repository(spec.repository)
@@ -115,17 +124,16 @@ class ShaderDownloadService:
         raise KeyError(f"Shader não encontrado no catálogo: {shader_id}")
 
     def install(self, spec: ShaderDownloadSpec, *, progress: Callable[[int, int], None] | None = None) -> ShaderDownloadResult:
-        """Baixa, filtra e instala somente arquivos de shader no RetroArch.
+        """Valida, baixa, filtra e instala arquivos de shader no RetroArch.
 
-        A extração ocorre primeiro em memória e os arquivos são escritos com
-        nomes temporários antes de serem movidos atomicamente ao destino.
+        O destino é validado antes da rede. A extração ocorre em memória e os
+        arquivos são escritos em temporários antes de serem movidos atomically.
         """
+        self._validate_repository(spec.repository)
+        destination = self._validate_destination(spec.destination_subdir)
         archive = self._download_archive(spec)
-        destination = (self._shader_root() / self._safe_relative(spec.destination_subdir)).resolve()
-        shader_root = self._shader_root().resolve()
-        if shader_root not in destination.parents and destination != shader_root:
-            raise ValueError("Destino do shader está fora da pasta de shaders do RetroArch.")
 
+        shader_root = self._shader_root().resolve()
         installed: list[Path] = []
         source_prefix = self._safe_relative(spec.source_subdir).as_posix().rstrip("/")
         with zipfile.ZipFile(io.BytesIO(archive)) as package:
