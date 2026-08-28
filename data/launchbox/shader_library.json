@@ -1,0 +1,82 @@
+{
+  "version": 1,
+  "policy": {
+    "api": "slang",
+    "default_performance": "medium",
+    "allow_reflection_as_default": false,
+    "allow_embedded_overlay_as_default": false,
+    "notes": "Prefer clean CRT presentation. Reflection, glass, dynamic bezel and heavy multi-layer presets remain available as optional candidates but are never selected automatically."
+  },
+  "shaders": [
+    {
+      "id": "libretro-crt-guest-advanced-ntsc",
+      "name": "CRT Guest Advanced NTSC",
+      "filename": "{system}.slangp",
+      "reference": ":/shaders/shaders_slang/crt/crt-guest-advanced-ntsc.slangp",
+      "source": "libretro/slang-shaders",
+      "source_url": "https://github.com/libretro/slang-shaders",
+      "performance": "medium",
+      "reflection": false,
+      "embedded_overlay": false,
+      "recommended": true,
+      "systems": [],
+      "notes": "Primary clean CRT baseline. The system preset is a Simple Preset and inherits the maintained official shader chain."
+    },
+    {
+      "id": "libretro-crt-guest-advanced",
+      "name": "CRT Guest Advanced",
+      "filename": "{system}.slangp",
+      "reference": ":/shaders/shaders_slang/crt/crt-guest-advanced.slangp",
+      "source": "libretro/slang-shaders",
+      "source_url": "https://github.com/libretro/slang-shaders",
+      "performance": "medium",
+      "reflection": false,
+      "embedded_overlay": false,
+      "recommended": true,
+      "systems": [],
+      "notes": "Clean RGB/CRT baseline when NTSC signal simulation is not desired."
+    },
+    {
+      "id": "third-party-mega-bezel-std-no-reflect",
+      "name": "Mega Bezel STD — No Reflect",
+      "filename": "{system}.slangp",
+      "reference": ":/shaders/shaders_slang/bezel/Mega_Bezel/Presets/MBZ__4__STD-NO-REFLECT.slangp",
+      "source": "HyperspaceMadness/Mega_Bezel",
+      "source_url": "https://github.com/HyperspaceMadness/Mega_Bezel",
+      "performance": "medium",
+      "reflection": false,
+      "embedded_overlay": true,
+      "recommended": false,
+      "systems": [],
+      "notes": "Optional third-party presentation. It has image/bezel layers, so it is intentionally not the default."
+    },
+    {
+      "id": "third-party-mega-bezel-potato",
+      "name": "Mega Bezel POTATO",
+      "filename": "{system}.slangp",
+      "reference": ":/shaders/shaders_slang/bezel/Mega_Bezel/Presets/MBZ__5__POTATO.slangp",
+      "source": "HyperspaceMadness/Mega_Bezel",
+      "source_url": "https://github.com/HyperspaceMadness/Mega_Bezel",
+      "performance": "light",
+      "reflection": false,
+      "embedded_overlay": true,
+      "recommended": false,
+      "systems": [],
+      "notes": "Low-cost Mega Bezel option. Still includes bezel/background behavior, therefore it remains optional rather than the clean CRT default."
+    },
+    {
+      "id": "third-party-duimon-advanced-guest",
+      "name": "Duimon Advanced Guest",
+      "filename": "{system}.slangp",
+      "reference": "../../../../Mega_Bezel_Packs/Duimon-Mega-Bezel/Presets/Advanced/{system}/{system}-[ADV]-[Guest]-[Bezel].slangp",
+      "source": "Duimon/Duimon-Mega-Bezel",
+      "source_url": "https://github.com/Duimon/Duimon-Mega-Bezel",
+      "performance": "high",
+      "reflection": true,
+      "embedded_overlay": true,
+      "recommended": false,
+      "systems": [],
+      "notes": "Third-party system artwork/presentation. Kept as an opt-in candidate because reflections and layered graphics can increase GPU work and are not the project's clean CRT default."
+    }
+  ]
+}
