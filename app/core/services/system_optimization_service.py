@@ -218,7 +218,6 @@ class SystemOptimizationService:
             return None
         systems = tuple(str(v).strip() for v in item.get("systems", []) if str(v).strip())
         system_filename = self._filename(systems[0]) if systems else self._filename(profile_id)
-
         cores: dict[str, CoreOptimization] = {}
         raw_cores = item.get("cores", {})
         if isinstance(raw_cores, dict):
@@ -236,7 +235,6 @@ class SystemOptimizationService:
                     targets={str(k): str(v) for k, v in targets.items() if k != "shader"} if isinstance(targets, dict) else {},
                     preferred=bool(raw_core.get("preferred", False)),
                 )
-
         legacy_core = str(item.get("core", "")).strip()
         if legacy_core and legacy_core not in cores:
             files = item.get("files", {})
@@ -247,8 +245,6 @@ class SystemOptimizationService:
                 targets={str(k): str(v) for k, v in targets.items() if k != "shader"} if isinstance(targets, dict) else {},
                 preferred=True,
             )
-
-        shader = self._parse_shader(item, system_filename)
         return SystemOptimizationProfile(
             profile_id=profile_id,
             name=str(item.get("name", profile_id)),
@@ -256,7 +252,7 @@ class SystemOptimizationService:
             systems=systems,
             cores=tuple(cores),
             core_optimizations=cores,
-            shader=shader,
+            shader=self._parse_shader(item, system_filename),
             overlay_asset=str(item.get("overlay_asset") or "").strip() or None,
             shader_options=tuple(str(v) for v in item.get("shader_options", [])),
         )
@@ -267,34 +263,27 @@ class SystemOptimizationService:
         shader_id = ""
         filename = ""
         reference = ""
-
         if isinstance(raw, str):
             shader_id = raw.strip()
         elif isinstance(raw, dict):
             shader_id = str(raw.get("id", "")).strip()
             filename = str(raw.get("filename", "")).strip()
             reference = str(raw.get("reference", "")).strip()
-
         if shader_id:
             selected = self.shader_library.get(shader_id)
             if selected is None:
                 raise ValueError(f"Shader não cadastrado na biblioteca: {shader_id}")
             if not selected.safe_default and not bool(item.get("allow_heavy_shader", False)):
-                raise ValueError(
-                    f"Shader '{shader_id}' não é elegível como padrão: possui reflexos, overlay embutido ou custo elevado."
-                )
+                raise ValueError(f"Shader '{shader_id}' não é elegível como padrão: possui reflexos, overlay embutido ou custo elevado.")
             filename = selected.filename.replace("{system}", system_filename)
             reference = selected.reference.replace("{system}", system_filename)
             return ShaderOptimization(filename, reference, selected.shader_id)
-
         targets = item.get("targets")
         if isinstance(targets, dict):
             target = str(targets.get("shader", "")).replace("\\", "/")
             filename = filename or Path(target).name
         if filename and reference:
             return ShaderOptimization(filename.replace("{system}", system_filename), reference.replace("{system}", system_filename), "custom")
-
-        # Catálogo legado: preserva o nome, mas usa a referência oficial atual.
         if filename:
             selected = self.shader_library.get(DEFAULT_SHADER_ID)
             if selected:
@@ -304,10 +293,7 @@ class SystemOptimizationService:
     def shader_options_for_system(self, system_name: str) -> list[ShaderProfile]:
         """Lista shaders seguros para um sistema, priorizando recomendados."""
         key = self._key(system_name)
-        result = [
-            shader for shader in self.shader_library.values()
-            if (not shader.systems or any(self._key(system) == key for system in shader.systems)) and shader.safe_default
-        ]
+        result = [shader for shader in self.shader_library.values() if (not shader.systems or any(self._key(system) == key for system in shader.systems)) and shader.safe_default]
         return sorted(result, key=lambda item: (not item.recommended, item.performance, item.name.casefold()))
 
     def shader_profile(self, shader_id: str) -> ShaderProfile | None:
@@ -317,10 +303,7 @@ class SystemOptimizationService:
     def profiles_for_system(self, system_name: str, system_id: str = "") -> list[SystemOptimizationProfile]:
         """Retorna perfis compatíveis com uma plataforma."""
         keys = {self._key(system_name), self._key(system_id)}
-        return sorted(
-            (profile for profile in self.profiles.values() if any(self._key(system) in keys for system in profile.systems)),
-            key=lambda profile: profile.name.casefold(),
-        )
+        return sorted((profile for profile in self.profiles.values() if any(self._key(system) in keys for system in profile.systems)), key=lambda profile: profile.name.casefold())
 
     def get(self, profile_id: str) -> SystemOptimizationProfile | None:
         """Obtém um perfil por identificador estável."""
@@ -368,17 +351,22 @@ class SystemOptimizationService:
             candidate = root / filename
         return f"overlays/2k Systems/{filename}", candidate
 
+    def _resolve_shader_reference(self, shader: ShaderOptimization) -> Path:
+        """Resolve o #reference para um arquivo físico da instalação."""
+        root = self._retroarch_root().resolve()
+        reference = shader.reference.replace("\\", "/")
+        if reference.startswith(":/"):
+            path = (root / reference[2:]).resolve()
+        else:
+            path = (self._shader_root().resolve() / reference).resolve()
+        if root not in path.parents and path != root:
+            raise ValueError(f"Referência do shader fora da instalação do RetroArch: {path}")
+        return path
+
     @staticmethod
     def _normalize_retroarch_paths(content: str) -> str:
         """Normaliza referências de raiz RetroArch para `:/...`."""
-        for old, new in (
-            (":\\\\config", ":/config"),
-            (":\\config", ":/config"),
-            (":\\\\overlays", ":/overlays"),
-            (":\\overlays", ":/overlays"),
-            (":\\\\shaders", ":/shaders"),
-            (":\\shaders", ":/shaders"),
-        ):
+        for old, new in ((":\\\\config", ":/config"), (":\\config", ":/config"), (":\\\\overlays", ":/overlays"), (":\\overlays", ":/overlays"), (":\\\\shaders", ":/shaders"), (":\\shaders", ":/shaders")):
             content = content.replace(old, new)
         return content
 
@@ -439,23 +427,17 @@ class SystemOptimizationService:
         files = {key: self._normalize_retroarch_paths(value) for key, value in optimization.files.items()}
         if "override" not in files:
             return {self._core_target(optimization, key): value for key, value in files.items()}
-
-        # O viewport mantém a proporção original do sistema/core.
-        # O bezel 16:9 nunca deve gerar aspect_ratio_index = 21.
         override = self._remove_setting(files["override"], "aspect_ratio_index")
-
         if profile.shader:
             override = self._remove_setting(override, "video_shader")
             override = self._set_setting(override, "video_shader_enable", "true")
             override = self._set_setting(override, "video_shader", f":/shaders/{profile.shader.filename}")
-
         overlay_relative, overlay_file = self._overlay_config(profile)
         if overlay_relative and overlay_file and overlay_file.is_file():
             override = self._remove_setting(override, "input_overlay")
             override = self._remove_setting(override, "input_overlay_enable")
             override = self._set_setting(override, "input_overlay", f":/{overlay_relative}")
             override = self._set_setting(override, "input_overlay_enable", "true")
-
         files["override"] = override
         return {self._core_target(optimization, key): value for key, value in files.items()}
 
@@ -466,6 +448,9 @@ class SystemOptimizationService:
         prepared: dict[Path, str] = {}
         warnings: list[str] = []
         if profile.shader:
+            reference = self._resolve_shader_reference(profile.shader)
+            if not reference.is_file():
+                raise FileNotFoundError(f"Shader base não encontrado: {reference}")
             prepared[self._shader_path(profile.shader)] = profile.shader.content
         overlay_relative, overlay_file = self._overlay_config(profile)
         if overlay_relative and not overlay_file.is_file():
@@ -481,7 +466,6 @@ class SystemOptimizationService:
             raise KeyError(f"Perfil de otimização não encontrado: {profile_id}")
         if profile not in self.profiles_for_system(system_name, system_id):
             raise ValueError(f"O perfil '{profile.name}' não é compatível com '{system_name}'.")
-
         prepared, warnings = self._preflight(profile)
         written: list[Path] = []
         for path, content in prepared.items():
@@ -497,7 +481,6 @@ class SystemOptimizationService:
             raise KeyError(f"Perfil de otimização não encontrado: {profile_id}")
         if profile not in self.profiles_for_system(system_name, system_id):
             raise ValueError(f"O perfil '{profile.name}' não é compatível com '{system_name}'.")
-
         paths: set[Path] = set()
         if profile.shader:
             paths.add(self._shader_path(profile.shader))
@@ -505,7 +488,6 @@ class SystemOptimizationService:
             optimization = profile.core_optimizations[core]
             for key in optimization.files:
                 paths.add(self._core_target(optimization, key))
-
         removed: list[Path] = []
         skipped: list[Path] = []
         for path in paths:
@@ -519,11 +501,4 @@ class SystemOptimizationService:
         return {"profile": profile, "removed": removed, "skipped": skipped, "backups": []}
 
 
-__all__ = [
-    "CoreOptimization",
-    "ShaderProfile",
-    "ShaderOptimization",
-    "ShaderOptimizationProfile",
-    "SystemOptimizationProfile",
-    "SystemOptimizationService",
-]
+__all__ = ["CoreOptimization", "ShaderProfile", "ShaderOptimization", "ShaderOptimizationProfile", "SystemOptimizationProfile", "SystemOptimizationService"]
