@@ -1,17 +1,18 @@
-"""Layer-2 resolver connecting configuration schema to runtime capability data."""
+"""Layer 2: resolve o Schema × Adapter contra o runtime detectado."""
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
 
-from .capabilities import EmulatorCapabilities, get_capabilities
-from .config_schema import Setting, get_schema
+from .adapter_registry import EmulatorAdapterSpec, get_adapter
+from .capabilities import EmulatorCapabilities
+from .config_schema import Setting
 from .runtime import RuntimeCapabilities, discover_all
 
 
 @dataclass(frozen=True, slots=True)
 class ResolvedSetting:
-    """Layer-2 setting contract consumed directly by Layer-3 widgets."""
+    """Contrato final de um controle disponível para a camada GUI."""
 
     setting: Setting
     available: bool
@@ -19,17 +20,21 @@ class ResolvedSetting:
 
 
 class ConfigResolver:
-    """Resolve schema settings without changing the Layer-1 contract."""
+    """Resolve schema, adapter e runtime sem expor detalhes físicos à GUI."""
 
     def __init__(self, runtime: dict[str, RuntimeCapabilities] | None = None) -> None:
         self.runtime = runtime if runtime is not None else discover_all()
 
+    def adapter(self, emulator: str) -> EmulatorAdapterSpec:
+        """Retorna o contrato consolidado do emulador."""
+        return get_adapter(emulator)
+
     def capabilities(self, emulator: str) -> EmulatorCapabilities:
-        """Return static capabilities for an emulator."""
-        return get_capabilities(emulator.strip().lower())
+        """Retorna capabilities estáticas através do adapter central."""
+        return self.adapter(emulator).capabilities
 
     def runtime_capabilities(self, emulator: str) -> RuntimeCapabilities:
-        """Return detected runtime capabilities for an emulator."""
+        """Retorna capabilities descobertas para o emulador."""
         key = emulator.strip().lower()
         try:
             return self.runtime[key]
@@ -37,20 +42,14 @@ class ConfigResolver:
             raise ValueError(f"Emulador não suportado: {emulator}") from exc
 
     def settings(self, emulator: str, domain: str) -> tuple[ResolvedSetting, ...]:
-        """Annotate every schema setting with static/runtime availability."""
-        key = emulator.strip().lower()
-        schema = get_schema(key)
-        static = self.capabilities(key)
-        runtime = self.runtime_capabilities(key)
-        try:
-            items = schema[domain]
-        except KeyError as exc:
-            raise ValueError(f"Domínio não suportado: {key}/{domain}") from exc
-
+        """Combina schema canônico, capabilities e estado real da instalação."""
+        adapter = self.adapter(emulator)
+        runtime = self.runtime_capabilities(adapter.emulator)
+        items = adapter.schema(domain)
         resolved: list[ResolvedSetting] = []
         for setting in items:
-            if setting.feature is not None and not static.supports(setting.feature):
-                resolved.append(ResolvedSetting(setting, False, "Recurso não faz parte deste emulador."))
+            if setting.feature is not None and not adapter.capabilities.supports(setting.feature):
+                resolved.append(ResolvedSetting(setting, False, "Recurso não declarado pelo adapter."))
                 continue
             if setting.feature is not None and runtime.available and not runtime.supports(setting.feature):
                 resolved.append(ResolvedSetting(setting, False, "Recurso não está disponível nesta instalação."))
@@ -62,9 +61,9 @@ class ConfigResolver:
         return tuple(resolved)
 
     def visible_settings(self, emulator: str, domain: str) -> tuple[Setting, ...]:
-        """Return only controls that are currently editable."""
+        """Retorna apenas controles editáveis no runtime atual."""
         return tuple(item.setting for item in self.settings(emulator, domain) if item.available)
 
     def defaults(self, emulator: str, domain: str) -> dict[str, Any]:
-        """Return defaults for the controls currently exposed by Layer 2."""
+        """Retorna defaults do schema para os controles visíveis."""
         return {item.key: item.default for item in self.visible_settings(emulator, domain)}
