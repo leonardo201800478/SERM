@@ -27,6 +27,7 @@ class Setting:
 
 def _s(key: str, label: str, description: str, control: ControlType, default: Any,
        choices: tuple[tuple[str, str], ...] = (), feature: str | None = None) -> Setting:
+    """Build a canonical setting declaration."""
     return Setting(key, label, description, control, default, choices, feature)
 
 
@@ -159,12 +160,10 @@ SCHEMAS: dict[str, dict[str, tuple[Setting, ...]]] = {
             _s("aspect_ratio", "Proporção", "Seleciona a proporção de apresentação.", "choice", "core", (("core", "Core"), ("4:3", "4:3"), ("16:9", "16:9"))),
             _s("filtering", "Filtragem", "Controla a filtragem de vídeo disponível no frontend/core.", "bool", True),
         ),
-        "audio": (
-            _s("audio", "Áudio", "Ativa a saída de áudio.", "bool", True),
-        ),
+        "audio": (_s("audio", "Áudio", "Ativa a saída de áudio.", "bool", True),),
         "input": (
-            _s("keyboard", "Teclado", "Habilita entrada por teclado.", "bool", True),
-            _s("gamepad", "Gamepad", "Habilita entrada por gamepad.", "bool", True),
+            _s("keyboard", "Teclado", "Habilita controles por teclado.", "bool", True),
+            _s("gamepad", "Gamepad", "Habilita controles por gamepad.", "bool", True),
             _s("lightgun", "Lightgun", "Habilita entrada de lightgun quando disponível.", "bool", True),
             _s("wheel", "Volante", "Habilita entrada de volante quando disponível.", "bool", True),
         ),
@@ -172,16 +171,24 @@ SCHEMAS: dict[str, dict[str, tuple[Setting, ...]]] = {
             _s("frameskip", "Frameskip", "Permite reduzir frames processados quando o desempenho for insuficiente.", "int", 0, feature="frameskip"),
             _s("save_state", "Save state", "Habilita o uso de estados salvos quando o frontend/core oferecer suporte.", "bool", True, feature="save-state"),
         ),
-        "achievements": (
-            _s("retroachievements", "RetroAchievements", "Ativa RetroAchievements quando o FBNeo estiver sendo usado através de um frontend compatível.", "bool", False, feature="retroachievements"),
-        ),
+        "achievements": (_s("retroachievements", "RetroAchievements", "Ativa RetroAchievements quando o FBNeo estiver sendo usado através de um frontend compatível.", "bool", False, feature="retroachievements"),),
     },
 }
 
 
 def get_schema(emulator: str) -> dict[str, tuple[Setting, ...]]:
-    """Return the immutable layer-1 schema for an emulator."""
+    """Return the canonical Layer-1 schema for an emulator.
+
+    RetroArch keeps its larger schema in a dedicated module so that its
+    frontend-specific contract does not inflate the generic emulator schema.
+    The import is intentionally lazy to avoid a circular import because
+    ``retroarch_schema`` reuses ``Setting`` and ``_s`` from this module.
+    """
     key = emulator.strip().lower()
+    if key == "retroarch":
+        from .retroarch_schema import RETROARCH_SCHEMA
+
+        return RETROARCH_SCHEMA
     try:
         return SCHEMAS[key]
     except KeyError as exc:
