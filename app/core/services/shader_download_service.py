@@ -16,11 +16,10 @@ import urllib.request
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Callable
+from urllib.parse import urlparse
 
 from app.config.app_config import AppConfig
-
-GITHUB_HOSTS = {"github.com", "www.github.com", "codeload.github.com"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,17 +66,18 @@ class ShaderDownloadService:
     def _validate_repository(repository: str) -> str:
         """Valida e normaliza uma URL de repositório GitHub."""
         value = repository.strip().rstrip("/")
-        if not value.startswith("https://github.com/"):
+        parsed = urlparse(value)
+        if parsed.scheme != "https" or parsed.netloc.lower() != "github.com":
             raise ValueError("A origem do shader deve ser um repositório HTTPS do github.com.")
-        parts = value.split("/")
-        if len(parts) != 5 or not parts[3] or not parts[4] or any(part in {".", ".."} for part in parts[3:]):
+        parts = [part for part in parsed.path.split("/") if part]
+        if len(parts) != 2 or any(part in {".", ".."} for part in parts):
             raise ValueError(f"Repositório GitHub inválido: {repository}")
-        return value
+        return f"https://github.com/{parts[0]}/{parts[1]}"
 
     @staticmethod
     def _safe_relative(path: str) -> Path:
         """Converte um caminho do arquivo ZIP e bloqueia path traversal."""
-        normalized = path.replace("\\", "/").lstrip("/")
+        normalized = str(path).replace("\\", "/").lstrip("/")
         candidate = Path(normalized)
         if candidate.is_absolute() or ".." in candidate.parts:
             raise ValueError(f"Caminho inseguro no pacote de shader: {path}")
@@ -88,10 +88,7 @@ class ShaderDownloadService:
         repository = self._validate_repository(spec.repository)
         owner, repo = repository.rstrip("/").split("/")[-2:]
         url = f"https://codeload.github.com/{owner}/{repo}/zip/refs/heads/{spec.ref}"
-        request = urllib.request.Request(
-            url,
-            headers={"User-Agent": "mame-set-builder-shader-installer/1.0", "Accept": "application/zip"},
-        )
+        request = urllib.request.Request(url, headers={"User-Agent": "mame-set-builder-shader-installer/1.0", "Accept": "application/zip"})
         try:
             with urllib.request.urlopen(request, timeout=60) as response:
                 return response.read()
@@ -105,16 +102,23 @@ class ShaderDownloadService:
         """Verifica se um arquivo atende aos padrões do pacote."""
         return any(fnmatch.fnmatch(path, pattern) or fnmatch.fnmatch(Path(path).name, pattern) for pattern in patterns)
 
-    def install(
-        self,
-        spec: ShaderDownloadSpec,
-        *,
-        progress: Callable[[int, int], None] | None = None,
-    ) -> ShaderDownloadResult:
+    def is_installed(self, shader_id: str) -> bool:
+        """Indica se o preset principal do shader já está presente localmente."""
+        raw = json.loads(self.catalog_path.read_text(encoding="utf-8"))
+        for item in raw.get("shaders", []) if isinstance(raw, dict) else []:
+            if str(item.get("id", "")).strip() != shader_id:
+                continue
+            reference = str(item.get("reference", "")).strip().replace("\\", "/")
+            if reference.startswith(":/shaders/"):
+                return (self._shader_root() / reference.removeprefix(":/shaders/")).is_file()
+            return False
+        raise KeyError(f"Shader não encontrado no catálogo: {shader_id}")
+
+    def install(self, spec: ShaderDownloadSpec, *, progress: Callable[[int, int], None] | None = None) -> ShaderDownloadResult:
         """Baixa, filtra e instala somente arquivos de shader no RetroArch.
 
-        A extração ocorre primeiro em uma pasta temporária. Nenhum arquivo é
-        escrito no destino até que todos os caminhos sejam validados.
+        A extração ocorre primeiro em memória e os arquivos são escritos com
+        nomes temporários antes de serem movidos atomicamente ao destino.
         """
         archive = self._download_archive(spec)
         destination = (self._shader_root() / self._safe_relative(spec.destination_subdir)).resolve()
@@ -124,40 +128,37 @@ class ShaderDownloadService:
 
         installed: list[Path] = []
         source_prefix = self._safe_relative(spec.source_subdir).as_posix().rstrip("/")
-        with tempfile.TemporaryDirectory(prefix="mame-set-builder-shader-") as temp:
-            with zipfile.ZipFile(io.BytesIO(archive)) as package:
-                members = [name for name in package.namelist() if not name.endswith("/")]
-                selected: list[tuple[zipfile.ZipInfo, Path]] = []
-                for info in members:
-                    relative = self._safe_relative(info)
-                    parts = relative.parts[1:] if len(relative.parts) > 1 else ()
-                    inner = Path(*parts) if parts else Path()
-                    inner_text = inner.as_posix()
-                    if source_prefix and not (inner_text == source_prefix or inner_text.startswith(source_prefix + "/")):
-                        continue
-                    candidate = inner_text[len(source_prefix):].lstrip("/") if source_prefix else inner_text
-                    if not candidate or not self._matches(candidate, spec.include):
-                        continue
-                    target = (destination / self._safe_relative(candidate)).resolve()
-                    if shader_root not in target.parents and target != shader_root:
-                        raise ValueError(f"Arquivo do pacote sairia da pasta de shaders: {candidate}")
-                    selected.append((info, target))
+        with zipfile.ZipFile(io.BytesIO(archive)) as package:
+            selected: list[tuple[zipfile.ZipInfo, Path]] = []
+            for info in package.infolist():
+                if info.is_dir():
+                    continue
+                relative = self._safe_relative(info.filename)
+                parts = relative.parts[1:] if len(relative.parts) > 1 else ()
+                inner = Path(*parts) if parts else Path()
+                inner_text = inner.as_posix()
+                if source_prefix and not (inner_text == source_prefix or inner_text.startswith(source_prefix + "/")):
+                    continue
+                candidate = inner_text[len(source_prefix):].lstrip("/") if source_prefix else inner_text
+                if not candidate or not self._matches(candidate, spec.include):
+                    continue
+                target = (destination / self._safe_relative(candidate)).resolve()
+                if shader_root not in target.parents and target != shader_root:
+                    raise ValueError(f"Arquivo do pacote sairia da pasta de shaders: {candidate}")
+                selected.append((info, target))
 
-                if not selected:
-                    raise FileNotFoundError(
-                        f"Nenhum shader compatível encontrado em {spec.repository}@{spec.ref}"
-                        + (f"/{spec.source_subdir}" if spec.source_subdir else "")
-                    )
+            if not selected:
+                raise FileNotFoundError(f"Nenhum shader compatível encontrado em {spec.repository}@{spec.ref}" + (f"/{spec.source_subdir}" if spec.source_subdir else ""))
 
-                for index, (info, target) in enumerate(selected, 1):
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    with package.open(info) as source, tempfile.NamedTemporaryFile(dir=target.parent, delete=False) as temp_file:
-                        shutil.copyfileobj(source, temp_file)
-                        temp_path = Path(temp_file.name)
-                    temp_path.replace(target)
-                    installed.append(target)
-                    if progress:
-                        progress(index, len(selected))
+            for index, (info, target) in enumerate(selected, 1):
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with package.open(info) as source, tempfile.NamedTemporaryFile(dir=target.parent, delete=False) as temp_file:
+                    shutil.copyfileobj(source, temp_file)
+                    temp_path = Path(temp_file.name)
+                temp_path.replace(target)
+                installed.append(target)
+                if progress:
+                    progress(index, len(selected))
 
         return ShaderDownloadResult(spec.shader_id, spec.repository, tuple(installed), destination)
 
