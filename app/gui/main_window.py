@@ -96,8 +96,9 @@ class MainWindow(QMainWindow):
 
         # Compatibilidade: o teste de shaders exige a subaba MAME, mas não
         # deve materializar Flycast/Supermodel/FBNeo/RetroArch.
-        settings = self._ensure_lazy_tab("emulator_settings_tab")
+        settings = self._ensure_lazy_tab("emulator_settings_tab", select=False)
         self.shader_test_controller = install_shader_test(settings.shader_test_target)
+        self.tab_widget.setCurrentIndex(0)
         self.home_tab.refresh_status()
 
     def _register_lazy_tabs(self) -> None:
@@ -112,10 +113,12 @@ class MainWindow(QMainWindow):
         self._lazy_placeholders[attr] = placeholder
         self.tab_widget.addTab(placeholder, label)
 
-    def _ensure_lazy_tab(self, attr: str) -> QWidget:
+    def _ensure_lazy_tab(self, attr: str, *, select: bool = True) -> QWidget:
         """Materializa uma aba lazy e substitui seu placeholder no mesmo índice."""
         current = getattr(self, attr, None)
         if current is not None:
+            if select:
+                self.tab_widget.setCurrentWidget(current)
             return current
         factory = self._lazy_factories.get(attr)
         placeholder = self._lazy_placeholders.get(attr)
@@ -134,7 +137,8 @@ class MainWindow(QMainWindow):
         try:
             self.tab_widget.removeTab(index)
             self.tab_widget.insertTab(index, widget, self._label_for_lazy_tab(attr))
-            self.tab_widget.setCurrentIndex(index)
+            if select:
+                self.tab_widget.setCurrentIndex(index)
         finally:
             self.tab_widget.blockSignals(False)
         return widget
@@ -178,7 +182,7 @@ class MainWindow(QMainWindow):
         widget = self.tab_widget.widget(index)
         for attr, _label, _widget_type in self._LAZY_TABS:
             if widget is self._lazy_placeholders.get(attr):
-                widget = self._ensure_lazy_tab(attr)
+                widget = self._ensure_lazy_tab(attr, select=False)
                 break
 
         if widget is self.home_section:
