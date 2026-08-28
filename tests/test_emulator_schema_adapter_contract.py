@@ -66,6 +66,41 @@ def test_mame_mapping_uses_schema_native_names() -> None:
     assert physical_key("mame", "keep_aspect") is None
 
 
+@pytest.mark.parametrize("emulator", EMULATORS)
+def test_directory_contract_has_no_duplicate_keys(emulator: str) -> None:
+    """Cada adapter deve expor chaves de diretório únicas e rótulos úteis."""
+    adapter = get_adapter(emulator)
+    keys = [item.key for item in adapter.directories]
+    assert len(keys) == len(set(keys))
+    assert all(item.label.strip() for item in adapter.directories)
+    assert all(item.max_entries >= 1 for item in adapter.directories)
+
+
+def test_directory_contract_has_expected_special_cases() -> None:
+    """Preserva os contratos especiais de MAME e Flycast."""
+    mame = get_adapter("mame")
+    flycast = get_adapter("flycast")
+
+    mame_roms = mame.directory("roms")
+    assert mame_roms.multiple is True
+    assert mame_roms.max_entries == 5
+    assert mame_roms.native_key == "rompath"
+
+    flycast_roms = flycast.directory("roms")
+    assert flycast_roms.multiple is True
+    assert flycast_roms.max_entries == 4
+    assert flycast_roms.native_key == "Dreamcast.ContentPath"
+
+
+def test_retroarch_directory_contract_is_distinct_from_rom_paths() -> None:
+    """RetroArch deve expor diretórios próprios, sem inventar um ROM path nativo."""
+    retroarch = get_adapter("retroarch")
+    keys = {item.key for item in retroarch.directories}
+    assert {"cores", "system", "saves", "states", "shaders", "overlays"} <= keys
+    assert retroarch.directory("shaders").relative_default == "shaders"
+    assert retroarch.directory("overlays").relative_default == "overlays"
+
+
 def test_runtime_discovery_returns_all_five_without_executing_missing_installations(tmp_path: Path) -> None:
     """A camada runtime deve devolver cinco estados mesmo sem emuladores instalados."""
     paths = {name: tmp_path / name for name in EMULATORS}
