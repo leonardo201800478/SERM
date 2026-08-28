@@ -1,7 +1,12 @@
 """Aba central de configurações dos emuladores do ARCADE MANAGER.
 
-As subabas específicas são criadas sob demanda. A aba MAME é a única
-inicializada antecipadamente porque o teste de shaders existente depende dela.
+A identidade e o rótulo dos emuladores vêm do ``adapter_registry``. As classes
+GUI continuam sendo adapters de apresentação e permanecem específicas porque
+cada emulador possui uma interface de configuração própria.
+
+As subabas são criadas sob demanda. MAME continua sendo materializado durante
+a inicialização porque a MainWindow possui um alvo explícito para o teste de
+shaders que depende dessa aba.
 """
 from __future__ import annotations
 
@@ -10,6 +15,7 @@ from collections.abc import Callable
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QTabWidget, QVBoxLayout, QWidget
 
+from app.emulators.adapter_registry import get_adapter, list_adapters
 from app.gui.tabs.mame_settings_tab import MameSettingsTab
 from app.gui.tabs.flycast_settings_tab import FlycastSettingsTab
 from app.gui.tabs.supermodel_settings_tab import SupermodelSettingsTab
@@ -22,34 +28,39 @@ class EmulatorSettingsTab(QWidget):
 
     settings_changed = Signal()
 
-    _TAB_DEFINITIONS = (
-        ("mame", "MAME", MameSettingsTab),
-        ("flycast", "Flycast", FlycastSettingsTab),
-        ("supermodel", "Supermodel", SupermodelSettingsTab),
-        ("fbneo", "FBNeo", FBNeoSettingsTab),
-        ("retroarch", "RetroArch", RetroArchSettingsTab),
-    )
+    # O registry é a fonte de verdade para identidade e ordem dos emuladores.
+    # Apenas a classe visual permanece aqui, pois ela é responsabilidade da GUI.
+    _WIDGET_FACTORIES: dict[str, type[QWidget]] = {
+        "mame": MameSettingsTab,
+        "flycast": FlycastSettingsTab,
+        "supermodel": SupermodelSettingsTab,
+        "fbneo": FBNeoSettingsTab,
+        "retroarch": RetroArchSettingsTab,
+    }
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.parent_window = parent
-        self.mame_tab: MameSettingsTab | None = None
-        self.flycast_tab: FlycastSettingsTab | None = None
-        self.supermodel_tab: SupermodelSettingsTab | None = None
-        self.fbneo_tab: FBNeoSettingsTab | None = None
-        self.retroarch_tab: RetroArchSettingsTab | None = None
+        self._tabs: dict[str, QWidget | None] = {
+            adapter.emulator: None for adapter in list_adapters()
+        }
         self._factories: dict[str, Callable[[], QWidget]] = {}
         self._placeholders: dict[str, QWidget] = {}
         self._build_ui()
 
     def _build_ui(self) -> None:
-        """Cria apenas os containers das cinco subabas e inicializa MAME."""
+        """Cria os containers das subabas usando o registro central."""
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         self.tab_widget = QTabWidget()
         root.addWidget(self.tab_widget)
 
-        for key, label, widget_type in self._TAB_DEFINITIONS:
+        for adapter in list_adapters():
+            key = adapter.emulator
+            widget_type = self._WIDGET_FACTORIES.get(key)
+            if widget_type is None:
+                raise RuntimeError(f"Não existe widget de configurações para {key}.")
+
             self._factories[key] = lambda cls=widget_type: cls(self)
             if key == "mame":
                 widget = self._create_tab(key)
@@ -57,7 +68,7 @@ class EmulatorSettingsTab(QWidget):
                 widget = QWidget()
                 widget.setObjectName(f"lazy_{key}_settings")
                 self._placeholders[key] = widget
-            self.tab_widget.addTab(widget, label)
+            self.tab_widget.addTab(widget, adapter.label)
 
         self.tab_widget.currentChanged.connect(self._on_subtab_changed)
 
@@ -67,25 +78,32 @@ class EmulatorSettingsTab(QWidget):
 
     def _create_tab(self, key: str) -> QWidget:
         """Instancia uma subaba específica e registra seus sinais."""
+        if key not in self._factories:
+            raise KeyError(f"Subaba desconhecida: {key}")
         widget = self._factories[key]()
+        self._tabs[key] = widget
+        # Mantém os atributos legados usados por código da GUI durante a
+        # transição, mas a fonte de verdade passa a ser ``_tabs``.
         setattr(self, f"{key}_tab", widget)
         self._connect_settings_changed(widget)
         return widget
 
     def _ensure_tab(self, key: str) -> QWidget:
         """Inicializa a subaba sob demanda e substitui seu placeholder."""
-        current = getattr(self, f"{key}_tab")
+        if key not in self._tabs:
+            raise KeyError(f"Subaba desconhecida: {key}")
+        current = self._tabs[key]
         if current is not None:
             return current
 
         placeholder = self._placeholders.get(key)
         if placeholder is None:
-            raise KeyError(f"Subaba desconhecida: {key}")
+            raise KeyError(f"Placeholder ausente para a subaba: {key}")
         index = self.tab_widget.indexOf(placeholder)
         widget = self._create_tab(key)
         self._placeholders.pop(key, None)
         self.tab_widget.removeTab(index)
-        self.tab_widget.insertTab(index, widget, dict((item[0], item[1]) for item in self._TAB_DEFINITIONS)[key])
+        self.tab_widget.insertTab(index, widget, get_adapter(key).label)
         return widget
 
     def _connect_settings_changed(self, widget: QWidget | None) -> None:
@@ -94,25 +112,31 @@ class EmulatorSettingsTab(QWidget):
         if signal is not None and hasattr(signal, "connect"):
             signal.connect(self.settings_changed)
 
+    def _key_for_widget(self, widget: QWidget | None) -> str | None:
+        """Resolve a chave do registry a partir do widget ou placeholder."""
+        if widget is None:
+            return None
+        for adapter in list_adapters():
+            key = adapter.emulator
+            if widget is self._tabs.get(key) or widget is self._placeholders.get(key):
+                return key
+        return None
+
     def _on_subtab_changed(self, index: int) -> None:
         """Inicializa e atualiza somente a subaba selecionada."""
+        if index < 0:
+            return
         widget = self.tab_widget.widget(index)
-        key = next((item[0] for item in self._TAB_DEFINITIONS if dict((x[0], x[2]) for x in self._TAB_DEFINITIONS)[item[0]] is type(widget)), None)
-        if key is None:
-            for candidate, placeholder in self._placeholders.items():
-                if widget is placeholder:
-                    key = candidate
-                    break
+        key = self._key_for_widget(widget)
         if key is None:
             return
-
-        if key != "mame" and key in self._placeholders:
+        if self._tabs[key] is None:
             widget = self._ensure_tab(key)
         self._refresh_widget(key, widget)
 
     def _refresh_widget(self, key: str, widget: QWidget | None = None) -> None:
         """Recarrega o estado nativo da subaba já inicializada."""
-        widget = widget or getattr(self, f"{key}_tab", None)
+        widget = widget or self._tabs.get(key)
         if widget is None:
             return
         if key == "mame":
@@ -132,14 +156,12 @@ class EmulatorSettingsTab(QWidget):
         if index < 0:
             return
         widget = self.tab_widget.widget(index)
-        for key, _label, _widget_type in self._TAB_DEFINITIONS:
-            if widget is getattr(self, f"{key}_tab", None):
-                self._refresh_widget(key, widget)
-                return
-            if widget is self._placeholders.get(key):
-                widget = self._ensure_tab(key)
-                self._refresh_widget(key, widget)
-                return
+        key = self._key_for_widget(widget)
+        if key is None:
+            return
+        if self._tabs[key] is None:
+            widget = self._ensure_tab(key)
+        self._refresh_widget(key, widget)
 
     @property
     def shader_test_target(self) -> MameSettingsTab:
