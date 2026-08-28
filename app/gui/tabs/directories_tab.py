@@ -1,8 +1,8 @@
-"""Configuração central dos diretórios dos quatro emuladores.
+"""Configuração central dos diretórios dos emuladores.
 
-A aba possui uma subaba por emulador: MAME, Flycast, Supermodel e FBNeo.
-O MAME usa o mame.ini real como fonte de verdade; os demais caminhos são
-persistidos em AppConfig.emulator_paths para uso compartilhado pelo aplicativo.
+A aba usa o ``adapter_registry`` como fonte única para identidade,
+executável e contrato de diretórios. O tratamento físico específico de MAME
+e Flycast permanece nesta camada porque esses formatos têm regras próprias.
 """
 from __future__ import annotations
 
@@ -17,64 +17,17 @@ from PySide6.QtWidgets import (
 
 from app.config.app_config import AppConfig
 from app.core.services.ini_service import IniService
+from app.emulators.adapter_registry import DirectorySpec, get_adapter, list_adapters
 from app.mame.executable import MameExecutable
 
 
 class DirectoriesTab(QWidget):
-    """Aba central de diretórios, organizada por emulador."""
+    """Aba central de diretórios, orientada pelo registro de adapters."""
 
-    EMULATORS = (
-        ("mame", "MAME"),
-        ("flycast", "Flycast"),
-        ("supermodel", "Supermodel"),
-        ("fbneo", "FBNeo"),
-    )
-    EXECUTABLES = {
-        "mame": "mame.exe",
-        "flycast": "flycast.exe",
-        "supermodel": "supermodel.exe",
-        "fbneo": "fbneo64.exe",
-    }
-    PATH_LABELS = {
-        # ROMs são tratados separadamente: o Flycast possui uma única opção
-        # Dreamcast.ContentPath que recebe até quatro caminhos separados por ';'.
-        "flycast": (
-            ("bios", "BIOS"),
-            ("vmu", "VMU"),
-            ("saves", "Saves"),
-            ("states", "Save states"),
-            ("textures", "Textures"),
-            ("boxart", "Boxart"),
-            ("cheats", "Cheats"),
-        ),
-        "supermodel": (
-            ("roms", "ROMs"),
-            ("config", "Config"),
-            ("nvram", "NVRAM"),
-            ("saves", "Saves / save states"),
-            ("assets", "Assets"),
-        ),
-        "fbneo": (
-            ("roms", "ROMs"),
-            ("bios", "BIOS / ROM suplementar"),
-            ("samples", "Samples"),
-            ("cheats", "Cheats"),
-            ("previews", "Previews"),
-            ("titles", "Titles"),
-            ("snapshots", "Snapshots"),
-            ("history", "History"),
-            ("icons", "Icons"),
-        ),
-    }
-    FLYCAST_NATIVE_KEYS = {
-        "bios": "Dreamcast.BiosPath",
-        "vmu": "Dreamcast.VMUPath",
-        "saves": "Dreamcast.SavePath",
-        "states": "Dreamcast.SavestatePath",
-        "textures": "Dreamcast.TexturePath",
-        "boxart": "Dreamcast.BoxartPath",
-        "cheats": "Dreamcast.CheatPath",
-    }
+    # MAME/Flycast/Supermodel/FBNeo são as abas tradicionais desta tela.
+    # RetroArch possui uma tela própria de diretórios e não deve ser duplicado
+    # aqui. A identidade, porém, vem do registry e não de constantes locais.
+    DIRECTORY_EMULATORS = ("mame", "flycast", "supermodel", "fbneo")
 
     settings_changed = Signal()
 
@@ -84,15 +37,20 @@ class DirectoriesTab(QWidget):
         self.config = getattr(parent, "config", None) or AppConfig()
         self.ini_service = None
         self.mame_exec = None
-        self.emulator_dir_edits = {}
-        self.emulator_status_labels = {}
-        self.path_edits = {}
+        self.emulator_dir_edits: dict[str, QLineEdit] = {}
+        self.emulator_status_labels: dict[str, QLabel] = {}
+        self.path_edits: dict[str, dict[str, QLineEdit]] = {}
         self.flycast_rom_edits: list[QLineEdit] = []
         self._setup_ui()
         self._refresh_ui_state()
 
+    @staticmethod
+    def _adapter(key: str):
+        """Retorna o adapter central do emulador solicitado."""
+        return get_adapter(key)
+
     def _setup_ui(self) -> None:
-        """Cria a aba principal e as quatro subabas de emuladores."""
+        """Cria a aba e suas páginas a partir dos adapters registrados."""
         root = QVBoxLayout(self)
         title = QLabel("Diretórios dos emuladores")
         title.setStyleSheet("font-size:20px;font-weight:bold;")
@@ -106,11 +64,14 @@ class DirectoriesTab(QWidget):
         root.addWidget(info)
         self.subtabs = QTabWidget()
         root.addWidget(self.subtabs, 1)
-        for key, label in self.EMULATORS:
-            self.subtabs.addTab(self._create_emulator_page(key, label), label)
+        for key in self.DIRECTORY_EMULATORS:
+            adapter = self._adapter(key)
+            self.subtabs.addTab(self._create_emulator_page(adapter), adapter.label)
 
-    def _create_emulator_page(self, key: str, label: str) -> QWidget:
-        """Cria a página rolável de um emulador."""
+    def _create_emulator_page(self, adapter) -> QWidget:
+        """Cria a página rolável usando somente o contrato do adapter."""
+        key = adapter.emulator
+        label = adapter.label
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -130,7 +91,7 @@ class DirectoriesTab(QWidget):
         form.addRow("Diretório:", row)
         executable = QLineEdit()
         executable.setReadOnly(True)
-        executable.setPlaceholderText(self.EXECUTABLES[key])
+        executable.setPlaceholderText(adapter.executable)
         form.addRow("Executável:", executable)
         status = QLabel("● Não configurado")
         status.setStyleSheet("color:#999;font-weight:bold;")
@@ -146,7 +107,7 @@ class DirectoriesTab(QWidget):
         elif key == "flycast":
             self._build_flycast_content(layout)
         else:
-            self._build_generic_content(layout, key, label)
+            self._build_generic_content(layout, adapter)
 
         layout.addStretch()
         scroll.setWidget(container)
@@ -175,7 +136,8 @@ class DirectoriesTab(QWidget):
         grp = QGroupBox("Diretórios definidos no mame.ini")
         form = QFormLayout(grp)
         self.rom_paths = []
-        for i in range(1, 6):
+        rom_spec = self._adapter("mame").directory("roms")
+        for i in range(1, rom_spec.max_entries + 1):
             edit = QLineEdit()
             edit.setPlaceholderText(f"Diretório ROM {i}")
             b = QPushButton("…")
@@ -188,26 +150,19 @@ class DirectoriesTab(QWidget):
             form.addRow(f"ROM {i}:", row)
 
         self.dir_edits = {}
-        for label, attr, placeholder in [
-            ("Sample Path:", "samplepath", "samples"),
-            ("Artwork Path:", "artpath", "artwork"),
-            ("CFG Path:", "cfgpath", "cfg"),
-            ("NVRAM Path:", "nvrampath", "nvram"),
-            ("State Path:", "statepath", "sta"),
-            ("Snapshot Path:", "snappath", "snap"),
-            ("Diff Path:", "diffpath", "diff"),
-            ("INI Path:", "inipath", "ini"),
-        ]:
+        for spec in self._adapter("mame").directories:
+            if spec.key == "roms":
+                continue
             edit = QLineEdit()
-            edit.setPlaceholderText(placeholder)
+            edit.setPlaceholderText(spec.label)
             b = QPushButton("…")
             b.setFixedWidth(34)
-            b.clicked.connect(self._create_folder_selector(edit, f"Selecionar {label}"))
+            b.clicked.connect(self._create_folder_selector(edit, f"Selecionar {spec.label}"))
             row = QHBoxLayout()
             row.addWidget(edit, 1)
             row.addWidget(b)
-            self.dir_edits[attr] = edit
-            form.addRow(label, row)
+            self.dir_edits[spec.key] = edit
+            form.addRow(f"{spec.label}:", row)
 
         save = QPushButton("Salvar mame.ini")
         save.setStyleSheet("font-weight:bold;padding:8px;")
@@ -222,45 +177,39 @@ class DirectoriesTab(QWidget):
         layout.addWidget(note)
 
     def _build_flycast_content(self, layout: QVBoxLayout) -> None:
-        """Constrói a configuração de diretórios do Flycast.
-
-        O Flycast possui uma única chave ``Dreamcast.ContentPath`` para o
-        conteúdo/ROMs. A GUI oferece exatamente quatro campos e os serializa
-        em uma única linha, separados por ``;``. Todos os demais diretórios
-        continuam com apenas um campo.
-        """
+        """Constrói os diretórios do Flycast segundo o contrato do adapter."""
         group = QGroupBox("Diretórios de conteúdo do Flycast")
         form = QFormLayout(group)
+        adapter = self._adapter("flycast")
         self.path_edits["flycast"] = {}
         self.flycast_rom_edits = []
+        rom_spec = adapter.directory("roms")
 
-        for index in range(1, 5):
+        for index in range(1, rom_spec.max_entries + 1):
             edit = QLineEdit()
             edit.setPlaceholderText(f"Diretório ROM {index}")
             button = QPushButton("…")
             button.setFixedWidth(34)
-            button.clicked.connect(
-                self._create_folder_selector(edit, f"Selecionar diretório ROM {index}")
-            )
+            button.clicked.connect(self._create_folder_selector(edit, f"Selecionar diretório ROM {index}"))
             row = QHBoxLayout()
             row.addWidget(edit, 1)
             row.addWidget(button)
             self.flycast_rom_edits.append(edit)
             form.addRow(f"ROM {index}:", row)
 
-        for path_key, path_label in self.PATH_LABELS["flycast"]:
+        for spec in adapter.directories:
+            if spec.key == "roms":
+                continue
             edit = QLineEdit()
-            edit.setPlaceholderText(path_label)
+            edit.setPlaceholderText(spec.label)
             button = QPushButton("…")
             button.setFixedWidth(34)
-            button.clicked.connect(
-                self._create_emulator_path_selector("flycast", path_key, edit, path_label)
-            )
+            button.clicked.connect(self._create_emulator_path_selector("flycast", spec, edit))
             row = QHBoxLayout()
             row.addWidget(edit, 1)
             row.addWidget(button)
-            self.path_edits["flycast"][path_key] = edit
-            form.addRow(f"{path_label}:", row)
+            self.path_edits["flycast"][spec.key] = edit
+            form.addRow(f"{spec.label}:", row)
 
         save = QPushButton("Salvar diretórios do Flycast")
         save.setStyleSheet("font-weight:bold;padding:8px;")
@@ -269,50 +218,51 @@ class DirectoriesTab(QWidget):
         layout.addWidget(group)
 
         note = QLabel(
-            "Os quatro campos de ROM são gravados em Dreamcast.ContentPath na mesma linha, "
-            "separados por ';'. BIOS, VMU, Saves, Save states, Textures, Boxart e Cheats permanecem como campos únicos."
+            f"Os quatro campos de ROM são gravados em {rom_spec.native_key} na mesma linha, "
+            "separados por ';'. Os demais diretórios permanecem como campos únicos."
         )
         note.setWordWrap(True)
         note.setStyleSheet("color:#888;font-size:10px;padding:4px;")
         layout.addWidget(note)
 
-    def _build_generic_content(self, layout: QVBoxLayout, key: str, label: str) -> None:
-        """Constrói os diretórios de conteúdo do Supermodel ou FBNeo."""
+    def _build_generic_content(self, layout: QVBoxLayout, adapter) -> None:
+        """Constrói os diretórios de conteúdo usando ``DirectorySpec``."""
+        key = adapter.emulator
+        label = adapter.label
         group = QGroupBox(f"Diretórios de conteúdo do {label}")
         form = QFormLayout(group)
         self.path_edits[key] = {}
-        for path_key, path_label in self.PATH_LABELS[key]:
+        for spec in adapter.directories:
             edit = QLineEdit()
-            edit.setPlaceholderText(path_label)
+            edit.setPlaceholderText(spec.label)
             b = QPushButton("…")
             b.setFixedWidth(34)
-            b.clicked.connect(self._create_emulator_path_selector(key, path_key, edit, path_label))
+            b.clicked.connect(self._create_emulator_path_selector(key, spec, edit))
             row = QHBoxLayout()
             row.addWidget(edit, 1)
             row.addWidget(b)
-            self.path_edits[key][path_key] = edit
-            form.addRow(f"{path_label}:", row)
+            self.path_edits[key][spec.key] = edit
+            form.addRow(f"{spec.label}:", row)
         save = QPushButton(f"Salvar diretórios do {label}")
         save.setStyleSheet("font-weight:bold;padding:8px;")
         save.clicked.connect(lambda _=False, k=key: self._save_generic_paths(k))
         form.addRow("", save)
         layout.addWidget(group)
-        notes = {
-            "supermodel": "Supermodel usa ROMs MAME-compatíveis e possui Config, NVRAM, Saves e Assets na instalação. O caminho de ROMs é mantido pelo aplicativo para execução/catálogo.",
-            "fbneo": "FBNeo suporta múltiplos ROM paths e diversos support paths. Os campos representam os grupos usados pelo frontend e pelos serviços do projeto.",
-        }
-        note = QLabel(notes[key])
+        note = QLabel(
+            "Os diretórios exibidos são definidos pelo adapter e permanecem disponíveis para os serviços do projeto."
+        )
         note.setWordWrap(True)
         note.setStyleSheet("color:#888;font-size:10px;padding:4px;")
         layout.addWidget(note)
 
     def _refresh_ui_state(self) -> None:
-        """Recarrega a configuração persistida e atualiza todas as subabas."""
+        """Recarrega a configuração persistida e atualiza as subabas."""
         self.config.load()
-        for key, _label in self.EMULATORS:
+        for key in self.DIRECTORY_EMULATORS:
+            adapter = self._adapter(key)
             directory = getattr(self.config, f"{key}_dir", None)
             self.emulator_dir_edits[key].setText(str(directory) if directory else "")
-            executable = Path(directory) / self.EXECUTABLES[key] if directory else None
+            executable = Path(directory) / adapter.executable if directory else None
             getattr(self, f"{key}_executable_edit").setText(str(executable) if executable else "")
             self._update_emulator_directory_status(key, directory)
             if key != "mame":
@@ -320,33 +270,33 @@ class DirectoriesTab(QWidget):
         self._refresh_mame_from_config()
 
     def _update_emulator_directory_status(self, key: str, directory: Path | None) -> None:
-        """Mostra se o diretório e o executável esperado estão presentes."""
+        """Mostra se o diretório e o executável registrado estão presentes."""
+        adapter = self._adapter(key)
         status = self.emulator_status_labels[key]
         if not directory:
             status.setText("● Diretório não configurado")
             status.setStyleSheet("color:#999;font-weight:bold;")
             return
-        executable = Path(directory) / self.EXECUTABLES[key]
+        executable = Path(directory) / adapter.executable
         if executable.is_file():
             version = getattr(self.config, f"{key}_version", None)
             suffix = f" | versão {version}" if version else ""
             status.setText(f"● Instalação detectada: {executable.name}{suffix}")
             status.setStyleSheet("color:#55d66b;font-weight:bold;")
         else:
-            status.setText(f"● Diretório definido; {self.EXECUTABLES[key]} não localizado")
+            status.setText(f"● Diretório definido; {adapter.executable} não localizado")
             status.setStyleSheet("color:#e5c454;font-weight:bold;")
 
     def _select_emulator_directory(self, key: str) -> None:
         """Seleciona e persiste a raiz de instalação do emulador."""
+        adapter = self._adapter(key)
         current = self.emulator_dir_edits[key].text().strip()
-        selected = QFileDialog.getExistingDirectory(
-            self, f"Selecionar diretório do {dict(self.EMULATORS)[key]}", current
-        )
+        selected = QFileDialog.getExistingDirectory(self, f"Selecionar diretório do {adapter.label}", current)
         if not selected:
             return
         directory = Path(selected)
         setattr(self.config, f"{key}_dir", directory)
-        executable = directory / self.EXECUTABLES[key]
+        executable = directory / adapter.executable
         setattr(self.config, f"{key}_path", executable if executable.is_file() else None)
         if key != "mame":
             self._initialize_generic_defaults(key, directory)
@@ -361,22 +311,17 @@ class DirectoriesTab(QWidget):
         self.settings_changed.emit()
 
     def _initialize_generic_defaults(self, key: str, directory: Path) -> None:
-        """Inicializa caminhos relativos à instalação sem sobrescrever configurações existentes."""
-        if key == "flycast":
-            # Não cria quatro ROMs automaticamente. O usuário decide quais
-            # caminhos de conteúdo deseja configurar.
-            for path_key, relative in self.config.EMULATOR_PATH_DEFAULTS.get(key, {}).items():
-                if path_key == "roms":
-                    continue
-                if self.config.get_emulator_path(key, path_key) is None:
-                    self.config.set_emulator_path(key, path_key, directory / relative)
-            return
-        for path_key, relative in self.config.EMULATOR_PATH_DEFAULTS.get(key, {}).items():
-            if self.config.get_emulator_path(key, path_key) is None:
-                self.config.set_emulator_path(key, path_key, directory / relative)
+        """Inicializa defaults sem sobrescrever caminhos existentes."""
+        for spec in self._adapter(key).directories:
+            if not spec.relative_default:
+                continue
+            if spec.key == "roms" and spec.multiple:
+                continue
+            if self.config.get_emulator_path(key, spec.key) is None:
+                self.config.set_emulator_path(key, spec.key, directory / spec.relative_default)
 
     def _load_generic_paths(self, key: str, directory: Path | None) -> None:
-        """Carrega os caminhos persistidos na subaba do emulador."""
+        """Carrega caminhos persistidos segundo o contrato do adapter."""
         if key == "flycast":
             if directory:
                 self._initialize_generic_defaults(key, directory)
@@ -388,7 +333,6 @@ class DirectoriesTab(QWidget):
                 edit.setText(str(path) if path else "")
             self._load_flycast_native_config()
             return
-
         if key not in self.path_edits:
             return
         if directory:
@@ -397,31 +341,28 @@ class DirectoriesTab(QWidget):
             path = self.config.get_emulator_path(key, path_key)
             edit.setText(str(path) if path else "")
 
-    def _create_emulator_path_selector(self, key: str, path_key: str, edit_widget: QLineEdit, title: str):
-        """Cria o callback para selecionar um diretório de conteúdo."""
+    def _create_emulator_path_selector(self, key: str, spec: DirectorySpec, edit_widget: QLineEdit):
+        """Cria o callback de seleção para um diretório do adapter."""
         def selector() -> None:
             current = edit_widget.text().strip()
-            selected = QFileDialog.getExistingDirectory(self, f"Selecionar {title}", current)
+            selected = QFileDialog.getExistingDirectory(self, f"Selecionar {spec.label}", current)
             if selected:
                 edit_widget.setText(selected)
-                self.config.set_emulator_path(key, path_key, Path(selected))
+                self.config.set_emulator_path(key, spec.key, Path(selected))
         return selector
 
     def _save_generic_paths(self, key: str) -> None:
-        """Persiste todos os diretórios de conteúdo do emulador."""
+        """Persiste os diretórios definidos pelo adapter."""
         for path_key, edit in self.path_edits[key].items():
             value = edit.text().strip()
             self.config.set_emulator_path(key, path_key, Path(value) if value else None)
         self.config.save()
         self._update_emulator_directory_status(key, getattr(self.config, f"{key}_dir", None))
         self.settings_changed.emit()
-        QMessageBox.information(
-            self, dict(self.EMULATORS)[key],
-            f"Diretórios do {dict(self.EMULATORS)[key]} salvos com sucesso.",
-        )
+        QMessageBox.information(self, self._adapter(key).label, f"Diretórios do {self._adapter(key).label} salvos com sucesso.")
 
     def _flycast_config_path(self) -> Path | None:
-        """Localiza o emu.cfg do Flycast, priorizando a instalação configurada."""
+        """Localiza o emu.cfg do Flycast."""
         directory = self.config.flycast_dir
         candidates: list[Path] = []
         if directory:
@@ -435,9 +376,6 @@ class DirectoriesTab(QWidget):
         for candidate in candidates:
             if candidate.is_file():
                 return candidate
-        # Flycast standalone normalmente aceita o emu.cfg junto ao executável;
-        # usar esse caminho como fallback permite criar a configuração quando
-        # a instalação ainda não possui um arquivo.
         return (Path(directory) / "emu.cfg") if directory else None
 
     @staticmethod
@@ -457,8 +395,7 @@ class DirectoriesTab(QWidget):
         if section_start is None:
             if text and not text.endswith(("\n", "\r")):
                 text += "\n"
-            return f"{text}\n[config]\n{key} = {value}\n"
-
+            return f"{text}[config]\n{key} = {value}\n"
         for index in range(section_start + 1, section_end):
             stripped = lines[index].strip()
             if not stripped or stripped.startswith(("#", ";")) or "=" not in stripped:
@@ -468,9 +405,7 @@ class DirectoriesTab(QWidget):
                 newline = "\n" if lines[index].endswith("\n") else ""
                 lines[index] = f"{key} = {value}{newline}"
                 return "".join(lines)
-
-        insert_at = section_end
-        lines.insert(insert_at, f"{key} = {value}\n")
+        lines.insert(section_end, f"{key} = {value}\n")
         return "".join(lines)
 
     def _load_flycast_native_config(self) -> None:
@@ -482,9 +417,11 @@ class DirectoriesTab(QWidget):
             text = config_path.read_text(encoding="utf-8")
         except OSError:
             return
+        rom_spec = self._adapter("flycast").directory("roms")
+        native_key = rom_spec.native_key
         for raw_line in text.splitlines():
             stripped = raw_line.strip()
-            if stripped.startswith("Dreamcast.ContentPath") and "=" in stripped:
+            if native_key and stripped.startswith(native_key) and "=" in stripped:
                 _, value = stripped.split("=", 1)
                 native_paths = [Path(item.strip()) for item in value.split(";") if item.strip()]
                 if native_paths:
@@ -494,14 +431,14 @@ class DirectoriesTab(QWidget):
                 break
 
     def _save_flycast_paths(self) -> None:
-        """Salva os diretórios do Flycast e sincroniza o emu.cfg nativo."""
+        """Salva os diretórios do Flycast e sincroniza o emu.cfg."""
+        rom_spec = self._adapter("flycast").directory("roms")
         rom_paths = [Path(edit.text().strip()) for edit in self.flycast_rom_edits if edit.text().strip()]
         self.config.set_flycast_rom_paths(rom_paths)
         for path_key, edit in self.path_edits["flycast"].items():
             value = edit.text().strip()
             self.config.set_emulator_path("flycast", path_key, Path(value) if value else None)
         self.config.save()
-
         config_path = self._flycast_config_path()
         if not config_path:
             QMessageBox.warning(self, "Flycast", "Diretório de instalação do Flycast não configurado.")
@@ -509,10 +446,12 @@ class DirectoriesTab(QWidget):
         try:
             text = config_path.read_text(encoding="utf-8") if config_path.is_file() else ""
             content_value = ";".join(str(path) for path in rom_paths)
-            text = self._replace_flycast_key(text, "Dreamcast.ContentPath", content_value)
-            for path_key, physical_key in self.FLYCAST_NATIVE_KEYS.items():
-                path = self.config.get_emulator_path("flycast", path_key)
-                text = self._replace_flycast_key(text, physical_key, str(path) if path else "")
+            text = self._replace_flycast_key(text, rom_spec.native_key or "Dreamcast.ContentPath", content_value)
+            for spec in self._adapter("flycast").directories:
+                if spec.key == "roms" or not spec.native_key:
+                    continue
+                path = self.config.get_emulator_path("flycast", spec.key)
+                text = self._replace_flycast_key(text, spec.native_key, str(path) if path else "")
             config_path.parent.mkdir(parents=True, exist_ok=True)
             temp_path = config_path.with_suffix(config_path.suffix + ".tmp")
             temp_path.write_text(text, encoding="utf-8", newline="")
@@ -524,7 +463,6 @@ class DirectoriesTab(QWidget):
         except OSError as exc:
             QMessageBox.critical(self, "Flycast", f"Falha ao salvar o emu.cfg:\n{exc}")
             return
-
         self._update_emulator_directory_status("flycast", getattr(self.config, "flycast_dir", None))
         self.settings_changed.emit()
         QMessageBox.information(self, "Flycast", "Diretórios do Flycast salvos com sucesso.")
@@ -532,7 +470,7 @@ class DirectoriesTab(QWidget):
     def _refresh_mame_from_config(self) -> None:
         """Atualiza o MAME a partir da instalação configurada."""
         mame_dir = self.config.mame_dir
-        mame_path = Path(mame_dir) / "mame.exe" if mame_dir else self.config.mame_path
+        mame_path = Path(mame_dir) / self._adapter("mame").executable if mame_dir else self.config.mame_path
         if mame_path and mame_path.is_file():
             self.config.mame_path = mame_path
             self._detect_mame_version()
@@ -549,7 +487,7 @@ class DirectoriesTab(QWidget):
     def _detect_mame_version(self) -> None:
         """Detecta a versão do mame.exe instalado."""
         path = self.config.mame_path
-        if not path or path.name.casefold() != "mame.exe" or not path.is_file():
+        if not path or path.name.casefold() != self._adapter("mame").executable.casefold() or not path.is_file():
             self.mame_executable_edit.setText(str(path) if path else "")
             return
         self.mame_executable_edit.setText(str(path))
@@ -564,10 +502,10 @@ class DirectoriesTab(QWidget):
             self.emulator_status_labels["mame"].setStyleSheet("color:#e05a5a;font-weight:bold;")
 
     def _load_default_mame_ini(self) -> None:
-        """Carrega o mame.ini da raiz da instalação do MAME."""
+        """Carrega o mame.ini da raiz da instalação."""
         if not self.config.mame_dir:
             return
-        path = Path(self.config.mame_dir) / "mame.ini"
+        path = Path(self.config.mame_dir) / self._adapter("mame").config_filename
         if path.is_file():
             self.config.ini_path = path
             self.config.save()
@@ -581,10 +519,7 @@ class DirectoriesTab(QWidget):
 
     def _select_ini_file(self) -> None:
         """Seleciona manualmente um mame.ini existente."""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "Selecionar mame.ini", str(self.config.mame_dir or ""),
-            "Arquivos INI (*.ini);;Todos os arquivos (*)",
-        )
+        file_path, _ = QFileDialog.getOpenFileName(self, "Selecionar mame.ini", str(self.config.mame_dir or ""), "Arquivos INI (*.ini);;Todos os arquivos (*)")
         if not file_path:
             return
         self.config.ini_path = Path(file_path)
@@ -618,17 +553,18 @@ class DirectoriesTab(QWidget):
         for i, edit in enumerate(self.rom_paths):
             edit.setText(rom_list[i] if i < len(rom_list) else "")
         mapping = {
-            "samplepath": self.ini_service.get_samplepath,
-            "artpath": self.ini_service.get_artpath,
-            "cfgpath": self.ini_service.get_cfgpath,
-            "nvrampath": self.ini_service.get_nvrampath,
-            "statepath": self.ini_service.get_statepath,
-            "snappath": self.ini_service.get_snappath,
-            "diffpath": self.ini_service.get_diffpath,
-            "inipath": self.ini_service.get_inipath,
+            "samples": self.ini_service.get_samplepath,
+            "artwork": self.ini_service.get_artpath,
+            "cfg": self.ini_service.get_cfgpath,
+            "nvram": self.ini_service.get_nvrampath,
+            "states": self.ini_service.get_statepath,
+            "snapshots": self.ini_service.get_snappath,
+            "diff": self.ini_service.get_diffpath,
+            "ini": self.ini_service.get_inipath,
         }
-        for attr, getter in mapping.items():
-            self.dir_edits[attr].setText(getter() or "")
+        for key, getter in mapping.items():
+            if key in self.dir_edits:
+                self.dir_edits[key].setText(getter() or "")
         self._set_ini_fields_enabled(True)
 
     def _save_ini(self) -> None:
@@ -638,16 +574,7 @@ class DirectoriesTab(QWidget):
             return
         try:
             self.ini_service.set_paths("rompath", [edit.text().strip() for edit in self.rom_paths if edit.text().strip()])
-            fields = {
-                "samplepath": self.dir_edits["samplepath"].text().strip(),
-                "artpath": self.dir_edits["artpath"].text().strip(),
-                "cfg_directory": self.dir_edits["cfgpath"].text().strip(),
-                "nvram_directory": self.dir_edits["nvrampath"].text().strip(),
-                "state_directory": self.dir_edits["statepath"].text().strip(),
-                "snapshot_directory": self.dir_edits["snappath"].text().strip(),
-                "diff_directory": self.dir_edits["diffpath"].text().strip(),
-                "inipath": self.dir_edits["inipath"].text().strip(),
-            }
+            fields = {spec.native_key: self.dir_edits[spec.key].text().strip() for spec in self._adapter("mame").directories if spec.key != "roms" and spec.native_key and spec.key in self.dir_edits}
             for key, value in fields.items():
                 self.ini_service.set(key, value)
             self.ini_service.save()
@@ -676,5 +603,5 @@ class DirectoriesTab(QWidget):
         return selector
 
     def refresh(self) -> None:
-        """Atualiza as quatro subabas após alterações realizadas por outra interface."""
+        """Atualiza as subabas após alterações realizadas por outra interface."""
         self._refresh_ui_state()
