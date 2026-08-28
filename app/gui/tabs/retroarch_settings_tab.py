@@ -1,73 +1,207 @@
-"""Interface de configuração do RetroArch."""
+"""Interface de configuração do RetroArch orientada pelo schema canônico."""
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QFormLayout, QGroupBox, QLabel, QLineEdit,
-    QPushButton, QSpinBox, QTabWidget, QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QGroupBox, QLabel,
+    QLineEdit, QPushButton, QSpinBox, QTabWidget, QVBoxLayout, QWidget,
 )
 
+from app.emulators.adapter_registry import get_adapter
+from app.emulators.config_schema import Setting
 from app.emulators.retroarch_config import RetroArchConfig
 
 
 class RetroArchSettingsTab(QWidget):
-    """Editor das configurações globais do retroarch.cfg."""
+    """Editor das configurações globais do retroarch.cfg.
+
+    Os controles são derivados exclusivamente do ``RETROARCH_SCHEMA`` exposto
+    pelo adapter. A classe mantém os atributos históricos dos widgets para
+    compatibilidade com código externo e testes existentes.
+    """
 
     settings_changed = Signal()
+    DOMAINS = ("general", "video", "audio", "input", "shaders")
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.parent_window = parent
+        self.widgets: dict[str, QWidget] = {}
         self._build_ui()
         self.refresh()
 
+    @property
+    def adapter(self):
+        """Retorna o contrato central do RetroArch."""
+        return get_adapter("retroarch")
+
     def _build_ui(self) -> None:
-        """Cria as páginas Geral, Vídeo, Áudio, Controles e Shaders."""
+        """Cria as páginas de configuração diretamente do schema."""
         root = QVBoxLayout(self)
         self.status_label = QLabel()
         root.addWidget(self.status_label)
         self.tabs = QTabWidget()
         root.addWidget(self.tabs)
 
-        general = QWidget(); form = QFormLayout(general)
-        self.video_driver = QComboBox(); self.video_driver.addItems(["auto", "gl", "glcore", "vulkan", "d3d11", "d3d12", "d3d10", "d3d9", "sdl2", "sdl3", "gdi"])
-        self.audio_driver = QLineEdit(); self.input_driver = QLineEdit()
-        form.addRow("Driver de vídeo", self.video_driver); form.addRow("Driver de áudio", self.audio_driver); form.addRow("Driver de input", self.input_driver)
-        self.tabs.addTab(general, "Geral")
+        for domain in self.DOMAINS:
+            self._create_schema_tab(domain)
 
-        video = QWidget(); form = QFormLayout(video)
-        self.fullscreen = QCheckBox("Tela cheia"); self.windowed_fullscreen = QCheckBox("Fullscreen sem borda"); self.vsync = QCheckBox("VSync"); self.threaded = QCheckBox("Vídeo em thread")
-        self.resolution_x = QSpinBox(); self.resolution_x.setRange(0, 16384)
-        self.resolution_y = QSpinBox(); self.resolution_y.setRange(0, 16384)
-        self.refresh_rate = QLineEdit(); self.hdr = QCheckBox("HDR"); self.hdr_nits = QSpinBox(); self.hdr_nits.setRange(100, 10000)
-        form.addRow("Tela cheia", self.fullscreen); form.addRow("Fullscreen sem borda", self.windowed_fullscreen); form.addRow("VSync", self.vsync); form.addRow("Threaded vídeo", self.threaded)
-        form.addRow("Resolução X", self.resolution_x); form.addRow("Resolução Y", self.resolution_y); form.addRow("Refresh rate", self.refresh_rate); form.addRow("HDR", self.hdr); form.addRow("HDR máximo (nits)", self.hdr_nits)
-        self.tabs.addTab(video, "Vídeo")
+        files = QGroupBox("Configuração")
+        file_layout = QVBoxLayout(files)
+        self.path_label = QLabel()
+        self.save_button = QPushButton("Salvar configuração")
+        self.reload_button = QPushButton("Recarregar")
+        file_layout.addWidget(self.path_label)
+        file_layout.addWidget(self.save_button)
+        file_layout.addWidget(self.reload_button)
+        root.addWidget(files)
+        self.save_button.clicked.connect(self._save)
+        self.reload_button.clicked.connect(self.refresh)
 
-        audio = QWidget(); form = QFormLayout(audio)
-        self.audio_enable = QCheckBox("Áudio habilitado"); self.audio_rate = QSpinBox(); self.audio_rate.setRange(8000, 192000); self.audio_latency = QSpinBox(); self.audio_latency.setRange(0, 1000); self.audio_sync = QCheckBox("Sincronização de áudio"); self.audio_rate_control = QCheckBox("Controle de taxa")
-        form.addRow("Áudio", self.audio_enable); form.addRow("Sample rate", self.audio_rate); form.addRow("Latência (ms)", self.audio_latency); form.addRow("Audio sync", self.audio_sync); form.addRow("Rate control", self.audio_rate_control)
-        self.tabs.addTab(audio, "Áudio")
+    def _create_schema_tab(self, domain: str) -> None:
+        """Materializa uma página e seus controles a partir do schema."""
+        page = QWidget()
+        form = QFormLayout(page)
+        for setting in self.adapter.schema(domain):
+            widget = self._create_control(setting)
+            self.widgets[setting.key] = widget
+            form.addRow(setting.label, widget)
+            if setting.description:
+                widget.setToolTip(setting.description)
+            setattr(self, self._attribute_name(setting.key), widget)
+        self.tabs.addTab(page, self._domain_label(domain))
 
-        controls = QWidget(); form = QFormLayout(controls)
-        self.joypad_driver = QLineEdit(); self.autodetect = QCheckBox("Autodetecção"); self.axis_threshold = QLineEdit(); self.deadzone = QLineEdit(); self.sensitivity = QLineEdit(); self.remap = QCheckBox("Remapeamento habilitado")
-        form.addRow("Joypad driver", self.joypad_driver); form.addRow("Autodetecção", self.autodetect); form.addRow("Axis threshold", self.axis_threshold); form.addRow("Analog deadzone", self.deadzone); form.addRow("Analog sensitivity", self.sensitivity); form.addRow("Remapping", self.remap)
-        self.tabs.addTab(controls, "Controles")
+    @staticmethod
+    def _attribute_name(key: str) -> str:
+        """Converte uma chave canônica em nome de atributo da GUI."""
+        return key
 
-        shaders = QWidget(); form = QFormLayout(shaders)
-        self.shader_enable = QCheckBox("Shader habilitado"); self.shader = QLineEdit(); self.shader_dir = QLineEdit()
-        form.addRow("Shaders", self.shader_enable); form.addRow("Preset", self.shader); form.addRow("Diretório", self.shader_dir)
-        self.tabs.addTab(shaders, "Shaders")
+    @staticmethod
+    def _domain_label(domain: str) -> str:
+        """Converte identificadores de domínio em títulos da interface."""
+        return {
+            "general": "Geral",
+            "video": "Vídeo",
+            "audio": "Áudio",
+            "input": "Controles",
+            "shaders": "Shaders",
+        }.get(domain, domain.title())
 
-        files = QGroupBox("Configuração"); file_layout = QVBoxLayout(files); self.path_label = QLabel(); self.save_button = QPushButton("Salvar configuração"); self.reload_button = QPushButton("Recarregar")
-        file_layout.addWidget(self.path_label); file_layout.addWidget(self.save_button); file_layout.addWidget(self.reload_button); root.addWidget(files)
-        self.save_button.clicked.connect(self._save); self.reload_button.clicked.connect(self.refresh)
+    def _create_control(self, setting: Setting) -> QWidget:
+        """Cria o widget adequado ao ``control`` declarado no schema."""
+        if setting.control == "bool":
+            return QCheckBox(setting.label)
+        if setting.control == "choice":
+            combo = QComboBox()
+            combo.addItems([value for value, _label in setting.choices])
+            combo.setEditable(True)
+            return combo
+        if setting.control == "int":
+            spin = QSpinBox()
+            minimum, maximum = self._int_range(setting.key)
+            spin.setRange(minimum, maximum)
+            return spin
+        if setting.control == "float":
+            spin = QDoubleSpinBox()
+            minimum, maximum = self._float_range(setting.key)
+            spin.setRange(minimum, maximum)
+            spin.setDecimals(3)
+            spin.setSingleStep(0.01)
+            return spin
+        return QLineEdit()
+
+    @staticmethod
+    def _int_range(key: str) -> tuple[int, int]:
+        """Retorna limites seguros para inteiros administrados pelo RetroArch."""
+        ranges = {
+            "video_fullscreen_x": (0, 16384),
+            "video_fullscreen_y": (0, 16384),
+            "video_hdr_max_nits": (100, 10000),
+            "audio_out_rate": (8000, 192000),
+            "audio_latency": (0, 1000),
+        }
+        return ranges.get(key, (-2_147_483_648, 2_147_483_647))
+
+    @staticmethod
+    def _float_range(key: str) -> tuple[float, float]:
+        """Retorna limites seguros para floats do schema RetroArch."""
+        ranges = {
+            "video_refresh_rate": (1.0, 1000.0),
+            "input_axis_threshold": (0.0, 1.0),
+            "input_analog_deadzone": (0.0, 1.0),
+            "input_analog_sensitivity": (0.0, 10.0),
+        }
+        return ranges.get(key, (-1_000_000.0, 1_000_000.0))
+
+    @staticmethod
+    def _bool(value: str | None, default: bool = False) -> bool:
+        """Converte booleanos do RetroArch com fallback explícito."""
+        if value is None or not value.strip():
+            return default
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+
+    @staticmethod
+    def _int(value: str | None, default: int) -> int:
+        """Converte texto para inteiro com fallback."""
+        try:
+            return int(float(value)) if value is not None and value.strip() else default
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _float(value: str | None, default: float) -> float:
+        """Converte texto para float com fallback."""
+        try:
+            return float(value) if value is not None and value.strip() else default
+        except (TypeError, ValueError):
+            return default
+
+    def _set_combo(self, combo: QComboBox, value: str, default: str) -> None:
+        """Seleciona valor conhecido ou preserva valor desconhecido."""
+        index = combo.findText(value)
+        if index < 0 and value:
+            combo.addItem(value)
+            index = combo.findText(value)
+        combo.setCurrentIndex(index if index >= 0 else combo.findText(default))
+
+    def _set_widget_value(self, setting: Setting, value: str | None) -> None:
+        """Aplica um valor físico ao widget conforme o tipo declarado no schema."""
+        widget = self.widgets[setting.key]
+        if setting.control == "bool":
+            assert isinstance(widget, QCheckBox)
+            widget.setChecked(self._bool(value, bool(setting.default)))
+        elif setting.control == "choice":
+            assert isinstance(widget, QComboBox)
+            self._set_combo(widget, value or str(setting.default), str(setting.default))
+        elif setting.control == "int":
+            assert isinstance(widget, QSpinBox)
+            widget.setValue(self._int(value, int(setting.default)))
+        elif setting.control == "float":
+            assert isinstance(widget, QDoubleSpinBox)
+            widget.setValue(self._float(value, float(setting.default)))
+        else:
+            assert isinstance(widget, QLineEdit)
+            widget.setText(value or str(setting.default) if setting.default is not None else "")
+
+    def _widget_value(self, setting: Setting) -> Any:
+        """Extrai o valor canônico do widget segundo o tipo declarado."""
+        widget = self.widgets[setting.key]
+        if setting.control == "bool":
+            return isinstance(widget, QCheckBox) and widget.isChecked()
+        if setting.control == "choice":
+            return widget.currentText() if isinstance(widget, QComboBox) else setting.default
+        if setting.control == "int":
+            return widget.value() if isinstance(widget, QSpinBox) else setting.default
+        if setting.control == "float":
+            return widget.value() if isinstance(widget, QDoubleSpinBox) else setting.default
+        return widget.text().strip() if isinstance(widget, QLineEdit) else setting.default
 
     def _config_path(self) -> Path | None:
-        """Localiza retroarch.cfg a partir da instalação configurada."""
-        config = getattr(getattr(self, "parent_window", None), "config", None)
+        """Localiza retroarch.cfg a partir da instalação configurada pelo projeto."""
+        config = getattr(self.parent_window, "config", None)
         install_dir = getattr(config, "retroarch_dir", None)
         if not install_dir:
             return None
@@ -75,50 +209,35 @@ class RetroArchSettingsTab(QWidget):
         return next((path for path in candidates if path.is_file()), candidates[0])
 
     def _config(self) -> RetroArchConfig | None:
-        """Retorna o adapter associado ao retroarch.cfg."""
-        path = self._config_path(); return RetroArchConfig(path) if path else None
-
-    @staticmethod
-    def _bool(value: str, default: bool = False) -> bool:
-        """Converte booleanos do RetroArch."""
-        return default if not value else value.strip().lower() in {"1", "true", "yes", "on"}
-
-    def _set_combo(self, combo: QComboBox, value: str) -> None:
-        """Seleciona um driver existente ou adiciona um driver desconhecido."""
-        index = combo.findText(value)
-        if index < 0 and value: combo.addItem(value); index = combo.findText(value)
-        combo.setCurrentIndex(max(index, 0))
-
-    @staticmethod
-    def _int(value: str, default: int) -> int:
-        """Converte texto para inteiro com fallback."""
-        try: return int(float(value))
-        except (TypeError, ValueError): return default
+        """Cria o adapter nativo para o arquivo configurado."""
+        path = self._config_path()
+        return RetroArchConfig(path) if path else None
 
     def refresh(self) -> None:
-        """Recarrega as configurações atuais do RetroArch."""
-        config = self._config(); path = self._config_path()
+        """Recarrega os valores físicos sem reconstruir a interface."""
+        config = self._config()
+        path = self._config_path()
         if not config or not path:
-            self.status_label.setText("RetroArch não configurado."); return
-        self.path_label.setText(str(path)); self.status_label.setText("Configuração carregada.")
-        self._set_combo(self.video_driver, config.get("video_driver", "auto")); self.audio_driver.setText(config.get("audio_driver")); self.input_driver.setText(config.get("input_driver"))
-        self.fullscreen.setChecked(self._bool(config.get("video_fullscreen"))); self.windowed_fullscreen.setChecked(self._bool(config.get("video_windowed_fullscreen"), True)); self.vsync.setChecked(self._bool(config.get("video_vsync"), True)); self.threaded.setChecked(self._bool(config.get("video_threaded")))
-        self.resolution_x.setValue(self._int(config.get("video_fullscreen_x"), 0)); self.resolution_y.setValue(self._int(config.get("video_fullscreen_y"), 0)); self.refresh_rate.setText(config.get("video_refresh_rate", "59.94")); self.hdr.setChecked(self._bool(config.get("video_hdr_enable"))); self.hdr_nits.setValue(self._int(config.get("video_hdr_max_nits"), 1000))
-        self.audio_enable.setChecked(self._bool(config.get("audio_enable"), True)); self.audio_rate.setValue(self._int(config.get("audio_out_rate"), 48000)); self.audio_latency.setValue(self._int(config.get("audio_latency"), 64)); self.audio_sync.setChecked(self._bool(config.get("audio_sync"), True)); self.audio_rate_control.setChecked(self._bool(config.get("audio_rate_control"), True))
-        self.joypad_driver.setText(config.get("input_joypad_driver")); self.autodetect.setChecked(self._bool(config.get("input_autodetect_enable"), True)); self.axis_threshold.setText(config.get("input_axis_threshold", "0.5")); self.deadzone.setText(config.get("input_analog_deadzone", "0.0")); self.sensitivity.setText(config.get("input_analog_sensitivity", "1.0")); self.remap.setChecked(self._bool(config.get("input_remap_binds_enable"), True))
-        self.shader.setText(config.get("video_shader")); self.shader_enable.setChecked(self._bool(config.get("video_shader_enable"), bool(self.shader.text()))); self.shader_dir.setText(config.get("video_shader_dir"))
+            self.status_label.setText("RetroArch não configurado.")
+            return
+        self.path_label.setText(str(path))
+        self.status_label.setText("Configuração carregada.")
+        for domain in self.DOMAINS:
+            for setting in self.adapter.schema(domain):
+                self._set_widget_value(setting, config.get(setting.key))
 
     def _save(self) -> None:
-        """Grava somente opções administradas pelo ARCADE MANAGER."""
-        config = self._config(); path = self._config_path()
+        """Grava somente as opções pertencentes ao schema canônico do RetroArch."""
+        config = self._config()
+        path = self._config_path()
         if not config or not path:
-            self.status_label.setText("RetroArch não configurado."); return
-        config.set_many({
-            "video_driver": self.video_driver.currentText(), "audio_driver": self.audio_driver.text().strip(), "input_driver": self.input_driver.text().strip(),
-            "video_fullscreen": self.fullscreen.isChecked(), "video_windowed_fullscreen": self.windowed_fullscreen.isChecked(), "video_vsync": self.vsync.isChecked(), "video_threaded": self.threaded.isChecked(),
-            "video_fullscreen_x": self.resolution_x.value(), "video_fullscreen_y": self.resolution_y.value(), "video_refresh_rate": self.refresh_rate.text().strip(), "video_hdr_enable": self.hdr.isChecked(), "video_hdr_max_nits": self.hdr_nits.value(),
-            "audio_enable": self.audio_enable.isChecked(), "audio_out_rate": self.audio_rate.value(), "audio_latency": self.audio_latency.value(), "audio_sync": self.audio_sync.isChecked(), "audio_rate_control": self.audio_rate_control.isChecked(),
-            "input_joypad_driver": self.joypad_driver.text().strip(), "input_autodetect_enable": self.autodetect.isChecked(), "input_axis_threshold": self.axis_threshold.text().strip(), "input_analog_deadzone": self.deadzone.text().strip(), "input_analog_sensitivity": self.sensitivity.text().strip(), "input_remap_binds_enable": self.remap.isChecked(),
-            "video_shader": self.shader.text().strip(), "video_shader_enable": self.shader_enable.isChecked(), "video_shader_dir": self.shader_dir.text().strip(),
-        })
-        config.save(create_backup=True); self.status_label.setText("Configuração salva com sucesso."); self.settings_changed.emit()
+            self.status_label.setText("RetroArch não configurado.")
+            return
+        values: dict[str, Any] = {}
+        for domain in self.DOMAINS:
+            for setting in self.adapter.schema(domain):
+                values[setting.key] = self._widget_value(setting)
+        config.set_many(values)
+        config.save(create_backup=True)
+        self.status_label.setText("Configuração salva com sucesso.")
+        self.settings_changed.emit()
