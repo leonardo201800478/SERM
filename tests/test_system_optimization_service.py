@@ -43,6 +43,7 @@ def profile_payload() -> dict:
             "id": "nes-fidelity-v2",
             "name": "NES — Fidelity CRT v2",
             "systems": ["Nintendo Entertainment System", "nes"],
+            "overlay_asset": "Nintendo-Entertainment-System-Bezel-16x9-2560x1440.cfg",
             "cores": {
                 "Nestopia": {
                     "targets": {"override": "Nestopia/NES.cfg", "options": "Nestopia/NES.opt"},
