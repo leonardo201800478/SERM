@@ -15,39 +15,16 @@ class RetroArchConfig:
     """Leitor/escritor seguro do ``retroarch.cfg``."""
 
     MANAGED_KEYS = {
-        "video_driver",
-        "video_fullscreen",
-        "video_windowed_fullscreen",
-        "video_fullscreen_x",
-        "video_fullscreen_y",
-        "video_refresh_rate",
-        "video_vsync",
-        "video_threaded",
-        "video_allow_rotate",
-        "video_rotation",
-        "video_hdr_enable",
-        "video_hdr_max_nits",
-        "audio_enable",
-        "audio_driver",
-        "audio_out_rate",
-        "audio_sync",
-        "audio_latency",
-        "audio_rate_control",
-        "input_driver",
-        "input_joypad_driver",
-        "input_autodetect_enable",
-        "input_axis_threshold",
-        "input_analog_deadzone",
-        "input_analog_sensitivity",
-        "input_remap_binds_enable",
-        "video_filter",
-        "video_shader",
-        "video_shader_enable",
-        "video_shader_dir",
-        "libretro_directory",
-        "system_directory",
-        "savefile_directory",
-        "savestate_directory",
+        "video_driver", "video_fullscreen", "video_windowed_fullscreen",
+        "video_fullscreen_x", "video_fullscreen_y", "video_refresh_rate",
+        "video_vsync", "video_threaded", "video_allow_rotate", "video_rotation",
+        "video_hdr_enable", "video_hdr_max_nits", "audio_enable", "audio_driver",
+        "audio_out_rate", "audio_sync", "audio_latency", "audio_rate_control",
+        "input_driver", "input_joypad_driver", "input_autodetect_enable",
+        "input_axis_threshold", "input_analog_deadzone", "input_analog_sensitivity",
+        "input_remap_binds_enable", "video_filter", "video_shader",
+        "video_shader_enable", "video_shader_dir", "libretro_directory",
+        "system_directory", "savefile_directory", "savestate_directory",
         "content_directory",
     }
 
@@ -86,7 +63,7 @@ class RetroArchConfig:
     def set(self, key: str, value: Any) -> None:
         """Altera uma chave existente ou acrescenta a chave ao final."""
         rendered = self._render_value(value)
-        replacement = f'{key} = {rendered}'
+        replacement = f"{key} = {rendered}"
         for index, line in enumerate(self._lines):
             parsed = self._parse_line(line)
             if parsed and parsed[0] == key:
@@ -105,11 +82,8 @@ class RetroArchConfig:
         if isinstance(value, (int, float)):
             return str(value)
         text = str(value)
-        if not text:
-            return '""'
-        if any(char.isspace() for char in text) or "\\" in text or ":" in text:
-            return f'"{text.replace(chr(34), chr(92) + chr(34))}"'
-        return text
+        escaped = text.replace('"', '\\"')
+        return f'"{escaped}"'
 
     def get_managed(self) -> dict[str, str]:
         """Retorna as opções administradas que estão presentes no arquivo."""
@@ -122,7 +96,7 @@ class RetroArchConfig:
                 self.set(key, value)
 
     def save(self, create_backup: bool = True) -> None:
-        """Cria backup e grava o arquivo de forma atômica."""
+        """Cria backup opcional e grava o arquivo de forma atômica."""
         self.path.parent.mkdir(parents=True, exist_ok=True)
         if create_backup and self.path.is_file():
             backup = self.path.with_suffix(self.path.suffix + ".bak")
