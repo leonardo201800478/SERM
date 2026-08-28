@@ -1,22 +1,7 @@
-"""Runtime discovery for the supported emulator installations.
+"""Runtime discovery for the five supported emulator installations.
 
-The runtime layer is intentionally conservative.  It must never start an
-emulator merely to discover whether it is installed, and it must never mark an
-installation as missing only because a version probe is unavailable.
-
-Version discovery is emulator-specific:
-- MAME: ``-help`` is an official, non-game command and prints the version.
-- Supermodel: Windows executable metadata is preferred; the executable itself
-  is never launched just to obtain a version.
-- FBNeo: Windows executable metadata is preferred.  FBNeo's documented CLI
-  does not provide a generic ``-version`` command, so an unsupported probe is
-  deliberately not attempted.
-- Flycast: Windows executable metadata is preferred; no generic probe is
-  required for installation detection.
-
-A missing version therefore means ``installed_unknown_version``, not
-``not_installed``.  This distinction is important for the Home page and for the
-update/download workflow.
+A descoberta é conservadora: nunca inicia o emulador só para descobrir se ele
+está instalado e não confunde versão desconhecida com instalação ausente.
 """
 from __future__ import annotations
 
@@ -32,7 +17,7 @@ from typing import Callable, FrozenSet
 
 @dataclass(frozen=True, slots=True)
 class RuntimeCapabilities:
-    """Runtime state and usable features for one emulator installation."""
+    """Estado detectado e recursos utilizáveis de uma instalação."""
 
     emulator: str
     executable: Path | None
@@ -45,17 +30,17 @@ class RuntimeCapabilities:
 
     @property
     def installed(self) -> bool:
-        """Return ``True`` when the configured emulator executable exists."""
+        """Indica se o executável configurado foi encontrado."""
         return self.executable is not None and self.available
 
     @property
     def version_known(self) -> bool:
-        """Return whether a trustworthy local version was detected."""
+        """Indica se uma versão local confiável foi detectada."""
         return bool(self.version)
 
     @property
     def installation_state(self) -> str:
-        """Return the stable state consumed by the Home/update GUI."""
+        """Retorna o estado estável consumido pela GUI."""
         if not self.installed:
             return "not_installed"
         if not self.version_known:
@@ -63,7 +48,7 @@ class RuntimeCapabilities:
         return "installed"
 
     def supports(self, feature: str) -> bool:
-        """Return whether a feature is available for this runtime."""
+        """Indica se o recurso está disponível nesta instalação."""
         return feature in self.features
 
 
@@ -71,29 +56,23 @@ _VERSION_RE = re.compile(r"(?i)(?:version\s*)?v?([0-9]+(?:\.[0-9]+)+(?:[-+._][0-
 
 
 def _hidden_flags() -> int:
-    """Return Windows flags that prevent console windows during probes."""
-    if platform.system() != "Windows":
-        return 0
-    return getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    """Retorna flags Windows que impedem janelas de console."""
+    return getattr(subprocess, "CREATE_NO_WINDOW", 0) if platform.system() == "Windows" else 0
 
 
 def _resolve(path_or_name: str | Path | None, names: tuple[str, ...]) -> Path | None:
-    """Resolve an executable from a configured file, configured directory, or PATH."""
+    """Resolve executável por arquivo, diretório configurado ou PATH."""
     candidates: list[Path] = []
-
     if path_or_name:
         configured = Path(path_or_name).expanduser()
         if configured.is_file():
             candidates.append(configured)
         elif configured.is_dir():
-            for name in names:
-                candidates.append(configured / name)
-
+            candidates.extend(configured / name for name in names)
     for name in names:
         found = shutil.which(name)
         if found:
             candidates.append(Path(found))
-
     for candidate in candidates:
         try:
             if candidate.is_file():
@@ -104,26 +83,19 @@ def _resolve(path_or_name: str | Path | None, names: tuple[str, ...]) -> Path | 
 
 
 def _run_probe(executable: Path, args: tuple[str, ...], timeout: float = 3.0) -> str | None:
-    """Run a documented, non-game CLI probe without creating a console window."""
+    """Executa somente uma consulta CLI documentada e não interativa."""
     try:
-        result = subprocess.run(
-            [str(executable), *args],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            creationflags=_hidden_flags(),
-            check=False,
-            cwd=str(executable.parent),
-        )
+        result = subprocess.run([str(executable), *args], capture_output=True, text=True,
+                                timeout=timeout, creationflags=_hidden_flags(), check=False,
+                                cwd=str(executable.parent))
     except (OSError, subprocess.SubprocessError):
         return None
-
     text = "\n".join(part for part in (result.stdout, result.stderr) if part).strip()
     return text or None
 
 
 def _extract_version(text: str | None) -> str | None:
-    """Extract a version token from command output without inventing one."""
+    """Extrai somente tokens de versão presentes na saída real."""
     if not text:
         return None
     for line in text.splitlines():
@@ -134,154 +106,91 @@ def _extract_version(text: str | None) -> str | None:
 
 
 def _windows_file_version(executable: Path) -> str | None:
-    """Read the PE ProductVersion/FileVersion using Windows PowerShell metadata."""
+    """Lê ProductVersion/FileVersion do PE sem executar o emulador."""
     if platform.system() != "Windows" or executable.suffix.lower() != ".exe":
         return None
-
-    # PowerShell is used only for Windows' native PE version resource.  It does
-    # not execute the emulator and CREATE_NO_WINDOW keeps this operation silent.
-    script = (
-        "$p=(Get-Item -LiteralPath $args[0] -ErrorAction Stop).VersionInfo;"
-        "if($p.ProductVersion){$p.ProductVersion}else{$p.FileVersion}"
-    )
+    script = ("$p=(Get-Item -LiteralPath $args[0] -ErrorAction Stop).VersionInfo;"
+              "if($p.ProductVersion){$p.ProductVersion}else{$p.FileVersion}")
     try:
-        result = subprocess.run(
-            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script, str(executable)],
-            capture_output=True,
-            text=True,
-            timeout=3,
-            creationflags=_hidden_flags(),
-            check=False,
-        )
+        result = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script, str(executable)],
+                                capture_output=True, text=True, timeout=3,
+                                creationflags=_hidden_flags(), check=False)
     except (OSError, subprocess.SubprocessError):
         return None
-
-    value = (result.stdout or "").strip()
-    return _extract_version(value)
+    return _extract_version((result.stdout or "").strip())
 
 
-def _discover_version(
-    executable: Path,
-    emulator: str,
-    command_probe: tuple[str, ...] | None = None,
-) -> tuple[str | None, str | None]:
-    """Discover a local version using the safest source available."""
+def _discover_version(executable: Path, emulator: str, command_probe: tuple[str, ...] | None = None) -> tuple[str | None, str | None]:
+    """Obtém versão pela fonte menos intrusiva disponível."""
     version = _windows_file_version(executable)
     if version:
         return version, "pe-version-resource"
-
-    # Only MAME has a documented probe in the official command-line manual that
-    # is safe for this purpose.  Other emulators are intentionally not probed
-    # with guessed flags such as '-version'.
     if emulator == "mame" and command_probe:
         version = _extract_version(_run_probe(executable, command_probe))
         if version:
             return version, "mame-help"
-
     return None, None
 
 
-def _discover(
-    emulator: str,
-    executable: Path | None,
-    base_features: set[str],
-    renderers: set[str] | None = None,
-    command_probe: tuple[str, ...] | None = None,
-) -> RuntimeCapabilities:
-    """Build runtime state without treating an unknown version as absence."""
+def _discover(emulator: str, executable: Path | None, features: set[str],
+              renderers: set[str] | None = None, command_probe: tuple[str, ...] | None = None) -> RuntimeCapabilities:
+    """Cria estado de runtime sem falsos negativos por versão desconhecida."""
     if executable is None:
-        return RuntimeCapabilities(
-            emulator=emulator,
-            executable=None,
-            version=None,
-            available=False,
-            features=frozenset(),
-            renderers=frozenset(),
-            notes=("Executável não encontrado no diretório configurado nem no PATH.",),
-        )
-
+        return RuntimeCapabilities(emulator, None, None, False, notes=("Executável não encontrado.",))
     version, source = _discover_version(executable, emulator, command_probe)
-    notes: list[str] = []
-    if version is None:
-        notes.append("Executável encontrado; versão local não pôde ser determinada com segurança.")
-
-    return RuntimeCapabilities(
-        emulator=emulator,
-        executable=executable,
-        version=version,
-        available=True,
-        features=frozenset(base_features),
-        renderers=frozenset(renderers or ()),
-        notes=tuple(notes),
-        version_source=source,
-    )
+    notes = () if version else ("Executável encontrado; versão local não determinada com segurança.",)
+    return RuntimeCapabilities(emulator, executable, version, True, frozenset(features),
+                                frozenset(renderers or ()), notes, source)
 
 
 def discover_mame(path: str | Path | None = None) -> RuntimeCapabilities:
-    """Discover MAME from a file, installation directory, or PATH."""
+    """Descobre MAME por caminho configurado ou PATH."""
     exe = _resolve(path, ("mame.exe", "mame"))
-    features = {
-        "video-backend", "fullscreen", "windowed", "vsync", "sync-refresh", "keep-aspect",
-        "bgfx", "hlsl", "glsl", "sound", "samples", "mixer", "audio-latency", "keyboard",
-        "joystick", "mouse", "lightgun", "multikeyboard", "multimouse", "frameskip", "throttle",
-        "artwork", "plugins", "per-game-ini",
-    }
+    features = {"video-backend", "fullscreen", "windowed", "vsync", "sync-refresh", "keep-aspect", "bgfx", "hlsl", "glsl", "sound", "samples", "mixer", "audio-latency", "keyboard", "joystick", "mouse", "lightgun", "multikeyboard", "multimouse", "frameskip", "throttle", "artwork", "plugins", "per-game-ini"}
     return _discover("mame", exe, features, {"bgfx", "d3d", "opengl", "none"}, ("-help",))
 
 
 def discover_flycast(path: str | Path | None = None) -> RuntimeCapabilities:
-    """Discover Flycast without executing the emulator during version checks."""
+    """Descobre Flycast sem executar o emulador para versionamento."""
     exe = _resolve(path, ("flycast.exe", "flycast"))
-    features = {
-        "renderer", "fullscreen", "integer-scaling", "filtering", "texture-filtering",
-        "texture-upscaling", "vsync", "widescreen", "dynarec", "sh4-clock", "threading",
-        "audio", "audio-latency", "controller", "lightgun", "wheel", "force-feedback",
-        "retroachievements", "achievements-hardcore", "naomi", "naomi2", "atomiswave",
-    }
+    features = {"renderer", "fullscreen", "integer-scaling", "filtering", "texture-filtering", "texture-upscaling", "vsync", "widescreen", "dynarec", "sh4-clock", "threading", "audio", "audio-latency", "controller", "lightgun", "wheel", "force-feedback", "retroachievements", "achievements-hardcore", "naomi", "naomi2", "atomiswave"}
     return _discover("flycast", exe, features, {"opengl", "vulkan"})
 
 
 def discover_supermodel(path: str | Path | None = None) -> RuntimeCapabilities:
-    """Discover Supermodel and its native Model 3 configuration surface."""
+    """Descobre Supermodel e os recursos conhecidos de Model 3."""
     exe = _resolve(path, ("supermodel.exe", "Supermodel.exe", "supermodel"))
-    features = {
-        "fullscreen", "vsync", "resolution", "vertex-shader", "fragment-shader", "show-fps",
-        "audio", "mpeg-audio", "music-volume", "sound-volume", "stereo-swap", "keyboard",
-        "gamepad", "wheel", "pedal", "force-feedback", "save-state", "nvram",
-    }
+    features = {"fullscreen", "vsync", "resolution", "vertex-shader", "fragment-shader", "show-fps", "audio", "mpeg-audio", "music-volume", "sound-volume", "stereo-swap", "keyboard", "gamepad", "wheel", "pedal", "force-feedback", "save-state", "nvram"}
     return _discover("supermodel", exe, features, {"opengl"})
 
 
 def discover_fbneo(path: str | Path | None = None) -> RuntimeCapabilities:
-    """Discover FBNeo without calling undocumented version switches."""
-    exe = _resolve(path, ("fbneo.exe", "fbneo"))
-    features = {
-        "fullscreen", "vsync", "integer-scaling", "aspect-ratio", "filtering", "shaders",
-        "audio", "keyboard", "gamepad", "lightgun", "wheel", "frameskip", "save-state",
-        "retroachievements", "libretro",
-    }
-    return _discover("fbneo", exe, features, set())
+    """Descobre FBNeo sem tentar switches de versão não documentados."""
+    exe = _resolve(path, ("fbneo64.exe", "fbneo.exe", "fbneo64", "fbneo"))
+    features = {"fullscreen", "vsync", "integer-scaling", "aspect-ratio", "filtering", "shaders", "audio", "keyboard", "gamepad", "lightgun", "wheel", "frameskip", "save-state", "retroachievements", "libretro"}
+    return _discover("fbneo", exe, features)
+
+
+def discover_retroarch(path: str | Path | None = None) -> RuntimeCapabilities:
+    """Descobre RetroArch pela instalação local sem abrir a interface."""
+    exe = _resolve(path, ("retroarch.exe", "retroarch"))
+    features = {"video-driver", "fullscreen", "vsync", "threaded-video", "hdr", "audio", "audio-latency", "audio-sync", "input", "joypad", "input-autodetect", "deadzone", "analog-sensitivity", "remapping", "shader", "shader-directory", "core-directory", "system-directory", "content-directory", "save-directory", "state-directory"}
+    return _discover("retroarch", exe, features, {"gl", "vulkan", "d3d11", "d3d12"})
 
 
 def discover_all(paths: dict[str, str | Path | None] | None = None) -> dict[str, RuntimeCapabilities]:
-    """Discover all supported emulators silently and independently."""
+    """Descobre os cinco emuladores de forma isolada e silenciosa."""
     paths = paths or {}
     detectors: tuple[tuple[str, Callable[[str | Path | None], RuntimeCapabilities]], ...] = (
-        ("mame", discover_mame),
-        ("flycast", discover_flycast),
-        ("supermodel", discover_supermodel),
-        ("fbneo", discover_fbneo),
+        ("mame", discover_mame), ("flycast", discover_flycast),
+        ("supermodel", discover_supermodel), ("fbneo", discover_fbneo),
+        ("retroarch", discover_retroarch),
     )
     result: dict[str, RuntimeCapabilities] = {}
     for name, detector in detectors:
         try:
             result[name] = detector(paths.get(name))
-        except Exception as exc:  # discovery must never prevent application startup
-            result[name] = RuntimeCapabilities(
-                emulator=name,
-                executable=None,
-                version=None,
-                available=False,
-                notes=(f"Falha isolada na detecção: {type(exc).__name__}.",),
-            )
+        except Exception as exc:
+            result[name] = RuntimeCapabilities(name, None, None, False,
+                                                notes=(f"Falha isolada na detecção: {type(exc).__name__}.",))
     return result
