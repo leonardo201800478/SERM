@@ -16,6 +16,7 @@ from .config_schema import Setting, get_schema
 from .fbneo_config import FBNeoConfig
 from .flycast_config import FlycastConfig
 from .retroarch_config import RetroArchConfig
+from .retroarch_schema import RETROARCH_SCHEMA
 from .supermodel_config import SupermodelConfig
 
 
@@ -47,7 +48,7 @@ class EmulatorAdapterSpec:
 
     def schema(self, domain: str | None = None) -> dict[str, tuple[Setting, ...]] | tuple[Setting, ...]:
         """Retorna o schema canônico inteiro ou um domínio específico."""
-        schema = get_schema(self.emulator)
+        schema = RETROARCH_SCHEMA if self.emulator == "retroarch" else get_schema(self.emulator)
         if domain is None:
             return schema
         try:
