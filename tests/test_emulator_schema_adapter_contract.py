@@ -13,7 +13,6 @@ import pytest
 from app.emulators.adapter_registry import get_adapter, list_adapters
 from app.emulators.capabilities import get_capabilities
 from app.emulators.config_mapping import validate_mappings
-from app.emulators.config_schema import get_schema
 from app.emulators.runtime import discover_all
 
 
@@ -26,7 +25,7 @@ def test_schema_adapter_capabilities_share_the_same_identity(emulator: str) -> N
     adapter = get_adapter(emulator)
     assert adapter.emulator == emulator
     assert get_capabilities(emulator).emulator == emulator
-    assert get_schema(emulator)
+    assert adapter.schema()
     assert adapter.capabilities.emulator == emulator
 
 
@@ -101,14 +100,34 @@ def test_retroarch_directory_contract_is_distinct_from_rom_paths() -> None:
     assert retroarch.directory("overlays").relative_default == "overlays"
 
 
-def test_runtime_discovery_returns_all_five_without_executing_missing_installations(tmp_path: Path) -> None:
-    """A camada runtime deve devolver cinco estados mesmo sem emuladores instalados."""
+def test_retroarch_schema_covers_the_current_settings_gui_contract() -> None:
+    """Os campos globais administrados pela GUI devem existir no schema canônico."""
+    schema_keys = {
+        setting.key
+        for settings in get_adapter("retroarch").schema().values()
+        for setting in settings
+    }
+    gui_keys = {
+        "video_driver", "audio_driver", "input_driver",
+        "video_fullscreen", "video_windowed_fullscreen", "video_vsync", "video_threaded",
+        "video_fullscreen_x", "video_fullscreen_y", "video_refresh_rate",
+        "video_hdr_enable", "video_hdr_max_nits",
+        "audio_enable", "audio_out_rate", "audio_latency", "audio_sync", "audio_rate_control",
+        "input_joypad_driver", "input_autodetect_enable", "input_axis_threshold",
+        "input_analog_deadzone", "input_analog_sensitivity", "input_remap_binds_enable",
+        "video_shader_enable", "video_shader", "video_shader_dir",
+    }
+    assert gui_keys <= schema_keys
+
+
+@pytest.mark.parametrize("emulator", EMULATORS)
+def test_runtime_discovery_returns_all_five_without_executing_missing_installations(tmp_path: Path, emulator: str) -> None:
+    """A camada runtime deve devolver os cinco estados sem executar instalações ausentes."""
     paths = {name: tmp_path / name for name in EMULATORS}
     result = discover_all(paths)
     assert tuple(result) == EMULATORS
-    for emulator in EMULATORS:
-        state = result[emulator]
-        assert state.emulator == emulator
-        assert state.executable is None
-        assert state.available is False
-        assert state.installation_state == "not_installed"
+    state = result[emulator]
+    assert state.emulator == emulator
+    assert state.executable is None
+    assert state.available is False
+    assert state.installation_state == "not_installed"
