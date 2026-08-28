@@ -42,8 +42,8 @@ def archive() -> bytes:
     """Cria ZIP semelhante ao archive de um repositório GitHub."""
     stream = io.BytesIO()
     with zipfile.ZipFile(stream, "w") as package:
-        package.writestr("satpixie-crt-shader-main/RetroArch/shaders/shaders_slang/crt/satpixie-crt.slangp", "#reference \"satpixie/main.slang\"\n")
-        package.writestr("satpixie-crt-shader-main/RetroArch/shaders/shaders_slang/crt/satpixie/main.slang", "shader")
+        package.writestr("satpixie-crt-shader-main/RetroArch/shaders/shaders_slang/crt/satpixie-crt.slangp", "#reference \"shaders/satpixie/main.slang\"\n")
+        package.writestr("satpixie-crt-shader-main/RetroArch/shaders/shaders_slang/crt/shaders/satpixie/main.slang", "shader")
         package.writestr("satpixie-crt-shader-main/README.md", "documentation")
     return stream.getvalue()
 
@@ -63,7 +63,7 @@ def test_install_filters_and_preserves_shader_tree(tmp_path: Path, monkeypatch: 
 
     assert result.files_installed
     assert (tmp_path / "shaders" / "shaders_slang" / "crt" / "satpixie-crt.slangp").is_file()
-    assert (tmp_path / "shaders" / "shaders_slang" / "crt" / "satpixie" / "main.slang").is_file()
+    assert (tmp_path / "shaders" / "shaders_slang" / "crt" / "shaders" / "satpixie" / "main.slang").is_file()
     assert not (tmp_path / "shaders" / "README.md").exists()
 
 
