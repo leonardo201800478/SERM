@@ -23,6 +23,7 @@ from app.config.app_config import AppConfig
 
 MANAGED_HEADER = "# ARCADE-MANAGER: system-optimization"
 DEFAULT_SHADER_ID = "libretro-crt-guest-advanced-ntsc"
+DEFAULT_SHADER_REFERENCE = ":/shaders/shaders_slang/crt/crt-guest-advanced-ntsc.slangp"
 
 
 @dataclass(frozen=True, slots=True)
@@ -286,8 +287,8 @@ class SystemOptimizationService:
             return ShaderOptimization(filename.replace("{system}", system_filename), reference.replace("{system}", system_filename), "custom")
         if filename:
             selected = self.shader_library.get(DEFAULT_SHADER_ID)
-            if selected:
-                return ShaderOptimization(filename.replace("{system}", system_filename), selected.reference, selected.shader_id)
+            reference = selected.reference if selected else DEFAULT_SHADER_REFERENCE
+            return ShaderOptimization(filename.replace("{system}", system_filename), reference, selected.shader_id if selected else DEFAULT_SHADER_ID)
         return None
 
     def shader_options_for_system(self, system_name: str) -> list[ShaderProfile]:
