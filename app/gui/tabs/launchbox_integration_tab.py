@@ -35,13 +35,7 @@ from app.core.services.system_optimization_service import SystemOptimizationProf
 class LaunchBoxIntegrationTab(QWidget):
     """Integra sistemas, cores e otimizações preservando o estado do LaunchBox."""
 
-    GROUPS = (
-        ("consoles", "Consoles"),
-        ("portables", "Portáteis"),
-        ("computers", "Computadores"),
-        ("arcade", "Arcade"),
-    )
-
+    GROUPS = (("consoles", "Consoles"), ("portables", "Portáteis"), ("computers", "Computadores"), ("arcade", "Arcade"))
     COL_SYSTEM = 0
     COL_EMULATOR = 1
     COL_TYPE = 2
@@ -55,10 +49,7 @@ class LaunchBoxIntegrationTab(QWidget):
         self.parent_window = parent
         self.config = getattr(parent, "config", None) or AppConfig()
         self.service = LaunchBoxIntegrationService(config=self.config)
-        self.optimization_service = SystemOptimizationService(
-            project_root=self.service.project_root,
-            config=self.config,
-        )
+        self.optimization_service = SystemOptimizationService(project_root=self.service.project_root, config=self.config)
         self.shader_dependency_service = ShaderDependencyService(
             config=self.config,
             catalog_path=self.service.project_root / "data" / "launchbox" / "shader_library.json",
@@ -81,12 +72,7 @@ class LaunchBoxIntegrationTab(QWidget):
         title.setStyleSheet("font-size:22px;font-weight:bold;")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
-        layout.addWidget(QLabel(
-            "Todos os sistemas do Platforms.xml são importados. Cada sistema pode ter várias opções, "
-            "mas somente uma é marcada como padrão. CommandLine pode ser editado diretamente. "
-            "Otimização de Sistema aplica perfis RetroArch prontos por plataforma."
-        ))
-
+        layout.addWidget(QLabel("Todos os sistemas do Platforms.xml são importados. Cada sistema pode ter várias opções, mas somente uma é marcada como padrão. CommandLine pode ser editado diretamente. Otimização de Sistema aplica perfis RetroArch prontos por plataforma."))
         path_row = QHBoxLayout()
         self.path_label = QLabel("LaunchBox.exe: não configurado")
         self.path_label.setWordWrap(True)
@@ -99,7 +85,6 @@ class LaunchBoxIntegrationTab(QWidget):
         self.export_button.setEnabled(False)
         path_row.addWidget(self.export_button)
         layout.addLayout(path_row)
-
         action_row = QHBoxLayout()
         refresh = QPushButton("Recarregar LaunchBox")
         refresh.clicked.connect(self.refresh)
@@ -110,7 +95,6 @@ class LaunchBoxIntegrationTab(QWidget):
         self.status = QLabel()
         action_row.addWidget(self.status, 1)
         layout.addLayout(action_row)
-
         self.tabs = QTabWidget()
         for key, label in self.GROUPS:
             page = QWidget()
@@ -125,36 +109,21 @@ class LaunchBoxIntegrationTab(QWidget):
             clear.clicked.connect(edit.clear)
             filter_row.addWidget(clear)
             page_layout.addLayout(filter_row)
-
             tree = QTreeWidget()
             tree.setColumnCount(7)
-            tree.setHeaderLabels([
-                "Sistema oficial / LaunchBox",
-                "Emulador / Core",
-                "Tipo",
-                "CommandLine",
-                "Estado",
-                "Padrão",
-                "Otimização de Sistema",
-            ])
+            tree.setHeaderLabels(["Sistema oficial / LaunchBox", "Emulador / Core", "Tipo", "CommandLine", "Estado", "Padrão", "Otimização de Sistema"])
             tree.setAlternatingRowColors(True)
             tree.setRootIsDecorated(True)
             tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
             tree.customContextMenuRequested.connect(lambda pos, t=tree: self._show_context_menu(t, pos))
             tree.itemChanged.connect(self._on_item_changed)
-            tree.setColumnWidth(self.COL_SYSTEM, 300)
-            tree.setColumnWidth(self.COL_EMULATOR, 340)
-            tree.setColumnWidth(self.COL_TYPE, 70)
-            tree.setColumnWidth(self.COL_COMMAND, 430)
-            tree.setColumnWidth(self.COL_STATUS, 110)
-            tree.setColumnWidth(self.COL_DEFAULT, 100)
-            tree.setColumnWidth(self.COL_OPTIMIZATION, 250)
+            for column, width in ((0, 300), (1, 340), (2, 70), (3, 430), (4, 110), (5, 100), (6, 250)):
+                tree.setColumnWidth(column, width)
             page_layout.addWidget(tree, 1)
             self.tabs.addTab(page, label)
             self.trees[key] = tree
             self.filters[key] = edit
         layout.addWidget(self.tabs, 1)
-
         self.log = QLabel()
         self.log.setWordWrap(True)
         self.log.setStyleSheet("color:#888;")
@@ -172,29 +141,21 @@ class LaunchBoxIntegrationTab(QWidget):
     def _save_settings(self, executable: Path) -> None:
         """Persiste o LaunchBox.exe fora dos XMLs nativos."""
         self.settings_file.parent.mkdir(parents=True, exist_ok=True)
-        self.settings_file.write_text(
-            json.dumps({"launchbox_executable": str(executable)}, indent=2),
-            encoding="utf-8",
-        )
+        self.settings_file.write_text(json.dumps({"launchbox_executable": str(executable)}, indent=2), encoding="utf-8")
 
     def _load_optimization_settings(self) -> None:
         """Carrega as escolhas de otimização por sistema."""
         try:
             data = json.loads(self.optimization_settings_file.read_text(encoding="utf-8"))
             values = data.get("systems", {}) if isinstance(data, dict) else {}
-            self.optimization_selections = {
-                str(key): str(value) for key, value in values.items() if str(value).strip()
-            }
+            self.optimization_selections = {str(key): str(value) for key, value in values.items() if str(value).strip()}
         except (OSError, ValueError, TypeError, json.JSONDecodeError):
             self.optimization_selections = {}
 
     def _save_optimization_settings(self) -> None:
         """Persiste as escolhas sem tocar nos XMLs do LaunchBox."""
         self.optimization_settings_file.parent.mkdir(parents=True, exist_ok=True)
-        self.optimization_settings_file.write_text(
-            json.dumps({"systems": self.optimization_selections}, indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
+        self.optimization_settings_file.write_text(json.dumps({"systems": self.optimization_selections}, indent=2, ensure_ascii=False), encoding="utf-8")
 
     def select_launchbox(self) -> None:
         """Seleciona LaunchBox.exe e importa imediatamente os XMLs existentes."""
@@ -223,27 +184,19 @@ class LaunchBoxIntegrationTab(QWidget):
         if not self.installation:
             self.log.setText("Nenhuma instalação do LaunchBox carregada.")
             return
-        self.log.setText(
-            f"LaunchBox carregado sem alterações | Emulators.xml: {'OK' if self.installation.emulators_loaded else 'não encontrado'} | "
-            f"Platforms.xml: {'OK' if self.installation.platforms_loaded else 'não encontrado'} | Emuladores: {len(self.installation.emulators)} | "
-            f"Plataformas: {len(self.installation.platforms)} | Associações: {len(self.installation.emulator_platforms)}"
-        )
+        self.log.setText(f"LaunchBox carregado sem alterações | Emulators.xml: {'OK' if self.installation.emulators_loaded else 'não encontrado'} | Platforms.xml: {'OK' if self.installation.platforms_loaded else 'não encontrado'} | Emuladores: {len(self.installation.emulators)} | Plataformas: {len(self.installation.platforms)} | Associações: {len(self.installation.emulator_platforms)}")
 
     def refresh(self) -> None:
         """Recarrega LaunchBox, catálogo RetroArch e perfis de otimização."""
-        self.service.reload_rules()
-        self.optimization_service.config = self.config
-        self.optimization_service.reload()
-        self.shader_dependency_service = ShaderDependencyService(
-            config=self.config,
-            catalog_path=self.service.project_root / "data" / "launchbox" / "shader_library.json",
-        )
-        self._load_optimization_settings()
-        launchbox = self._load_settings()
-        self._update_path_label(launchbox)
         self.config.load()
         self.service.config = self.config
         self.optimization_service.config = self.config
+        self.service.reload_rules()
+        self.optimization_service.reload()
+        self.shader_dependency_service = ShaderDependencyService(self.config, self.service.project_root / "data" / "launchbox" / "shader_library.json")
+        self._load_optimization_settings()
+        launchbox = self._load_settings()
+        self._update_path_label(launchbox)
         self.installation = None
         if launchbox and launchbox.is_file():
             try:
@@ -303,8 +256,7 @@ class LaunchBoxIntegrationTab(QWidget):
         combo.setMinimumWidth(235)
         combo.setToolTip("Selecione um perfil pronto para aplicar configurações de core, vídeo, shader e remap.")
         combo.addItem("Sem otimização", "")
-        profiles = self._optimization_profiles(system)
-        for profile in profiles:
+        for profile in self._optimization_profiles(system):
             combo.addItem(profile.name, profile.profile_id)
             combo.setItemData(combo.count() - 1, profile.description, Qt.ItemDataRole.ToolTipRole)
         selected = self.optimization_selections.get(system.system_id, "")
@@ -329,8 +281,7 @@ class LaunchBoxIntegrationTab(QWidget):
                 parent.setText(self.COL_STATUS, "EXISTENTE" if system.existing else "NOVO")
                 parent.setForeground(self.COL_STATUS, Qt.GlobalColor.green if system.existing else Qt.GlobalColor.darkYellow)
                 parent.setData(self.COL_SYSTEM, Qt.ItemDataRole.UserRole, system.system_id)
-                selector = self._create_optimization_selector(system)
-                tree.setItemWidget(parent, self.COL_OPTIMIZATION, selector)
+                tree.setItemWidget(parent, self.COL_OPTIMIZATION, self._create_optimization_selector(system))
                 for option in sorted(system.options, key=lambda x: (not x.default, not x.existing, -x.score, x.name.casefold())):
                     child = QTreeWidgetItem(parent)
                     child.setText(self.COL_EMULATOR, option.name)
@@ -351,7 +302,7 @@ class LaunchBoxIntegrationTab(QWidget):
             self._updating_tree = False
 
     def _optimization_changed(self, system: LaunchBoxSystem, combo: QComboBox) -> None:
-        """Aplica um perfil, resolvendo dependências de shaders antes da escrita."""
+        """Resolve dependências de shader e aplica o perfil selecionado."""
         if self._updating_tree:
             return
         profile_id = str(combo.currentData() or "")
@@ -364,40 +315,32 @@ class LaunchBoxIntegrationTab(QWidget):
         if profile is None:
             return
 
-        dependency = None
-        if profile.shader:
-            shader_profile = self.shader_dependency_service.manager._catalog_entry(profile.shader.shader_id)
-            from app.core.services.shader_manager_service import ShaderProfile
-            catalog_profile = ShaderProfile.from_dict(shader_profile)
-            dependency = self.shader_dependency_service.inspect(profile.shader, catalog_profile)
+        try:
+            dependency = self.shader_dependency_service.inspect_by_id(profile.shader) if profile.shader else None
+        except Exception as exc:
+            self._reset_optimization_selector(combo)
+            QMessageBox.critical(self, "Dependência de Shader", f"Não foi possível analisar a dependência do shader.\n\n{type(exc).__name__}: {exc}")
+            return
 
         if dependency and dependency.requires_download:
-            details = (
-                f"O perfil '{profile.name}' necessita do shader de terceiros '{profile.shader.shader_id}'.\n\n"
-                f"Origem: {dependency.source_name}\n\n"
-                "O shader será baixado diretamente do repositório upstream. "
-                "Nenhum arquivo do shader será armazenado no projeto.\n\n"
-                "Deseja baixar e instalar essa dependência agora?"
-            )
             answer = QMessageBox.question(
                 self,
                 "Dependência de Shader",
-                details,
+                f"O perfil '{profile.name}' necessita do shader de terceiros '{profile.shader.shader_id}'.\n\n"
+                f"Origem: {dependency.source_name}\n\n"
+                "O shader será baixado diretamente do repositório upstream. Nenhum arquivo do shader será armazenado no projeto.\n\n"
+                "Deseja baixar e instalar essa dependência agora?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.Yes,
             )
             if answer != QMessageBox.StandardButton.Yes:
-                self._updating_tree = True
-                combo.setCurrentIndex(0)
-                self._updating_tree = False
+                self._reset_optimization_selector(combo)
                 return
             try:
                 self.status.setText(f"Baixando shader: {dependency.source_name}...")
                 self.shader_dependency_service.ensure_installed(dependency)
             except Exception as exc:
-                self._updating_tree = True
-                combo.setCurrentIndex(0)
-                self._updating_tree = False
+                self._reset_optimization_selector(combo)
                 QMessageBox.critical(self, "Dependência de Shader", f"Não foi possível instalar o shader.\n\n{type(exc).__name__}: {exc}")
                 return
 
@@ -405,30 +348,32 @@ class LaunchBoxIntegrationTab(QWidget):
             self,
             "Otimização de Sistema",
             f"Aplicar '{profile.name}' ao sistema '{system.name}'?\n\n"
-            "Os arquivos gerenciados pelo Arcade Manager serão sobrescritos. "
-            "Nenhum backup .bak será criado e o retroarch.cfg global não será alterado.",
+            "Os arquivos gerenciados pelo Arcade Manager serão sobrescritos. Nenhum backup .bak será criado e o retroarch.cfg global não será alterado.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.Yes,
         )
         if answer != QMessageBox.StandardButton.Yes:
-            self._updating_tree = True
-            combo.setCurrentIndex(0)
-            self._updating_tree = False
+            self._reset_optimization_selector(combo)
             return
         try:
             result = self.optimization_service.apply(system.name, system.system_id, profile_id)
             self.optimization_selections[system.system_id] = profile_id
             self._save_optimization_settings()
-            written = len(result["written"])
             warning_text = ""
             if result["warnings"]:
                 warning_text = "\n\nAvisos:\n" + "\n".join(result["warnings"])
-            self.status.setText(f"Otimização aplicada: {system.name} → {profile.name} | arquivos={written}{warning_text}")
+            self.status.setText(f"Otimização aplicada: {system.name} → {profile.name} | arquivos={len(result['written'])}{warning_text}")
         except Exception as exc:
-            self._updating_tree = True
-            combo.setCurrentIndex(0)
-            self._updating_tree = False
+            self._reset_optimization_selector(combo)
             QMessageBox.critical(self, "Otimização de Sistema", f"Não foi possível aplicar o perfil. Nenhum arquivo foi escrito após a falha de preparação.\n\n{type(exc).__name__}: {exc}")
+
+    def _reset_optimization_selector(self, combo: QComboBox) -> None:
+        """Volta o seletor para nenhum perfil sem disparar nova aplicação."""
+        self._updating_tree = True
+        try:
+            combo.setCurrentIndex(0)
+        finally:
+            self._updating_tree = False
 
     def _on_item_changed(self, item: QTreeWidgetItem, column: int) -> None:
         """Persiste alterações de CommandLine feitas diretamente na tabela."""
@@ -501,6 +446,6 @@ class LaunchBoxIntegrationTab(QWidget):
             target = self.service.export_emulators_xml(self.installation.root, self.systems, overwrite=False)
             self.installation = self.service.load_launchbox_installation(self.installation.executable)
             self._populate()
-            QMessageBox.information(self, "LaunchBox", "Integração concluída usando o XML existente como base.\n\n" f"Arquivo: {target}\n\n")
+            QMessageBox.information(self, "LaunchBox", f"Integração concluída usando o XML existente como base.\n\nArquivo: {target}\n\n")
         except Exception as exc:
             QMessageBox.critical(self, "LaunchBox", f"Falha ao exportar. Nenhum XML adicional foi alterado.\n\n{type(exc).__name__}: {exc}")
