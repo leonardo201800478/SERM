@@ -3,6 +3,7 @@ from unittest.mock import patch, MagicMock
 from pathlib import Path
 from app.mame.executable import MameExecutable
 
+
 class TestMameExecutable(unittest.TestCase):
     @patch('app.mame.executable.subprocess.run')
     def test_version_detection(self, mock_run):
@@ -12,7 +13,8 @@ class TestMameExecutable(unittest.TestCase):
         mock_run.return_value = mock_result
 
         mame = MameExecutable(Path("dummy/mame.exe"))
-        self.assertEqual(mame.version, "0.289")
+        with patch.object(Path, "is_file", return_value=True):
+            self.assertEqual(mame.version, "0.289")
 
     @patch('app.mame.executable.subprocess.run')
     def test_version_unknown(self, mock_run):
@@ -22,4 +24,5 @@ class TestMameExecutable(unittest.TestCase):
         mock_run.return_value = mock_result
 
         mame = MameExecutable(Path("dummy/mame.exe"))
-        self.assertEqual(mame.version, "unknown")
+        with patch.object(Path, "is_file", return_value=True):
+            self.assertEqual(mame.version, "unknown")
