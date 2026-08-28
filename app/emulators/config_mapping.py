@@ -3,8 +3,10 @@
 The schema remains emulator-agnostic. This module is the only place where a
 canonical GUI key is translated to a key stored by a specific emulator.
 
-Mappings are deliberately limited to keys verified against the emulator
-adapters. Unsupported settings remain unmapped instead of being guessed.
+Mappings are deliberately limited to keys whose semantics are identical on
+both sides. Settings requiring value transformation (for example MAME's
+``window`` versus a canonical ``fullscreen`` boolean) are intentionally not
+mapped here until a transformation-aware mapping is available.
 """
 from __future__ import annotations
 
@@ -22,7 +24,7 @@ class ConfigMapping:
 
 _MAPPINGS: tuple[ConfigMapping, ...] = (
     # MAME
-    ConfigMapping("mame", "fullscreen", "window"),
+    ConfigMapping("mame", "window", "window"),
     ConfigMapping("mame", "vsync", "waitvsync"),
     ConfigMapping("mame", "sync_refresh", "syncrefresh"),
     ConfigMapping("mame", "keep_aspect", "keepaspect"),
@@ -45,7 +47,7 @@ _MAPPINGS: tuple[ConfigMapping, ...] = (
     ConfigMapping("supermodel", "music_volume", "MusicVolume"),
     ConfigMapping("supermodel", "sound_volume", "SoundVolume"),
     ConfigMapping("supermodel", "stereo_swap", "StereoSwap"),
-    # RetroArch: these are native retroarch.cfg keys, not core .opt keys.
+    # RetroArch: native retroarch.cfg keys, not core .opt keys.
     ConfigMapping("retroarch", "fullscreen", "video_fullscreen"),
     ConfigMapping("retroarch", "vsync", "video_vsync"),
     ConfigMapping("retroarch", "video_threaded", "video_threaded"),
