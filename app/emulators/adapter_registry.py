@@ -1,9 +1,4 @@
-"""Registro único que conecta schema, capabilities, adapters e diretórios.
-
-A GUI não deve conhecer o formato físico de cada emulador. O registro expõe
-um contrato comum e mantém as implementações nativas existentes como detalhes
-internos de cada adapter.
-"""
+"""Registro único que conecta schema, capabilities, adapters e diretórios."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -23,7 +18,6 @@ from .supermodel_config import SupermodelConfig
 @dataclass(frozen=True, slots=True)
 class DirectorySpec:
     """Descreve um diretório de conteúdo exposto pela GUI."""
-
     key: str
     label: str
     native_key: str | None = None
@@ -35,7 +29,6 @@ class DirectorySpec:
 @dataclass(frozen=True, slots=True)
 class EmulatorAdapterSpec:
     """Contrato consolidado de um emulador suportado."""
-
     emulator: str
     label: str
     executable: str
@@ -47,7 +40,7 @@ class EmulatorAdapterSpec:
     directories: tuple[DirectorySpec, ...] = ()
 
     def schema(self, domain: str | None = None) -> dict[str, tuple[Setting, ...]] | tuple[Setting, ...]:
-        """Retorna o schema canônico inteiro ou um domínio específico."""
+        """Retorna o schema canônico; RetroArch usa seu schema específico."""
         schema = RETROARCH_SCHEMA if self.emulator == "retroarch" else get_schema(self.emulator)
         if domain is None:
             return schema
@@ -80,104 +73,41 @@ class EmulatorAdapterSpec:
         raise ValueError(f"Diretório não suportado: {self.emulator}/{key}")
 
     def directory_labels(self) -> tuple[tuple[str, str], ...]:
-        """Retorna pares estáveis ``(chave, rótulo)`` para construção da GUI."""
+        """Retorna pares estáveis de chave e rótulo para a GUI."""
         return tuple((item.key, item.label) for item in self.directories)
 
 
 def _mame_factory(root: Path, config: Path) -> EmulatorConfigBackend:
-    """MAME usa o backend de arquivo enquanto o parser nativo permanece soberano."""
     return EmulatorConfigBackend("mame", config)
 
 
 def _flycast_factory(root: Path, config: Path) -> FlycastConfig:
-    """Cria o adapter nativo do Flycast."""
     return FlycastConfig(config)
 
 
 def _supermodel_factory(root: Path, config: Path) -> SupermodelConfig:
-    """Cria o adapter nativo do Supermodel a partir da raiz da instalação."""
     return SupermodelConfig(root)
 
 
 def _fbneo_factory(root: Path, config: Path) -> FBNeoConfig:
-    """Cria o adapter nativo do FBNeo."""
     return FBNeoConfig(config)
 
 
 def _retroarch_factory(root: Path, config: Path) -> RetroArchConfig:
-    """Cria o adapter nativo do RetroArch."""
     return RetroArchConfig(config)
 
 
 ADAPTERS: dict[str, EmulatorAdapterSpec] = {
-    "mame": EmulatorAdapterSpec(
-        "mame", "MAME", "mame.exe", "mame.ini", "", "mame-ini",
-        get_capabilities("mame"), _mame_factory,
-        directories=(
-            DirectorySpec("roms", "ROMs", "rompath", multiple=True, max_entries=5),
-            DirectorySpec("samples", "Samples", "samplepath"),
-            DirectorySpec("artwork", "Artwork", "artpath"),
-            DirectorySpec("cfg", "CFG", "cfgpath"),
-            DirectorySpec("nvram", "NVRAM", "nvrampath"),
-            DirectorySpec("states", "Save states", "statepath"),
-            DirectorySpec("snapshots", "Snapshots", "snappath"),
-            DirectorySpec("diff", "Diff", "diffpath"),
-            DirectorySpec("ini", "INI", "inipath"),
-        ),
-    ),
-    "flycast": EmulatorAdapterSpec(
-        "flycast", "Flycast", "flycast.exe", "emu.cfg", "", "ini-sectioned",
-        get_capabilities("flycast"), _flycast_factory,
-        directories=(
-            DirectorySpec("roms", "ROMs", "Dreamcast.ContentPath", multiple=True, max_entries=4),
-            DirectorySpec("bios", "BIOS", "Dreamcast.BiosPath"),
-            DirectorySpec("vmu", "VMU", "Dreamcast.VMUPath"),
-            DirectorySpec("saves", "Saves", "Dreamcast.SavePath"),
-            DirectorySpec("states", "Save states", "Dreamcast.SavestatePath"),
-            DirectorySpec("textures", "Textures", "Dreamcast.TexturePath"),
-            DirectorySpec("boxart", "Boxart", "Dreamcast.BoxartPath"),
-            DirectorySpec("cheats", "Cheats", "Dreamcast.CheatPath"),
-        ),
-    ),
-    "supermodel": EmulatorAdapterSpec(
-        "supermodel", "Supermodel", "Supermodel.exe", "Supermodel.ini", "Config", "ini-sectioned",
-        get_capabilities("supermodel"), _supermodel_factory,
-        directories=(
-            DirectorySpec("roms", "ROMs", "roms"),
-            DirectorySpec("config", "Config", "config"),
-            DirectorySpec("nvram", "NVRAM", "nvram"),
-            DirectorySpec("saves", "Saves / save states", "saves"),
-            DirectorySpec("assets", "Assets", "assets"),
-        ),
-    ),
-    "fbneo": EmulatorAdapterSpec(
-        "fbneo", "FBNeo", "fbneo64.ini", "fbneo64.ini", "config", "key-value-space",
-        get_capabilities("fbneo"), _fbneo_factory,
-        directories=(
-            DirectorySpec("roms", "ROMs", "roms"),
-            DirectorySpec("bios", "BIOS / ROM suplementar", "bios"),
-            DirectorySpec("samples", "Samples", "samples"),
-            DirectorySpec("cheats", "Cheats", "cheats"),
-            DirectorySpec("previews", "Previews", "previews"),
-            DirectorySpec("titles", "Titles", "titles"),
-            DirectorySpec("snapshots", "Snapshots", "snapshots"),
-            DirectorySpec("history", "History", "history"),
-            DirectorySpec("icons", "Icons", "icons"),
-        ),
-    ),
-    "retroarch": EmulatorAdapterSpec(
-        "retroarch", "RetroArch", "retroarch.exe", "retroarch.cfg", "", "retroarch-cfg",
-        get_capabilities("retroarch"), _retroarch_factory,
-        directories=(
-            DirectorySpec("cores", "Cores", relative_default="cores"),
-            DirectorySpec("system", "System / BIOS", relative_default="system"),
-            DirectorySpec("saves", "Saves", relative_default="saves"),
-            DirectorySpec("states", "States", relative_default="states"),
-            DirectorySpec("shaders", "Shaders", relative_default="shaders"),
-            DirectorySpec("overlays", "Overlays", relative_default="overlays"),
-            DirectorySpec("downloads", "Downloads", relative_default="downloads"),
-        ),
-    ),
+    "mame": EmulatorAdapterSpec("mame", "MAME", "mame.exe", "mame.ini", "", "mame-ini", get_capabilities("mame"), _mame_factory,
+        (DirectorySpec("roms", "ROMs", "rompath", True, 5), DirectorySpec("samples", "Samples", "samplepath"), DirectorySpec("artwork", "Artwork", "artpath"), DirectorySpec("cfg", "CFG", "cfgpath"), DirectorySpec("nvram", "NVRAM", "nvrampath"), DirectorySpec("states", "Save states", "statepath"), DirectorySpec("snapshots", "Snapshots", "snappath"), DirectorySpec("diff", "Diff", "diffpath"), DirectorySpec("ini", "INI", "inipath"))),
+    "flycast": EmulatorAdapterSpec("flycast", "Flycast", "flycast.exe", "emu.cfg", "", "ini-sectioned", get_capabilities("flycast"), _flycast_factory,
+        (DirectorySpec("roms", "ROMs", "Dreamcast.ContentPath", True, 4), DirectorySpec("bios", "BIOS", "Dreamcast.BiosPath"), DirectorySpec("vmu", "VMU", "Dreamcast.VMUPath"), DirectorySpec("saves", "Saves", "Dreamcast.SavePath"), DirectorySpec("states", "Save states", "Dreamcast.SavestatePath"), DirectorySpec("textures", "Textures", "Dreamcast.TexturePath"), DirectorySpec("boxart", "Boxart", "Dreamcast.BoxartPath"), DirectorySpec("cheats", "Cheats", "Dreamcast.CheatPath"))),
+    "supermodel": EmulatorAdapterSpec("supermodel", "Supermodel", "Supermodel.exe", "Supermodel.ini", "Config", "ini-sectioned", get_capabilities("supermodel"), _supermodel_factory,
+        (DirectorySpec("roms", "ROMs", "roms"), DirectorySpec("config", "Config", "config"), DirectorySpec("nvram", "NVRAM", "nvram"), DirectorySpec("saves", "Saves / save states", "saves"), DirectorySpec("assets", "Assets", "assets"))),
+    "fbneo": EmulatorAdapterSpec("fbneo", "FBNeo", "fbneo64.ini", "fbneo64.ini", "config", "key-value-space", get_capabilities("fbneo"), _fbneo_factory,
+        (DirectorySpec("roms", "ROMs", "roms"), DirectorySpec("bios", "BIOS / ROM suplementar", "bios"), DirectorySpec("samples", "Samples", "samples"), DirectorySpec("cheats", "Cheats", "cheats"), DirectorySpec("previews", "Previews", "previews"), DirectorySpec("titles", "Titles", "titles"), DirectorySpec("snapshots", "Snapshots", "snapshots"), DirectorySpec("history", "History", "history"), DirectorySpec("icons", "Icons", "icons"))),
+    "retroarch": EmulatorAdapterSpec("retroarch", "RetroArch", "retroarch.exe", "retroarch.cfg", "", "retroarch-cfg", get_capabilities("retroarch"), _retroarch_factory,
+        (DirectorySpec("cores", "Cores", relative_default="cores"), DirectorySpec("system", "System / BIOS", relative_default="system"), DirectorySpec("saves", "Saves", relative_default="saves"), DirectorySpec("states", "States", relative_default="states"), DirectorySpec("shaders", "Shaders", relative_default="shaders"), DirectorySpec("overlays", "Overlays", relative_default="overlays"), DirectorySpec("downloads", "Downloads", relative_default="downloads"))),
 }
 
 
@@ -191,10 +121,10 @@ def get_adapter(emulator: str) -> EmulatorAdapterSpec:
 
 
 def list_adapters() -> tuple[EmulatorAdapterSpec, ...]:
-    """Retorna os cinco adapters em ordem estável para a GUI e testes."""
+    """Retorna os cinco adapters em ordem estável."""
     return tuple(ADAPTERS.values())
 
 
 def schema_settings(emulator: str, domain: str) -> tuple[Setting, ...]:
-    """Atalho para obter controles canônicos sem acessar o dicionário global."""
+    """Atalho para obter controles canônicos."""
     return get_adapter(emulator).schema(domain)  # type: ignore[return-value]
