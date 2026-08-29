@@ -11,7 +11,8 @@ from serm_v2.sources.acquisition.no_intro_archive import (
 def _archive(*names: str) -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
-        archive.writestr(name, 'clrmamepro (\n name "test"\n)\n')
+        for name in names:
+            archive.writestr(name, 'clrmamepro (\n name "test"\n)\n')
     return buffer.getvalue()
 
 
