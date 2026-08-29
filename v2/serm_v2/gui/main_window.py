@@ -1,6 +1,8 @@
 """Janela principal do SERM V2."""
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtWidgets import QLabel, QMainWindow, QTabWidget, QVBoxLayout, QWidget
 
 from ..config.settings import Settings
@@ -22,7 +24,7 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage("Pronto")
 
         settings = Settings()
-        self.database = create_sqlite_engine(__import__("pathlib").Path(settings.database))
+        self.database = create_sqlite_engine(Path(settings.database))
         self.log_viewer = LogViewer()
         self._build_ui()
 
