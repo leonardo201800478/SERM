@@ -7,11 +7,14 @@ integration exposed from the new Home.
 from __future__ import annotations
 
 import logging
+import re
+import unicodedata
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
+    QApplication,
     QComboBox,
     QFileDialog,
     QFrame,
@@ -27,6 +30,7 @@ from PySide6.QtWidgets import (
 from ..integrations.launchbox import LaunchBoxIntegration
 from ..integrations.launchbox_provider import LaunchBoxPlatform, LaunchBoxProvider
 from ..sources.no_intro.catalog import NoIntroCatalog, NoIntroSystem
+from ..sources.no_intro.downloader import NoIntroDownloader
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +43,8 @@ class HomePage(QWidget):
         self.launchbox = LaunchBoxIntegration()
         self.launchbox_provider = LaunchBoxProvider(self.launchbox)
         self.no_intro_catalog = NoIntroCatalog()
+        self.no_intro_downloader = NoIntroDownloader()
+        self.no_intro_matches: tuple[NoIntroSystem, ...] = ()
         self._build_ui()
         self.refresh_status()
 
@@ -113,7 +119,7 @@ class HomePage(QWidget):
         return card
 
     def _create_no_intro_card(self) -> QFrame:
-        """Create the No-Intro connectivity test using LaunchBox platforms."""
+        """Create No-Intro discovery and download actions."""
         card = QFrame()
         card.setObjectName("integrationCard")
         layout = QVBoxLayout(card)
@@ -133,10 +139,14 @@ class HomePage(QWidget):
         test.clicked.connect(self.test_no_intro_catalog)
         row.addWidget(test)
         self.no_intro_test_button = test
-        download = QPushButton("⬇ Testar download")
-        download.clicked.connect(self.test_no_intro_download)
+        download = QPushButton("⬇ Baixar selecionado")
+        download.clicked.connect(self.download_selected_no_intro)
         row.addWidget(download)
         self.no_intro_download_button = download
+        download_all = QPushButton("⬇ Baixar todos listados")
+        download_all.clicked.connect(self.download_all_no_intro)
+        row.addWidget(download_all)
+        self.no_intro_download_all_button = download_all
         layout.addLayout(row)
         return card
 
@@ -177,14 +187,14 @@ class HomePage(QWidget):
                 self.launchbox_launch_button.setEnabled(False)
                 self.launchbox_metadata_button.setEnabled(False)
                 self.no_intro_test_button.setEnabled(False)
-                self.no_intro_download_button.setEnabled(False)
+                self._set_no_intro_download_enabled(False)
         except Exception as exc:
             logger.exception("[LAUNCHBOX] Falha ao descobrir LaunchBox")
             self.launchbox_status.setText(f"● Erro: {type(exc).__name__}")
             self.launchbox_launch_button.setEnabled(False)
             self.launchbox_metadata_button.setEnabled(False)
             self.no_intro_test_button.setEnabled(False)
-            self.no_intro_download_button.setEnabled(False)
+            self._set_no_intro_download_enabled(False)
 
     def test_no_intro_catalog(self) -> None:
         """Fetch DAT-o-MATIC and show only systems also present in LaunchBox."""
@@ -194,58 +204,153 @@ class HomePage(QWidget):
             systems = self.no_intro_catalog.systems(catalog_html)
             platforms = tuple(self.launchbox_provider.iter_platforms())
             logger.info("[LAUNCHBOX][PLATFORMS] plataformas carregadas=%d", len(platforms))
-            logger.debug("[LAUNCHBOX][PLATFORMS] nomes=%s", [platform.name for platform in platforms])
             matches = self._match_platforms(platforms, systems)
+            self.no_intro_matches = matches
             logger.info("[NO-INTRO][MATCH] resultado=%d correspondência(s)", len(matches))
             self.no_intro_systems.clear()
             for system in matches:
                 self.no_intro_systems.addItem(system.name, system)
             self.no_intro_systems.setEnabled(bool(matches))
-            self.no_intro_download_button.setEnabled(bool(matches))
+            self._set_no_intro_download_enabled(bool(matches))
             self.no_intro_status.setText(f"● Catálogo OK — {len(matches)} sistema(s) compatível(is)")
             self.no_intro_status.setStyleSheet("color:#55d66b;font-weight:bold;")
         except Exception as exc:
             logger.exception("[NO-INTRO][MATCH] Falha no teste do catálogo")
             self.no_intro_status.setText(f"● Erro: {exc}")
             self.no_intro_status.setStyleSheet("color:#e05b5b;font-weight:bold;")
-            self.no_intro_download_button.setEnabled(False)
+            self.no_intro_matches = ()
+            self._set_no_intro_download_enabled(False)
+
+    def download_selected_no_intro(self) -> None:
+        """Generate and download the currently selected No-Intro DAT."""
+        if not self.no_intro_matches:
+            return
+        system = self.no_intro_matches[self.no_intro_systems.currentIndex()]
+        try:
+            destination = self._no_intro_destination(system)
+            result = self.no_intro_downloader.download_system(system.name, destination)
+            self.no_intro_status.setText(f"● DAT OK — {system.name}")
+            self.no_intro_status.setStyleSheet("color:#55d66b;font-weight:bold;")
+            QMessageBox.information(self, "No-Intro", f"DAT baixado com sucesso.\n\n{result.path}")
+        except Exception as exc:
+            logger.exception("[NO-INTRO][DAT] Falha no sistema=%s", system.name)
+            self.no_intro_status.setText(f"● Falha — {system.name}")
+            self.no_intro_status.setStyleSheet("color:#e05b5b;font-weight:bold;")
+            QMessageBox.warning(self, "No-Intro", str(exc))
+
+    def download_all_no_intro(self) -> None:
+        """Generate and download every No-Intro system currently listed in the GUI."""
+        if not self.no_intro_matches:
+            return
+        total = len(self.no_intro_matches)
+        destination_root = self._no_intro_data_root()
+        succeeded = 0
+        failed: list[str] = []
+        self.no_intro_test_button.setEnabled(False)
+        self._set_no_intro_download_enabled(False)
+        try:
+            for index, system in enumerate(self.no_intro_matches, start=1):
+                self.no_intro_status.setText(f"● Baixando {index}/{total} — {system.name}")
+                QApplication.processEvents()
+                logger.info("[NO-INTRO][DAT][BATCH] %d/%d início sistema=%s", index, total, system.name)
+                try:
+                    result = self.no_intro_downloader.download_system(
+                        system.name,
+                        self._no_intro_destination(system, destination_root),
+                    )
+                    succeeded += 1
+                    logger.info("[NO-INTRO][DAT][BATCH] %d/%d OK arquivo=%s", index, total, result.path)
+                except Exception as exc:
+                    failed.append(f"{system.name}: {exc}")
+                    logger.exception("[NO-INTRO][DAT][BATCH] %d/%d FALHA sistema=%s", index, total, system.name)
+            self.no_intro_status.setText(f"● Download concluído — {succeeded}/{total} OK")
+            self.no_intro_status.setStyleSheet("color:#55d66b;font-weight:bold;" if not failed else "color:#e5c454;font-weight:bold;")
+            detail = f"Concluídos: {succeeded}/{total}\nPasta: {destination_root}"
+            if failed:
+                detail += "\n\nFalhas:\n" + "\n".join(failed[:10])
+                if len(failed) > 10:
+                    detail += f"\n… e mais {len(failed) - 10} falha(s)."
+            QMessageBox.information(self, "No-Intro — download em lote", detail)
+        finally:
+            self.no_intro_test_button.setEnabled(True)
+            self._set_no_intro_download_enabled(bool(self.no_intro_matches))
+
+    def _set_no_intro_download_enabled(self, enabled: bool) -> None:
+        """Enable or disable both No-Intro download actions."""
+        self.no_intro_download_button.setEnabled(enabled)
+        self.no_intro_download_all_button.setEnabled(enabled)
+
+    def _no_intro_data_root(self) -> Path:
+        """Return the V2 data directory used for downloaded No-Intro DATs."""
+        root = Path(__file__).resolve().parents[2] / "data" / "sources" / "no_intro" / "dats"
+        root.mkdir(parents=True, exist_ok=True)
+        return root
+
+    def _no_intro_destination(self, system: NoIntroSystem, root: Path | None = None) -> Path:
+        """Build a stable filesystem-safe destination for one source DAT."""
+        root = root or self._no_intro_data_root()
+        filename = unicodedata.normalize("NFKD", system.name).encode("ascii", "ignore").decode("ascii")
+        filename = re.sub(r"[^A-Za-z0-9._ -]+", "", filename).strip().replace(" ", "_")
+        return root / f"{filename}.zip"
+
+    @staticmethod
+    def _match_platforms(platforms: tuple[LaunchBoxPlatform, ...], systems: tuple[NoIntroSystem, ...]) -> tuple[NoIntroSystem, ...]:
+        """Match using exact, normalized and common LaunchBox/No-Intro naming forms."""
+        def normalize(value: str) -> str:
+            value = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
+            value = value.casefold().replace("&", "and")
+            return re.sub(r"[^a-z0-9]+", " ", value).strip()
+
+        aliases = {
+            "nes": "nintendo entertainment system",
+            "famicom": "nintendo entertainment system",
+            "snes": "super nintendo entertainment system",
+            "super nes": "super nintendo entertainment system",
+            "genesis": "mega drive genesis",
+            "sega genesis": "mega drive genesis",
+            "sms": "master system mark iii",
+            "master system": "master system mark iii",
+            "game boy": "game boy",
+            "game boy color": "game boy color",
+            "game boy advance": "game boy advance",
+        }
+        launchbox_names = {normalize(platform.name): platform.name for platform in platforms}
+        matches: list[NoIntroSystem] = []
+        matched_launchbox: set[str] = set()
+        for system in systems:
+            normalized_source = normalize(system.name)
+            variants = {normalized_source}
+            if " - " in system.name:
+                variants.add(normalize(system.name.rsplit(" - ", 1)[-1]))
+            for variant in tuple(variants):
+                if variant in aliases:
+                    variants.add(aliases[variant])
+            hit = next((variant for variant in variants if variant in launchbox_names), None)
+            if hit:
+                matches.append(system)
+                matched_launchbox.add(hit)
+                logger.debug("[MATCH][OK] LaunchBox='%s' <-> No-Intro='%s'", launchbox_names[hit], system.name)
+        for normalized, original in launchbox_names.items():
+            if normalized not in matched_launchbox:
+                logger.debug("[MATCH][MISS] LaunchBox='%s' sem correspondente", original)
+        logger.info("[MATCH] LaunchBox=%d | No-Intro=%d | matches=%d", len(platforms), len(systems), len(matches))
+        return tuple(matches)
 
     def test_no_intro_download(self) -> None:
-        """Save a DAT-o-MATIC catalog snapshot to V2 data as a download test."""
+        """Save a DAT-o-MATIC catalog snapshot to V2 data as a legacy connectivity test."""
         try:
             catalog_html = self.no_intro_catalog.fetch_catalog()
             destination = Path(__file__).resolve().parents[2] / "data" / "sources" / "no_intro" / "catalog.html"
             self.no_intro_catalog.save_catalog(catalog_html, destination)
             system = self.no_intro_systems.currentText() or "nenhum sistema selecionado"
             logger.info("[NO-INTRO][DOWNLOAD] snapshot=%s sistema=%s", destination, system)
-            self.no_intro_status.setText(f"● Download OK — {system}")
+            self.no_intro_status.setText(f"● Catálogo baixado — {system}")
             self.no_intro_status.setStyleSheet("color:#55d66b;font-weight:bold;")
-            QMessageBox.information(self, "No-Intro", f"Catálogo baixado com sucesso.\n\nArquivo:\n{destination}")
         except Exception as exc:
             logger.exception("[NO-INTRO][DOWNLOAD] Falha no download de teste")
             self.no_intro_status.setText(f"● Falha no download: {exc}")
             self.no_intro_status.setStyleSheet("color:#e05b5b;font-weight:bold;")
             QMessageBox.warning(self, "No-Intro", str(exc))
-
-    @staticmethod
-    def _match_platforms(platforms: tuple[LaunchBoxPlatform, ...], systems: tuple[NoIntroSystem, ...]) -> tuple[NoIntroSystem, ...]:
-        """Match LaunchBox platform names against No-Intro names and log misses."""
-        launchbox_names = {platform.name.casefold().strip(): platform.name for platform in platforms}
-        matches: list[NoIntroSystem] = []
-        matched_names: set[str] = set()
-        for system in systems:
-            source_name = system.name.casefold().strip()
-            short_name = source_name.rsplit(" - ", 1)[-1]
-            if source_name in launchbox_names or short_name in launchbox_names:
-                matches.append(system)
-                matched_names.add(source_name)
-                logger.debug("[MATCH][OK] LaunchBox='%s' <-> No-Intro='%s'", launchbox_names.get(source_name, launchbox_names.get(short_name, "?")), system.name)
-        for platform in platforms:
-            normalized = platform.name.casefold().strip()
-            if not any(normalized == system.name.casefold().strip() or normalized == system.name.casefold().strip().rsplit(" - ", 1)[-1] for system in systems):
-                logger.debug("[MATCH][MISS] LaunchBox='%s' sem correspondente exato", platform.name)
-        logger.info("[MATCH] LaunchBox=%d | No-Intro=%d | matches=%d", len(platforms), len(systems), len(matches))
-        return tuple(matches)
 
     def select_launchbox(self) -> None:
         """Select and persist a LaunchBox.exe outside the SERM repository."""
