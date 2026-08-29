@@ -21,20 +21,21 @@ from PySide6.QtWidgets import (
 
 from ..integrations.launchbox import LaunchBoxIntegration
 from ..integrations.launchbox_provider import LaunchBoxProvider
-from ..sources.acquisition.dat_catalog import DatCatalogError, PublicDatCatalogProvider
+from ..sources.acquisition.dat_catalog import DatCatalogError
+from ..sources.acquisition.no_intro_archive import NoIntroArchiveError, NoIntroArchiveProvider
 from ..sources.acquisition.redump import RedumpError, RedumpProvider
 
 logger = logging.getLogger(__name__)
 
 
 class HomePage(QWidget):
-    """Present LaunchBox status and independent public DAT catalogs."""
+    """Present LaunchBox status and independent No-Intro/Redump acquisition sources."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.launchbox = LaunchBoxIntegration()
         self.launchbox_provider = LaunchBoxProvider(self.launchbox)
-        self.no_intro = PublicDatCatalogProvider()
+        self.no_intro = NoIntroArchiveProvider()
         self.redump = RedumpProvider()
         self.no_intro_entries = ()
         self.redump_entries = ()
@@ -62,10 +63,10 @@ class HomePage(QWidget):
         )
         grid = QGridLayout(frame)
         grid.addWidget(self._launchbox_card(), 0, 0, 1, 2)
-        grid.addWidget(self._source_card("No-Intro / Public DAT Catalog", "no_intro"), 1, 0)
-        grid.addWidget(self._source_card("Redump / Public DAT Catalog", "redump"), 1, 1)
+        grid.addWidget(self._source_card("No-Intro / Bulk Archive", "no_intro"), 1, 0)
+        grid.addWidget(self._source_card("Redump / Direct DAT", "redump"), 1, 1)
         layout.addWidget(frame)
-        footer = QLabel("DAT-o-MATIC não é usado. As fontes são catálogos públicos com links diretos.")
+        footer = QLabel("No-Intro usa um único ZIP de release; Redump usa endpoints diretos. DAT-o-MATIC não é usado.")
         footer.setAlignment(Qt.AlignmentFlag.AlignCenter)
         footer.setStyleSheet("color:#888;font-size:10px;")
         layout.addWidget(footer)
@@ -120,7 +121,7 @@ class HomePage(QWidget):
         combo = QComboBox()
         combo.setPlaceholderText("Sistemas do LaunchBox encontrados")
         row = QHBoxLayout()
-        refresh = QPushButton("🌐 Atualizar catálogo")
+        refresh = QPushButton("🌐 Baixar catálogo completo")
         refresh.clicked.connect(lambda: self._refresh_source(source))
         row.addWidget(refresh)
         download = QPushButton("⬇ Baixar")
@@ -166,7 +167,7 @@ class HomePage(QWidget):
         return tuple(platform.name for platform in self.launchbox_provider.iter_platforms())
 
     def _refresh_source(self, source: str) -> None:
-        """Fetch a complete source catalog and match it against every LaunchBox platform."""
+        """Acquire a complete source catalog once and match it against LaunchBox."""
         try:
             names = self._launchbox_names()
             if source == "no_intro":
@@ -182,14 +183,17 @@ class HomePage(QWidget):
                 combo.addItem(Path(entry.name).stem, entry)
             self._set_source_enabled(source, bool(matches))
             self._refresh_source_status(source)
-            logger.info("[%s][MATCH] LaunchBox=%d catalog=%d matches=%d", source.upper(), len(names), len(entries), len(matches))
+            logger.info(
+                "[%s][MATCH] LaunchBox=%d catalog=%d matches=%d",
+                source.upper(), len(names), len(entries), len(matches),
+            )
         except Exception as exc:
             logger.exception("[%s][MATCH] Falha", source.upper())
             getattr(self, f"{source}_status").setText(f"● Erro: {exc}")
             self._set_source_enabled(source, False)
 
     def _refresh_source_status(self, source: str) -> None:
-        """Update current/outdated/missing counters for one source."""
+        """Update current/missing counters for one source."""
         entries = getattr(self, f"{source}_entries")
         if not entries:
             getattr(self, f"{source}_status").setText("● Nenhum sistema compatível encontrado")
@@ -200,7 +204,7 @@ class HomePage(QWidget):
         outdated = sum(item.state == "outdated" for item in statuses)
         missing = sum(item.state == "missing" for item in statuses)
         getattr(self, f"{source}_status").setText(
-            f"● {len(statuses)} sistemas — atuais: {current} | desatualizados: {outdated} | ausentes: {missing}"
+            f"● {len(statuses)} DATs — atuais: {current} | desatualizados: {outdated} | ausentes: {missing}"
         )
         getattr(self, f"{source}_update").setEnabled(bool(outdated or missing))
 
@@ -210,7 +214,7 @@ class HomePage(QWidget):
             getattr(self, f"{source}_{suffix}").setEnabled(enabled)
 
     def _download_selected(self, source: str) -> None:
-        """Download the selected DAT and validate it."""
+        """Download or ensure the selected DAT is available."""
         entries = getattr(self, f"{source}_entries")
         combo: QComboBox = getattr(self, f"{source}_combo")
         if not entries:
@@ -220,16 +224,25 @@ class HomePage(QWidget):
             provider = self.no_intro if source == "no_intro" else self.redump
             status = provider.download(entry)
             self._refresh_source_status(source)
-            QMessageBox.information(self, source.title(), f"DAT validado.\n\n{status.path}")
-        except (DatCatalogError, RedumpError) as exc:
+            QMessageBox.information(self, source.title(), f"DAT disponível.\n\n{status.entry.path if hasattr(status, 'entry') else status.path}")
+        except (NoIntroArchiveError, DatCatalogError, RedumpError) as exc:
             QMessageBox.warning(self, source.title(), str(exc))
 
     def _download_all(self, source: str, outdated_only: bool = False) -> None:
-        """Download all matched DATs or only missing/outdated entries."""
+        """Download all matched DATs or refresh the No-Intro archive once."""
         entries = getattr(self, f"{source}_entries")
         if not entries:
             return
         provider = self.no_intro if source == "no_intro" else self.redump
+        if source == "no_intro":
+            try:
+                provider.fetch_catalog()
+                self._refresh_source_status(source)
+                QMessageBox.information(self, "No-Intro", "O arquivo completo foi baixado e os DATs foram extraídos.")
+            except NoIntroArchiveError as exc:
+                QMessageBox.warning(self, "No-Intro", str(exc))
+            return
+
         candidates = [entry for entry in entries if not outdated_only or provider.status(entry).state != "current"]
         if not candidates:
             self._refresh_source_status(source)
