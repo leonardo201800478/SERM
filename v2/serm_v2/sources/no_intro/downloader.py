@@ -8,9 +8,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import Request, urljoin
-from urllib.request import HTTPCookieProcessor, build_opener, urlopen
-from urllib.request import Request as UrlRequest
+from urllib.parse import urljoin
+from urllib.request import HTTPCookieProcessor, Request, build_opener, urlopen
 
 from .catalog import NoIntroCatalog
 from .errors import NoIntroDownloadError
@@ -153,7 +152,7 @@ class NoIntroDownloader:
     @staticmethod
     def _request_get(opener, url: str, headers: dict[str, str]) -> _HttpResult:
         """Perform a GET while preserving the opener session."""
-        request = UrlRequest(url, headers=headers)
+        request = Request(url, headers=headers)
         try:
             with opener.open(request, timeout=60) as response:
                 return _HttpResult(
