@@ -106,15 +106,18 @@ class PublicDatCatalogProvider:
     def match(self, systems: tuple[str, ...], entries: tuple[DatCatalogEntry, ...] | None = None) -> tuple[DatCatalogEntry, ...]:
         """Match LaunchBox system names against DAT filenames."""
         entries = entries if entries is not None else self.fetch_catalog()
-        normalized = {self._normalize(value) for value in systems}
-        matches: list[DatCatalogEntry] = []
-        for entry in entries:
-            key = self._normalize(Path(entry.name).stem)
-            variants = {key, *self._aliases(key)}
-            if variants & normalized:
-                matches.append(entry)
+        launchbox_keys: set[str] = set()
+        for system in systems:
+            key = self._normalize(system)
+            launchbox_keys.add(key)
+            launchbox_keys.update(self._aliases(key))
+        matches = tuple(
+            entry
+            for entry in entries
+            if self._normalize(Path(entry.name).stem) in launchbox_keys
+        )
         logger.info("[DAT-CATALOG][MATCH] LaunchBox=%d | DATs=%d | matches=%d", len(systems), len(entries), len(matches))
-        return tuple(matches)
+        return matches
 
     def status(self, entry: DatCatalogEntry) -> DatStatus:
         """Compare one local DAT with the CRC and size published by the catalog."""
@@ -172,7 +175,12 @@ class PublicDatCatalogProvider:
                 manifest = json.loads(self.manifest_path.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 manifest = {}
-        manifest[entry.name] = {"url": entry.url, "crc32": entry.crc32, "size": entry.size, "sha256": status.local_sha256}
+        manifest[entry.name] = {
+            "url": entry.url,
+            "crc32": entry.crc32,
+            "size": entry.size,
+            "sha256": status.local_sha256,
+        }
         self.manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
 
     @staticmethod
