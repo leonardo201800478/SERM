@@ -1,4 +1,4 @@
-"""Sessão Home do RetroArch com gerenciamento em lote dos cores."""
+"""Sessão Home do RetroArch com gerenciamento em lote dos cores update."""
 from __future__ import annotations
 
 from pathlib import Path
