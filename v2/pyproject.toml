@@ -39,14 +39,14 @@ serm = "serm_v2.main:main"
 [tool.hatch.build.targets.wheel]
 packages = ["serm_v2"]
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
+[tool.pytest]
+minversion = "9.0"
 addopts = [
     "-ra",
-    "--strict-markers",
-    "--strict-config",
 ]
+testpaths = ["tests"]
 pythonpath = ["."]
+strict = true
 
 [tool.coverage.run]
 source = ["serm_v2"]
