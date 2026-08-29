@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QUrl, Qt
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -22,7 +22,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from PySide6.QtCore import QUrl
 
 from ..integrations.launchbox import LaunchBoxIntegration
 
@@ -66,9 +65,21 @@ class HomePage(QWidget):
         grid = QGridLayout(status_frame)
         self.launchbox_card = self._create_launchbox_card()
         grid.addWidget(self.launchbox_card, 0, 0)
-        grid.addWidget(self._create_placeholder_card("Emuladores", "Runtime V2 será conectado nesta camada."), 0, 1)
-        grid.addWidget(self._create_placeholder_card("Catálogo", "Data Foundation V2 será conectada nesta camada."), 1, 0)
-        grid.addWidget(self._create_placeholder_card("Biblioteca", "Scan e matching serão conectados nesta camada."), 1, 1)
+        grid.addWidget(
+            self._create_placeholder_card("Emuladores", "Runtime V2 será conectado nesta camada."),
+            0,
+            1,
+        )
+        grid.addWidget(
+            self._create_placeholder_card("Catálogo", "Data Foundation V2 será conectada nesta camada."),
+            1,
+            0,
+        )
+        grid.addWidget(
+            self._create_placeholder_card("Biblioteca", "Scan e matching serão conectados nesta camada."),
+            1,
+            1,
+        )
         layout.addWidget(status_frame)
 
         footer = QLabel("V2 não importa banco, configuração ou serviços da arquitetura legada.")
