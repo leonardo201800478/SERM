@@ -2,9 +2,11 @@
 
 ## Escopo
 
-A V2 deve ser trabalhada como um projeto Python independente dentro do diretório `v2/`.
+A V2 é o projeto Python ativo dentro do diretório `v2/`.
 
-No VS Code, a recomendação é abrir **`SERM/v2` como a pasta do workspace**, e não a raiz histórica do repositório. Isso reduz descoberta acidental de módulos da V1 e mantém comandos, testes e configurações relativos à V2.
+O **workspace recomendado do VS Code é a raiz `SERM/`**. A configuração do workspace aponta automaticamente para `v2/.venv`, inicia novos terminais em `v2/` e direciona o pytest para `v2/tests`. Isso permite manter a V1 visível para pesquisa sem permitir que ela seja tratada como o projeto Python ativo.
+
+O arquivo `SERM.code-workspace` pode ser aberto diretamente no VS Code.
 
 ## Windows + VS Code
 
@@ -13,6 +15,7 @@ No VS Code, a recomendação é abrir **`SERM/v2` como a pasta do workspace**, e
 No terminal PowerShell aberto em `v2/`:
 
 ```powershell
+cd .\v2
 py -3.14 -m venv .venv
 ```
 
@@ -33,15 +36,15 @@ python -m pip install -e ".[dev]"
 
 A instalação editável faz com que `serm_v2` seja importável pelo mesmo ambiente usado pelo VS Code.
 
-### 4. Selecionar o interpretador no VS Code
+### 4. Selecionar o interpretador
 
-Selecionar:
+O workspace já aponta para:
 
 ```text
 v2\.venv\Scripts\python.exe
 ```
 
-O workspace já contém `settings.json` apontando para esse caminho.
+O interpretador selecionado pelo VS Code é usado para IntelliSense, lint, testes, execução e depuração.
 
 ## Comandos oficiais de desenvolvimento
 
@@ -89,6 +92,12 @@ ruff check .
 ruff format .
 ```
 
+### Verificação de formatação sem modificar arquivos
+
+```powershell
+ruff format --check .
+```
+
 ### Cobertura
 
 ```powershell
@@ -102,28 +111,26 @@ python -m pytest --cov=serm_v2 --cov-report=term-missing
 - logs e caches nunca são versionados;
 - configurações locais e segredos nunca são versionados;
 - arquivos JSON/XML/CFG/INI que sejam **fontes reais do projeto** podem ser versionados;
-- dados de usuário ficam fora do repositório, preferencialmente em `%LOCALAPPDATA%\SERM`;
+- dados operacionais locais ficam em `v2/data/` e são ignorados pelo Git;
 - V1 não deve ser adicionada ao `PYTHONPATH` da V2;
 - testes V2 devem importar exclusivamente `serm_v2`.
 
 ## Organização de dependências
 
-`pyproject.toml` é a única fonte de declaração das dependências da V2.
+`v2/pyproject.toml` é a fonte de declaração das dependências da V2.
 
 - `[project].dependencies`: dependências necessárias para executar a aplicação;
 - `[project.optional-dependencies].dev`: ferramentas de desenvolvimento e testes;
 - não criar `requirements.txt` paralelo sem uma necessidade concreta de distribuição/deploy.
 
-## Por que não usar um segundo `requirements.txt` agora?
-
-Manter dependências em `pyproject.toml` evita duas fontes de verdade. O arquivo também concentra configuração do build, pytest e Ruff, seguindo o modelo atual de `pyproject.toml` da comunidade Python.
-
 ## Fluxo recomendado no VS Code
 
 ```text
-Abrir SERM/v2
+Abrir SERM.code-workspace
       ↓
-Selecionar .venv/Scripts/python.exe
+VS Code seleciona v2/.venv
+      ↓
+Terminal inicia em v2/
       ↓
 Instalar .[dev]
       ↓
@@ -131,9 +138,7 @@ Testes
       ↓
 Ruff check
       ↓
-Ruff format
+Ruff format --check
       ↓
 Executar/debugar SERM V2
 ```
-
-A configuração do workspace foi criada para que testes e depuração sejam descobertos diretamente pelo VS Code.
