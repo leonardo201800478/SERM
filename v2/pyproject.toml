@@ -35,6 +35,7 @@ dev = [
 
 [project.scripts]
 serm = "serm_v2.main:main"
+serm-audit-launchbox = "serm_v2.tools.audit_launchbox:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["serm_v2"]
