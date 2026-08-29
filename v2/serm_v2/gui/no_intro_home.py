@@ -5,7 +5,6 @@ import logging
 
 from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton
 
-from ..sources.no_intro.catalog import NoIntroSystem
 from ..sources.no_intro.update_manager import NoIntroUpdateManager
 from .home import HomePage
 
