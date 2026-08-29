@@ -140,8 +140,6 @@ class PublicDatCatalogProvider:
             return DatStatus(entry, path, "missing")
         recorded = self._read_manifest().get(entry.name)
         if not recorded:
-            # Preserve the original provider contract: if a local DAT is byte-for-byte
-            # identical to the catalog metadata it is current even before first manifest write.
             if path.stat().st_size == entry.size and self._crc32(path) == entry.crc32:
                 return DatStatus(entry, path, "current", self._sha256(path))
             return DatStatus(entry, path, "outdated")
@@ -240,6 +238,18 @@ class PublicDatCatalogProvider:
         except (OSError, ValueError):
             return {}
         return value if isinstance(value, dict) else {}
+
+    def destination(self, entry: DatCatalogEntry) -> Path:
+        """Return the stable local path for a catalog DAT."""
+        safe = re.sub(r"[^A-Za-z0-9._()\- ]+", "", Path(entry.name).stem).strip()
+        return self.root / f"{safe}.dat"
+
+    @staticmethod
+    def _normalize_url(url: str) -> str:
+        """Percent-encode unsafe URL path characters without changing its structure."""
+        parts = urlsplit(url.strip())
+        path = quote(parts.path, safe="/%:@-._~!$&'()*+,;=")
+        return urlunsplit((parts.scheme, parts.netloc, path, parts.query, parts.fragment))
 
     def _write_manifest(self, entry: DatCatalogEntry, sha256: str, downloaded_size: int, downloaded_crc32: int, resolved_url: str) -> None:
         """Persist remote and resolved artifact provenance."""
