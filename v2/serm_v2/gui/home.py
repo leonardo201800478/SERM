@@ -1,7 +1,7 @@
 """Home V2 baseada nos componentes funcionais originais do SERM."""
 from __future__ import annotations
 
-from PySide6.QtWidgets import QTabWidget, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QWidget
 
 from .emulator_home import EmulatorHomePage
 
