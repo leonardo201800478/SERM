@@ -1,30 +1,25 @@
 # ============================================================
 # SERM repository-wide Git ignore
 # ============================================================
-# Keep this file conservative: source artifacts such as JSON, XML,
-# INI and CFG may be valid project inputs and must not be globally ignored.
 
 # ------------------------------------------------------------
 # Python
 # ------------------------------------------------------------
 __pycache__/
 *.py[cod]
-*$py.class
 *.pyd
 .Python
 
 # Virtual environments
 .venv/
+.venv-*/
 venv/
+venv-*/
 env/
 ENV/
-env.bak/
-venv.bak/
 virtualenv/
 virtualenvs/
 .virtualenvs/
-venv-*/
-.venv-*/
 
 # Packaging / build
 build/
@@ -39,14 +34,13 @@ pip-wheel-metadata/
 MANIFEST
 
 # ------------------------------------------------------------
-# Tests / quality tools / caches
+# Tests / quality caches
 # ------------------------------------------------------------
 .pytest_cache/
 .coverage
 .coverage.*
-htmlcov/
 coverage.xml
-*.cover
+htmlcov/
 .hypothesis/
 .tox/
 .nox/
@@ -58,14 +52,15 @@ dmypy.json
 .ruff_cache/
 
 # ------------------------------------------------------------
-# IDEs / editors
+# VS Code / IDE
 # ------------------------------------------------------------
-# Keep only the intentional V2 VS Code project files under version control.
+# The repository-level VS Code files are intentional and versioned.
 .vscode/*
 !.vscode/settings.json
 !.vscode/extensions.json
-!.vscode/launch.json
-!.vscode/tasks.json
+
+# V2 has its own project-level VS Code configuration.
+# Keep it versioned even though the repository root is the default workspace.
 !v2/.vscode/
 !v2/.vscode/settings.json
 !v2/.vscode/extensions.json
@@ -135,7 +130,7 @@ $RECYCLE.BIN/
 *.db-shm
 
 # ------------------------------------------------------------
-# Large emulator / ROM artifacts — never version these
+# ROM / emulator artifacts
 # ------------------------------------------------------------
 *.zip
 *.7z
@@ -148,8 +143,6 @@ $RECYCLE.BIN/
 *.mds
 *.mdf
 *.nrg
-
-# Executables / installers generated locally
 *.exe
 *.msi
 *.msix
@@ -162,8 +155,8 @@ $RECYCLE.BIN/
 # ============================================================
 # V1 / legacy generated data
 # ============================================================
-# These paths belong to the historical application and are intentionally
-# kept out of Git. Do not use broad extension rules for V2 source files.
+# These paths are historical application output and are not part of
+# the active SERM V2 source tree.
 data/input/
 data/cache/
 data/output/
@@ -185,7 +178,7 @@ filter_profiles/
 mame_executable.log
 mame-set-builder.log
 
-# Legacy package/build artifacts that may exist at repository root
+# Legacy package/environment artifacts
 Pipfile.lock
 poetry.lock
 environment.yml
