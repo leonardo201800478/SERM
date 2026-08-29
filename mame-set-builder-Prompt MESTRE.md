@@ -1,317 +1,237 @@
-# ARCADE MANAGER — PROMPT MESTRE v5
+# SERM — PROMPT MESTRE
 
-**Estado de referência:** 23/08/2026
+**Produto:** Strife Emulator and Roms Manager (SERM)
+**Repositório histórico:** `leonardo201800478/mame-set-builder`
+**Referência:** 29/08/2026
 
-## 1. Identidade do projeto
+## 1. Identidade
 
-O produto chama-se **ARCADE MANAGER**.
+O produto chama-se **Strife Emulator and Roms Manager — SERM**.
 
-O repositório continua sendo `leonardo201800478/mame-set-builder` por compatibilidade histórica, mas o nome funcional, arquitetural e documental do produto é ARCADE MANAGER.
+O nome `mame-set-builder` permanece somente como identidade histórica do repositório. Novos textos, títulos de janela, documentação e funcionalidades devem utilizar SERM.
 
-O projeto nasceu como MAME Set Builder e agora abrange:
+O SERM nasceu como construtor de sets MAME e evoluiu para uma plataforma de:
 
-- biblioteca e dataset arcade;
-- Scan e auditoria de ROMs;
-- reconstrução de sets;
-- dependências MAME;
+- auditoria de bibliotecas;
+- reconstrução de conteúdo;
 - gerenciamento de emuladores;
 - RetroArch e cores;
-- plugins;
-- controles;
-- perfis de hardware arcade;
-- Force Feedback;
-- downloads e atualizações.
+- BIOS;
+- shaders/overlays;
+- catálogos externos;
+- controles/hardware/FFB;
+- downloads e integrações.
 
 ## 2. Fonte de verdade
 
-O código do GitHub é a fonte de verdade da implementação.
+O código atual do GitHub é a fonte de verdade.
 
-Antes de alterar código:
+Antes de modificar qualquer componente:
 
-1. consultar o GitHub;
-2. consultar modelos e schema afetados;
+1. consultar o código atual no GitHub;
+2. consultar modelos/schema afetados;
 3. consultar consumidores;
-4. verificar commits recentes;
-5. preservar funções ativas;
-6. implementar;
-7. testar o fluxo real;
-8. atualizar documentação somente com fatos verificados.
+4. verificar funções ativas e legadas;
+5. preservar comportamento funcional;
+6. implementar em blocos pequenos;
+7. executar testes da arquitetura atual;
+8. validar o fluxo real;
+9. atualizar documentação somente com fatos verificados.
 
-Documentação antiga não supera o código.
+Não manter testes ou documentação apenas para preservar código legado que já não faz parte da arquitetura atual.
 
-## 3. Arquitetura de alto nível
+## 3. Arquitetura
 
 ```text
-GUI
+GUI / Qt
  ↓
 Application Services
  ↓
-Domain
- ├── Library / Dataset / ROM
- ├── Reconstruction / Dependencies
- ├── Emulator / Backend / Core
- ├── Controls / Hardware
- ├── FFB / Plugins
- └── Downloads / Packages
- ↓
-SQLite + Filesystem + Runtime executables + External APIs
+Domains
+├── Library / Dataset / Scan
+├── Reconstruction
+│   ├── MAME
+│   ├── No-Intro
+│   ├── Redump
+│   └── Amiga / WHDLoad / Retroplay
+├── RetroArch BIOS
+├── Emulator / Backend / Core
+├── Archive / Package
+├── Catalog Manager
+├── Controls / Hardware / FFB
+└── Presentation / Shader / Overlay
 ```
 
-A GUI coordena. Regras de negócio permanecem em services e modelos.
+GUI não deve conter regras de negócio nem I/O pesado.
 
-## 4. Núcleo de preservação
+## 4. Reconstrução
 
-O núcleo original do MAME Set Builder permanece protegido.
+MAME e consoles são domínios separados.
+
+### MAME
+
+Fonte: LISTXML + Scan + `current_scan.jsonl` + Dependency Resolver.
+
+ROMs, BIOS, devices, samples, disks e CHDs seguem as regras MAME já estabelecidas.
+
+### Consoles
 
 ```text
-MAME listxml
- ↓
-Dataset
- ↓
-Filtros
- ↓
-Scan
- ↓
-current_scan.jsonl
- ↓
-Dependency Resolver
- ↓
-Reconstrução
- ↓
-Meu Set
+No-Intro → cartuchos / mídias digitais
+Redump   → discos ópticos
+Amiga    → WHDLoad / Retroplay
 ```
 
-### Regras absolutas
+No-Intro usa DAT/XML e hashes. Redump possui modelo orientado a discos. Amiga possui catálogo e formatos próprios.
 
-- FULLSET/origens são somente leitura.
-- Nunca mover, apagar, renomear ou sobrescrever ROMs de origem.
-- Machine é entidade lógica; arquivo é artefato físico.
-- Nunca assumir `machine == machine.zip` sem resolver dependências.
-- Não criar cache permanente de ROMs.
-- Processar ROMs em streaming.
-- Staging é temporário e fica no destino.
-- Publicar somente depois de validar.
+Não criar um parser universal que apague diferenças semânticas entre fontes.
 
-## 5. Scan
+## 5. No-Intro
 
-O Scan registra o estado físico e a origem de cada ROM quando possível.
+Implementação futura prioritária.
 
-O `current_scan.jsonl` é a ponte para reconstrução.
+O DAT deve ser tratado como fonte de verdade para o conjunto.
 
-A reconstrução não deve repetir uma varredura global apenas para descobrir origens que já foram registradas.
-
-## 6. Reconstrução
-
-Arquitetura obrigatória:
+Modelo mínimo:
 
 ```text
-current_scan.jsonl
- ↓
-machine
- ↓
-ROM
- ↓
-source registrada
- ↓
-streaming
- ↓
-CRC / tamanho / SHA-1
- ↓
-staging
- ↓
-ZIP
- ↓
-validação
- ↓
-os.replace()
-```
-
-Uma ROM encontrada com nome físico diferente recebe no destino o nome lógico exigido pelo set. A origem nunca é renomeada.
-
-## 7. Dependency Resolver
-
-O resolvedor deve evoluir para cobrir:
-
-- ROM;
-- parent/clone;
-- BIOS;
-- device;
-- sample;
-- disk;
-- CHD;
-- compartilhamentos.
-
-Não implementar uma dependência por heurística quando a estrutura do MAME fornecer informação suficiente.
-
-## 8. Emuladores, backends e cores
-
-Distinguir sempre:
-
-```text
-Emulator
-Backend
-Core
-```
-
-MAME, Flycast, FBNeo e Supermodel podem possuir backends standalone.
-
-RetroArch é um runtime. MAME, FBNeo e Flycast são cores executados por ele.
-
-Não duplicar entidades de catálogo só porque existem dois modos de execução.
-
-## 9. RetroArch
-
-O projeto deverá suportar:
-
-- RetroArch runtime;
-- core MAME;
-- core FBNeo;
-- core Flycast;
-- diretórios system/assets/shaders/saves/states;
-- detecção de versão;
-- instalação e atualização de cores;
-- execução com seleção explícita do core.
-
-A versão do core deve ser tratada como dado importante para compatibilidade. Nunca declarar que um ROM set é compatível apenas porque o arquivo existe.
-
-## 10. Plugins
-
-Plugins são componentes auxiliares, não emuladores.
-
-Criar arquitetura genérica de Plugin Manager.
-
-O primeiro plugin é o **FFBArcadePlugin**, baseado no fork de referência:
-
-`https://github.com/leonardo201800478/FFBArcadePlugin`
-
-O plugin possui suporte a MAME, Supermodel, Flycast e outros ambientes e conhecimento específico de jogos de Force Feedback. A integração deve aproveitar essa capacidade sem transformar a base do ARCADE MANAGER em uma cópia do plugin.
-
-## 11. Controles
-
-Criar domínio independente de controles:
-
-```text
-Physical Device
- ↓
-Hardware Profile
- ↓
-Control Profile
- ↓
-Control Family / Game Group
- ↓
-Machine Override
- ↓
-Backend Mapping
-```
-
-O objetivo é permitir configurar uma máquina e replicar a configuração para um grupo.
-
-Exemplos:
-
-- Street Fighter;
-- Mortal Kombat;
-- Neo Geo;
-- beat'em ups;
-- shooters;
-- lightgun;
-- driving;
-- motorcycle;
-- flight stick;
-- spinner;
-- trackball.
-
-## 12. Aplicação em lote
-
-A replicação em lote deve ser uma operação de domínio, não uma simples cópia de arquivo.
-
-A seleção poderá usar:
-
-- família;
-- sistema;
-- fabricante;
-- tipo de controle;
-- características do input;
-- lista manual.
-
-Sempre permitir override individual.
-
-## 13. Hardware arcade
-
-Separar hardware original do dispositivo físico do usuário.
-
-Exemplo:
-
-```text
-Arcade Game
-  original wheel = 270°
-        ↓
-User Hardware Profile
-  G27
-        ↓
-Backend mapping
-  G27 limitado a 270°
-```
-
-Para jogos de corrida, representar também:
-
-- volante;
-- pedais;
-- clutch;
-- câmbio H-pattern/sequencial;
-- botões;
-- eixos;
-- faixas analógicas;
-- rotações;
-- peculiaridades do gabinete.
-
-Casos complexos como Hard Drivin' devem ser tratados como perfis de hardware/mapeamento avançado, não como simples teclas.
-
-## 14. Force Feedback
-
-FFB deve possuir:
-
-- dispositivo;
-- perfil global;
-- perfil por família;
-- perfil por jogo;
-- plugin/backend;
-- parâmetros específicos.
-
-Herança recomendada:
-
-```text
-Global
- ↓
-Family
- ↓
 Game
+├── name
+├── cloneof / parent
+└── ROM[]
+    ├── name
+    ├── size
+    ├── CRC32
+    ├── MD5
+    └── SHA1
 ```
 
-O nível mais específico vence o mais genérico.
+Matching por hash/tamanho. Nome não é identidade primária.
 
-## 15. Configuração dos emuladores
+O DAT Mega Drive/Genesis fornecido em 29/08/2026 deve ser usado como fixture real da primeira implementação.
 
-Arquivos nativos são preservados.
+## 6. Redump
 
-Política:
+Implementação futura prioritária após validar a fonte de download/catalogação atual.
+
+Modelo orientado a `Disc`, preservando sistema, título, edição, versão, serial, região, idiomas e hashes/metadados disponíveis.
+
+CHD é o formato de saída preferencial para discos quando a conversão puder preservar corretamente a mídia.
+
+Não assumir endpoints de download sem validação.
+
+## 7. Amiga / WHDLoad / Retroplay
+
+Possui domínio próprio. O catálogo deve contemplar pacote, versão, variante, plataforma/chipset, idioma e arquivo.
+
+Formatos LHA/LZX devem ter suporte explícito quando entrarem em escopo.
+
+## 8. RetroArch BIOS
+
+Domínio separado dos catálogos No-Intro/Redump.
+
+O catálogo deve derivar de `.info`/fontes confiáveis quando aplicável.
+
+Fluxo:
 
 ```text
-arquivo existe
- ↓
-validar
- ├── válido → importar/reutilizar
- └── inválido → backup → regenerar somente com mecanismo oficial
+catalogar → scan/hash → classificar → reconstruir/instalar somente o necessário
 ```
 
-Nunca sobrescrever configuração válida para alimentar o banco.
+Prioridade: rapidez, limpeza e ausência de reprocessamento global desnecessário.
 
-Nunca inventar comandos de geração.
+## 9. Catalog Manager
 
-No Windows, processos de geração/probe devem ser silenciosos, sem `shell=True`, com stdin apropriado, stdout/stderr capturados e validação posterior.
+O Catalog Manager mantém referências locais atualizadas.
 
-## 16. Downloads e atualização
+```text
+Provider
+ ↓
+Download catálogo
+ ↓
+Validação
+ ↓
+Parser específico
+ ↓
+Cache/versionamento
+ ↓
+Reconstruction / Scan
+```
 
-Criar um Download Manager genérico com providers.
+Catálogo não é cache de ROMs. Atualização automática deve baixar apenas metadados/referências.
+
+Providers planejados:
+
+- No-Intro Dat-o-MATIC;
+- Redump;
+- Amiga / Retroplay;
+- MAME/listxml.
+
+Falha de atualização não deve destruir o catálogo local anterior válido.
+
+## 10. ArchiveService
+
+Serviço comum para operações de ZIP/7Z/RAR.
+
+```text
+ZIP → zipfile
+7Z  → 7z.exe preferencial / py7zr fallback
+RAR → backend externo quando necessário
+```
+
+Deve suportar inspeção, teste, extração, criação e edição controlada.
+
+ZIP é crítico para reconstrução MAME e No-Intro.
+
+CHD não é archive genérico e permanece em `CHDService`.
+
+## 11. RetroArch / cores
+
+A Home está concluída.
+
+Não reintroduzir botões sem função, carregamento prévio desnecessário ou lógica duplicada.
+
+Atualização de cores:
+
+```text
+índice oficial
+ ↓
+CRC local × remoto
+ ↓
+somente divergentes selecionados
+ ↓
+download
+ ↓
+CRC
+ ↓
+instalação
+```
+
+Falha de core: três tentativas consecutivas; após três falhas, registrar o core e continuar a fila.
+
+## 12. Presentation
+
+```text
+Sistema
+├── Core
+├── Override
+├── Shader
+└── Overlay
+```
+
+Shaders de terceiros são baixados diretamente de seus repositórios e não incorporados ao repositório do SERM.
+
+Priorizar CRT limpo, fiel e leve. Evitar presets agressivos, reflexos e camadas pesadas que aumentem processamento/input lag.
+
+Aspect ratio do shader representa o sistema/emulação, não a tela do usuário. Nunca forçar 16:9 por padrão.
+
+## 13. Configuração de emuladores
+
+Preservar configurações válidas. Alterar somente propriedades suportadas. Fazer backup antes de substituir configuração inválida.
+
+Diretórios e schemas devem ser específicos de cada emulador; não assumir que uma opção MAME existe em Flycast, Supermodel, FBNeo ou RetroArch.
+
+## 14. Downloads
 
 ```text
 Provider
@@ -320,129 +240,40 @@ Package metadata
  ↓
 Download
  ↓
-Hash/size validation
+Integrity
  ↓
 Staging
  ↓
 Install
- ↓
-Backup
- ↓
-Rollback quando possível
 ```
 
-O gerenciador RetroArch será inspirado conceitualmente no StellarUpdater/Stellar, sem copiar sua implementação.
+Download não deve publicar diretamente no destino final antes da validação.
 
-Provider inicial esperado:
+## 15. Testes
 
-- RetroArch;
-- cores;
-- assets/system quando houver fonte confiável.
+A suíte deve representar somente a arquitetura atual.
 
-## 17. Banco de dados
+Testes legados devem ser removidos quando o código correspondente for eliminado. Não adaptar testes mortos apenas para obter números verdes.
 
-SQLite/migrations continuam sendo autoridade.
+Cada domínio deve possuir testes unitários e integração; fluxos de download/arquivo devem ter validação real quando aplicável.
 
-A expansão deverá criar entidades para:
+## 16. Próxima sequência de implementação
 
-- emulator;
-- backend;
-- retroarch_core;
-- plugin;
-- control_profile;
-- control_family;
-- control_mapping;
-- hardware_profile;
-- arcade_hardware_profile;
-- ffb_profile;
-- package/provider/download.
+1. Catalog Manager;
+2. No-Intro provider/parser;
+3. fixture Mega Drive/Genesis;
+4. modelo Game/ROM/Parent-Clone;
+5. hash matching;
+6. ZIP Builder;
+7. validador DAT;
+8. Redump provider/parser;
+9. Disc model;
+10. CHD Builder;
+11. Amiga/Retroplay catalog;
+12. RetroArch BIOS;
+13. integração gradual do ArchiveService na reconstrução MAME;
+14. somente depois expandir aquisição/Torrent e integrações restantes.
 
-Não duplicar ROM/machine para representar diferentes backends.
+## 17. Regra de conclusão
 
-## 18. GUI planejada
-
-A navegação deverá evoluir para algo semelhante a:
-
-```text
-Home
-Biblioteca
-  ├── Dataset
-  ├── Filtros
-  ├── Scan ROMs
-  └── Reconstrução
-
-Emuladores
-  ├── MAME
-  ├── Flycast
-  ├── FBNeo
-  ├── Supermodel
-  └── RetroArch
-
-Controles
-  ├── Dispositivos
-  ├── Perfis
-  ├── Famílias
-  ├── Mapeamentos
-  └── Arcade Hardware
-
-Force Feedback
-Plugins
-Downloads
-Configurações
-```
-
-A organização final pode mudar durante implementação, mas os domínios devem permanecer separados.
-
-## 19. Estado de referência em 23/08/2026
-
-### Implementado
-
-- dataset/listxml;
-- SQLite/migrations;
-- filtros/classificação;
-- geração de XML;
-- Scan ROMs;
-- manifesto `current_scan.jsonl`;
-- origem física no Scan;
-- Reconstrução estrutural;
-- Split/Merged/Non-Merged;
-- streaming/staging;
-- política de configuração de emuladores;
-- capabilities/runtime para MAME, Flycast, Supermodel e FBNeo;
-- diretórios de ROM do Flycast com até quatro entradas consolidadas no `Dreamcast.ContentPath`.
-
-### Em validação
-
-- protocolo transacional completo;
-- residual;
-- retry/recuperação;
-- semântica final dos layouts;
-- todos os source kinds;
-- integração completa de discovery/importer.
-
-### Planejado
-
-- RetroArch backend;
-- cores MAME/FBNeo/Flycast;
-- Plugin Manager;
-- FFBArcadePlugin;
-- GUI de controles;
-- Control Profiles/Families;
-- Hardware Profiles;
-- Arcade Hardware Profiles;
-- G27/volantes/pedais/câmbios;
-- FFB Profiles;
-- Download Manager;
-- Dependency Resolver completo;
-- torrent/qBittorrent.
-
-## 20. Regras finais
-
-- Não remover função ativa sem auditoria.
-- Não duplicar entidades existentes.
-- Não colocar SQL de negócio na GUI.
-- Não confundir documentação futura com funcionalidade implementada.
-- Não afirmar que algo foi testado sem execução real.
-- Sempre verificar o código-fonte atual no GitHub antes de modificar um componente.
-- Sempre verificar documentação oficial das bibliotecas/emuladores quando a implementação depender de comportamento externo.
-- Preservar compatibilidade com configurações existentes.
+Uma fase só é considerada concluída quando a funcionalidade estiver implementada e validada. Modelo, placeholder, tela vazia ou documentação não equivalem a funcionalidade concluída.
