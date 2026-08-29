@@ -17,7 +17,7 @@ def test_discover_downloads_extracts_dat_links() -> None:
 def test_download_url_writes_bytes_and_hash(monkeypatch, tmp_path: Path) -> None:
     class Response:
         status = 200
-        headers = {"Content-Type": "application/octet-stream"}
+        headers = {"Content-Type": "application/zip"}
 
         def __enter__(self):
             return self
@@ -26,7 +26,7 @@ def test_download_url_writes_bytes_and_hash(monkeypatch, tmp_path: Path) -> None
             return None
 
         def read(self) -> bytes:
-            return b"test dat"
+            return b"PK\x03\x04test dat"
 
         def geturl(self) -> str:
             return "https://example.invalid/test.dat"
@@ -39,6 +39,6 @@ def test_download_url_writes_bytes_and_hash(monkeypatch, tmp_path: Path) -> None
         system="Nintendo Entertainment System",
     )
 
-    assert result.path.read_bytes() == b"test dat"
+    assert result.path.read_bytes() == b"PK\x03\x04test dat"
     assert result.source_url == "https://example.invalid/test.dat"
-    assert result.sha256 == "78ad0a5d968aec1f884e88aeb37cd8afb5506fb3aee8cf9723b3df0185e834c8"
+    assert result.sha256 == "f9d816c5ad5ae27c53a3f1fce6e408c2b6b0f76f68ce4c36d1b6d4d4ffdc30e5"
