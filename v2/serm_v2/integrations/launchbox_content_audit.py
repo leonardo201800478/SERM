@@ -54,13 +54,14 @@ class LaunchBoxContentAudit:
         profiles: list[ColumnProfile] = []
         with self._connect(database) as connection:
             for table in self.structure.tables():
+                table_identifier = self._identifier(table.name)
                 for column in table.columns:
                     identifier = self._identifier(column.name)
-                    table_identifier = self._identifier(table.name)
                     row = connection.execute(
-                        f'SELECT COUNT(*), COUNT({identifier}), '
-                        f"COUNT(CASE WHEN CAST({identifier} AS TEXT) = '' THEN 1 END), "
-                        f'COUNT(DISTINCT {identifier}) FROM "{table_identifier}"'
+                        f"SELECT COUNT(*), COUNT({identifier}), "
+                        f"COUNT(CASE WHEN CAST({identifier} AS TEXT) = ? THEN 1 END), "
+                        f"COUNT(DISTINCT {identifier}) FROM {table_identifier}",
+                        ("",),
                     ).fetchone()
                     profiles.append(
                         ColumnProfile(
