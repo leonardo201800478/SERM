@@ -1,10 +1,10 @@
 """Janela principal do SERM V2."""
 from __future__ import annotations
 
-from app.config.app_config import AppConfig
-from app.database.database import Database
 from PySide6.QtWidgets import QLabel, QMainWindow, QTabWidget, QVBoxLayout, QWidget
 
+from ..config.settings import Settings
+from ..database.engine import create_sqlite_engine
 from .dat_scraper import DatScraperPage
 from .directories_page import DirectoriesPage
 from .home import HomePage
@@ -20,9 +20,9 @@ class MainWindow(QMainWindow):
         self.resize(1280, 820)
         self.status_bar = self.statusBar()
         self.status_bar.showMessage("Pronto")
-        self.config = AppConfig()
-        self.db = Database(self.config.db_path)
-        self.db.connect()
+
+        settings = Settings()
+        self.database = create_sqlite_engine(__import__("pathlib").Path(settings.database))
         self.log_viewer = LogViewer()
         self._build_ui()
 
@@ -54,5 +54,5 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event) -> None:  # noqa: N802
         """Fecha os recursos locais da aplicação."""
         self.log_viewer.close()
-        self.db.close()
+        self.database.dispose()
         super().closeEvent(event)
