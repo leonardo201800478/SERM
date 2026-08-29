@@ -1,4 +1,4 @@
-"""Complete emulator-management Home restored from the tested SERM workflow."""
+"""Complete emulator-management Home for SERM V2."""
 from __future__ import annotations
 
 import json
@@ -22,13 +22,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ..runtime.paths import data_root
 from ..services.emulator_manager import EmulatorManager, RetroArchManager
 
 logger = logging.getLogger(__name__)
 
 
 class _Worker(QThread):
-    """Run a download/extraction operation without blocking Qt."""
+    """Run a download or extraction operation without blocking Qt."""
 
     progress = Signal(int, int)
     log = Signal(str)
@@ -40,7 +41,7 @@ class _Worker(QThread):
         self.operation = operation
 
     def run(self) -> None:
-        """Execute the operation and publish its result."""
+        """Execute the operation and publish its result or error."""
         try:
             result = self.operation(
                 progress=lambda received, total: self.progress.emit(received, total),
@@ -53,7 +54,7 @@ class _Worker(QThread):
 
 
 class EmulatorHomePage(QWidget):
-    """Home containing standalone emulator downloads and the RetroArch manager."""
+    """Home containing standalone emulator and RetroArch management."""
 
     EMULATORS = ("mame", "flycast", "supermodel", "fbneo")
     LABELS = EmulatorManager.LABELS
@@ -61,7 +62,7 @@ class EmulatorHomePage(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.manager = EmulatorManager(self._load_paths())
-        self.retroarch = RetroArchManager(self._load_paths().get("retroarch"))
+        self.retroarch = RetroArchManager(self.manager.roots.get("retroarch"))
         self.worker: _Worker | None = None
         self.cards: dict[str, tuple[QLabel, QLabel, QLabel, QProgressBar, QPushButton]] = {}
         self._build_ui()
@@ -69,25 +70,33 @@ class EmulatorHomePage(QWidget):
 
     @property
     def paths_file(self) -> Path:
-        """Return the V2 persistent emulator-path registry."""
-        return Path(__file__).resolve().parents[2] / "data" / "emulator_paths.json"
+        """Return the single V2 emulator-path registry shared with Directories."""
+        return data_root() / "emulator_paths.json"
 
     def _load_paths(self) -> dict[str, Path | None]:
-        """Load persisted emulator directories."""
+        """Load persisted emulator and RetroArch directories."""
         try:
             data = json.loads(self.paths_file.read_text(encoding="utf-8"))
-            return {key: Path(value) if value else None for key, value in data.items()}
-        except (OSError, ValueError):
+        except (OSError, ValueError, TypeError):
             return {}
+        if not isinstance(data, dict):
+            return {}
+        return {
+            str(key): Path(str(value)).expanduser() if value else None
+            for key, value in data.items()
+        }
 
     def _save_paths(self, paths: dict[str, Path | None]) -> None:
-        """Persist emulator directories."""
+        """Persist emulator and RetroArch directories in the V2 data root."""
         self.paths_file.parent.mkdir(parents=True, exist_ok=True)
         payload = {key: str(value) if value else None for key, value in paths.items()}
-        self.paths_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        self.paths_file.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
 
     def _build_ui(self) -> None:
-        """Build the complete Home with Arcade and RetroArch sub-tabs."""
+        """Build the Home tabs for standalone emulators and RetroArch."""
         layout = QVBoxLayout(self)
         title = QLabel("SERM — Home")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -100,22 +109,20 @@ class EmulatorHomePage(QWidget):
         layout.addWidget(tabs, 1)
 
     def _arcade_tab(self) -> QWidget:
-        """Build the four tested standalone-emulator cards."""
+        """Build the four standalone-emulator cards."""
         page = QWidget()
         layout = QVBoxLayout(page)
         grid_frame = QFrame()
         grid = QGridLayout(grid_frame)
         grid_frame.setStyleSheet(
-            "QFrame{background:#151515;border:1px solid #3d3d3d;"
-            "border-radius:8px;} QLabel#name{font-size:15px;font-weight:bold;}"
-            " QLabel#detail{color:#b8b8b8;}"
+            "QFrame{background:#151515;border:1px solid #3d3d3d;border-radius:8px;}"
+            "QLabel#name{font-size:15px;font-weight:bold;}"
+            "QLabel#detail{color:#b8b8b8;}"
         )
 
         for index, key in enumerate(self.EMULATORS):
             card = QFrame()
-            card.setObjectName("card")
             box = QVBoxLayout(card)
-
             name = QLabel(self.LABELS[key])
             name.setObjectName("name")
             status = QLabel("Verificando…")
@@ -136,16 +143,13 @@ class EmulatorHomePage(QWidget):
             row = QHBoxLayout()
             row.addWidget(install)
             row.addWidget(configure)
-
             for widget in (name, status, version, path, progress):
                 box.addWidget(widget)
             box.addLayout(row)
-
             self.cards[key] = (status, version, path, progress, install)
             grid.addWidget(card, index // 2, index % 2)
 
         layout.addWidget(grid_frame)
-
         actions = QHBoxLayout()
         update_all = QPushButton("🔄 Atualizar todos os emuladores")
         update_all.clicked.connect(self.update_all)
@@ -158,18 +162,16 @@ class EmulatorHomePage(QWidget):
         self.log_view.setReadOnly(True)
         self.log_view.setMaximumBlockCount(3000)
         self.log_view.setStyleSheet(
-            "QPlainTextEdit{background:#0b0b0b;color:#d7d7d7;"
-            "font-family:Consolas;font-size:10px;}"
+            "QPlainTextEdit{background:#0b0b0b;color:#d7d7d7;font-family:Consolas;font-size:10px;}"
         )
         layout.addWidget(QLabel("Log detalhado"))
         layout.addWidget(self.log_view, 1)
         return page
 
     def _retroarch_tab(self) -> QWidget:
-        """Build RetroArch installation, detection and core-management controls."""
+        """Build RetroArch installation, discovery and core-management controls."""
         page = QWidget()
         layout = QVBoxLayout(page)
-
         title = QLabel("RetroArch — Buildbot oficial")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title.setStyleSheet("font-size:22px;font-weight:bold;")
@@ -179,6 +181,7 @@ class EmulatorHomePage(QWidget):
         self.retro_path = QLabel()
         self.retro_cores = QLabel()
         for label in (self.retro_status, self.retro_path, self.retro_cores):
+            label.setWordWrap(True)
             layout.addWidget(label)
 
         row = QHBoxLayout()
@@ -204,19 +207,13 @@ class EmulatorHomePage(QWidget):
         return page
 
     def refresh(self) -> None:
-        """Refresh all local emulator and 7-Zip detection."""
+        """Refresh all local emulator, RetroArch and 7-Zip discovery."""
         self.manager.roots = self._load_paths()
         self.retroarch = RetroArchManager(self.manager.roots.get("retroarch"))
 
         for key, status in self.manager.discover().items():
             card = self.cards[key]
-            color = (
-                "#55d66b"
-                if status.state == "ready"
-                else "#e5c454"
-                if status.state == "configured"
-                else "#999"
-            )
+            color = "#55d66b" if status.state == "ready" else "#e5c454" if status.state == "configured" else "#999"
             card[0].setText(f"● {status.state}")
             card[0].setStyleSheet(f"color:{color};font-weight:bold;")
             card[1].setText(f"Versão: {status.version or '—'}")
@@ -228,14 +225,10 @@ class EmulatorHomePage(QWidget):
         self.retro_status.setText(f"● {'Pronto' if executable else 'Não configurado'}")
         self.retro_path.setText(f"Instalação: {root or 'não configurada'}")
         self.retro_cores.setText(f"Cores: {cores or 'não configurado'}")
-        logger.info(
-            "[HOME][DISCOVERY] 7zip=%s retroarch=%s",
-            self.manager.find_7zip(),
-            executable,
-        )
+        logger.info("[HOME][DISCOVERY] 7zip=%s retroarch=%s", self.manager.find_7zip(), executable)
 
     def configure(self, key: str) -> None:
-        """Select and persist an emulator directory."""
+        """Select an emulator executable and persist its installation root."""
         path, _ = QFileDialog.getOpenFileName(
             self,
             f"Selecionar {self.LABELS[key]}",
@@ -245,30 +238,26 @@ class EmulatorHomePage(QWidget):
         if not path:
             return
         paths = self._load_paths()
-        paths[key] = Path(path).parent
+        paths[key] = Path(path).resolve().parent
         self._save_paths(paths)
         self.refresh()
 
     def install(self, key: str) -> None:
-        """Install/update one emulator, prompting for a destination when necessary."""
+        """Install or update one standalone emulator."""
         destination = self.manager.roots.get(key)
         if not destination:
             selected = QFileDialog.getExistingDirectory(
-                self,
-                f"Diretório do {self.LABELS[key]}",
-                str(Path.home()),
+                self, f"Diretório do {self.LABELS[key]}", str(Path.home())
             )
             if not selected:
                 return
-            destination = Path(selected)
+            destination = Path(selected).resolve()
             paths = self._load_paths()
             paths[key] = destination
             self._save_paths(paths)
             self.manager.roots = paths
         self._start(
-            lambda progress, log: self.manager.install(
-                key, destination, progress=progress, log=log
-            ),
+            lambda progress, log: self.manager.install(key, destination, progress=progress, log=log),
             key,
         )
 
@@ -303,26 +292,19 @@ class EmulatorHomePage(QWidget):
         if self.worker:
             return
         self.worker = _Worker(operation, self)
-        self.worker.progress.connect(
-            lambda received, total, k=key: self._progress(k, received, total)
-        )
+        self.worker.progress.connect(lambda received, total, k=key: self._progress(k, received, total))
         self.worker.log.connect(self._append_log)
-        self.worker.done.connect(
-            lambda result, k=key, c=continuation: self._done(k, result, c)
-        )
-        self.worker.error.connect(
-            lambda message, k=key, c=continuation: self._error(k, message, c)
-        )
+        self.worker.done.connect(lambda result, k=key, c=continuation: self._done(k, result, c))
+        self.worker.error.connect(lambda message, k=key, c=continuation: self._error(k, message, c))
         self.worker.finished.connect(self._worker_finished)
         self.worker.start()
 
     def _progress(self, key: str, received: int, total: int) -> None:
-        """Update an emulator progress bar."""
+        """Update one standalone emulator progress bar."""
         bar = self.cards[key][3]
         bar.show()
         bar.setRange(0, 100 if total else 0)
-        value = min(100, int(received * 100 / total)) if total else 0
-        bar.setValue(value)
+        bar.setValue(min(100, int(received * 100 / total)) if total else 0)
 
     def _append_log(self, message: str) -> None:
         """Append worker diagnostics to the Home log."""
@@ -330,13 +312,11 @@ class EmulatorHomePage(QWidget):
         logger.info("[HOME] %s", message)
 
     def _done(self, key: str, result, continuation=None) -> None:
-        """Persist successful installation and continue a batch."""
+        """Persist a successful standalone-emulator installation."""
         paths = self._load_paths()
         paths[key] = Path(result.executable).parent
         self._save_paths(paths)
-        self._append_log(
-            f"SUCESSO | {self.LABELS[key]} | {result.version} | {result.executable}"
-        )
+        self._append_log(f"SUCESSO | {self.LABELS[key]} | {result.version} | {result.executable}")
         self.refresh()
         if continuation:
             continuation()
@@ -354,18 +334,16 @@ class EmulatorHomePage(QWidget):
 
     def configure_retroarch(self) -> None:
         """Select and persist the RetroArch installation root."""
-        selected = QFileDialog.getExistingDirectory(
-            self, "Diretório do RetroArch", str(Path.home())
-        )
+        selected = QFileDialog.getExistingDirectory(self, "Diretório do RetroArch", str(Path.home()))
         if not selected:
             return
         paths = self._load_paths()
-        paths["retroarch"] = Path(selected)
+        paths["retroarch"] = Path(selected).resolve()
         self._save_paths(paths)
         self.refresh()
 
     def install_retroarch(self) -> None:
-        """Download and extract the official portable RetroArch build."""
+        """Download and extract the official portable RetroArch x64 build."""
         destination = self.manager.roots.get("retroarch")
         if not destination:
             selected = QFileDialog.getExistingDirectory(
@@ -373,19 +351,18 @@ class EmulatorHomePage(QWidget):
             )
             if not selected:
                 return
-            destination = Path(selected)
+            destination = Path(selected).resolve()
             paths = self._load_paths()
             paths["retroarch"] = destination
             self._save_paths(paths)
+            self.manager.roots = paths
         self.retroarch = RetroArchManager(destination)
         self._start_retro(
-            lambda progress, log: self.retroarch.install_retroarch(
-                destination, progress=progress
-            )
+            lambda progress, log: self.retroarch.install_retroarch(destination, progress=progress)
         )
 
     def refresh_cores(self) -> None:
-        """Load all current Windows x64 libretro cores from Buildbot."""
+        """Load current Windows x64 libretro cores from the official Buildbot."""
         try:
             cores = self.retroarch.list_cores()
             self.core_list.clear()
@@ -403,38 +380,30 @@ class EmulatorHomePage(QWidget):
         item = self.core_list.currentItem()
         _, _, cores = self.retroarch.discover()
         if item is None or cores is None:
-            QMessageBox.information(
-                self,
-                "RetroArch",
-                "Configure o RetroArch e selecione um core.",
-            )
+            QMessageBox.information(self, "RetroArch", "Configure o RetroArch e selecione um core.")
             return
         filename = item.data(Qt.ItemDataRole.UserRole)
         self._start_retro(
-            lambda progress, log: self.retroarch.install_core(
-                filename, cores, progress=progress
-            )
+            lambda progress, log: self.retroarch.install_core(filename, cores, progress=progress)
         )
 
     def _start_retro(self, operation) -> None:
-        """Run a RetroArch operation through the same background worker."""
+        """Run a RetroArch operation through the background worker."""
         if self.worker:
             return
         self.retro_progress.show()
         self.worker = _Worker(operation, self)
         self.worker.progress.connect(self._retro_progress)
         self.worker.log.connect(self._append_log)
-        self.worker.done.connect(
-            lambda result: self._append_log(f"RETROARCH OK | {result}")
-        )
-        self.worker.error.connect(
-            lambda message: self._append_log(f"RETROARCH ERRO | {message}")
-        )
+        self.worker.done.connect(lambda result: self._append_log(f"RETROARCH OK | {result}"))
+        self.worker.error.connect(lambda message: self._append_log(f"RETROARCH ERRO | {message}"))
         self.worker.finished.connect(self._worker_finished)
         self.worker.start()
 
     def _retro_progress(self, received: int, total: int) -> None:
-        """Update RetroArch progress."""
+        """Update RetroArch download progress."""
         self.retro_progress.setRange(0, 100 if total else 0)
-        value = min(100, int(received * 100 / total)) if total else 0
-        self.retro_progress.setValue(value)
+        self.retro_progress.setValue(min(100, int(received * 100 / total)) if total else 0)
+
+
+__all__ = ["EmulatorHomePage"]
