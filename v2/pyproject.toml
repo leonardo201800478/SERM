@@ -1,0 +1,21 @@
+[project]
+name = "serm-v2"
+version = "2.0.0.dev0"
+description = "Strife Emulator and Roms Manager — V2"
+requires-python = ">=3.12"
+dependencies = [
+    "PySide6>=6.8",
+    "SQLAlchemy>=2.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0",
+]
+
+[project.scripts]
+serm = "serm_v2.main:main"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
