@@ -29,5 +29,21 @@ class HomePage(EmulatorHomePage):
         self.manager.roots = paths
         self.refresh()
 
+    def _done(self, key: str, result, continuation=None) -> None:
+        """Persist the installation root without confusing it with the integration executable."""
+        paths = self._load_paths()
+        installation = paths.get(key)
+        if installation is None:
+            installation = Path(result.executable).parent
+            paths[key] = installation
+        paths[f"{key}_exe"] = Path(result.executable).resolve()
+        self._save_paths(paths)
+        self._append_log(
+            f"SUCESSO | {self.LABELS[key]} | versão={result.version} | instalação={installation} | exe={result.executable}"
+        )
+        self.refresh()
+        if continuation:
+            continuation()
+
 
 __all__ = ["HomePage"]
