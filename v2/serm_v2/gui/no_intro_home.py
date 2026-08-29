@@ -1,13 +1,11 @@
 """No-Intro-aware Home extension for V2."""
 from __future__ import annotations
 
-import hashlib
 import logging
 
 from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton
 
 from ..sources.no_intro.catalog import NoIntroSystem
-from ..sources.no_intro.downloader import NoIntroDownload
 from ..sources.no_intro.update_manager import NoIntroUpdateManager
 from .home import HomePage
 
@@ -38,30 +36,75 @@ class NoIntroHomePage(HomePage):
         self._refresh_freshness()
 
     def download_selected_no_intro(self) -> None:
-        """Run the standard selected download and register its catalog revision."""
-        super().download_selected_no_intro()
+        """Download the selected DAT and persist its exact catalog revision."""
         if not self.no_intro_matches:
             return
         system = self.no_intro_matches[self.no_intro_systems.currentIndex()]
-        path = self._no_intro_destination(system)
-        if path.is_file():
-            self._register_file(system, path)
+        destination = self._no_intro_destination(system)
+        try:
+            result = self.no_intro_downloader.download_system(system.name, destination)
+            self.no_intro_update_manager.record(system, result)
+            self.no_intro_status.setText(f"● DAT OK — {system.name} — revisão {system.update_text or 'desconhecida'}")
+            self.no_intro_status.setStyleSheet("color:#55d66b;font-weight:bold;")
             self._refresh_freshness()
+            QMessageBox.information(self, "No-Intro", f"DAT baixado com sucesso.\n\n{result.path}")
+        except Exception as exc:
+            logger.exception("[NO-INTRO][DAT] Falha no sistema=%s", system.name)
+            self.no_intro_status.setText(f"● Falha — {system.name}")
+            self.no_intro_status.setStyleSheet("color:#e05b5b;font-weight:bold;")
+            QMessageBox.warning(self, "No-Intro", str(exc))
 
     def download_all_no_intro(self) -> None:
-        """Run the standard full download and register successful artifacts."""
-        super().download_all_no_intro()
-        self._register_existing()
-        self._refresh_freshness()
+        """Download every matched DAT and persist each successful revision."""
+        if not self.no_intro_matches:
+            return
+        total = len(self.no_intro_matches)
+        succeeded = 0
+        failed: list[str] = []
+        self.no_intro_test_button.setEnabled(False)
+        self._set_no_intro_download_enabled(False)
+        self.no_intro_update_button.setEnabled(False)
+        try:
+            for index, system in enumerate(self.no_intro_matches, start=1):
+                self.no_intro_status.setText(f"● Baixando {index}/{total} — {system.name}")
+                QApplication.processEvents()
+                destination = self._no_intro_destination(system)
+                logger.info(
+                    "[NO-INTRO][DAT][BATCH] %d/%d início sistema=%s revisão=%s",
+                    index,
+                    total,
+                    system.name,
+                    system.update_text,
+                )
+                try:
+                    result = self.no_intro_downloader.download_system(system.name, destination)
+                    self.no_intro_update_manager.record(system, result)
+                    succeeded += 1
+                    logger.info("[NO-INTRO][DAT][BATCH] %d/%d OK arquivo=%s", index, total, result.path)
+                except Exception as exc:
+                    failed.append(f"{system.name}: {exc}")
+                    logger.exception("[NO-INTRO][DAT][BATCH] %d/%d FALHA sistema=%s", index, total, system.name)
+
+            self._refresh_freshness()
+            detail = f"Baixados: {succeeded}/{total}"
+            if failed:
+                detail += "\n\nFalhas:\n" + "\n".join(failed[:10])
+                if len(failed) > 10:
+                    detail += f"\n… e mais {len(failed) - 10} falha(s)."
+            QMessageBox.information(self, "No-Intro — download em lote", detail)
+        finally:
+            self.no_intro_test_button.setEnabled(True)
+            self._set_no_intro_download_enabled(bool(self.no_intro_matches))
+            self._refresh_freshness()
 
     def update_outdated_no_intro(self) -> None:
-        """Download only existing DATs whose catalog revision is older or unknown."""
+        """Download only existing DATs whose recorded revision is obsolete or unknown."""
         candidates = self.no_intro_update_manager.update_candidates(
             self.no_intro_matches,
             self._no_intro_destination,
         )
         if not candidates:
-            self.no_intro_status.setText("● Nenhum DAT desatualizado")
+            self.no_intro_status.setText("● Nenhum DAT existente precisa de atualização")
             self.no_intro_status.setStyleSheet("color:#55d66b;font-weight:bold;")
             QMessageBox.information(self, "No-Intro", "Nenhum DAT existente precisa de atualização.")
             self.no_intro_update_button.setEnabled(False)
@@ -79,7 +122,7 @@ class NoIntroHomePage(HomePage):
                 QApplication.processEvents()
                 destination = self._no_intro_destination(system)
                 logger.info(
-                    "[NO-INTRO][UPDATE] %d/%d início sistema=%s revisão=%s",
+                    "[NO-INTRO][UPDATE] %d/%d início sistema=%s remoto=%s",
                     index,
                     total,
                     system.name,
@@ -98,34 +141,13 @@ class NoIntroHomePage(HomePage):
             detail = f"Atualizados: {succeeded}/{total}"
             if failed:
                 detail += "\n\nFalhas:\n" + "\n".join(failed[:10])
+                if len(failed) > 10:
+                    detail += f"\n… e mais {len(failed) - 10} falha(s)."
             QMessageBox.information(self, "No-Intro — atualização", detail)
         finally:
             self.no_intro_test_button.setEnabled(True)
             self._set_no_intro_download_enabled(bool(self.no_intro_matches))
             self._refresh_freshness()
-
-    def _register_existing(self) -> None:
-        """Register existing downloaded files using the current catalog revision."""
-        for system in self.no_intro_matches:
-            path = self._no_intro_destination(system)
-            if path.is_file():
-                status = self.no_intro_update_manager.inspect(system, path)
-                if status.state == "unknown":
-                    self._register_file(system, path)
-                    logger.info("[NO-INTRO][FRESHNESS] manifesto inicializado: %s", system.name)
-
-    def _register_file(self, system: NoIntroSystem, path) -> None:
-        """Create freshness metadata for an existing DAT when its revision is known."""
-        digest = hashlib.sha256(path.read_bytes()).hexdigest()
-        self.no_intro_update_manager.record(
-            system,
-            NoIntroDownload(
-                system=system.name,
-                path=path,
-                sha256=digest,
-                source_url="",
-            ),
-        )
 
     def _refresh_freshness(self) -> None:
         """Refresh freshness counters and expose the update button state."""
