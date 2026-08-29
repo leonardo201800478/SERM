@@ -1,0 +1,42 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "SERM V2: test",
+      "type": "shell",
+      "command": "python -m pytest",
+      "options": {
+        "cwd": "${workspaceFolder}\\v2"
+      },
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "SERM V2: lint",
+      "type": "shell",
+      "command": "ruff check .",
+      "options": {
+        "cwd": "${workspaceFolder}\\v2"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "SERM V2: format check",
+      "type": "shell",
+      "command": "ruff format --check .",
+      "options": {
+        "cwd": "${workspaceFolder}\\v2"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "SERM V2: run",
+      "type": "shell",
+      "command": "python -m serm_v2",
+      "options": {
+        "cwd": "${workspaceFolder}\\v2"
+      },
+      "problemMatcher": []
+    }
+  ]
+}
