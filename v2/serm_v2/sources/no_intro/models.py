@@ -19,6 +19,8 @@ class NoIntroDatInfo:
 class NoIntroRomRecord(SourceArtifact):
     """ROM record retaining the source filename and hash evidence."""
 
+    serial: str | None = None
+
 
 @dataclass(frozen=True, slots=True)
 class NoIntroSetRecord:
@@ -27,5 +29,7 @@ class NoIntroSetRecord:
     name: str
     description: str | None
     platform: str | None
+    region: str | None
+    clone_of: str | None
     roms: tuple[NoIntroRomRecord, ...]
     provenance: SourceProvenance
