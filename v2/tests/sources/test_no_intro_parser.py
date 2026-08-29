@@ -1,10 +1,8 @@
 from pathlib import Path
 
 import pytest
-
 from serm_v2.sources.no_intro.errors import NoIntroParseError
 from serm_v2.sources.no_intro.parser import NoIntroParser
-
 
 DAT = '''<?xml version="1.0"?>
 <datafile>
