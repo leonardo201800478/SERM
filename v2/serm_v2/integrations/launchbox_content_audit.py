@@ -85,10 +85,15 @@ class LaunchBoxContentAudit:
             raise ValueError(f"Coluna não encontrada: {table}.{column}")
         database = self._require_database()
         with self._connect(database) as connection:
+            table_identifier = self._identifier(table)
+            column_identifier = self._identifier(column)
             rows = connection.execute(
-                f'SELECT CAST("{column}" AS TEXT), COUNT(*) FROM "{table}" '
-                f'WHERE "{column}" IS NOT NULL AND TRIM(CAST("{column}" AS TEXT)) <> ? '
-                f'GROUP BY "{column}" ORDER BY COUNT(*) DESC, CAST("{column}" AS TEXT) LIMIT ?',
+                f"SELECT CAST({column_identifier} AS TEXT), COUNT(*) FROM {table_identifier} "
+                f"WHERE {column_identifier} IS NOT NULL "
+                f"AND TRIM(CAST({column_identifier} AS TEXT)) <> ? "
+                f"GROUP BY {column_identifier} "
+                f"ORDER BY COUNT(*) DESC, CAST({column_identifier} AS TEXT) "
+                "LIMIT ?",
                 ("", limit),
             ).fetchall()
         return tuple(ValueCount(value=str(row[0]), count=int(row[1])) for row in rows)
@@ -96,6 +101,27 @@ class LaunchBoxContentAudit:
     def summary(self) -> dict[str, Any]:
         """Return a JSON-serializable content-audit summary."""
         profiles = self.column_profiles()
+        requested_top_values = (
+            ("Games", "Platform"),
+            ("Games", "Genres"),
+            ("Games", "Developer"),
+            ("Games", "Publisher"),
+            ("GameImages", "Type"),
+            ("GameImages", "Region"),
+            ("GameAlternateTitles", "Region"),
+            ("Emulators", "Name"),
+            ("EmulatorPlatforms", "Emulator"),
+            ("EmulatorPlatforms", "Platform"),
+        )
+        top_values: dict[str, dict[str, list[dict[str, Any]]]] = {}
+        for table, column in requested_top_values:
+            if not self._column_exists(table, column):
+                continue
+            top_values.setdefault(table, {})[column] = [
+                {"value": item.value, "count": item.count}
+                for item in self.top_values(table, column)
+            ]
+
         return {
             "database": str(self._require_database()),
             "tables": [
@@ -110,27 +136,7 @@ class LaunchBoxContentAudit:
                 }
                 for profile in profiles
             ],
-            "top_values": {
-                table: {
-                    column: [
-                        {"value": item.value, "count": item.count}
-                        for item in self.top_values(table, column)
-                    ]
-                    for table, column in (
-                        ("Games", "Platform"),
-                        ("Games", "Genres"),
-                        ("Games", "Developer"),
-                        ("Games", "Publisher"),
-                        ("GameImages", "Type"),
-                        ("GameImages", "Region"),
-                        ("GameAlternateTitles", "Region"),
-                        ("Emulators", "Name"),
-                        ("EmulatorPlatforms", "Emulator"),
-                        ("EmulatorPlatforms", "Platform"),
-                    )
-                    if self._column_exists(table, column)
-                }
-            },
+            "top_values": top_values,
         }
 
     def _column_exists(self, table: str, column: str) -> bool:
