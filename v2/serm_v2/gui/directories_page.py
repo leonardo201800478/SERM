@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
@@ -23,12 +24,7 @@ from ..services.emulator_manager import EmulatorManager, RetroArchManager
 
 
 class DirectoriesPage(QWidget):
-    """Configure all external application directories used by SERM V2.
-
-    The page deliberately shares the same V2 persistence used by Home. It never
-    creates another Home widget just to inspect configuration, avoiding nested
-    discovery/workers and keeping the two screens synchronized.
-    """
+    """Configure all external application directories used by SERM V2."""
 
     EMULATOR_PATHS = EmulatorManager.LABELS
     PATHS_FILE = data_root() / "emulator_paths.json"
@@ -60,12 +56,9 @@ class DirectoriesPage(QWidget):
 
     @staticmethod
     def _save_json(path: Path, data: dict[str, object]) -> None:
-        """Persist one V2 JSON configuration mapping atomically enough for GUI use."""
+        """Persist one V2 JSON configuration mapping."""
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps(data, indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
+        path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
     @staticmethod
     def _path_group(title: str) -> tuple[QGroupBox, QFormLayout]:
@@ -93,11 +86,11 @@ class DirectoriesPage(QWidget):
             self.emulator_edits[key] = edit
         layout.addWidget(group)
 
-        self.emulator_hint = QLabel(
+        hint = QLabel(
             "A Home usa exatamente estes diretórios para descoberta, instalação e atualização."
         )
-        self.emulator_hint.setWordWrap(True)
-        layout.addWidget(self.emulator_hint)
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
 
         refresh = QPushButton("🔄 Atualizar detecção")
         refresh.clicked.connect(self.refresh)
@@ -239,8 +232,7 @@ class DirectoriesPage(QWidget):
         """Refresh all directory fields and executable status indicators."""
         paths = self._load_json(self.PATHS_FILE)
         for key, edit in getattr(self, "emulator_edits", {}).items():
-            value = str(paths.get(key) or "")
-            edit.setText(value)
+            edit.setText(str(paths.get(key) or ""))
 
         retroarch = paths.get("retroarch")
         retro_root = Path(str(retroarch)).expanduser() if retroarch else None
@@ -252,15 +244,21 @@ class DirectoriesPage(QWidget):
 
         tools = self._load_json(self.TOOLS_FILE)
         launchbox = self.launchbox.discover()
-        launchbox_path = Path(launchbox) if launchbox else Path(str(tools.get("launchbox") or ""))
+        launchbox_path = Path(launchbox) if launchbox else None
         if hasattr(self, "launchbox_edit"):
-            self.launchbox_edit.setText(str(launchbox_path) if launchbox_path else "")
+            self.launchbox_edit.setText(str(launchbox_path or tools.get("launchbox") or ""))
             self.launchbox_status.setText(
-                "● Encontrado" if launchbox_path.is_file() else "● Não encontrado"
+                "● Encontrado"
+                if launchbox_path and launchbox_path.is_file()
+                else "● Não encontrado"
             )
 
         configured_7zip = str(tools.get("sevenzip") or "")
-        sevenzip = Path(configured_7zip) if configured_7zip and Path(configured_7zip).is_file() else EmulatorManager.find_7zip()
+        sevenzip = (
+            Path(configured_7zip)
+            if configured_7zip and Path(configured_7zip).is_file()
+            else EmulatorManager.find_7zip()
+        )
         if hasattr(self, "sevenzip_edit"):
             self.sevenzip_edit.setText(str(sevenzip or ""))
             self.sevenzip_status.setText(
