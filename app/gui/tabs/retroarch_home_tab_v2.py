@@ -86,7 +86,6 @@ class RetroArchHomeTab(QWidget):
         core_actions.addWidget(self.clear_button)
         core_actions.addStretch()
         cores_layout.addLayout(core_actions)
-
         self.core_list = QListWidget()
         self.core_list.setSelectionMode(QListWidget.SelectionMode.NoSelection)
         cores_layout.addWidget(self.core_list, 1)
@@ -190,7 +189,7 @@ class RetroArchHomeTab(QWidget):
         return {item.name.casefold() for item in path.glob("*_libretro.dll") if item.is_file()}
 
     def _refresh_installed_markers(self) -> None:
-        """Atualiza [INSTALADO]/[NOVO] sem consultar a rede e sem alterar seleção."""
+        """Atualiza marcadores de instalação sem consultar a rede e sem alterar seleção."""
         if not hasattr(self, "core_list"):
             return
         installed = self._installed_core_filenames()
@@ -206,7 +205,7 @@ class RetroArchHomeTab(QWidget):
             item.setText(marker + base)
 
     def refresh_cores(self) -> None:
-        """Atualiza o índice oficial e identifica os cores existentes pelo nome exato da DLL."""
+        """Atualiza o índice oficial e exibe todos os cores publicados."""
         try:
             mode, version = self._channel()
             channel = RetroArchDownloadService.channel(mode, version)
@@ -233,43 +232,37 @@ class RetroArchHomeTab(QWidget):
             self._append_log(f"ERRO CORES | {type(exc).__name__}: {exc}")
 
     def update_installed_cores(self) -> None:
-        """Consulta o índice oficial e exibe somente cores instalados com CRC diferente.
+        """Lista somente cores instalados cujo CRC difere do índice oficial.
 
-        Esta operação não baixa arquivos. Os cores desatualizados ficam selecionados
-        para confirmação explícita pelo botão 'Instalar / atualizar selecionados'.
+        Não realiza downloads. Os resultados são automaticamente marcados para
+        confirmação explícita pelo botão 'Instalar / atualizar selecionados'.
         """
         try:
             cores_dir = self.config.get_emulator_path("retroarch", "cores")
             if not cores_dir or not Path(cores_dir).expanduser().is_dir():
                 self._append_log("AVISO | diretório de cores do RetroArch não configurado ou inexistente.")
                 return
-
             mode, version = self._channel()
             channel = RetroArchDownloadService.channel(mode, version)
             service = RetroArchDownloadService(log_callback=self._append_log)
-            comparison = service.compare_installed_cores(channel, Path(cores_dir).expanduser())
+            cores = service.list_cores(channel)
+            comparison = service.compare_installed_cores(cores, Path(cores_dir).expanduser())
+            by_filename = {core.filename.removesuffix(".zip").casefold(): core for core in cores}
+            updates = [entry for entry in comparison if entry.needs_update and entry.path.name.casefold() in by_filename]
+            current = sum(1 for entry in comparison if entry.is_current)
+            unknown = sum(1 for entry in comparison if entry.remote_crc32 is None)
 
             self.core_list.clear()
-            updates = [entry for entry in comparison if entry.needs_update]
-            current = sum(1 for entry in comparison if entry.is_current)
-            unknown = len(comparison) - len(updates) - current
-
             for entry in updates:
+                remote = by_filename[entry.path.name.casefold()]
                 item = QListWidgetItem()
                 item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
                 item.setCheckState(Qt.CheckState.Checked)
-                item.setData(Qt.ItemDataRole.UserRole, f"{entry.core_name}_libretro.dll.zip")
-                item.setText(
-                    f"[ATUALIZAÇÃO] {entry.core_name} | "
-                    f"CRC local {entry.local_crc32} → remoto {entry.remote_crc32}"
-                )
+                item.setData(Qt.ItemDataRole.UserRole, remote.filename)
+                item.setText(f"[ATUALIZAÇÃO] {remote.core_name} | CRC local {entry.local_crc32} → remoto {entry.remote_crc32}")
                 self.core_list.addItem(item)
 
-            self._append_log(
-                f"ATUALIZAÇÕES | instalados={len(comparison)} | "
-                f"atualizações={len(updates)} | atualizados={current} | "
-                f"sem correspondência={unknown}"
-            )
+            self._append_log(f"ATUALIZAÇÕES | instalados={len(comparison)} | atualizações={len(updates)} | atualizados={current} | sem correspondência={unknown}")
             if not updates:
                 self._append_log("ATUALIZAÇÕES | nenhum core instalado necessita de atualização.")
         except Exception as exc:
@@ -278,7 +271,7 @@ class RetroArchHomeTab(QWidget):
     def _checked_core_filenames(self) -> list[str]:
         """Retorna os arquivos de core atualmente marcados."""
         return [
-            self.core_list.item(index).data(Qt.ItemDataRole.UserRole)
+            str(self.core_list.item(index).data(Qt.ItemDataRole.UserRole))
             for index in range(self.core_list.count())
             if self.core_list.item(index).checkState() == Qt.CheckState.Checked
         ]
@@ -299,10 +292,10 @@ class RetroArchHomeTab(QWidget):
         if not selected:
             self._append_log("AVISO | marque pelo menos um core na lista.")
             return
-        self._start_worker("cores", selected)
+        self._start_worker("core", selected)
 
     def _start_worker(self, operation: str, selected_cores: list[str] | None = None) -> None:
-        """Cria o worker assíncrono para a operação solicitada."""
+        """Cria o worker assíncrono compatível com a API atual."""
         if self._thread is not None and self._thread.isRunning():
             self._append_log("AVISO | já existe uma operação em execução.")
             return
@@ -311,20 +304,39 @@ class RetroArchHomeTab(QWidget):
         self._thread = QThread(self)
         self._worker = RetroArchDownloadWorker(
             operation=operation,
-            service=RetroArchDownloadService(log_callback=self._append_log),
-            channel=RetroArchDownloadService.channel(mode, version),
             destination=destination,
-            selected_cores=selected_cores or [],
+            mode=mode,
+            stable_version=version,
+            core_filenames=selected_cores or [],
         )
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
         self._worker.progress.connect(self._on_progress)
-        self._worker.log.connect(self._append_log)
+        self._worker.log_message.connect(self._append_log)
+        self._worker.status.connect(self._on_status)
         self._worker.finished.connect(self._on_worker_finished)
-        self._worker.finished.connect(self._thread.quit)
-        self._worker.finished.connect(self._worker.deleteLater)
+        self._worker.failed.connect(self._on_worker_failed)
+        self._thread.started.connect(lambda: self._update_busy_state())
         self._thread.finished.connect(self._thread.deleteLater)
         self._thread.start()
+        self._update_busy_state()
+
+    @Slot(str)
+    def _on_status(self, message: str) -> None:
+        """Exibe o estado corrente da operação no log visual."""
+        self._append_log(f"STATUS | {message}")
+
+    @Slot(str, str, str)
+    def _on_worker_finished(self, operation: str, value: str, path: str) -> None:
+        """Registra conclusão normal da operação."""
+        self._append_log(f"RESULTADO | operação={operation} | valor={value} | caminho={path}")
+        self._refresh_installed_markers()
+        self._update_busy_state()
+
+    @Slot(str)
+    def _on_worker_failed(self, message: str) -> None:
+        """Registra falha controlada do worker sem encerrar a aplicação."""
+        self._append_log(f"ERRO WORKER | {message}")
         self._update_busy_state()
 
     @Slot(int, int)
@@ -333,25 +345,10 @@ class RetroArchHomeTab(QWidget):
         self.progress.setRange(0, total)
         self.progress.setValue(current)
 
-    @Slot(bool, str)
-    def _on_worker_finished(self, success: bool, message: str) -> None:
-        """Registra resultado da operação e atualiza a tela."""
-        self._append_log(f"RESULTADO | sucesso={success} | {message}")
-        self._refresh_installed_markers()
-        self._update_busy_state()
-
     def _update_busy_state(self) -> None:
         """Bloqueia ações concorrentes enquanto uma operação estiver ativa."""
         busy = bool(self._thread and self._thread.isRunning())
-        for widget in (
-            self.install_button,
-            self.update_button,
-            self.core_refresh_button,
-            self.core_install_button,
-            self.core_update_installed_button,
-            self.select_all_button,
-            self.clear_button,
-        ):
+        for widget in (self.install_button, self.update_button, self.core_refresh_button, self.core_install_button, self.core_update_installed_button, self.select_all_button, self.clear_button):
             widget.setEnabled(not busy)
 
     def _append_log(self, message: str) -> None:
