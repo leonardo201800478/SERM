@@ -17,7 +17,8 @@ class SystemSourceRouter:
 
     The rules are deliberately conservative. Known optical-disc platforms are
     owned by Redump and are never admitted to the No-Intro candidate list.
-    Unknown platforms remain unsupported until an explicit rule is added.
+    Variant platforms such as PSN, DLC or digital catalogs are not classified
+    as Redump merely because their base platform is optical-disc based.
     """
 
     _REDUMP_NAMES = frozenset(
@@ -68,10 +69,9 @@ class SystemSourceRouter:
         return " ".join(value.casefold().replace("-", " ").split())
 
     @staticmethod
-    def _platform_tail(value: str) -> str:
-        """Return the platform portion after a LaunchBox/DAT-o-MATIC vendor prefix."""
-        normalized = SystemSourceRouter._normalize(value)
-        return normalized.split(" ", 1)[-1] if " " in normalized else normalized
+    def _vendor_stripped(value: str) -> str:
+        """Remove a manufacturer prefix from DAT-o-MATIC names."""
+        return SystemSourceRouter._normalize(value.rsplit(" - ", 1)[-1])
 
     def route(self, platform_name: str) -> SourceFamily:
         """Return the preservation source assigned to a LaunchBox platform."""
@@ -89,10 +89,7 @@ class SystemSourceRouter:
         return self.route(platform_name) is SourceFamily.NO_INTRO
 
     def is_redump_system(self, source_name: str) -> bool:
-        """Return whether a DAT-o-MATIC system belongs to the Redump domain."""
-        redump = {self._normalize(name) for name in self._REDUMP_NAMES}
-        normalized = self._normalize(source_name)
-        candidates = {normalized, self._platform_tail(source_name)}
-        if " - " in source_name:
-            candidates.add(self._normalize(source_name.rsplit(" - ", 1)[-1]))
-        return any(candidate in redump or any(candidate.startswith(f"{name} ") for name in redump) for candidate in candidates)
+        """Return whether an exact DAT-o-MATIC system belongs to Redump."""
+        return self._vendor_stripped(source_name) in {
+            self._normalize(name) for name in self._REDUMP_NAMES
+        }
