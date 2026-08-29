@@ -8,8 +8,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import Request as UrlRequest
-from urllib.request import HTTPCookieProcessor, Request, build_opener, urlopen
+from urllib.parse import Request, urljoin
+from urllib.request import HTTPCookieProcessor, Request as UrlRequest, build_opener, urlopen
 
 from .catalog import NoIntroCatalog
 from .errors import NoIntroDownloadError
@@ -216,8 +216,6 @@ class NoIntroDownloader:
 
     def discover_downloads(self, html: str, *, base_url: str | None = None) -> tuple[str, ...]:
         """Extract direct DAT, XML or ZIP links from a DAT-o-MATIC page."""
-        from urllib.parse import urljoin
-
         base_url = base_url or self.BASE_URL
         links = re.findall(
             r'href=["\']([^"\']+\.(?:dat|xml|zip)(?:\?[^"\']*)?)["\']',
