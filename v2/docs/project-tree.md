@@ -15,6 +15,8 @@ v2/
 │
 ├── docs/
 │   ├── architecture-v2.md
+│   ├── data-model-v2.md
+│   ├── data-model-v2-detailed.md
 │   ├── development-environment.md
 │   ├── development-roadmap.md
 │   ├── legacy-boundary.md
@@ -61,14 +63,32 @@ v2/
 │   │   ├── __init__.py
 │   │   └── paths.py
 │   │
+│   ├── integrations/
+│   │   └── launchbox.py
+│   │
 │   └── gui/
 │       ├── __init__.py
 │       ├── main_window.py
 │       └── home.py
 │
 └── tests/
-    └── test_bootstrap.py
+    ├── test_bootstrap.py
+    └── test_launchbox.py
 ```
+
+## LaunchBox
+
+A integração inicial é deliberadamente pequena e independente do banco V2. Ela:
+
+- descobre `LaunchBox.exe`;
+- prioriza a instalação informada pelo usuário;
+- inclui `G:\LaunchBox\LaunchBox.exe` entre os candidatos iniciais do ambiente atual;
+- persiste somente o caminho do executável em `%LOCALAPPDATA%\SERM\integrations\launchbox.json`;
+- abre o LaunchBox;
+- localiza `Metadata\LaunchBox.Metadata.db`;
+- localiza `Metadata\Platforms.xml`.
+
+O banco do LaunchBox não é aberto nem copiado nesta etapa. Ele será consumido por um provider V2 depois que a Data Foundation estiver pronta.
 
 ## Diretórios que não pertencem ao Git
 
@@ -81,6 +101,7 @@ O projeto não deve criar um banco operacional dentro do checkout durante o uso 
 ├── cache\
 ├── scans\
 ├── staging\
+├── integrations\
 └── logs\
 ```
 
