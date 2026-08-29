@@ -20,13 +20,13 @@ def _core(name: str, crc: str) -> RetroArchCoreInfo:
 
 def test_compare_marks_only_crc_mismatch_as_update(tmp_path: Path) -> None:
     """Somente DLLs com CRC divergente devem precisar de atualização."""
-    current = _core("current", f"{RetroArchDownloadService._crc32(tmp_path / 'current_libretro.dll'):08x}")
-    # O arquivo ainda não existe; recriamos depois para obter CRC real.
-    (tmp_path / "current_libretro.dll").write_bytes(b"current")
-    current = _core("current", f"{RetroArchDownloadService._crc32(tmp_path / 'current_libretro.dll'):08x}")
+    current_path = tmp_path / "current_libretro.dll"
+    current_path.write_bytes(b"current")
+    current = _core("current", f"{RetroArchDownloadService._crc32(current_path):08x}")
 
+    outdated_path = tmp_path / "outdated_libretro.dll"
+    outdated_path.write_bytes(b"outdated-local")
     outdated = _core("outdated", "deadbeef")
-    (tmp_path / "outdated_libretro.dll").write_bytes(b"outdated-local")
 
     unknown = tmp_path / "custom_libretro.dll"
     unknown.write_bytes(b"custom")
@@ -46,11 +46,14 @@ def test_compare_marks_only_crc_mismatch_as_update(tmp_path: Path) -> None:
 
 def test_match_installed_cores_returns_only_outdated(tmp_path: Path) -> None:
     """A API de seleção para atualização não inclui cores atuais ou desconhecidos."""
-    (tmp_path / "ok_libretro.dll").write_bytes(b"ok")
-    (tmp_path / "old_libretro.dll").write_bytes(b"old")
-    (tmp_path / "custom_libretro.dll").write_bytes(b"custom")
+    ok_path = tmp_path / "ok_libretro.dll"
+    ok_path.write_bytes(b"ok")
+    old_path = tmp_path / "old_libretro.dll"
+    old_path.write_bytes(b"old")
+    custom_path = tmp_path / "custom_libretro.dll"
+    custom_path.write_bytes(b"custom")
 
-    ok = _core("ok", f"{RetroArchDownloadService._crc32(tmp_path / 'ok_libretro.dll'):08x}")
+    ok = _core("ok", f"{RetroArchDownloadService._crc32(ok_path):08x}")
     old = _core("old", "00000000")
 
     matched = RetroArchDownloadService.match_installed_cores([ok, old], tmp_path)
