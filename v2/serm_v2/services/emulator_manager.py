@@ -1,9 +1,4 @@
-"""Functional emulator installation and RetroArch core management for SERM V2.
-
-This module ports the tested acquisition behavior from the original Home into
-V2 without importing the legacy ``app`` package. Downloads are never executed;
-archives are extracted with Python ZIP support or the local 7-Zip CLI.
-"""
+"""Functional emulator installation and RetroArch core management for SERM V2."""
 from __future__ import annotations
 
 import json
@@ -74,7 +69,10 @@ class EmulatorManager:
 
     def __init__(self, roots: dict[str, Path | None] | None = None) -> None:
         """Initialize the manager with optional user-configured installation roots."""
-        self.roots = {key: Path(value).expanduser() if value else None for key, value in (roots or {}).items()}
+        self.roots = {
+            key: Path(value).expanduser() if value else None
+            for key, value in (roots or {}).items()
+        }
 
     @staticmethod
     def find_7zip() -> Path | None:
@@ -99,12 +97,34 @@ class EmulatorManager:
             if executable:
                 root = executable.parent
             version = self._read_version(key, root, executable)
-            state = "ready" if executable else ("configured" if root else "not_found")
-            result[key] = EmulatorStatus(key, label, executable, root, version, state)
-            logger.info("[EMULATOR][DISCOVERY] %s state=%s exe=%s root=%s version=%s", key, state, executable, root, version)
+            state = "ready" if executable else "configured" if root else "not_found"
+            result[key] = EmulatorStatus(
+                key,
+                label,
+                executable,
+                root,
+                version,
+                state,
+            )
+            logger.info(
+                "[EMULATOR][DISCOVERY] %s state=%s exe=%s root=%s version=%s",
+                key,
+                state,
+                executable,
+                root,
+                version,
+            )
         return result
 
-    def install(self, key: str, destination: Path, *, nightly: bool = False, progress=None, log=None) -> DownloadResult:
+    def install(
+        self,
+        key: str,
+        destination: Path,
+        *,
+        nightly: bool = False,
+        progress=None,
+        log=None,
+    ) -> DownloadResult:
         """Download the official Windows x64 release, extract it and validate the executable."""
         key = key.casefold()
         if key not in self.REPOSITORIES:
@@ -121,30 +141,50 @@ class EmulatorManager:
         with tempfile.TemporaryDirectory(prefix="serm-emu-") as temp_name:
             temp = Path(temp_name)
             archive = temp / str(asset["name"])
-            self._download(str(asset["browser_download_url"]), archive, int(asset.get("size") or 0), progress, log)
+            self._download(
+                str(asset["browser_download_url"]),
+                archive,
+                int(asset.get("size") or 0),
+                progress,
+                log,
+            )
             extracted = temp / "extracted"
             extracted.mkdir()
             self._extract(archive, extracted, log)
             self._merge(extracted, destination)
         executable = self._find_executable(key, destination)
         if executable is None:
-            raise RuntimeError(f"Instalação concluída, mas {self.EXECUTABLES[key]} não foi encontrado em {destination}.")
-        logger.info("[EMULATOR][INSTALL] concluído %s version=%s executable=%s", key, version, executable)
+            raise RuntimeError(
+                f"Instalação concluída, mas {self.EXECUTABLES[key]} não foi encontrado em {destination}."
+            )
+        logger.info(
+            "[EMULATOR][INSTALL] concluído %s version=%s executable=%s",
+            key,
+            version,
+            executable,
+        )
         return DownloadResult(key, version, executable, str(asset["name"]))
 
     def _release(self, key: str, *, nightly: bool) -> dict[str, object]:
         """Read the current official GitHub release metadata."""
         repo = self.REPOSITORIES[key]
-        if nightly and key == "fbneo":
-            url = f"https://api.github.com/repos/{repo}/releases/tags/latest"
-        else:
-            url = f"https://api.github.com/repos/{repo}/releases/latest"
+        url = (
+            f"https://api.github.com/repos/{repo}/releases/tags/latest"
+            if nightly and key == "fbneo"
+            else f"https://api.github.com/repos/{repo}/releases/latest"
+        )
         return self._json(url)
 
     @staticmethod
     def _json(url: str) -> dict[str, object]:
         """Fetch a public JSON object with a stable User-Agent."""
-        request = Request(url, headers={"Accept": "application/vnd.github+json", "User-Agent": "SERM/2.0"})
+        request = Request(
+            url,
+            headers={
+                "Accept": "application/vnd.github+json",
+                "User-Agent": "SERM/2.0",
+            },
+        )
         with urlopen(request, timeout=30) as response:
             value = json.loads(response.read().decode("utf-8"))
         if not isinstance(value, dict):
@@ -152,19 +192,42 @@ class EmulatorManager:
         return value
 
     @classmethod
-    def _select_asset(cls, key: str, assets: list[object]) -> dict[str, object] | None:
-        """Select the best Windows x64 release asset using the same scoring strategy as V1."""
+    def _select_asset(
+        cls,
+        key: str,
+        assets: list[object],
+    ) -> dict[str, object] | None:
+        """Select the best Windows x64 release asset using the V1 strategy."""
         candidates: list[tuple[int, dict[str, object]]] = []
         for raw in assets:
             if not isinstance(raw, dict) or not raw.get("browser_download_url"):
                 continue
             name = str(raw.get("name", "")).casefold()
             score = 0
-            if any(token in name for token in ("windows", "win64", "win-x64", "win_x64", "mingw")):
+            if any(
+                token in name
+                for token in ("windows", "win64", "win-x64", "win_x64", "mingw")
+            ):
                 score += 50
             if any(token in name for token in ("x64", "x86_64", "amd64", "64bit", "64-bit")):
                 score += 35
-            if any(token in name for token in ("linux", "ubuntu", "macos", "osx", "android", "ios", "arm64", "aarch64", "win32", "i386", "source", "src")):
+            if any(
+                token in name
+                for token in (
+                    "linux",
+                    "ubuntu",
+                    "macos",
+                    "osx",
+                    "android",
+                    "ios",
+                    "arm64",
+                    "aarch64",
+                    "win32",
+                    "i386",
+                    "source",
+                    "src",
+                )
+            ):
                 score -= 100
             if name.endswith(".zip"):
                 score += 20
@@ -172,7 +235,7 @@ class EmulatorManager:
                 score += 10
             elif name.endswith(".exe"):
                 score += 15
-            if key == "mame" and re.search(r"_x64\\.exe$", name):
+            if key == "mame" and re.search(r"_x64\.exe$", name):
                 score += 140
             if key == "flycast" and "flycast-win64" in name:
                 score += 150
@@ -182,13 +245,25 @@ class EmulatorManager:
                 score += 180
             if score >= 70:
                 candidates.append((score, raw))
-        candidates.sort(key=lambda item: (item[0], int(item[1].get("size") or 0)), reverse=True)
+        candidates.sort(
+            key=lambda item: (item[0], int(item[1].get("size") or 0)),
+            reverse=True,
+        )
         return candidates[0][1] if candidates else None
 
     @staticmethod
-    def _download(url: str, target: Path, expected: int, progress=None, log=None) -> None:
+    def _download(
+        url: str,
+        target: Path,
+        expected: int,
+        progress=None,
+        log=None,
+    ) -> None:
         """Download an archive to a temporary file with progress and no execution."""
-        request = Request(url, headers={"User-Agent": "SERM/2.0", "Accept-Encoding": "identity"})
+        request = Request(
+            url,
+            headers={"User-Agent": "SERM/2.0", "Accept-Encoding": "identity"},
+        )
         received = 0
         with urlopen(request, timeout=120) as response, target.open("wb") as output:
             total = int(response.headers.get("Content-Length") or expected or 0)
@@ -199,7 +274,12 @@ class EmulatorManager:
                     progress(received, total)
         if received <= 0:
             raise RuntimeError("Download retornou zero bytes.")
-        logger.info("[EMULATOR][DOWNLOAD] recebido=%d esperado=%d url=%s", received, total, url)
+        logger.info(
+            "[EMULATOR][DOWNLOAD] recebido=%d esperado=%d url=%s",
+            received,
+            total,
+            url,
+        )
         if log:
             log(f"DOWNLOAD | recebido={received:,} bytes | esperado={total:,} bytes")
 
@@ -220,9 +300,22 @@ class EmulatorManager:
             raise RuntimeError("7z.exe não foi encontrado. Instale o 7-Zip para extrair este pacote.")
         command = [str(seven_zip), "x", "-y", f"-o{destination}", str(archive)]
         creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", shell=False, creationflags=creationflags, timeout=300, check=False)
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            shell=False,
+            creationflags=creationflags,
+            timeout=300,
+            check=False,
+        )
         if result.returncode != 0:
-            raise RuntimeError(f"7-Zip falhou ({result.returncode}): {(result.stderr or result.stdout).strip()}")
+            raise RuntimeError(
+                f"7-Zip falhou ({result.returncode}): "
+                f"{(result.stderr or result.stdout).strip()}"
+            )
         if log:
             log(f"7-ZIP | extração concluída | {archive.name}")
 
@@ -242,14 +335,23 @@ class EmulatorManager:
         candidates: list[Path] = []
         if root:
             candidates.extend((root / name, root / "bin" / name))
-        for base in (Path.home() / "Documents", Path.home() / "Games", Path.home() / "Emulators", Path("C:/Emulators")):
+        for base in (
+            Path.home() / "Documents",
+            Path.home() / "Games",
+            Path.home() / "Emulators",
+            Path("C:/Emulators"),
+        ):
             candidates.extend((base / self.LABELS[key] / name, base / key / name))
         candidates.append(Path(name))
         return next((path.resolve() for path in candidates if path.is_file()), None)
 
     @staticmethod
-    def _read_version(key: str, root: Path | None, executable: Path | None) -> str | None:
-        """Read a locally persisted version marker when available."""
+    def _read_version(
+        key: str,
+        root: Path | None,
+        executable: Path | None,
+    ) -> str | None:
+        """Read a local version marker or the MAME executable version."""
         if root:
             for filename in (".serm-version", "VERSION", "version.txt", "build.txt"):
                 path = root / filename
@@ -262,8 +364,13 @@ class EmulatorManager:
                         return text.splitlines()[0].strip()
         if key == "mame" and executable:
             try:
-                import subprocess as _sp
-                result = _sp.run([str(executable), "-version"], capture_output=True, text=True, timeout=5, check=False)
+                result = subprocess.run(
+                    [str(executable), "-version"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                    check=False,
+                )
                 first = (result.stdout or result.stderr).splitlines()
                 if first:
                     match = re.search(r"MAME[: ]+([0-9.]+)", first[0], re.IGNORECASE)
@@ -293,12 +400,16 @@ class RetroArchManager:
 
     def discover(self) -> tuple[Path | None, Path | None, Path | None]:
         """Find RetroArch executable, installation root and cores directory."""
-        executable = None
         candidates = []
         if self.root:
             candidates.append(self.root / "retroarch.exe")
-        candidates.extend((Path.home() / "RetroArch-Win64" / "retroarch.exe", Path("C:/RetroArch/retroarch.exe")))
-        executable = next((p.resolve() for p in candidates if p.is_file()), None)
+        candidates.extend(
+            (
+                Path.home() / "RetroArch-Win64" / "retroarch.exe",
+                Path("C:/RetroArch/retroarch.exe"),
+            )
+        )
+        executable = next((path.resolve() for path in candidates if path.is_file()), None)
         root = executable.parent if executable else self.root
         cores = root / "cores" if root else None
         return executable, root, cores
@@ -308,8 +419,18 @@ class RetroArchManager:
         request = Request(self.BUILDROOT + "/", headers={"User-Agent": "SERM/2.0"})
         with urlopen(request, timeout=30) as response:
             html = response.read().decode("utf-8", errors="replace")
-        names = sorted(set(re.findall(r'href=[\"\']([^\"\']+_libretro\\.dll\\.zip)[\"\']', html, re.IGNORECASE)))
-        return tuple(CoreInfo(name, name.removesuffix("_libretro.dll.zip")) for name in names)
+        names = sorted(
+            set(
+                re.findall(
+                    r'href=[\"\']([^\"\']+_libretro\.dll\.zip)[\"\']',
+                    html,
+                    re.IGNORECASE,
+                )
+            )
+        )
+        return tuple(
+            CoreInfo(name, name.removesuffix("_libretro.dll.zip")) for name in names
+        )
 
     def install_core(self, filename: str, destination: Path, progress=None) -> Path:
         """Download one official core ZIP and extract it into RetroArch/cores."""
@@ -319,7 +440,11 @@ class RetroArchManager:
             archive = Path(temp_name) / filename
             EmulatorManager._download(url, archive, 0, progress)
             with zipfile.ZipFile(archive) as zf:
-                dlls = [member for member in zf.infolist() if member.filename.lower().endswith(".dll")]
+                dlls = [
+                    member
+                    for member in zf.infolist()
+                    if member.filename.lower().endswith(".dll")
+                ]
                 if not dlls:
                     raise RuntimeError(f"Core sem DLL: {filename}")
                 for member in dlls:
@@ -336,8 +461,10 @@ class RetroArchManager:
         with tempfile.TemporaryDirectory(prefix="serm-retroarch-") as temp_name:
             archive = Path(temp_name) / "RetroArch.7z"
             EmulatorManager._download(self.RETROARCH_ARCHIVE, archive, 0, progress)
-            EmulatorManager._extract(archive, Path(temp_name) / "extracted")
-            EmulatorManager._merge(Path(temp_name) / "extracted", destination)
+            extracted = Path(temp_name) / "extracted"
+            extracted.mkdir()
+            EmulatorManager._extract(archive, extracted)
+            EmulatorManager._merge(extracted, destination)
         executable = destination / "retroarch.exe"
         if not executable.is_file():
             raise RuntimeError(f"RetroArch não encontrado após extração: {executable}")
