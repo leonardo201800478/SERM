@@ -8,9 +8,10 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.parse import Request as UrlRequest
 from urllib.request import HTTPCookieProcessor, Request, build_opener, urlopen
 
+from .catalog import NoIntroCatalog
 from .errors import NoIntroDownloadError
 from .scene import NoIntroScene
 
@@ -29,7 +30,7 @@ class NoIntroDownload:
 
 @dataclass(frozen=True, slots=True)
 class _HttpResult:
-    """Minimal response data needed by the DAT generation workflow."""
+    """Minimal response data needed by the source workflow."""
 
     url: str
     body: bytes
@@ -41,7 +42,6 @@ class NoIntroDownloader:
     """Fetch No-Intro DAT files using the published Scene source by default."""
 
     BASE_URL = "https://datomatic.no-intro.org/"
-    STANDARD_DAT_URL = "https://datomatic.no-intro.org/index.php?page=download&op=dat"
     USER_AGENT = (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -49,6 +49,10 @@ class NoIntroDownloader:
     )
     REQUEST_RETRIES = 3
     RETRY_DELAY_SECONDS = 1.5
+
+    def __init__(self) -> None:
+        """Initialize the downloader with a lazy Scene system-ID cache."""
+        self._scene_ids: dict[str, str] | None = None
 
     def download_url(self, url: str, destination: Path, *, system: str) -> NoIntroDownload:
         """Download one DAT URL and return its local provenance information."""
@@ -70,19 +74,16 @@ class NoIntroDownloader:
         return NoIntroDownload(system=system, path=destination, sha256=digest, source_url=source_url)
 
     def download_system(self, system: str, destination: Path, *, source_id: str | None = None) -> NoIntroDownload:
-        """Download the published Scene DAT; Standard generation remains available as fallback."""
+        """Download the published Scene DAT, resolving its catalog ID when needed."""
         if not system.strip():
             raise ValueError("Sistema No-Intro não pode ser vazio.")
-        if source_id:
-            return self.download_scene_system(system, source_id, destination)
-        logger.warning(
-            "[NO-INTRO][DAT] sistema=%s sem source_id; usando Standard DAT como fallback",
-            system,
-        )
-        return self._download_standard_system(system, destination)
+        resolved_id = source_id or self._resolve_scene_id(system)
+        if not resolved_id:
+            raise NoIntroDownloadError(f"Sistema '{system}' não possui ID Scene no catálogo.")
+        return self.download_scene_system(system, resolved_id, destination)
 
     def download_scene_system(self, system: str, source_id: str, destination: Path) -> NoIntroDownload:
-        """Download a published Scene DAT without running the Standard DAT generator."""
+        """Download a published Scene DAT without running Standard DAT generation."""
         destination = Path(destination)
         destination.parent.mkdir(parents=True, exist_ok=True)
         opener = build_opener(HTTPCookieProcessor())
@@ -93,8 +94,8 @@ class NoIntroDownloader:
             "Referer": self.BASE_URL,
         }
         scene = NoIntroScene()
-        logger.info("[NO-INTRO][SCENE] início sistema=%s id=%s", system, source_id)
         page_url = f"{scene.SCENE_URL}&s={source_id}"
+        logger.info("[NO-INTRO][SCENE] início sistema=%s id=%s", system, source_id)
         page = self._request_get(opener, page_url, headers)
         logger.debug(
             "[NO-INTRO][SCENE] página status=%d url=%s bytes=%d",
@@ -126,17 +127,32 @@ class NoIntroDownloader:
         )
         return NoIntroDownload(system=system, path=destination, sha256=digest, source_url=data.url)
 
-    def _download_standard_system(self, system: str, destination: Path) -> NoIntroDownload:
-        """Generate and download a Standard DAT for systems without a catalog ID."""
-        raise NoIntroDownloadError(
-            f"Standard DAT não está habilitado como fallback automático para '{system}'. "
-            "O catálogo não forneceu source_id."
-        )
+    def _resolve_scene_id(self, system: str) -> str | None:
+        """Resolve and cache a DAT-o-MATIC numeric system ID from the catalog."""
+        if self._scene_ids is None:
+            logger.info("[NO-INTRO][SCENE] carregando IDs de sistemas do catálogo")
+            catalog = NoIntroCatalog()
+            systems = catalog.systems(catalog.fetch_catalog())
+            self._scene_ids = {item.name.casefold(): item.source_id for item in systems if item.source_id}
+            logger.info("[NO-INTRO][SCENE] IDs Scene disponíveis=%d", len(self._scene_ids))
+        exact = self._scene_ids.get(system.casefold())
+        if exact:
+            return exact
+        normalized = self._normalize(system)
+        for name, source_id in self._scene_ids.items():
+            if self._normalize(name) == normalized:
+                return source_id
+        return None
+
+    @staticmethod
+    def _normalize(value: str) -> str:
+        """Normalize a source name for fallback ID matching."""
+        return re.sub(r"[^a-z0-9]+", " ", value.casefold()).strip()
 
     @staticmethod
     def _request_get(opener, url: str, headers: dict[str, str]) -> _HttpResult:
         """Perform a GET while preserving the opener session."""
-        request = Request(url, headers=headers)
+        request = UrlRequest(url, headers=headers)
         try:
             with opener.open(request, timeout=60) as response:
                 return _HttpResult(
@@ -153,7 +169,7 @@ class NoIntroDownloader:
         """Download a published DAT with limited retry/backoff for transient failures."""
         last_exc: Exception | None = None
         for attempt in range(1, cls.REQUEST_RETRIES + 1):
-            request = Request(url, headers={**headers, "Referer": cls.STANDARD_DAT_URL})
+            request = Request(url, headers={**headers, "Referer": cls.BASE_URL})
             try:
                 with opener.open(request, timeout=60) as response:
                     result = _HttpResult(
