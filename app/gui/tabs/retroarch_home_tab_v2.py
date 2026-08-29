@@ -43,7 +43,7 @@ class RetroArchHomeTab(QWidget):
         self.refresh()
 
     def _build_ui(self) -> None:
-        """Monta a Home com diagnóstico, operações e gerenciamento de cores."""
+        """Monta a Home sem atalhos legados sem implementação."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(10)
@@ -114,12 +114,9 @@ class RetroArchHomeTab(QWidget):
         core_actions.addStretch()
         cores_layout.addLayout(core_actions)
 
-        summary = QHBoxLayout()
         self.core_summary = QLabel("Nenhuma lista carregada")
         self.core_summary.setObjectName("coreSummary")
-        summary.addWidget(self.core_summary)
-        summary.addStretch()
-        cores_layout.addLayout(summary)
+        cores_layout.addWidget(self.core_summary)
 
         self.core_list = QListWidget()
         self.core_list.setSelectionMode(QListWidget.SelectionMode.NoSelection)
@@ -130,6 +127,7 @@ class RetroArchHomeTab(QWidget):
         self.progress = QProgressBar()
         self.progress.setTextVisible(True)
         self.progress.setRange(0, 100)
+        self.progress.setValue(0)
         layout.addWidget(self.progress)
 
         log_label = QLabel("Log do downloader")
@@ -140,18 +138,6 @@ class RetroArchHomeTab(QWidget):
         self.log.setMaximumBlockCount(2000)
         self.log.setPlaceholderText("As operações do RetroArch aparecerão aqui…")
         layout.addWidget(self.log, 1)
-
-        shortcuts = QHBoxLayout()
-        directories = QPushButton("Configurar diretórios")
-        directories.clicked.connect(self.open_directories)
-        shortcuts.addWidget(directories)
-        catalog = QPushButton("Abrir catálogo de cores")
-        catalog.clicked.connect(self.open_catalog)
-        shortcuts.addWidget(catalog)
-        settings = QPushButton("Configurações do RetroArch")
-        settings.clicked.connect(self.open_settings)
-        shortcuts.addWidget(settings)
-        layout.addLayout(shortcuts)
 
         self.setStyleSheet(
             """
@@ -201,7 +187,7 @@ class RetroArchHomeTab(QWidget):
             self.refresh_stable_versions()
 
     def refresh_stable_versions(self) -> None:
-        """Consulta versões Stable diretamente no índice oficial."""
+        """Consulta versões Stable diretamente no Buildbot oficial."""
         try:
             versions = RetroArchDownloadService.discover_stable_versions()
             self.stable_combo.clear()
@@ -225,7 +211,7 @@ class RetroArchHomeTab(QWidget):
         self._start_worker("install")
 
     def update_retroarch(self) -> None:
-        """Atualiza RetroArch preservando config, saves e states."""
+        """Atualiza RetroArch preservando configuração, saves e states."""
         if not self.config.retroarch_dir:
             self._append_log("ERRO | selecione o retroarch.exe em Diretórios antes de atualizar.")
             return
@@ -355,16 +341,16 @@ class RetroArchHomeTab(QWidget):
         self._start_worker("core", selected)
 
     def _start_worker(self, operation: str, selected_cores: list[str] | None = None) -> None:
-        """Cria o worker assíncrono compatível com a API atual."""
+        """Cria e gerencia um worker assíncrono por operação."""
         if self._thread is not None and self._thread.isRunning():
             self._append_log("AVISO | já existe uma operação em execução.")
             return
         mode, version = self._channel()
-        destination = self._destination()
         self._thread = QThread(self)
+        self._thread.setObjectName("RetroArchDownloadThread")
         self._worker = RetroArchDownloadWorker(
             operation=operation,
-            destination=destination,
+            destination=self._destination(),
             mode=mode,
             stable_version=version,
             core_filenames=selected_cores or [],
@@ -375,8 +361,11 @@ class RetroArchHomeTab(QWidget):
         self._worker.log_message.connect(self._append_log)
         self._worker.status.connect(self._on_status)
         self._worker.finished.connect(self._on_worker_finished)
+        self._worker.finished.connect(self._thread.quit)
         self._worker.failed.connect(self._on_worker_failed)
-        self._thread.finished.connect(self._thread.deleteLater)
+        self._worker.failed.connect(lambda _message: self._thread.quit())
+        self._thread.finished.connect(self._on_thread_finished)
+        self._thread.finished.connect(self._worker.deleteLater)
         self._thread.start()
         self._update_busy_state()
 
@@ -387,16 +376,31 @@ class RetroArchHomeTab(QWidget):
 
     @Slot(str, str, str)
     def _on_worker_finished(self, operation: str, value: str, path: str) -> None:
-        """Registra conclusão normal da operação."""
+        """Registra conclusão normal e prepara a GUI para nova operação."""
         self._append_log(f"RESULTADO | operação={operation} | valor={value} | caminho={path}")
+        self.progress.setRange(0, 100)
+        self.progress.setValue(100)
+        self.status_label.setText("● Pronto")
+        self.status_label.setStyleSheet("color:#2e8b57;font-weight:bold;")
         self._refresh_installed_markers()
         self._update_core_summary()
-        self._update_busy_state()
 
     @Slot(str)
     def _on_worker_failed(self, message: str) -> None:
-        """Registra falha controlada sem encerrar a aplicação."""
+        """Registra falha controlada sem deixar a GUI presa em execução."""
         self._append_log(f"ERRO WORKER | {message}")
+        self.progress.setRange(0, 100)
+        self.status_label.setText("● Pronto | última operação falhou")
+        self.status_label.setStyleSheet("color:#b8860b;font-weight:bold;")
+
+    @Slot()
+    def _on_thread_finished(self) -> None:
+        """Libera o worker/thread e restaura todos os controles."""
+        thread = self._thread
+        self._worker = None
+        self._thread = None
+        if thread is not None:
+            thread.deleteLater()
         self._update_busy_state()
 
     @Slot(int, int)
@@ -406,7 +410,7 @@ class RetroArchHomeTab(QWidget):
             self.progress.setRange(0, 0)
             return
         self.progress.setRange(0, total)
-        self.progress.setValue(current)
+        self.progress.setValue(max(0, min(current, total)))
 
     def _update_core_summary(self) -> None:
         """Atualiza o contador visual com base na lista atualmente exibida."""
@@ -421,7 +425,7 @@ class RetroArchHomeTab(QWidget):
             self.core_summary.setText(f"{count} cores exibidos  •  {checked} selecionados")
 
     def _update_busy_state(self) -> None:
-        """Bloqueia operações concorrentes enquanto um worker estiver ativo."""
+        """Bloqueia operações somente enquanto a thread realmente estiver ativa."""
         busy = bool(self._thread and self._thread.isRunning())
         for widget in (
             self.install_button,
@@ -433,22 +437,9 @@ class RetroArchHomeTab(QWidget):
             self.clear_button,
         ):
             widget.setEnabled(not busy)
+        self.channel_combo.setEnabled(not busy)
+        self.stable_combo.setEnabled(not busy and self.channel_combo.currentText().casefold() == "stable")
 
     def _append_log(self, message: str) -> None:
         """Adiciona uma linha ao log visual."""
         self.log.appendPlainText(str(message))
-
-    def open_directories(self) -> None:
-        """Abre a tela de diretórios do emulador."""
-        if self.parent_window and hasattr(self.parent_window, "open_emulator_directories"):
-            self.parent_window.open_emulator_directories("retroarch")
-
-    def open_catalog(self) -> None:
-        """Abre o catálogo de cores do RetroArch."""
-        if self.parent_window and hasattr(self.parent_window, "open_retroarch_catalog"):
-            self.parent_window.open_retroarch_catalog()
-
-    def open_settings(self) -> None:
-        """Abre as configurações do RetroArch."""
-        if self.parent_window and hasattr(self.parent_window, "open_emulator_settings"):
-            self.parent_window.open_emulator_settings("retroarch")
