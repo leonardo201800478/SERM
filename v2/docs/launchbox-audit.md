@@ -4,6 +4,34 @@
 
 A auditoria permite estudar a estrutura real do LaunchBox sem importar dados nem modificar a instalação externa.
 
+## Execução
+
+Com o ambiente virtual V2 ativo:
+
+```powershell
+python -m serm_v2.tools.audit_launchbox
+```
+
+Para uma amostra menor:
+
+```powershell
+python -m serm_v2.tools.audit_launchbox --sample 5
+```
+
+Para escolher outro arquivo de saída:
+
+```powershell
+python -m serm_v2.tools.audit_launchbox --output C:\Temp\serm-launchbox-audit.json
+```
+
+A saída padrão é:
+
+```text
+v2/data/exports/launchbox-audit.json
+```
+
+O arquivo é operacional e não deve ser versionado.
+
 ## Escopo atual
 
 A primeira versão inspeciona:
@@ -37,7 +65,7 @@ valor arquitetural?
 
 ## Próxima investigação
 
-Com o provider validado no ambiente Windows real, usar a API de auditoria para gerar um relatório controlado da instalação do usuário e avaliar especialmente:
+O relatório real será utilizado para avaliar especialmente:
 
 - `Games`;
 - `Platforms`;
