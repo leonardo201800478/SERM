@@ -2,14 +2,16 @@ import io
 import zipfile
 from pathlib import Path
 
-from serm_v2.sources.acquisition.no_intro_archive import NoIntroArchiveProvider
+from serm_v2.sources.acquisition.no_intro_archive import (
+    NoIntroArchiveEntry,
+    NoIntroArchiveProvider,
+)
 
 
 def _archive(*names: str) -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
-        for name in names:
-            archive.writestr(name, "clrmamepro (\n name \"test\"\n)\n")
+        archive.writestr(name, 'clrmamepro (\n name "test"\n)\n')
     return buffer.getvalue()
 
 
@@ -43,8 +45,14 @@ def test_extract_archive_materializes_all_official_dats(tmp_path: Path) -> None:
 def test_match_supports_launchbox_aliases(tmp_path: Path) -> None:
     provider = NoIntroArchiveProvider(root=tmp_path)
     entries = (
-        provider._entry("Nintendo - Nintendo Entertainment System (Headered) (20260704-141639).dat"),
-        provider._entry("Sega - Mega Drive - Genesis (Parent-Clone) (20260629-112427).dat"),
+        NoIntroArchiveEntry(
+            "Nintendo - Nintendo Entertainment System (Headered) (20260704-141639).dat",
+            provider.dat_root / "Nintendo - Nintendo Entertainment System (Headered) (20260704-141639).dat",
+        ),
+        NoIntroArchiveEntry(
+            "Sega - Mega Drive - Genesis (Parent-Clone) (20260629-112427).dat",
+            provider.dat_root / "Sega - Mega Drive - Genesis (Parent-Clone) (20260629-112427).dat",
+        ),
     )
 
     matches = provider.match(("NES", "Sega Genesis"), entries)
@@ -54,5 +62,8 @@ def test_match_supports_launchbox_aliases(tmp_path: Path) -> None:
 
 def test_destination_is_stable(tmp_path: Path) -> None:
     provider = NoIntroArchiveProvider(root=tmp_path)
-    entry = provider._entry("Nintendo - Game Boy (Parent-Clone) (20260707-013717).dat")
+    entry = NoIntroArchiveEntry(
+        "Nintendo - Game Boy (Parent-Clone) (20260707-013717).dat",
+        provider.dat_root / "Nintendo - Game Boy (Parent-Clone) (20260707-013717).dat",
+    )
     assert provider.destination(entry) == provider.dat_root / entry.name
