@@ -1,42 +1,23 @@
-[build-system]
-requires = ["setuptools>=61.0", "wheel"]
-build-backend = "setuptools.build_meta"
-
-[project]
-name = "mame-set-builder"
-version = "1.0.0"
-description = "Aplicação desktop para gerenciamento, filtragem, validação e construção de conjuntos personalizados de ROMs para MAME"
-readme = "README.md"
-authors = [{ name = "Leonardo" }]
-license = { text = "MIT" }
-classifiers = [
-    "Programming Language :: Python :: 3",
-    "Operating System :: Microsoft :: Windows",
-    "Development Status :: 2 - Pre-Alpha",
-    "Intended Audience :: End Users/Desktop",
-    "Topic :: Games/Entertainment :: Arcade"
-]
-requires-python = ">=3.10"
-dependencies = ["PySide6>=6.6.0", "py7zr>=1.1.3"]
-
-[project.optional-dependencies]
-test = ["pytest>=8.0"]
-
-[project.urls]
-Homepage = "https://github.com/leonardo201800478/SERM"
-Repository = "https://github.com/leonardo201800478/SERM.git"
-Issues = "https://github.com/leonardo201800478/SERM/issues"
-
-[project.scripts]
-mame-set-builder = "app.main:main"
-
-[tool.setuptools.packages.find]
-include = ["app*"]
-exclude = ["tests*", "data*", "docs*"]
+# SERM repository workspace configuration.
+#
+# The active Python project lives in v2/ and has its own pyproject.toml.
+# This root file exists only so repository-level tooling does not discover
+# the historical V1 application as the active project.
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["v2/tests"]
+pythonpath = ["v2"]
 python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
-addopts = "-v --tb=short"
+
+[tool.ruff]
+# Restrict repository-root Ruff discovery to the active V2 tree.
+include = ["v2/**/*.py"]
+exclude = [
+    ".git",
+    ".venv",
+    "v2/.venv",
+    "build",
+    "dist",
+]
