@@ -1,10 +1,24 @@
-"""Sessão Home do RetroArch com gerenciamento em lote dos cores update."""
+"""Home do RetroArch: instalação, atualização e gerenciamento de cores."""
 from __future__ import annotations
 
 from pathlib import Path
 
 from PySide6.QtCore import QThread, Qt, Slot
-from PySide6.QtWidgets import QComboBox, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton, QPlainTextEdit, QProgressBar, QVBoxLayout, QWidget
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import (
+    QComboBox,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QPushButton,
+    QPlainTextEdit,
+    QProgressBar,
+    QVBoxLayout,
+    QWidget,
+)
 
 from app.config.app_config import AppConfig
 from app.core.services.retroarch_download_service import RetroArchDownloadService
@@ -12,7 +26,12 @@ from app.gui.widgets.retroarch_download_worker import RetroArchDownloadWorker
 
 
 class RetroArchHomeTab(QWidget):
-    """Gerencia instalação, atualização e cores do RetroArch pelo Buildbot oficial."""
+    """Gerencia RetroArch e cores libretro pelo Buildbot oficial."""
+
+    _GREEN = QColor("#2e8b57")
+    _YELLOW = QColor("#b8860b")
+    _RED = QColor("#b22222")
+    _MUTED = QColor("#777777")
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -24,16 +43,22 @@ class RetroArchHomeTab(QWidget):
         self.refresh()
 
     def _build_ui(self) -> None:
-        """Monta diagnóstico, canais, operações e seleção em lote de cores."""
+        """Monta a Home com diagnóstico, operações e gerenciamento de cores."""
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(10)
+
         title = QLabel("RetroArch")
-        title.setStyleSheet("font-size:22px;font-weight:bold;")
+        title.setObjectName("retroarchTitle")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
 
         status = QGroupBox("Estado da instalação")
         form = QFormLayout(status)
-        self.status_label, self.path_label, self.config_label, self.cores_label = QLabel(), QLabel(), QLabel(), QLabel()
+        self.status_label = QLabel()
+        self.path_label = QLabel()
+        self.config_label = QLabel()
+        self.cores_label = QLabel()
         for label in (self.status_label, self.path_label, self.config_label, self.cores_label):
             label.setWordWrap(True)
         form.addRow("Status:", self.status_label)
@@ -64,41 +89,56 @@ class RetroArchHomeTab(QWidget):
         self.update_button = QPushButton("Atualizar RetroArch")
         self.update_button.clicked.connect(self.update_retroarch)
         actions.addWidget(self.update_button)
+        actions.addStretch()
         layout.addWidget(operations)
 
         cores_group = QGroupBox("Cores libretro")
         cores_layout = QVBoxLayout(cores_group)
         core_actions = QHBoxLayout()
-        self.core_refresh_button = QPushButton("Atualizar lista de cores")
+        self.core_refresh_button = QPushButton("Atualizar lista")
         self.core_refresh_button.clicked.connect(self.refresh_cores)
         core_actions.addWidget(self.core_refresh_button)
         self.core_install_button = QPushButton("Instalar / atualizar selecionados")
         self.core_install_button.clicked.connect(self.install_selected_cores)
         core_actions.addWidget(self.core_install_button)
-        self.core_update_installed_button = QPushButton("Atualizar cores instalados")
+        self.core_update_installed_button = QPushButton("Verificar atualizações")
+        self.core_update_installed_button.setToolTip("Compara CRC dos cores instalados com o Buildbot e seleciona somente os desatualizados.")
         self.core_update_installed_button.clicked.connect(self.update_installed_cores)
         core_actions.addWidget(self.core_update_installed_button)
         self.select_all_button = QPushButton("Selecionar tudo")
         self.select_all_button.clicked.connect(self.select_all_cores)
         core_actions.addWidget(self.select_all_button)
-        self.clear_button = QPushButton("Limpar")
+        self.clear_button = QPushButton("Limpar seleção")
         self.clear_button.clicked.connect(self.clear_core_selection)
         core_actions.addWidget(self.clear_button)
         core_actions.addStretch()
         cores_layout.addLayout(core_actions)
+
+        summary = QHBoxLayout()
+        self.core_summary = QLabel("Nenhuma lista carregada")
+        self.core_summary.setObjectName("coreSummary")
+        summary.addWidget(self.core_summary)
+        summary.addStretch()
+        cores_layout.addLayout(summary)
+
         self.core_list = QListWidget()
         self.core_list.setSelectionMode(QListWidget.SelectionMode.NoSelection)
+        self.core_list.setAlternatingRowColors(True)
         cores_layout.addWidget(self.core_list, 1)
         layout.addWidget(cores_group, 1)
 
         self.progress = QProgressBar()
         self.progress.setTextVisible(True)
+        self.progress.setRange(0, 100)
         layout.addWidget(self.progress)
+
+        log_label = QLabel("Log do downloader")
+        log_label.setObjectName("sectionLabel")
+        layout.addWidget(log_label)
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
         self.log.setMaximumBlockCount(2000)
-        self.log.setStyleSheet("QPlainTextEdit{background:#0b0b0b;color:#d7d7d7;font-family:Consolas;font-size:10px;}")
-        layout.addWidget(QLabel("Log do downloader"))
+        self.log.setPlaceholderText("As operações do RetroArch aparecerão aqui…")
         layout.addWidget(self.log, 1)
 
         shortcuts = QHBoxLayout()
@@ -113,8 +153,20 @@ class RetroArchHomeTab(QWidget):
         shortcuts.addWidget(settings)
         layout.addLayout(shortcuts)
 
+        self.setStyleSheet(
+            """
+            #retroarchTitle { font-size: 22px; font-weight: 700; padding: 4px; }
+            #coreSummary { font-weight: 600; padding: 2px 0; }
+            #sectionLabel { font-weight: 600; }
+            QGroupBox { font-weight: 600; }
+            QPushButton { padding: 6px 10px; }
+            QProgressBar { min-height: 18px; }
+            QPlainTextEdit { font-family: Consolas; font-size: 10px; }
+            """
+        )
+
     def refresh(self) -> None:
-        """Atualiza diagnóstico e preserva a lista de cores sem baixar o índice novamente."""
+        """Atualiza o diagnóstico local sem consultar a rede."""
         self.config.load()
         executable = self.config.retroarch_path
         root = self.config.retroarch_dir
@@ -130,18 +182,19 @@ class RetroArchHomeTab(QWidget):
         self.cores_label.setText(str(cores or "não configurado"))
         if executable and Path(executable).is_file():
             self.status_label.setText(f"● Pronto | versão {self.config.retroarch_version or 'não detectada'}")
-            self.status_label.setStyleSheet("color:#55d66b;font-weight:bold;")
+            self.status_label.setStyleSheet("color:#2e8b57;font-weight:bold;")
         elif root:
             self.status_label.setText("● Diretório configurado; executável não localizado")
-            self.status_label.setStyleSheet("color:#e5c454;font-weight:bold;")
+            self.status_label.setStyleSheet("color:#b8860b;font-weight:bold;")
         else:
             self.status_label.setText("● Não configurado")
-            self.status_label.setStyleSheet("color:#999;font-weight:bold;")
+            self.status_label.setStyleSheet("color:#777;font-weight:bold;")
         self._refresh_installed_markers()
+        self._update_core_summary()
         self._update_busy_state()
 
     def _channel_changed(self, value: str) -> None:
-        """Habilita Stable e atualiza sua lista quando o canal é selecionado."""
+        """Habilita Stable e consulta versões somente quando necessário."""
         is_stable = value.casefold() == "stable"
         self.stable_combo.setEnabled(is_stable)
         if is_stable and self.stable_combo.count() == 0:
@@ -179,7 +232,7 @@ class RetroArchHomeTab(QWidget):
         self._start_worker("update")
 
     def _installed_core_filenames(self) -> set[str]:
-        """Lê diretamente o diretório de cores configurado e retorna DLLs instaladas."""
+        """Retorna os nomes das DLLs libretro instaladas."""
         cores_dir = self.config.get_emulator_path("retroarch", "cores")
         if not cores_dir:
             return set()
@@ -189,7 +242,7 @@ class RetroArchHomeTab(QWidget):
         return {item.name.casefold() for item in path.glob("*_libretro.dll") if item.is_file()}
 
     def _refresh_installed_markers(self) -> None:
-        """Atualiza marcadores de instalação sem consultar a rede e sem alterar seleção."""
+        """Atualiza o marcador de instalação sem consultar a rede."""
         if not hasattr(self, "core_list"):
             return
         installed = self._installed_core_filenames()
@@ -204,39 +257,46 @@ class RetroArchHomeTab(QWidget):
             marker = "[INSTALADO] " if filename.removesuffix(".zip").casefold() in installed else "[NOVO] "
             item.setText(marker + base)
 
+    def _add_core_item(self, text: str, filename: str, checked: bool, color: QColor | None = None) -> None:
+        """Adiciona um core à lista com estado e destaque visual opcionais."""
+        item = QListWidgetItem(text)
+        item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+        item.setCheckState(Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
+        item.setData(Qt.ItemDataRole.UserRole, filename)
+        if color is not None:
+            item.setForeground(color)
+        self.core_list.addItem(item)
+
     def refresh_cores(self) -> None:
         """Atualiza o índice oficial e exibe todos os cores publicados."""
         try:
             mode, version = self._channel()
             channel = RetroArchDownloadService.channel(mode, version)
-            service = RetroArchDownloadService()
+            service = RetroArchDownloadService(log_callback=self._append_log)
             cores = service.list_cores(channel)
-            self.core_list.clear()
             installed = self._installed_core_filenames()
+            self.core_list.clear()
             installed_count = 0
             new_count = 0
             for core in cores:
-                item = QListWidgetItem()
-                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-                item.setCheckState(Qt.CheckState.Unchecked)
-                item.setData(Qt.ItemDataRole.UserRole, core.filename)
                 dll_filename = core.filename.removesuffix(".zip")
                 is_installed = dll_filename.casefold() in installed
-                marker = "[INSTALADO] " if is_installed else "[NOVO] "
                 installed_count += int(is_installed)
                 new_count += int(not is_installed)
-                item.setText(f"{marker}{core.core_name} | {core.filename} | {core.date} | CRC {core.crc32}")
-                self.core_list.addItem(item)
+                marker = "[INSTALADO] " if is_installed else "[NOVO] "
+                self._add_core_item(
+                    f"{marker}{core.core_name} | {core.filename} | {core.date} | CRC {core.crc32}",
+                    core.filename,
+                    False,
+                    self._GREEN if is_installed else self._MUTED,
+                )
+            self.core_summary.setText(f"{len(cores)} publicados  •  {installed_count} instalados  •  {new_count} novos")
             self._append_log(f"CORES | índice carregado={len(cores)} | instalados={installed_count} | novos={new_count} | diretório={self.config.get_emulator_path('retroarch', 'cores') or 'não configurado'}")
         except Exception as exc:
             self._append_log(f"ERRO CORES | {type(exc).__name__}: {exc}")
 
     def update_installed_cores(self) -> None:
-        """Lista somente cores instalados cujo CRC difere do índice oficial.
-
-        Não realiza downloads. Os resultados são automaticamente marcados para
-        confirmação explícita pelo botão 'Instalar / atualizar selecionados'.
-        """
+        """Lista somente cores instalados com CRC divergente e os seleciona."""
         try:
             cores_dir = self.config.get_emulator_path("retroarch", "cores")
             if not cores_dir or not Path(cores_dir).expanduser().is_dir():
@@ -255,13 +315,13 @@ class RetroArchHomeTab(QWidget):
             self.core_list.clear()
             for entry in updates:
                 remote = by_filename[entry.path.name.casefold()]
-                item = QListWidgetItem()
-                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-                item.setCheckState(Qt.CheckState.Checked)
-                item.setData(Qt.ItemDataRole.UserRole, remote.filename)
-                item.setText(f"[ATUALIZAÇÃO] {remote.core_name} | CRC local {entry.local_crc32} → remoto {entry.remote_crc32}")
-                self.core_list.addItem(item)
-
+                self._add_core_item(
+                    f"[ATUALIZAÇÃO] {remote.core_name} | CRC local {entry.local_crc32} → remoto {entry.remote_crc32}",
+                    remote.filename,
+                    True,
+                    self._YELLOW,
+                )
+            self.core_summary.setText(f"{len(updates)} atualizações disponíveis  •  {current} atualizados  •  {unknown} sem correspondência")
             self._append_log(f"ATUALIZAÇÕES | instalados={len(comparison)} | atualizações={len(updates)} | atualizados={current} | sem correspondência={unknown}")
             if not updates:
                 self._append_log("ATUALIZAÇÕES | nenhum core instalado necessita de atualização.")
@@ -316,14 +376,13 @@ class RetroArchHomeTab(QWidget):
         self._worker.status.connect(self._on_status)
         self._worker.finished.connect(self._on_worker_finished)
         self._worker.failed.connect(self._on_worker_failed)
-        self._thread.started.connect(lambda: self._update_busy_state())
         self._thread.finished.connect(self._thread.deleteLater)
         self._thread.start()
         self._update_busy_state()
 
     @Slot(str)
     def _on_status(self, message: str) -> None:
-        """Exibe o estado corrente da operação no log visual."""
+        """Exibe o estado corrente da operação."""
         self._append_log(f"STATUS | {message}")
 
     @Slot(str, str, str)
@@ -331,24 +390,48 @@ class RetroArchHomeTab(QWidget):
         """Registra conclusão normal da operação."""
         self._append_log(f"RESULTADO | operação={operation} | valor={value} | caminho={path}")
         self._refresh_installed_markers()
+        self._update_core_summary()
         self._update_busy_state()
 
     @Slot(str)
     def _on_worker_failed(self, message: str) -> None:
-        """Registra falha controlada do worker sem encerrar a aplicação."""
+        """Registra falha controlada sem encerrar a aplicação."""
         self._append_log(f"ERRO WORKER | {message}")
         self._update_busy_state()
 
     @Slot(int, int)
     def _on_progress(self, current: int, total: int) -> None:
         """Atualiza a barra de progresso."""
+        if total <= 0:
+            self.progress.setRange(0, 0)
+            return
         self.progress.setRange(0, total)
         self.progress.setValue(current)
 
+    def _update_core_summary(self) -> None:
+        """Atualiza o contador visual com base na lista atualmente exibida."""
+        if not hasattr(self, "core_list"):
+            return
+        count = self.core_list.count()
+        checked = sum(
+            self.core_list.item(index).checkState() == Qt.CheckState.Checked
+            for index in range(count)
+        )
+        if count:
+            self.core_summary.setText(f"{count} cores exibidos  •  {checked} selecionados")
+
     def _update_busy_state(self) -> None:
-        """Bloqueia ações concorrentes enquanto uma operação estiver ativa."""
+        """Bloqueia operações concorrentes enquanto um worker estiver ativo."""
         busy = bool(self._thread and self._thread.isRunning())
-        for widget in (self.install_button, self.update_button, self.core_refresh_button, self.core_install_button, self.core_update_installed_button, self.select_all_button, self.clear_button):
+        for widget in (
+            self.install_button,
+            self.update_button,
+            self.core_refresh_button,
+            self.core_install_button,
+            self.core_update_installed_button,
+            self.select_all_button,
+            self.clear_button,
+        ):
             widget.setEnabled(not busy)
 
     def _append_log(self, message: str) -> None:
