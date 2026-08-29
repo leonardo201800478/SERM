@@ -38,7 +38,7 @@ def test_older_revision_is_update_candidate(tmp_path: Path) -> None:
     assert manager.update_candidates((system,), lambda _: destination) == (system,)
 
 
-def test_unknown_existing_file_is_update_candidate(tmp_path: Path) -> None:
+def test_unknown_existing_file_is_not_marked_outdated(tmp_path: Path) -> None:
     manager = NoIntroUpdateManager(tmp_path)
     system = NoIntroSystem("Nintendo - NES", "2026-08-29 13:00:00")
     destination = tmp_path / "nes.zip"
@@ -46,5 +46,5 @@ def test_unknown_existing_file_is_update_candidate(tmp_path: Path) -> None:
 
     status = manager.inspect(system, destination)
     assert status.state == "unknown"
-    assert status.needs_update
-    assert manager.update_candidates((system,), lambda _: destination) == (system,)
+    assert not status.needs_update
+    assert manager.update_candidates((system,), lambda _: destination) == ()
