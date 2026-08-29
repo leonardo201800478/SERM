@@ -1,0 +1,12 @@
+{
+  "systems": {
+    "sega - master system - mark iii": "master-system-fidelity-v1",
+    "nintendo - nintendo entertainment system": "nes-fidelity-v1",
+    "nintendo - super nintendo entertainment system": "snes-fidelity-v1",
+    "sega genesis": "mega-drive-fidelity-v1",
+    "super nintendo entertainment system": "snes-fidelity-v1",
+    "sega sg-1000": "sega-sg1000-fidelity-v1",
+    "sony playstation": "playstation-fidelity-v1",
+    "nintendo 64": "nintendo-64-fidelity-v1"
+  }
+}
