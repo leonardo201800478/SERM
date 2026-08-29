@@ -10,6 +10,7 @@ import tempfile
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
@@ -165,7 +166,7 @@ class EmulatorManager:
         )
         return DownloadResult(key, version, executable, str(asset["name"]))
 
-    def _release(self, key: str, *, nightly: bool) -> dict[str, object]:
+    def _release(self, key: str, *, nightly: bool) -> dict[str, Any]:
         """Read the current official GitHub release metadata."""
         repo = self.REPOSITORIES[key]
         url = (
@@ -176,7 +177,7 @@ class EmulatorManager:
         return self._json(url)
 
     @staticmethod
-    def _json(url: str) -> dict[str, object]:
+    def _json(url: str) -> dict[str, Any]:
         """Fetch a public JSON object with a stable User-Agent."""
         request = Request(
             url,
@@ -196,9 +197,9 @@ class EmulatorManager:
         cls,
         key: str,
         assets: list[object],
-    ) -> dict[str, object] | None:
+    ) -> dict[str, Any] | None:
         """Select the best Windows x64 release asset using the V1 strategy."""
-        candidates: list[tuple[int, dict[str, object]]] = []
+        candidates: list[tuple[int, dict[str, Any]]] = []
         for raw in assets:
             if not isinstance(raw, dict) or not raw.get("browser_download_url"):
                 continue
