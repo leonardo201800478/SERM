@@ -54,13 +54,14 @@ dmypy.json
 # ------------------------------------------------------------
 # VS Code / IDE
 # ------------------------------------------------------------
-# The repository-level VS Code files are intentional and versioned.
+# Repository-level VS Code files are intentional and versioned.
 .vscode/*
 !.vscode/settings.json
 !.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json
 
-# V2 has its own project-level VS Code configuration.
-# Keep it versioned even though the repository root is the default workspace.
+# V2 also has project-level VS Code configuration when opened directly.
 !v2/.vscode/
 !v2/.vscode/settings.json
 !v2/.vscode/extensions.json
