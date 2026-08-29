@@ -46,9 +46,9 @@ class DatStatus:
 class PublicDatCatalogProvider:
     """Acquire DATs from the public Git-backed DAT catalog."""
 
-    INDEX_URL = (
+    INDEX_URL_TEMPLATE = (
         "https://raw.githubusercontent.com/videogame-archive/dat-catalog/"
-        "main/root/basic/No-Intro/index.csv"
+        "main/root/basic/{category}/index.csv"
     )
     USER_AGENT = "SERM/2.0"
 
@@ -63,34 +63,44 @@ class PublicDatCatalogProvider:
         """Return the repository-local No-Intro DAT directory."""
         return Path(__file__).resolve().parents[3] / "data" / "sources" / "no_intro" / "dats"
 
-    def fetch_catalog(self) -> tuple[DatCatalogEntry, ...]:
-        """Download and parse the current No-Intro catalog index."""
-        logger.info("[DAT-CATALOG][HTTP] GET %s", self.INDEX_URL)
-        request = urllib.request.Request(self.INDEX_URL, headers={"User-Agent": self.USER_AGENT})
+    def fetch_catalog(self, category: str = "No-Intro") -> tuple[DatCatalogEntry, ...]:
+        """Download and parse the current DAT Catalog section.
+
+        ``category`` selects a top-level catalog maintained by the public
+        repository, such as ``No-Intro`` or ``Redump``.  The catalog itself
+        remains the source of truth; no web page scraping is performed.
+        """
+        if not category or any(char not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_" for char in category):
+            raise ValueError(f"Categoria de catálogo inválida: {category!r}")
+        url = self.INDEX_URL_TEMPLATE.format(category=quote(category, safe=""))
+        logger.info("[DAT-CATALOG][HTTP] GET %s", url)
+        request = urllib.request.Request(url, headers={"User-Agent": self.USER_AGENT})
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
                 payload = response.read()
         except (HTTPError, URLError, OSError) as exc:
-            raise DatCatalogError(f"Falha ao obter índice do Public DAT Catalog: {exc}") from exc
-        entries = self._parse_index(payload.decode("utf-8-sig"))
-        logger.info("[DAT-CATALOG][CATALOG] No-Intro DATs disponíveis=%d", len(entries))
+            raise DatCatalogError(f"Falha ao obter índice {category} do Public DAT Catalog: {exc}") from exc
+        entries = self._parse_index(payload.decode("utf-8-sig"), category=category)
+        logger.info("[DAT-CATALOG][CATALOG] %s DATs disponíveis=%d", category, len(entries))
         if not entries:
-            raise DatCatalogError("O índice do Public DAT Catalog não contém DATs No-Intro.")
+            raise DatCatalogError(f"O índice do Public DAT Catalog não contém DATs {category}.")
         return entries
 
     @staticmethod
-    def _parse_index(text: str) -> tuple[DatCatalogEntry, ...]:
-        """Extract only FILE entries inside the No-Intro directory."""
+    def _parse_index(text: str, *, category: str = "No-Intro") -> tuple[DatCatalogEntry, ...]:
+        """Extract valid DAT FILE entries from one catalog index.
+
+        Redump publishes its DAT files directly at the category root, while
+        No-Intro also contains nested informational directories.  We therefore
+        derive the category from the requested index and do not depend on a
+        particular directory ordering in the CSV.
+        """
         reader = csv.DictReader(io.StringIO(text))
         entries: list[DatCatalogEntry] = []
-        current_directory = ""
         for row in reader:
             kind = (row.get("Type") or "").strip().upper()
             name = (row.get("Name") or "").strip()
-            if kind == "DIRECTORY":
-                current_directory = name
-                continue
-            if kind != "FILE" or current_directory != "No-Intro" or not name.lower().endswith(".dat"):
+            if kind != "FILE" or name.casefold() == "modified" or not name.lower().endswith(".dat"):
                 continue
             url = (row.get("URL") or "").strip()
             if not url:
@@ -101,7 +111,9 @@ class PublicDatCatalogProvider:
             except ValueError:
                 logger.warning("[DAT-CATALOG][CATALOG] metadados inválidos: %s", name)
                 continue
-            entries.append(DatCatalogEntry(name=name, url=url, crc32=crc32, size=size))
+            entries.append(
+                DatCatalogEntry(name=name, url=url, crc32=crc32, size=size, category=category)
+            )
         return tuple(entries)
 
     def match(
@@ -117,18 +129,23 @@ class PublicDatCatalogProvider:
             launchbox_keys.add(key)
             launchbox_keys.update(self._aliases(key))
 
-        matches = tuple(
-            entry
-            for entry in entries
-            if self._normalize(Path(entry.name).stem) in launchbox_keys
-        )
+        matches: list[DatCatalogEntry] = []
+        for entry in entries:
+            stem = self._normalize(Path(entry.name).stem)
+            if stem in launchbox_keys:
+                matches.append(entry)
+                continue
+            stripped = self._strip_vendor(stem)
+            if stripped and stripped in {self._strip_vendor(key) for key in launchbox_keys}:
+                matches.append(entry)
+
         logger.info(
             "[DAT-CATALOG][MATCH] LaunchBox=%d | DATs=%d | matches=%d",
             len(systems),
             len(entries),
             len(matches),
         )
-        return matches
+        return tuple(matches)
 
     def status(self, entry: DatCatalogEntry) -> DatStatus:
         """Compare one local DAT with the CRC and size published by the catalog."""
@@ -186,7 +203,8 @@ class PublicDatCatalogProvider:
     def destination(self, entry: DatCatalogEntry) -> Path:
         """Return the stable local path for a catalog DAT."""
         safe = re.sub(r"[^A-Za-z0-9._()\- ]+", "", Path(entry.name).stem).strip()
-        return self.root / f"{safe}.dat"
+        root = self.root.parent.parent / entry.category.casefold().replace("-", "_").replace(" ", "_") / "dats"
+        return root / f"{safe}.dat"
 
     @staticmethod
     def _normalize_url(url: str) -> str:
@@ -204,6 +222,7 @@ class PublicDatCatalogProvider:
             except (OSError, ValueError):
                 manifest = {}
         manifest[entry.name] = {
+            "category": entry.category,
             "url": entry.url,
             "crc32": entry.crc32,
             "size": entry.size,
@@ -241,22 +260,43 @@ class PublicDatCatalogProvider:
         return re.sub(r"[^a-z0-9]+", " ", value).strip()
 
     @classmethod
+    def _strip_vendor(cls, value: str) -> str:
+        """Strip common manufacturer prefixes from normalized DAT names."""
+        prefixes = (
+            "sony ", "nintendo ", "sega ", "microsoft ", "nec ", "panasonic ",
+            "philips ", "snk ", "commodore ", "bandai ", "atari ", "fujitsu ",
+            "mattel ", "apple ", "ibm ", "vm labs ", "vtech ", "tomy ",
+        )
+        for prefix in prefixes:
+            if value.startswith(prefix):
+                return value[len(prefix):]
+        return value
+
+    @classmethod
     def _aliases(cls, value: str) -> set[str]:
-        """Return normalized aliases including common vendor-prefixed DAT names."""
+        """Return normalized aliases for common LaunchBox platform names."""
         aliases = {
             "nes": {"nintendo entertainment system", "nintendo nintendo entertainment system"},
             "famicom": {"nintendo entertainment system", "nintendo nintendo entertainment system"},
-            "snes": {
-                "super nintendo entertainment system",
-                "nintendo super nintendo entertainment system",
-            },
-            "super nes": {
-                "super nintendo entertainment system",
-                "nintendo super nintendo entertainment system",
-            },
+            "snes": {"super nintendo entertainment system", "nintendo super nintendo entertainment system"},
+            "super nes": {"super nintendo entertainment system", "nintendo super nintendo entertainment system"},
             "genesis": {"mega drive genesis", "sega mega drive genesis"},
             "sega genesis": {"mega drive genesis", "sega mega drive genesis"},
             "sms": {"master system mark iii", "sega master system mark iii"},
             "master system": {"master system mark iii", "sega master system mark iii"},
+            "playstation": {"sony playstation"},
+            "psx": {"sony playstation"},
+            "ps1": {"sony playstation"},
+            "playstation 2": {"sony playstation 2"},
+            "ps2": {"sony playstation 2"},
+            "playstation 3": {"sony playstation 3"},
+            "ps3": {"sony playstation 3"},
+            "playstation portable": {"sony playstation portable"},
+            "psp": {"sony playstation portable"},
+            "gamecube": {"nintendo gamecube"},
+            "game cube": {"nintendo gamecube"},
+            "wii": {"nintendo wii"},
+            "saturn": {"sega saturn"},
+            "dreamcast": {"sega dreamcast"},
         }
         return aliases.get(value, set())
