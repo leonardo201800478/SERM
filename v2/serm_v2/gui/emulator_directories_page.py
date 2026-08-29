@@ -3,10 +3,20 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtWidgets import QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QFileDialog,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 
-from .directories_page import DirectoriesPage as BaseDirectoriesPage
 from ..services.emulator_manager import EmulatorManager
+from .directories_page import DirectoriesPage as BaseDirectoriesPage
 
 
 class DirectoriesPage(BaseDirectoriesPage):
