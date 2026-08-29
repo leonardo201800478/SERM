@@ -1,9 +1,9 @@
 """Conservative parser for No-Intro filename metadata."""
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import PurePath
-import re
 
 
 @dataclass(frozen=True, slots=True)

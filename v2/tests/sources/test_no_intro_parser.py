@@ -1,7 +1,6 @@
 from pathlib import Path
 
 import pytest
-
 from serm_v2.sources.no_intro.errors import NoIntroParseError
 from serm_v2.sources.no_intro.naming import parse_name
 from serm_v2.sources.no_intro.parser import NoIntroParser
