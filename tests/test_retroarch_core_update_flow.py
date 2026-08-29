@@ -13,23 +13,28 @@ def _core(name: str, crc: str) -> RetroArchCoreInfo:
     return RetroArchCoreInfo(filename=f"{name}_libretro.dll.zip", date="20260829", crc32=crc)
 
 
+def test_core_name_removes_libretro_dll_suffix() -> None:
+    """O nome lógico não deve conter o sufixo físico da DLL."""
+    assert _core("broken", "deadbeef").core_name == "broken"
+    assert _core("bsnes-jg", "deadbeef").core_name == "bsnes-jg"
+
+
 def test_compare_marks_only_crc_mismatch_as_update(tmp_path: Path) -> None:
     """Somente DLLs com CRC divergente devem precisar de atualização."""
     current_path = tmp_path / "current_libretro.dll"
     current_path.write_bytes(b"current")
     current = _core("current", f"{RetroArchDownloadService._crc32(current_path):08x}")
-    outdated_path = tmp_path / "outdated_libretro.dll"
-    outdated_path.write_bytes(b"outdated-local")
+    (tmp_path / "outdated_libretro.dll").write_bytes(b"outdated-local")
     outdated = _core("outdated", "deadbeef")
     (tmp_path / "custom_libretro.dll").write_bytes(b"custom")
 
     result = RetroArchDownloadService.compare_installed_cores([current, outdated], tmp_path)
     by_name = {entry.core_name: entry for entry in result}
-    assert by_name["current_libretro.dll"].is_current
-    assert not by_name["current_libretro.dll"].needs_update
-    assert by_name["outdated_libretro.dll"].needs_update
-    assert by_name["custom_libretro.dll"].remote_crc32 is None
-    assert not by_name["custom_libretro.dll"].needs_update
+    assert by_name["current"].is_current
+    assert not by_name["current"].needs_update
+    assert by_name["outdated"].needs_update
+    assert by_name["custom"].remote_crc32 is None
+    assert not by_name["custom"].needs_update
 
 
 def test_match_installed_cores_returns_only_outdated(tmp_path: Path) -> None:
@@ -41,7 +46,7 @@ def test_match_installed_cores_returns_only_outdated(tmp_path: Path) -> None:
     ok = _core("ok", f"{RetroArchDownloadService._crc32(ok_path):08x}")
     old = _core("old", "00000000")
     matched = RetroArchDownloadService.match_installed_cores([ok, old], tmp_path)
-    assert [item.core_name for item in matched] == ["old_libretro.dll"]
+    assert [item.core_name for item in matched] == ["old"]
 
 
 def test_crc_calculation_is_deterministic(tmp_path: Path) -> None:
@@ -76,10 +81,7 @@ def test_worker_retries_failed_core_and_continues_queue(tmp_path: Path, monkeypa
             return None
 
     monkeypatch.setattr(worker_module, "AppConfig", FakeConfig)
-    worker = worker_module.RetroArchDownloadWorker(
-        operation="core", destination=tmp_path,
-        core_filenames=[core.filename for core in cores],
-    )
+    worker = worker_module.RetroArchDownloadWorker(operation="core", destination=tmp_path, core_filenames=[core.filename for core in cores])
     worker._service = FakeService()
     worker._channel_override = SimpleNamespace(name="nightly", base_url="https://example.invalid/")
     worker.run()
@@ -109,10 +111,7 @@ def test_worker_success_does_not_retry(tmp_path: Path, monkeypatch) -> None:
             return None
 
     monkeypatch.setattr(worker_module, "AppConfig", FakeConfig)
-    worker = worker_module.RetroArchDownloadWorker(
-        operation="core", destination=tmp_path,
-        core_filenames=[core.filename],
-    )
+    worker = worker_module.RetroArchDownloadWorker(operation="core", destination=tmp_path, core_filenames=[core.filename])
     worker._service = FakeService()
     worker._channel_override = SimpleNamespace(name="nightly", base_url="https://example.invalid/")
     worker.run()
