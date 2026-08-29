@@ -2,8 +2,6 @@
 from __future__ import annotations
 
 import logging
-import re
-import unicodedata
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QUrl
@@ -23,8 +21,12 @@ from PySide6.QtWidgets import (
 )
 
 from ..integrations.launchbox import LaunchBoxIntegration
-from ..integrations.launchbox_provider import LaunchBoxPlatform, LaunchBoxProvider
-from ..sources.acquisition.dat_catalog import DatCatalogEntry, DatCatalogError, PublicDatCatalogProvider
+from ..integrations.launchbox_provider import LaunchBoxProvider
+from ..sources.acquisition.dat_catalog import (
+    DatCatalogEntry,
+    DatCatalogError,
+    PublicDatCatalogProvider,
+)
 
 logger = logging.getLogger(__name__)
 
