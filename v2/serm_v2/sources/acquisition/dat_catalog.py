@@ -51,6 +51,10 @@ class PublicDatCatalogProvider:
         "main/root/basic/{category}/index.csv"
     )
     USER_AGENT = "SERM/2.0"
+    # Some catalog rows still reference the previous repository name.
+    # The canonical repository is used for the actual DAT payload.
+    STALE_REPOSITORY_HOST = "open-retrogaming-archive/dat-catalog"
+    CANONICAL_REPOSITORY_HOST = "videogame-archive/dat-catalog"
 
     def __init__(self, *, root: Path | None = None, timeout: int = 30) -> None:
         """Initialize the provider and its local DAT/manifest directory."""
@@ -224,11 +228,17 @@ class PublicDatCatalogProvider:
         safe = re.sub(r"[^A-Za-z0-9._()\- ]+", "", Path(entry.name).stem).strip()
         return self.root / f"{safe}.dat"
 
-    @staticmethod
-    def _normalize_url(url: str) -> str:
-        """Percent-encode unsafe URL path characters without altering its structure."""
+    @classmethod
+    def _normalize_url(cls, url: str) -> str:
+        """Normalize URL encoding and repair known stale catalog repository hosts."""
         parts = urlsplit(url.strip())
-        path = quote(parts.path, safe="/%:@-._~!$&'()*+,;=")
+        path = parts.path
+        stale_prefix = f"/{cls.STALE_REPOSITORY_HOST}/"
+        canonical_prefix = f"/{cls.CANONICAL_REPOSITORY_HOST}/"
+        if path.startswith(stale_prefix):
+            path = canonical_prefix + path[len(stale_prefix):]
+            logger.debug("[DAT-CATALOG][URL] stale mirror corrigido: %s", url)
+        path = quote(path, safe="/%:@-._~!$&'()*+,;=")
         return urlunsplit((parts.scheme, parts.netloc, path, parts.query, parts.fragment))
 
     def _write_manifest(self, entry: DatCatalogEntry, status: DatStatus) -> None:
