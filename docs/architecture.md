@@ -1,471 +1,284 @@
-# Arquitetura do ARCADE MANAGER
+# Arquitetura do SERM
 
-**Referência:** 23/08/2026
+**Produto:** Strife Emulator and Roms Manager (SERM)
+**Repositório histórico:** `mame-set-builder`
+**Referência:** 29/08/2026
 
 ## 1. Princípio arquitetural
 
-O ARCADE MANAGER é dividido em um núcleo de preservação/construção de sets e camadas de gerenciamento de execução, hardware, apresentação e integração externa.
+O SERM é dividido em domínios de preservação, reconstrução, execução, apresentação, hardware, downloads e integrações.
 
 ```text
-┌───────────────────────────────────────────────────────────────┐
-│                           GUI / Qt                            │
-├───────────────────────────────────────────────────────────────┤
-│ Library │ Scan │ Reconstruction │ Emulators │ Controls       │
-│ FFB │ Presentation │ RetroArch │ Downloads │ LaunchBox       │
-├───────────────────────────────────────────────────────────────┤
-│                     Application Services                     │
-├──────────────────────┬──────────────────────┬────────────────┤
-│ ROM/Set Domain       │ Emulator Domain      │ Hardware       │
-│ Dataset              │ Runtime/Backend      │ Controls       │
-│ Scan                 │ Core                 │ Profiles       │
-│ Reconstruction       │ Plugin               │ FFB            │
-│ Dependencies         │ Configuration        │ Devices        │
-├──────────────────────┼──────────────────────┼────────────────┤
-│ Presentation Domain  │ Integration Domain   │ Download       │
-│ Renderer             │ LaunchBox Export     │ Providers      │
-│ ReShade              │ XML                  │ Packages       │
-│ RetroArch Shaders    │                      │ Updates        │
-└──────────────────────┴──────────────────────┴────────────────┘
+GUI / Qt
+   ↓
+Application Services
+   ↓
+Domain
+├── Library / Dataset / Scan
+├── Reconstruction
+│   ├── MAME
+│   ├── Consoles / No-Intro
+│   ├── Discs / Redump
+│   └── Amiga / WHDLoad / Retroplay
+├── RetroArch BIOS
+├── Emulator / Backend / Core
+├── Archive / Package
+├── Controls / Hardware / FFB
+├── Presentation / Shader / Overlay
+└── Catalog Manager
 ```
 
-A GUI nunca deve duplicar regras de negócio. Operações de I/O pesado devem ocorrer em services/workers.
+A GUI coordena. Regras de negócio e I/O pesado permanecem em services/workers.
 
-## 2. Núcleo de ROMs
+## 2. Fonte de verdade
+
+O código atual do GitHub é a fonte de verdade. Documentação deve acompanhar o comportamento realmente implementado.
+
+## 3. Núcleo MAME
 
 ```text
 MAME listxml
-   ↓
-parser / dataset
-   ↓
-SQLite + modelos
-   ↓
-filtros
-   ↓
+ ↓
+Dataset / SQLite
+ ↓
+Filtros
+ ↓
 Scan físico
-   ↓
+ ↓
 current_scan.jsonl
-   ↓
+ ↓
 Dependency Resolver
-   ↓
-Reconstrução
-   ↓
-Meu Set
-   ↓
-residual
-```
-
-Esse núcleo permanece independente de controles, FFB, apresentação, RetroArch, LaunchBox e downloads.
-
-### Regras
-
-1. FULLSET/origens são somente leitura.
-2. Machine é entidade lógica; arquivo é artefato físico.
-3. Scan registra a origem encontrada.
-4. Reconstrução não faz nova varredura global quando a origem já está no manifesto.
-5. Uma machine por vez e uma ROM por vez.
-6. Processamento em streaming.
-7. Staging temporário no destino.
-8. Publicação somente depois de validação.
-
-## 3. Dependency Resolver
-
-O resolvedor será responsável por relações de:
-
-- ROM;
-- parent/clone;
-- BIOS;
-- device;
-- sample;
-- disk;
-- CHD;
-- arquivos compartilhados.
-
-A resolução deve produzir dependências lógicas antes da operação física de reconstrução.
-
-## 4. Domínio de emuladores
-
-O projeto adota três conceitos distintos:
-
-### Emulator
-
-Um runtime standalone, como MAME, Flycast, FBNeo ou Supermodel.
-
-### Backend
-
-Implementação capaz de preparar e executar conteúdo em um runtime específico.
-
-### Core
-
-Um módulo Libretro executado pelo RetroArch.
-
-```text
-RetroArch
- ├── mame core
- ├── fbneo core
- └── flycast core
-```
-
-RetroArch não deve duplicar as entidades standalone. Um mesmo jogo pode ter mais de um backend de execução.
-
-## 5. Plugin Manager
-
-Plugins são componentes auxiliares que ampliam emuladores/backends.
-
-```text
-Emulator Backend
-       ↓
-Plugin Manager
-       ↓
-Plugin
-```
-
-O primeiro plugin integrado será o FFBArcadePlugin.
-
-O plugin deve possuir metadados de compatibilidade, instalação, configuração e jogos suportados.
-
-## 6. Domínio de controles
-
-Controles serão modelados em camadas:
-
-```text
-Physical Device
-      ↓
-Hardware Profile
-      ↓
-Control Profile
-      ↓
-Control Family / Game Group
-      ↓
-Machine Override
-      ↓
-Backend Mapping
-```
-
-Isso permite configurar uma vez e aplicar a múltiplas máquinas.
-
-### Exemplos
-
-```text
-Street Fighter Family
-Neo Geo Family
-Beat'em Up 2P
-Lightgun
-Driving
-Motorcycle
-Flight Stick
-Spinner
-Trackball
-```
-
-Uma máquina pode pertencer a uma família de controle e ainda possuir override individual.
-
-## 7. Hardware profiles
-
-Um hardware profile representa o equipamento físico, por exemplo:
-
-```text
-Logitech G27
- ├── Steering axis
- ├── Accelerator
- ├── Brake
- ├── Clutch
- └── H-pattern shifter
-```
-
-O perfil não deve conter diretamente a configuração de um único emulador. O backend converte o perfil para o formato necessário.
-
-## 8. Arcade hardware profiles
-
-Para preservar características do gabinete original, jogos podem possuir dados como:
-
-- tipo de controle;
-- rotação do volante;
-- número de pedais;
-- transmissão;
-- tipo de câmbio;
-- eixos analógicos;
-- botões;
-- FFB;
-- particularidades do hardware.
-
-Esses dados são independentes do dispositivo físico utilizado pelo usuário.
-
-Exemplo:
-
-```text
-Arcade Game: Daytona USA
-Original Steering: 270°
-User Device: G27
-Generated mapping: G27 → 270° profile
-```
-
-## 9. Force Feedback
-
-FFB é uma camada transversal:
-
-```text
-Game
  ↓
-Arcade FFB Profile
+Reconstrução MAME
  ↓
-FFB Plugin
- ↓
-Physical Wheel
+Set / residual
 ```
 
-O perfil FFB pode ser individual ou herdado de uma família.
+FULLSET e origens são somente leitura. O Scan fornece evidência física para a reconstrução. Nenhuma camada de execução deve alterar a identidade física do conteúdo.
 
-## 10. Graphics / Renderer Profiles
+## 4. Reconstrução ampla
 
-A configuração gráfica deve ser separada da emulação lógica.
+A reconstrução é um domínio único com adaptadores por fonte:
+
+```text
+                 Reconstruction Engine
+                          │
+          ┌───────────────┼────────────────┐
+          │               │                │
+        MAME          Console Sources   RetroArch BIOS
+          │               │                │
+   LISTXML rules    No-Intro/Redump/     .info rules
+                   Retroplay rules
+```
+
+O motor comum pode oferecer hash matching, planejamento, staging, publicação atômica e validação. Cada fonte mantém sua própria semântica.
+
+### MAME
+
+MAME permanece conforme as regras já definidas para ROMs, parent/clone, BIOS, devices, samples, disks e CHDs.
+
+### Consoles — No-Intro
+
+No-Intro é a fonte principal para conjuntos de cartuchos/mídias digitais suportados. O parser deve preservar, quando presentes:
+
+- game name;
+- cloneof/parent;
+- ROM name;
+- size;
+- CRC32;
+- MD5;
+- SHA1;
+- demais metadados relevantes do DAT.
+
+A identidade física da ROM é determinada por hashes/tamanho, não pelo nome isolado.
+
+### Discos — Redump
+
+Redump é tratado como fonte orientada a discos, não como uma simples extensão do modelo No-Intro. O domínio deverá preservar metadados de sistema, título, edição, versão, serial e hashes conforme a fonte disponibilizada.
+
+Quando a mídia for compatível com conversão, **CHD é o formato de saída preferencial**. ISO/BIN-CUE permanecem formatos intermediários/alternativos quando necessários.
+
+### Amiga — WHDLoad / Retroplay
+
+Amiga possui catálogo e regras próprios. A fonte de catálogo planejada é o ecossistema Retroplay/WHDLoad, com distribuição/índice compatível com a página de downloads do GamesNostalgia. O modelo deverá contemplar pacote, versão, variante e arquivo, sem fingir que um pacote WHDLoad é um DAT No-Intro.
+
+## 5. Catalog Manager
+
+O Catalog Manager mantém referências locais de fontes externas sem baixar conteúdo de jogos automaticamente.
+
+```text
+Catalog Manager
+├── No-Intro
+├── Redump
+├── Amiga / Retroplay
+└── MAME
+```
+
+Cada provider possui descoberta, download, validação, parsing e versionamento próprios. O cache de catálogo é separado do cache de ROMs: **não existe cache permanente de ROMs apenas por causa do catálogo**.
+
+O catálogo deve registrar origem, conjunto, versão/data, sincronização e integridade quando disponível.
+
+## 6. ArchiveService
+
+O SERM possui uma infraestrutura comum para arquivos compactados:
+
+```text
+ArchiveService
+├── ZIP → Python zipfile
+├── 7Z  → 7z.exe preferencial / py7zr fallback
+└── RAR → backend externo quando necessário
+```
+
+Responsabilidades:
+
+- detectar formato;
+- listar;
+- testar integridade;
+- extrair;
+- criar;
+- editar quando necessário;
+- trabalhar com temporários seguros;
+- impedir path traversal;
+- publicar atomicamente.
+
+ZIP é especialmente crítico para a reconstrução MAME e No-Intro.
+
+CHD possui serviço próprio e não deve ser tratado como um archive genérico.
+
+## 7. Hash matching
+
+A identidade física deve priorizar:
+
+```text
+SHA1
+ ↓
+MD5
+ ↓
+CRC32 + tamanho
+```
+
+A ordem exata depende da fonte e da evidência disponível. Nome é metadado de reconstrução, não identidade primária.
+
+## 8. Emulator / Backend / Core
 
 ```text
 Emulator
-   ↓
-Graphics Profile
-   ├── Renderer / Driver
-   ├── Resolution
-   ├── VSync
-   └── Presentation Profile
+Backend
+Core
 ```
 
-Isso é especialmente importante para Flycast, que pode ser executado com diferentes renderers.
+MAME, Flycast, FBNeo e Supermodel podem possuir backends standalone. RetroArch é runtime e executa cores Libretro.
 
-O ARCADE MANAGER não deve presumir que um preset gráfico é universal entre renderers.
+Não duplicar a entidade de conteúdo apenas porque existem diferentes backends.
 
-## 11. Presentation Profiles
+## 9. RetroArch
 
-A apresentação é uma camada posterior à emulação.
+RetroArch possui:
+
+- runtime;
+- cores;
+- system;
+- assets;
+- saves;
+- states;
+- shaders;
+- configuração própria.
+
+O runtime e os cores possuem versões independentes.
+
+A Home de RetroArch está concluída e validada em fluxo real, incluindo instalação/atualização do runtime, atualização de cores por CRC, retry por core e uso do 7-Zip externo quando disponível.
+
+## 10. BIOS RetroArch
+
+BIOS de RetroArch é um domínio separado de No-Intro/Redump. O catálogo é derivado dos `.info`/metadados do ecossistema RetroArch quando aplicável.
+
+Objetivo:
 
 ```text
-Emulator / Core
-       ↓
-Framebuffer
-       ↓
-Presentation Profile
-       ↓
-Display
+catalogar
+ ↓
+scan/hash
+ ↓
+classificar
+ ├── OK
+ ├── renomeável/movível
+ ├── reconstruível
+ └── missing
+ ↓
+reconstruir/instalar somente o necessário
 ```
 
-O perfil poderá representar:
+A operação deve ser rápida e limpa, sem reprocessamento global desnecessário.
 
-- CRT;
-- scanlines;
-- aperture grille;
-- shadow mask;
-- bloom;
-- curvature;
-- geometria;
-- outros efeitos visuais.
-
-### ReShade
-
-Para emuladores standalone que não possuem uma solução CRT adequada, o mecanismo prioritário será **ReShade**.
+## 11. Presentation
 
 ```text
-Flycast / Supermodel
-       ↓
-Renderer / Driver
-       ↓
-ReShade Runtime
-       ↓
-ReShade Preset
-       ↓
-Display
+Sistema
+├── Core
+├── Override
+├── Shader
+└── Overlay
 ```
 
-O ARCADE MANAGER administra a associação entre runtime, renderer, preset e jogo, mas não substitui o mecanismo de pós-processamento do ReShade.
+Shaders de terceiros são baixados de seus próprios repositórios e não incorporados ao repositório do SERM. A seleção prioriza CRT limpo, fiel e leve. Presets agressivos, com reflexos/overlays pesados ou grande custo de processamento não são padrões.
 
-O preset visual deve ser separado do runtime de injeção.
+A proporção do shader representa o sistema/emulação. O SERM não deve forçar 16:9 apenas porque o monitor do usuário é 16:9.
 
-### Compatibilidade
+RetroArch deve preferir seu sistema nativo de shaders. Standalone pode utilizar mecanismos específicos, como ReShade, quando tecnicamente apropriado.
 
-Cada Presentation Profile poderá declarar compatibilidade com renderers:
+## 12. Configuração de emuladores
 
-```text
-CRT Arcade
- ├── Vulkan ✓
- ├── OpenGL ✓
- ├── DX11 ✓
- └── DX12 ✓
-```
-
-A aplicação deve verificar essa compatibilidade antes da execução.
-
-Não se deve presumir que um shader/preset funciona em qualquer renderer.
-
-### RetroArch
-
-Quando o jogo for executado por RetroArch, deve-se preferir o sistema nativo de shaders do RetroArch em vez de adicionar ReShade externamente, salvo quando houver uma razão técnica explícita.
-
-## 12. RetroArch
-
-RetroArch possui configuração própria, mas os cores são entidades independentes:
-
-```text
-RetroArch Runtime
- ├── Core installation
- ├── Core configuration
- ├── System directory
- ├── Save directory
- ├── State directory
- └── Shader/Presentation configuration
-```
-
-Um core terá:
-
-- nome;
-- arquivo;
-- versão;
-- arquitetura;
-- sistema suportado;
-- origem de download;
-- hash quando disponível;
-- compatibilidade conhecida.
+Arquivos nativos válidos devem ser preservados. O serviço deve alterar somente propriedades conhecidas e suportadas, com backup antes de substituir configuração inválida.
 
 ## 13. Downloads
 
-Downloads devem ser separados do runtime.
-
 ```text
-Package
- ↓
 Provider
  ↓
-Download Manager
+Package metadata
  ↓
-Validation
+Download
+ ↓
+Integrity
  ↓
 Staging
  ↓
 Install
- ↓
-Backup / rollback
 ```
 
-A arquitetura do StellarUpdater/Stellar é referência conceitual para o gerenciador RetroArch, mas o ARCADE MANAGER terá implementação própria.
+Downloads não devem gravar diretamente em destinos finais antes de validação.
 
-## 14. LaunchBox Export
+## 14. Controles / Hardware / FFB
 
-LaunchBox é uma integração de saída, não uma fonte de verdade.
+Esses domínios permanecem separados da reconstrução e do catálogo. Perfis de hardware e controle podem ser convertidos para diferentes backends sem duplicar a entidade de ROM.
 
-```text
-ARCADE MANAGER DB
-        ↓
-LaunchBox Exporter
-        ↓
-XML
-        ↓
-LaunchBox\Data
-```
+## 15. GUI e lazy loading
 
-O exportador poderá gerar categorias derivadas dos metadados do ARCADE MANAGER:
+As abas devem ser carregadas sob demanda. Dados pesados de catálogo, scan, downloads e reconstrução não devem ser materializados no startup sem necessidade.
 
-- backend;
-- core RetroArch;
-- família de controle;
-- família de jogos;
-- hardware;
-- rotação de volante;
-- gênero/categoria específica.
+A Home RetroArch está concluída; novas funcionalidades devem evitar reintroduzir carregamento antecipado ou botões sem implementação real.
 
-Exemplos:
+## 16. Testes
 
-```text
-Arcade — MAME
-Arcade — FBNeo
-Arcade — Flycast
-Arcade — Supermodel
-Driving — G27 — 270°
-Driving — G27 — 360°
-Driving — G27 — 540°
-Driving — G27 — 900°
-Fighting — Street Fighter
-Fighting — Mortal Kombat
-Neo Geo
-```
+A suíte deve cobrir somente a arquitetura atual. Testes de implementações legadas devem ser removidos, não adaptados artificialmente para manter código morto.
 
-O exportador deve validar XML, preservar registros externos e criar backup antes de alterações destrutivas.
+Cada fase relevante requer:
 
-## 15. Configuração de emuladores
+- testes unitários;
+- integração;
+- fixtures reais quando possível;
+- validação de filesystem;
+- fluxo real quando houver download/runtime.
 
-Arquivos nativos continuam sendo a fonte de verdade da configuração específica do emulador quando existentes.
+## 17. Segurança e integridade
 
-O `EmulatorConfigService` deve:
-
-1. ler configuração existente;
-2. validar;
-3. importar sem destruir informação;
-4. alterar somente propriedades suportadas;
-5. preservar configurações desconhecidas;
-6. criar backup antes de substituir configuração inválida.
-
-## 16. Fluxo de execução completo
-
-A execução futura seguirá:
-
-```text
-Selecionar jogo
-      ↓
-Resolver machine
-      ↓
-Selecionar backend
-      ↓
-Selecionar core se RetroArch
-      ↓
-Resolver Control Profile
-      ↓
-Resolver Hardware Profile
-      ↓
-Resolver FFB Profile / plugins
-      ↓
-Resolver Graphics / Renderer Profile
-      ↓
-Resolver Presentation Profile
-      ↓
-Preparar configuração
-      ↓
-Preparar ReShade ou shader RetroArch quando aplicável
-      ↓
-Iniciar runtime
-```
-
-A preparação deve ser reversível e não deve alterar o FULLSET.
-
-## 17. Fluxo de integração com LaunchBox
-
-```text
-Library / Machine
-       ↓
-Execution Profile
-       ↓
-Control / Hardware / FFB / Presentation metadata
-       ↓
-LaunchBox Exporter
-       ↓
-XML
-       ↓
-LaunchBox\Data
-```
-
-O LaunchBox não deve receber lógica duplicada do ARCADE MANAGER. Ele recebe os artefatos necessários para apresentar e executar a biblioteca já configurada.
-
-## 18. Banco
-
-As entidades futuras devem manter separação entre:
-
-- `machine` / ROM e dados do dataset;
-- backend de execução;
-- RetroArch core;
-- plugin;
-- control profile;
-- control family;
-- hardware profile;
-- arcade hardware profile;
-- FFB profile;
-- graphics profile;
-- presentation profile;
-- LaunchBox export metadata;
-- package/download metadata.
-
-Nenhuma dessas camadas deve duplicar a identidade física da ROM.
+- origens somente leitura;
+- staging temporário;
+- publicação atômica;
+- hashes antes da publicação;
+- proteção contra path traversal;
+- nenhum arquivo parcial publicado;
+- nenhum cache permanente de ROMs;
+- não executar conteúdo baixado como parte da validação;
+- preservar configurações válidas;
+- registrar falhas de forma acionável.
