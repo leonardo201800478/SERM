@@ -24,7 +24,7 @@ class RedumpEntry:
     @classmethod
     def from_catalog(cls, entry: DatCatalogEntry) -> "RedumpEntry":
         """Convert a generic public-catalog entry into a Redump entry."""
-        return cls(entry.name, entry.url, entry.crc32, entry.size)
+        return cls(entry.name, entry.url, entry.crc32, entry.size, entry.category)
 
     def as_catalog_entry(self) -> DatCatalogEntry:
         """Convert this Redump entry back to the generic acquisition model."""
@@ -34,9 +34,9 @@ class RedumpEntry:
 class RedumpProvider:
     """Acquire current Redump DATs from a public machine-readable mirror.
 
-    The primary source is the Public DAT Catalog, which publishes direct raw
-    DAT links and CRC/size metadata. This deliberately avoids DAT-o-MATIC,
-    scraping, Selenium, CAPTCHA and account-gated downloads.
+    The Public DAT Catalog publishes direct raw DAT links plus validation
+    metadata. SERM therefore does not need DAT-o-MATIC, Selenium, CAPTCHA,
+    account sessions or Redump website download pages.
     """
 
     CATALOG_CATEGORY = "Redump"
@@ -60,7 +60,7 @@ class RedumpProvider:
         entries: tuple[RedumpEntry, ...] | None = None,
     ) -> tuple[RedumpEntry, ...]:
         """Match LaunchBox platforms against the complete Redump catalog."""
-        source = entries or self.fetch_catalog()
+        source = entries if entries is not None else self.fetch_catalog()
         catalog_entries = tuple(entry.as_catalog_entry() for entry in source)
         matches = self.catalog.match(systems, catalog_entries)
         return tuple(RedumpEntry.from_catalog(entry) for entry in matches)
@@ -68,6 +68,10 @@ class RedumpProvider:
     def status(self, entry: RedumpEntry) -> DatStatus:
         """Return the validated local state of one Redump DAT."""
         return self.catalog.status(entry.as_catalog_entry())
+
+    def destination(self, entry: RedumpEntry) -> Path:
+        """Return the stable local path for one Redump DAT."""
+        return self.catalog.destination(entry.as_catalog_entry())
 
     def download(self, entry: RedumpEntry) -> DatStatus:
         """Download and validate one Redump DAT using catalog CRC and size."""
