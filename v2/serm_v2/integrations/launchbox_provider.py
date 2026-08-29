@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import sqlite3
 import xml.etree.ElementTree as ET
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 from .launchbox import LaunchBoxIntegration
 
@@ -88,10 +89,22 @@ class LaunchBoxProvider:
     def iter_games(self, limit: int | None = None) -> Iterator[LaunchBoxGame]:
         """Stream normalized game records without importing them into SERM."""
         database = self._require_database()
-        query = (
-            'SELECT DatabaseID, Name, Platform, ReleaseDate, ReleaseYear, Overview, '
-            'Developer, Publisher, Genres FROM Games ORDER BY DatabaseID'
+        columns = set(self.table_columns("Games"))
+        required = {"DatabaseID", "Name", "Platform"}
+        missing = required - columns
+        if missing:
+            raise RuntimeError(f"Tabela Games do LaunchBox sem colunas obrigatórias: {sorted(missing)}")
+
+        optional_columns = (
+            "ReleaseDate",
+            "ReleaseYear",
+            "Overview",
+            "Developer",
+            "Publisher",
+            "Genres",
         )
+        selected = ["DatabaseID", "Name", "Platform", *(column for column in optional_columns if column in columns)]
+        query = f'SELECT {", ".join(fchr for fchr in (f'"{column}"' for column in selected))} FROM "Games" ORDER BY "DatabaseID"'
         parameters: tuple[Any, ...] = ()
         if limit is not None:
             if limit < 1:
@@ -101,16 +114,17 @@ class LaunchBoxProvider:
 
         with sqlite3.connect(f"file:{database.as_posix()}?mode=ro", uri=True) as connection:
             for row in connection.execute(query, parameters):
+                values = dict(zip(selected, row, strict=True))
                 yield LaunchBoxGame(
-                    database_id=int(row[0]),
-                    name=row[1],
-                    platform=row[2],
-                    release_date=row[3],
-                    release_year=row[4],
-                    overview=row[5],
-                    developer=row[6],
-                    publisher=row[7],
-                    genres=row[8],
+                    database_id=int(values["DatabaseID"]),
+                    name=str(values["Name"]),
+                    platform=str(values["Platform"]),
+                    release_date=values.get("ReleaseDate"),
+                    release_year=values.get("ReleaseYear"),
+                    overview=values.get("Overview"),
+                    developer=values.get("Developer"),
+                    publisher=values.get("Publisher"),
+                    genres=values.get("Genres"),
                 )
 
     def iter_platforms(self) -> Iterator[LaunchBoxPlatform]:
