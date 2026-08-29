@@ -34,7 +34,7 @@ O `.vscode/settings.json` da raiz já aponta para:
 v2\.venv\Scripts\python.exe
 ```
 
-e configura o terminal para iniciar em `v2/`. O VS Code também possui a configuração do ambiente Python V2. O comportamento segue a seleção de interpretador e ativação de ambientes suportadas pela extensão Python do VS Code. urlDocumentação Python do VS Codehttps://code.visualstudio.com/docs/languages/python
+e configura o terminal para iniciar em `v2/`. O VS Code também possui a configuração do ambiente Python V2.
 
 ### Primeiro uso no clone
 
@@ -57,7 +57,7 @@ ruff format --check .
 python -m serm_v2
 ```
 
-A V2 possui seu próprio `pyproject.toml`, dependências, testes e configuração Ruff. A configuração no nível do repositório existe apenas para impedir que ferramentas executadas na raiz tratem a V1 como o projeto ativo. O Ruff permite configurar descoberta e exclusões pelo `pyproject.toml`. citeturn0search0
+A V2 possui seu próprio `pyproject.toml`, dependências, testes e configuração Ruff. A configuração no nível do repositório existe apenas para impedir que ferramentas executadas na raiz tratem a V1 como o projeto ativo.
 
 ## Arquitetura de dados
 
