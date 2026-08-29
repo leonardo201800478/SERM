@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import sqlite3
 import xml.etree.ElementTree as ET
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 from .launchbox import LaunchBoxIntegration
 
