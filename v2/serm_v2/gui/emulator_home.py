@@ -4,13 +4,11 @@ from __future__ import annotations
 import json
 import logging
 import webbrowser
-import zipfile
 from pathlib import Path
 
 from PySide6.QtCore import QThread, Qt, Signal
 from PySide6.QtWidgets import (
     QFileDialog,
-    QCheckBox,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -76,6 +74,7 @@ class EmulatorHomePage(QWidget):
         self.worker: _Worker | None = None
         self.cards: dict[str, tuple[QLabel, QLabel, QLabel, QProgressBar, QPushButton]] = {}
         self.core_items: dict[str, QListWidgetItem] = {}
+        self._core_queue: list[str] = []
         self._build_ui()
         self.refresh()
 
@@ -193,7 +192,6 @@ class EmulatorHomePage(QWidget):
         for label in (self.retro_status, self.retro_path, self.retro_cores):
             label.setWordWrap(True)
             layout.addWidget(label)
-
         top = QHBoxLayout()
         for text, slot in (
             ("⬇ Nova instalação", self.install_retroarch),
@@ -205,7 +203,6 @@ class EmulatorHomePage(QWidget):
             button.clicked.connect(slot)
             top.addWidget(button)
         layout.addLayout(top)
-
         selection = QHBoxLayout()
         for text, slot in (
             ("☑ Selecionar todos", self.select_all_cores),
@@ -219,7 +216,6 @@ class EmulatorHomePage(QWidget):
         self.core_summary = QLabel("0 selecionado(s)")
         selection.addWidget(self.core_summary)
         layout.addLayout(selection)
-
         self.core_list = QListWidget()
         self.core_list.itemChanged.connect(self._core_selection_changed)
         layout.addWidget(self.core_list, 1)
@@ -269,9 +265,7 @@ class EmulatorHomePage(QWidget):
         """Install or update one standalone emulator."""
         destination = self.manager.roots.get(key)
         if not destination:
-            selected = QFileDialog.getExistingDirectory(
-                self, f"Diretório do {self.LABELS[key]}", str(Path.home())
-            )
+            selected = QFileDialog.getExistingDirectory(self, f"Diretório do {self.LABELS[key]}", str(Path.home()))
             if not selected:
                 return
             destination = Path(selected).resolve()
@@ -299,9 +293,7 @@ class EmulatorHomePage(QWidget):
                 next_one()
                 return
             self._start(
-                lambda progress, log, k=key, d=destination: self.manager.install(
-                    k, d, progress=progress, log=log
-                ),
+                lambda progress, log, k=key, d=destination: self.manager.install(k, d, progress=progress, log=log),
                 key,
                 next_one,
             )
@@ -354,12 +346,13 @@ class EmulatorHomePage(QWidget):
         self.refresh()
 
     def open_emulator_directories(self) -> None:
-        """Open the unified Directories page when available."""
+        """Open the unified Directories page from MainWindow."""
         window = self.window()
-        directories = getattr(window, "directories_page", None)
+        directories = getattr(window, "directories_tab", None)
         tabs = getattr(window, "tab_widget", None)
         if directories is not None and tabs is not None:
             tabs.setCurrentWidget(directories)
+            directories.refresh()
 
     def configure_retroarch(self) -> None:
         """Select and persist the RetroArch installation root."""
@@ -384,9 +377,7 @@ class EmulatorHomePage(QWidget):
             self._save_paths(paths)
             self.manager.roots = paths
         self.retroarch = RetroArchManager(destination)
-        self._start_retro(
-            lambda progress, log: self.retroarch.install_retroarch(destination, progress=progress)
-        )
+        self._start_retro(lambda progress, log: self.retroarch.install_retroarch(destination, progress=progress))
 
     def refresh_cores(self) -> None:
         """Fetch the current Windows x64 libretro core catalog."""
@@ -405,7 +396,8 @@ class EmulatorHomePage(QWidget):
             item = QListWidgetItem()
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             item.setCheckState(Qt.CheckState.Unchecked)
-            state = "INSTALADO" if core.filename.removesuffix(".zip").casefold() in installed else "AUSENTE"
+            filename = core.filename.removesuffix(".zip")
+            state = "INSTALADO" if filename.casefold() in installed else "AUSENTE"
             item.setText(f"[{state}] {core.core_name}")
             item.setData(Qt.ItemDataRole.UserRole, core.filename)
             item.setData(Qt.ItemDataRole.UserRole + 1, state)
@@ -416,23 +408,16 @@ class EmulatorHomePage(QWidget):
         logger.info("[RETROARCH][CORES] disponíveis=%d instalados=%d", len(cores), len(installed))
 
     def verify_core_updates(self) -> None:
-        """Refresh the core catalog and mark installed cores for revalidation."""
+        """Refresh the core catalog and report the update-detection limitation."""
         self.refresh_cores()
         if not self.core_items:
             return
-        installed = sum(
-            item.data(Qt.ItemDataRole.UserRole + 1) == "INSTALADO"
-            for item in self.core_items.values()
-        )
-        self._append_log(
-            f"RETROARCH | verificação concluída | cores publicados={len(self.core_items)} | instalados={installed}"
-        )
-        self._append_log(
-            "RETROARCH | o Buildbot atual não publica CRC no índice HTML; atualização exata é validada durante a instalação."
-        )
+        installed = sum(item.data(Qt.ItemDataRole.UserRole + 1) == "INSTALADO" for item in self.core_items.values())
+        self._append_log(f"RETROARCH | verificação concluída | publicados={len(self.core_items)} | instalados={installed}")
+        self._append_log("RETROARCH | o índice do Buildbot não fornece CRC/versionamento por core; a validação definitiva ocorre ao instalar o ZIP atual.")
 
     def select_all_cores(self) -> None:
-        """Select every core currently listed."""
+        """Select every listed core."""
         self.core_list.blockSignals(True)
         for index in range(self.core_list.count()):
             self.core_list.item(index).setCheckState(Qt.CheckState.Checked)
@@ -453,14 +438,11 @@ class EmulatorHomePage(QWidget):
 
     def _update_core_summary(self) -> None:
         """Refresh the selected-core counter."""
-        selected = sum(
-            self.core_list.item(index).checkState() == Qt.CheckState.Checked
-            for index in range(self.core_list.count())
-        )
+        selected = sum(self.core_list.item(index).checkState() == Qt.CheckState.Checked for index in range(self.core_list.count()))
         self.core_summary.setText(f"{selected} selecionado(s)")
 
     def install_selected_cores(self) -> None:
-        """Install all checked cores sequentially without blocking the GUI."""
+        """Install all checked cores sequentially."""
         _, _, destination = self.retroarch.discover()
         if destination is None:
             QMessageBox.information(self, "RetroArch", "Configure o diretório do RetroArch primeiro.")
@@ -485,20 +467,16 @@ class EmulatorHomePage(QWidget):
         filename = self._core_queue.pop(0)
         self._append_log(f"RETROARCH | instalando core={filename} | restantes={len(self._core_queue)}")
         self._start_retro(
-            lambda progress, log, f=filename, d=destination: self.retroarch.install_core(
-                f, d, progress=progress
-            ),
+            lambda progress, log, f=filename, d=destination: self.retroarch.install_core(f, d, progress=progress),
             continuation=lambda: self._install_next_core(destination),
         )
 
     def install_core(self) -> None:
-        """Install the currently selected list item, retained for compatibility."""
+        """Install the selected item, retained as a compatibility action."""
         item = self.core_list.currentItem()
         if item is None:
             return
-        self.core_list.blockSignals(True)
         item.setCheckState(Qt.CheckState.Checked)
-        self.core_list.blockSignals(False)
         self.install_selected_cores()
 
     def _start_retro(self, operation, continuation=None) -> None:
