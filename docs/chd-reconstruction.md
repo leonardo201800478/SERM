@@ -1,68 +1,97 @@
-# Reconstrução de CHDs
+# CHD no SERM
 
-## Regra fundamental
+**Referência:** 29/08/2026
 
-O MAME Set Builder **não reconstrói CHDs**.
-
-Um CHD encontrado é apenas:
-
-1. identificado como candidato exigido pelo `ScanResult`;
-2. validado pelo `chdman info`;
-3. comparado pelo content SHA1 com o digest esperado pelo LISTXML;
-4. validado por `chdman verify` somente quando o SHA1 corresponde;
-5. copiado byte a byte para o diretório da machine.
-
-Não são executadas operações `create`, `extract`, `merge`, recompressão ou conversão de CHD.
-
-## Regra de rejeição
-
-Se o arquivo existir, mas o content SHA1 não corresponder:
-
-- não copiar;
-- não tentar reparar;
-- não substituir por outro CHD automaticamente;
-- registrar o motivo exato;
-- tratar o requisito como `MISSING` para fins da reconstrução.
-
-Se `chdman verify` falhar depois de o SHA1 corresponder:
-
-- não copiar;
-- registrar o erro;
-- tratar o requisito como `MISSING`/bloqueador quando obrigatório.
-
-## Tamanho
-
-O tamanho físico do arquivo `.chd` não é utilizado para determinar identidade.
-Ele depende da compressão. O `listxml` não fornece um tamanho físico confiável para essa finalidade.
-
-O tamanho lógico retornado por `chdman info` é apenas informativo nesta etapa e não é usado como critério de aceitação.
-
-## Destino
-
-O CHD válido é colocado diretamente em:
+CHD possui dois contextos distintos no projeto e não deve ser confundido com arquivo compactado genérico.
 
 ```text
-<destination>/<machine>/<disk>.chd
+CHD
+├── MAME
+│   └── validar/copiar artefatos existentes conforme LISTXML
+└── Consoles / Discos
+    └── construir CHD a partir de mídia compatível
 ```
 
-O nome do arquivo é o nome esperado pelo LISTXML. A pasta usa o shortname da machine.
+## 1. CHD MAME
 
-## Origem
+No fluxo MAME já definido, um CHD encontrado é:
 
-O serviço de reconstrução de CHD não faz uma varredura genérica do HDD. Ele usa exclusivamente a evidência física já produzida pelo scanner (`RomScanResult.path`/`location`).
+1. identificado como requisito do Scan/Dependency Resolver;
+2. validado pelo `chdman info`;
+3. comparado pelo content SHA1 esperado pelo LISTXML;
+4. validado com `chdman verify` quando aplicável;
+5. copiado para o destino.
 
-Isso evita que o botão de reconstrução passe novamente por todo o conjunto procurando CHDs irrelevantes.
+Não executar create/extract/merge/recompressão de CHD MAME como parte dessa reconstrução já definida.
 
-## Estados
+Se o content SHA1 divergir, o arquivo não é aceito como o requisito.
 
-| Situação | Ação | Máquina |
-|---|---|---|
-| CHD ausente | MISSING | bloqueia se obrigatório |
-| SHA1 divergente | IGNORE | MISSING/bloqueia |
-| SHA1 correto + verify OK | COPY | disponível |
-| SHA1 correto + verify falha | IGNORE | MISSING/bloqueia |
-| erro ao copiar | ERROR | bloqueia |
+## 2. CHD para discos de consoles
 
-## Delta CHD
+Na nova reconstrução de consoles, especialmente com catálogo Redump, **CHD será o formato de saída preferencial** sempre que a mídia e a informação disponível permitirem conversão correta.
 
-O projeto não gera delta CHDs. Se um delta CHD já existente for validado pelo digest esperado e `chdman verify`, ele pode ser copiado. Se a dependência de parent necessária não estiver disponível, a dependência deverá permanecer como bloqueadora no plano MAME.
+Fluxo:
+
+```text
+Redump Disc
+ ↓
+fonte de imagem compatível
+ ↓
+DiscImage model
+ ↓
+CHD Builder
+ ↓
+CHD temporário
+ ↓
+validação
+ ↓
+CHD final
+```
+
+O builder deve preservar corretamente:
+
+- dados;
+- faixas;
+- áudio;
+- ordem das faixas;
+- informações necessárias ao conteúdo;
+- metadados relevantes para a conversão.
+
+Não converter cegamente uma ISO/BIN-CUE apenas para produzir um `.chd`.
+
+## 3. Fonte e matching
+
+O Redump será a referência lógica para discos. A identidade deve usar os hashes/metadados fornecidos pela fonte, sem inferir uma correspondência apenas pelo nome.
+
+## 4. Atomicidade
+
+CHD construído deve seguir o mesmo princípio de staging:
+
+```text
+CHD temporário
+ ↓
+verify / validação
+ ↓
+os.replace()
+ ↓
+CHD final
+```
+
+Nunca publicar uma imagem parcialmente construída.
+
+## 5. Serviço
+
+O `CHDService` permanece separado do `ArchiveService`.
+
+`ArchiveService` trata ZIP/7Z/RAR. `CHDService` trata operações específicas de CHD e ferramentas como `chdman` quando apropriado.
+
+## 6. Próximas etapas
+
+1. validar catálogo/download Redump;
+2. modelar `RedumpDisc`;
+3. definir fontes de imagem aceitas;
+4. implementar detecção de CUE/BIN/ISO e demais formatos necessários;
+5. implementar CHD Builder;
+6. implementar validação pós-criação;
+7. fixtures reais de sistemas ópticos;
+8. testes de áudio/múltiplas faixas.
