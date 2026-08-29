@@ -68,13 +68,18 @@ class NoIntroCatalog:
         return True
 
     @staticmethod
-    def _extract_entry(text: str, match: re.Match[str]) -> tuple[str, str]:
-        """Extract the system name and revision directly preceding a DAT marker."""
-        prefix = text[: match.start()]
-        name_match = re.search(r"(?P<name>[A-Za-z0-9À-ÿ][^\n|]*?\s+-\s+[^\n|]+?)\s+$", prefix)
-        if not name_match:
-            raise ValueError("Nome de sistema não localizado antes do marcador DAT.")
-        return " ".join(name_match.group("name").split()), match.group("updated")
+    def _extract_entries(text: str) -> tuple[tuple[str, str], ...]:
+        """Extract catalog names/revisions using each DAT marker as a boundary."""
+        pattern = re.compile(
+            r"(?<![^\s|])(?P<name>[A-Za-z0-9À-ÿ][^\n|]*?\s+-\s+[^\n|]+?)\s+"
+            r"\(#(?P<revision>\d+)(?:\s*\+[^~|\n)]*)?\s*~\s*"
+            r"(?P<updated>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}|\d{8}-\d{6})"
+            r"(?:\s*~[^\n|)]*)?\)"
+        )
+        return tuple(
+            (" ".join(match.group("name").split()), match.group("updated"))
+            for match in pattern.finditer(text)
+        )
 
     def systems(self, html_text: str) -> tuple[NoIntroSystem, ...]:
         """Extract systems, revisions and DAT-o-MATIC IDs despite markup changes."""
@@ -106,20 +111,16 @@ class NoIntroCatalog:
                 source_id = None
             if not self._accept(name):
                 continue
-            systems.append(NoIntroSystem(name=name, update_text=revision.group("updated"), source_id=source_id))
+            systems.append(
+                NoIntroSystem(name=name, update_text=revision.group("updated"), source_id=source_id)
+            )
 
         if len(systems) < self.MIN_EXPECTED_SYSTEMS:
             text = self._clean_text(source)
-            text_pattern = re.compile(
-                r"(?:^|\s)(?P<name>[A-Za-z0-9À-ÿ][^\n|]*?\s+-\s+[^\n|]+?)\s+"
-                r"\(#(?P<revision>\d+)(?:\s*\+[^~|]+)?\s*~\s*"
-                r"(?P<updated>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}|\d{8}-\d{6})"
-            )
-            for match in text_pattern.finditer(text):
-                name = " ".join(match.group("name").split())
+            for name, updated in self._extract_entries(text):
                 if not self._accept(name):
                     continue
-                systems.append(NoIntroSystem(name=name, update_text=match.group("updated")))
+                systems.append(NoIntroSystem(name=name, update_text=updated))
 
         unique: dict[str, NoIntroSystem] = {}
         for item in systems:
