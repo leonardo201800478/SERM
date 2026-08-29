@@ -1,8 +1,10 @@
 from pathlib import Path
 
 import pytest
+
 from serm_v2.sources.no_intro.errors import NoIntroParseError
 from serm_v2.sources.no_intro.parser import NoIntroParser
+
 
 DAT = '''<?xml version="1.0"?>
 <datafile>
@@ -11,9 +13,10 @@ DAT = '''<?xml version="1.0"?>
     <version>20260829</version>
     <date>2026-08-29</date>
   </header>
-  <game name="Super Mario Bros. (World)">
+  <game name="Super Mario Bros. (World)" cloneof="Super Mario Bros. (USA)">
     <description>Super Mario Bros. (World)</description>
-    <rom name="Super Mario Bros. (World).nes" size="40976" crc="1234abcd" md5="00112233445566778899aabbccddeeff" sha1="0123456789abcdef0123456789abcdef01234567"/>
+    <release name="Super Mario Bros. (World)" region="USA"/>
+    <rom name="Super Mario Bros. (World).nes" size="40976" crc="1234ABCD" md5="00112233445566778899AABBCCDDEEFF" sha1="0123456789ABCDEF0123456789ABCDEF01234567" serial="NES-SM-USA"/>
   </game>
 </datafile>
 '''
@@ -29,10 +32,14 @@ def test_parser_preserves_source_identity_and_hashes(tmp_path: Path) -> None:
     assert info.version == "20260829"
     assert len(sets) == 1
     assert sets[0].name == "Super Mario Bros. (World)"
+    assert sets[0].clone_of == "Super Mario Bros. (USA)"
+    assert sets[0].region == "USA"
     assert sets[0].provenance.source == "No-Intro"
     assert sets[0].roms[0].filename == "Super Mario Bros. (World).nes"
     assert sets[0].roms[0].size == 40976
+    assert sets[0].roms[0].serial == "NES-SM-USA"
     assert {item.algorithm for item in sets[0].roms[0].hashes} == {"crc", "md5", "sha1"}
+    assert sets[0].roms[0].hashes[0].value == "1234abcd"
 
 
 def test_parser_rejects_malformed_xml(tmp_path: Path) -> None:
