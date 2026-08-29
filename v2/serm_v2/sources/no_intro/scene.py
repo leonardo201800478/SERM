@@ -73,16 +73,11 @@ class NoIntroScene:
 
     @staticmethod
     def _is_download_candidate(url: str) -> bool:
-        """Accept published DAT/ZIP/XML links and Scene manager downloads."""
+        """Accept only published file links or manager download URLs."""
         parsed = urlparse(url)
         query = parse_qs(parsed.query)
         path = parsed.path.casefold()
-        return (
-            path.endswith((".dat", ".zip", ".xml"))
-            or bool(query.get("download"))
-            or "scene" in path
-            or query.get("op", [""])[0].casefold() == "scene"
-        )
+        return path.endswith((".dat", ".zip", ".xml")) or bool(query.get("download"))
 
     @staticmethod
     def _normalize(value: str) -> str:
