@@ -1,0 +1,41 @@
+# ============================================================
+# SERM V2 local-only files
+# ============================================================
+
+# Local application data when running V2 in portable/development mode
+.data/
+data/
+runtime-data/
+
+# Local logs and diagnostics
+logs/
+*.log
+
+# Local databases (also protected by repository-wide rules)
+database/*.db
+database/*.sqlite*
+
+# Local exports/cache/staging
+cache/
+staging/
+exports/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.local
+config.local.*
+secrets.*
+
+# Python tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
