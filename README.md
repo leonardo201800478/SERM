@@ -1,12 +1,12 @@
 # Strife Emulator and Roms Manager — SERM
 
-**Nome do produto:** Strife Emulator and Roms Manager (SERM)
-**Repositório:** `mame-set-builder` (nome histórico preservado)
+**Nome do produto:** Strife Emulator and Roms Manager (SERM)  
+**Repositório histórico:** `mame-set-builder`  
 **Estado de referência:** 29/08/2026
 
-O **SERM** é uma aplicação desktop Python/Qt para gerenciamento, auditoria, reconstrução e execução de bibliotecas de emulação. O projeto nasceu como MAME Set Builder e evoluiu para uma plataforma que separa preservação de conteúdo, emuladores, RetroArch, controles, apresentação, downloads e integrações externas.
+O **SERM** é uma aplicação desktop Python/Qt para gerenciamento, auditoria, reconstrução e execução de bibliotecas de emulação. O projeto nasceu como MAME Set Builder e evoluiu para uma plataforma que separa dados, preservação, reconstrução, emuladores, RetroArch, controles, apresentação, downloads e integrações externas.
 
-> **Fonte de verdade:** o código atual do repositório. A documentação distingue explicitamente funcionalidade implementada, validada e planejada.
+> **Fonte de verdade:** o código atual do repositório. A documentação distingue funcionalidade implementada, validada e planejada.
 
 ## Visão do produto
 
@@ -15,22 +15,42 @@ O **SERM** é uma aplicação desktop Python/Qt para gerenciamento, auditoria, r
                           │
        ┌──────────────────┼──────────────────┐
        │                  │                  │
-   Biblioteca         Emuladores         Apresentação
+   Data / Library      Execution        Presentation
        │                  │                  │
- MAME / Consoles    MAME/Flycast/FBNeo   CRT / Shaders
- Scan / Rebuild      Supermodel          Overlays
-       │             RetroArch
-       │                  │
+ Sources / Catalog    Emulators/Core    CRT / Shaders
+ Identity / Scan      RetroArch         Overlays
+ Rebuild / Mapping    Standalone        Controls
+       │                  │                  │
        └──────────────────┼──────────────────┘
                           │
-                Perfis / Downloads
-                          │
-             Catálogos / Integrações
+                    Integrations
 ```
 
-## Núcleo de preservação
+## Princípio de dados
 
-O núcleo MAME continua protegido e independente das camadas de execução:
+O SERM terá um banco SQLite próprio como fonte de verdade para os dados administrados pelo aplicativo. SQLAlchemy e migrations serão utilizados na camada Python.
+
+```text
+Source
+ ↓
+Catalog
+ ↓
+Canonical Identity
+ ↓
+Mapping / Provenance
+ ↓
+File / Hash
+ ↓
+Scan / Transformation
+ ↓
+Execution
+```
+
+Fontes oficiais/de preservação mantêm a referência factual. Fontes convenientes e providers de metadata podem ser associados por DE-PARA sem destruir a origem.
+
+ROMs, ISOs, CHDs e pacotes permanecem no filesystem; o banco armazena metadata, hashes, relações, caminhos e estado.
+
+## Núcleo MAME
 
 ```text
 MAME listxml
@@ -50,66 +70,80 @@ Reconstrução MAME
 Set final / residual
 ```
 
-Regras fundamentais:
+FULLSET e origens são somente leitura. Machine é entidade lógica; arquivo é artefato físico. O Scan registra evidência física para reconstrução.
 
-- FULLSET e origens são somente leitura;
-- Machine é entidade lógica; arquivo é artefato físico;
-- o Scan registra evidência física para a reconstrução;
-- ROMs são processadas em streaming;
-- staging é temporário;
-- arquivos finais só são publicados após validação;
-- nenhuma camada de emulação altera a verdade física do conteúdo.
+## Fontes
+
+### Preservação / referência
+
+- No-Intro / Dat-o-MATIC — cartuchos e mídias digitais suportadas;
+- Redump — discos ópticos;
+- MAME/listxml — arcade;
+- FBNeo — arcade;
+- MAME Softlists — sistemas suportados;
+- fontes confiáveis para BIOS.
+
+### Conveniência
+
+- WHDLoad/Retroplay — Amiga;
+- eXoDOS — MS-DOS;
+- C64 Dreams/EasyFlash e fontes semelhantes;
+- packs específicos.
+
+### Metadata / integração
+
+- RetroArch `.rdb`;
+- LaunchBox `LaunchBox.Metadata.db`;
+- LaunchBox `Platforms.xml`;
+- LaunchBox `MAME.xml`;
+- LaunchBox `Files.xml`;
+- caches externos quando comprovadamente úteis.
+
+O LaunchBox e o RetroArch são providers opcionais. O SERM não depende de suas instalações nem utiliza seus bancos como banco operacional.
+
+## DE-PARA e nomenclatura
+
+Uma fonte conveniente pode ser reorganizada para execução e scraping mantendo sua identidade de origem:
+
+```text
+Official Entry
+      ↕
+Identity Mapping
+      ↕
+Convenience Entry
+      ↓
+Transformation
+      ↓
+Execution Representation
+```
+
+O modelo pode distinguir:
+
+```text
+source_name
+canonical_name
+display_name
+scraper_name
+filename
+normalized_name
+```
+
+WHDLoad/Retroplay e eXoDOS são casos prioritários dessa arquitetura.
 
 ## Reconstrução ampla
-
-A reconstrução será dividida em domínios independentes:
 
 ```text
 Reconstrução
 ├── MAME
-│   ├── ROMs
-│   ├── BIOS
-│   ├── devices / samples / disks
-│   └── CHDs
-│
 ├── Consoles
 │   ├── No-Intro
-│   │   ├── DATs
-│   │   ├── Parent / Clone
-│   │   ├── Hash matching
-│   │   └── ZIP Builder
-│   │
-│   ├── Redump
-│   │   ├── DAT / catálogo
-│   │   ├── Disc metadata
-│   │   ├── Hash matching
-│   │   └── CHD Builder
-│   │
-│   └── Amiga / WHDLoad / Retroplay
-│       ├── catálogo
-│       ├── versões / variantes
-│       └── pacotes
-│
+│   └── Redump
+├── Amiga / WHDLoad / Retroplay
+├── MS-DOS / eXoDOS
 └── RetroArch BIOS
-    ├── catálogo baseado em .info
-    ├── validação
-    └── reconstrução / instalação
 ```
 
-MAME e consoles **não compartilham regras de catálogo**. Compartilham apenas infraestrutura genérica quando isso não compromete a semântica da fonte.
-
-## Catálogos externos
-
-O SERM terá um **Catalog Manager** responsável por manter referências locais atualizadas, sem baixar conteúdo de jogos automaticamente.
-
-Fontes planejadas:
-
-- **No-Intro Dat-o-MATIC** — cartuchos e mídias digitais;
-- **Redump** — discos ópticos;
-- **Retroplay / WHDLoad**, com índice de distribuição utilizado pelo GamesNostalgia — Amiga;
-- MAME/listxml — arcade.
-
-O catálogo armazenará origem, conjunto, versão/data, hash do próprio DAT quando possível e data da sincronização. Atualizações serão detectadas sem substituir silenciosamente um catálogo válido.
+MAME e consoles não compartilham regras de catálogo. Compartilham somente infraestrutura genérica quando isso não compromete a semântica da fonte.
 
 ## Arquivos compactados
 
@@ -122,11 +156,11 @@ ArchiveService
 └── RAR → backend externo quando necessário
 ```
 
-O serviço atende leitura, inspeção, teste, extração e criação. ZIP é especialmente importante para a reconstrução de consoles e MAME. CHD permanece em serviço próprio.
+CHD permanece em serviço próprio.
 
 ## Emuladores
 
-Backends standalone:
+Backends standalone consolidados:
 
 - MAME;
 - Flycast;
@@ -135,11 +169,15 @@ Backends standalone:
 
 RetroArch é tratado como runtime, com cores independentes.
 
-A Home de RetroArch está concluída, incluindo instalação/atualização do runtime, atualização de cores por CRC, retry de três tentativas por core, continuidade após falha, detecção de 7-Zip e fallback de extração.
+A Home de RetroArch está concluída e validada, incluindo instalação/atualização do runtime, atualização de cores por CRC, retry de três tentativas por core, continuidade após falha, detecção de 7-Zip e fallback de extração.
+
+## Configuração de execução
+
+SQLite será a fonte de verdade das configurações administradas pelo SERM. XML/CFG/JSON externos serão formatos de interoperabilidade ou artefatos derivados quando necessários.
+
+A configuração será modelada por plataforma/runtime/core/perfil. O SERM não deve armazenar cegamente uma configuração externa inteira como dependência do sistema.
 
 ## Apresentação / shaders
-
-A camada de apresentação permanece separada da emulação:
 
 ```text
 Sistema
@@ -149,9 +187,7 @@ Sistema
 └── Overlay
 ```
 
-Para RetroArch, priorizar shaders nativos leves e fiéis a CRT. Shaders de terceiros serão baixados diretamente de seus repositórios, sem incorporar seus arquivos ao repositório do SERM. Presets que tragam overlays/reflexos pesados não devem ser escolhidos como padrão.
-
-A proporção de aspecto do shader deve representar o sistema/emulação, nunca ser forçada para 16:9 por causa do monitor do usuário.
+Para RetroArch, priorizar shaders nativos leves e fiéis a CRT. Shaders de terceiros serão obtidos de seus repositórios de origem e não incorporados ao repositório do SERM. Aspect ratio representa o sistema/emulação, não o monitor.
 
 ## Controles e Force Feedback
 
@@ -175,28 +211,38 @@ Controles, hardware arcade e FFB permanecem domínios separados, com perfis por 
 - instalações reais validadas de MAME, Flycast, FBNeo e Supermodel;
 - atualização automática da Home para estado READY após operações.
 
-### Próxima fase
+### Próxima macrofase
 
-1. Catalog Manager;
-2. No-Intro DAT Manager/Parser;
-3. modelo Console Game/ROM/Parent-Clone;
-4. hash matching de consoles;
-5. planner de reconstrução de ZIPs;
-6. validador contra DAT;
-7. Redump catalog/parser;
-8. Disc model e CHD Builder;
-9. catálogo Amiga / WHDLoad / Retroplay;
-10. integração rápida de BIOS RetroArch;
-11. integração gradual do `ArchiveService` na reconstrução MAME.
+**Data Foundation + Source Manager + Catalog Foundation**
+
+1. SQLite/SQLAlchemy/migrations definitivos;
+2. diretórios de dados e paths;
+3. Source Registry;
+4. Catalog/CatalogVersion;
+5. proveniência;
+6. Platform/System/Canonical Identity;
+7. DE-PARA;
+8. File/Hash;
+9. Runtime/Emulator/Core/ExecutionProfile;
+10. Scan/Match/Transformation;
+11. adapters locais LaunchBox e RetroArch para validar o modelo;
+12. No-Intro;
+13. Redump;
+14. MAME/FBNeo/Softlists;
+15. WHDLoad/Retroplay;
+16. eXoDOS;
+17. demais fontes.
 
 ### Depois
 
-- controles e hardware;
-- FFB;
+- reconstrução de consoles;
+- reconstrução de discos/CHD;
+- BIOS RetroArch;
+- integração gradual do ArchiveService na reconstrução MAME;
 - shaders/overlays por sistema;
-- downloads adicionais;
-- LaunchBox;
-- aquisição/Torrent quando a base estiver madura.
+- controles, hardware e FFB;
+- downloads adicionais e aquisição/Torrent;
+- integração/exportação LaunchBox.
 
 ## Regras de desenvolvimento
 
@@ -215,12 +261,14 @@ Documentação antiga não supera o código atual.
 
 ## Documentação principal
 
-- `docs/architecture.md` — arquitetura geral do SERM;
-- `docs/reconstruction.md` — reconstrução e regras de integridade;
-- `docs/reconstruction-consoles.md` — reconstrução de consoles;
-- `docs/catalogs.md` — Catalog Manager e fontes externas;
+- `docs/architecture.md` — arquitetura geral;
+- `docs/data-foundation.md` — banco, identidade, proveniência, configuração e modelo conceitual;
+- `docs/source-strategy.md` — estratégia e autoridade das fontes;
+- `docs/catalogs.md` — Catalog Manager;
+- `docs/reconstruction.md` — reconstrução;
+- `docs/reconstruction-consoles.md` — consoles;
 - `docs/archives.md` — ArchiveService;
-- `docs/chd-reconstruction.md` — CHDs MAME e CHDs derivados de discos;
+- `docs/chd-reconstruction.md` — CHD;
 - `docs/retroarch.md` — RetroArch;
 - `docs/phases.md` — roadmap;
 - `mame-set-builder-Prompt MESTRE.md` — regras de evolução do projeto.
