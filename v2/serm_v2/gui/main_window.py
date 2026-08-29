@@ -4,14 +4,14 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QLabel, QMainWindow, QTabWidget, QVBoxLayout, QWidget
 
-from .home import HomePage
+from .emulator_home import EmulatorHomePage
 from .log_handler import LogViewer
 from .no_intro_home import NoIntroPage
 from .redump_home import RedumpPage
 
 
 class MainWindow(QMainWindow):
-    """Top-level V2 window with the restored Home and isolated provider pages."""
+    """Top-level V2 window with the complete tested Home workflow."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -21,14 +21,13 @@ class MainWindow(QMainWindow):
         self._build_ui()
 
     def _build_ui(self) -> None:
-        """Build the main navigation and application pages."""
+        """Build the main navigation and provider pages."""
         root = QWidget(self)
         layout = QVBoxLayout(root)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.addWidget(QLabel("SERM V2", alignment=Qt.AlignmentFlag.AlignLeft))
-
         tabs = QTabWidget()
-        tabs.addTab(HomePage(self.log_viewer, self), "Home")
+        tabs.addTab(EmulatorHomePage(self), "Home")
         tabs.addTab(NoIntroPage(self), "No-Intro")
         tabs.addTab(RedumpPage(self), "Redump")
         layout.addWidget(tabs, 1)
