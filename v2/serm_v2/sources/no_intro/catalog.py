@@ -43,14 +43,20 @@ class NoIntroCatalog:
         return data.decode("utf-8", errors="replace")
 
     def systems(self, html_text: str) -> tuple[NoIntroSystem, ...]:
-        """Extract No-Intro system names from catalog text."""
+        """Extract No-Intro systems from the current DAT-o-MATIC catalog format."""
         text = html.unescape(re.sub(r"<[^>]+>", " ", html_text))
+        pattern = re.compile(
+            r"(?P<name>[^|\n]+?\s+-\s+[^|\n]+?)\s*"
+            r"\(#\d+(?:\s*\+[^~|\n]+)?\s*~\s*"
+            r"(?P<updated>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})"
+        )
         systems: list[NoIntroSystem] = []
-        for match in re.finditer(r"(?:^|\s)([^\n|]+?)\s*\(#\d+[^\n|]*?~\s*(\d{8}-\d{6})", text):
-            name = " ".join(match.group(1).split())
-            if " - " not in name or name.startswith(("Source Code -", "Unofficial -", "Non-Redump -", "Non-Game -")):
+        for match in pattern.finditer(text):
+            name = " ".join(match.group("name").split())
+            if name.startswith(("Source Code -", "Unofficial -", "Non-Redump -", "Non-Game -")):
                 continue
-            systems.append(NoIntroSystem(name=name, update_text=match.group(2)))
+            systems.append(NoIntroSystem(name=name, update_text=match.group("updated")))
+
         unique: dict[str, NoIntroSystem] = {}
         for item in systems:
             unique.setdefault(item.name.casefold(), item)
