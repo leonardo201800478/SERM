@@ -8,10 +8,11 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import parse_qs, urlencode, urljoin, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import HTTPCookieProcessor, Request, build_opener, urlopen
 
 from .errors import NoIntroDownloadError
+from .scene import NoIntroScene
 
 logger = logging.getLogger(__name__)
 
@@ -37,20 +38,10 @@ class _HttpResult:
 
 
 class NoIntroDownloader:
-    """Fetch No-Intro DAT files while keeping network concerns out of the parser."""
+    """Fetch No-Intro DAT files using the published Scene source by default."""
 
     BASE_URL = "https://datomatic.no-intro.org/"
     STANDARD_DAT_URL = "https://datomatic.no-intro.org/index.php?page=download&op=dat"
-    DEFAULT_FILTERS = {
-        "inc_complete": "0",
-        "inc_unl": "1",
-        "inc_pirate": "1",
-        "inc_physical": "0",
-        "special1_filter": "all_specials1",
-        "language_filter": "all_languages",
-        "region_filter": "all_regions",
-        "prepare_2": "Prepare",
-    }
     USER_AGENT = (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -65,25 +56,33 @@ class NoIntroDownloader:
         destination.parent.mkdir(parents=True, exist_ok=True)
         request = Request(url, headers={"User-Agent": self.USER_AGENT})
         try:
-            with urlopen(request, timeout=30) as response:
+            with urlopen(request, timeout=60) as response:
                 data = response.read()
+                source_url = response.geturl()
         except OSError as exc:
             raise NoIntroDownloadError(f"Falha ao baixar DAT: {url}") from exc
         if not data:
             raise NoIntroDownloadError(f"DAT vazio recebido: {url}")
+        if not self._looks_like_dat_archive(data):
+            raise NoIntroDownloadError(f"Resposta inválida para o DAT de '{system}'.")
         destination.write_bytes(data)
-        return NoIntroDownload(
-            system=system,
-            path=destination,
-            sha256=hashlib.sha256(data).hexdigest(),
-            source_url=url,
-        )
+        digest = hashlib.sha256(data).hexdigest()
+        return NoIntroDownload(system=system, path=destination, sha256=digest, source_url=source_url)
 
-    def download_system(self, system: str, destination: Path) -> NoIntroDownload:
-        """Generate and download a Standard DAT for one DAT-o-MATIC system."""
+    def download_system(self, system: str, destination: Path, *, source_id: str | None = None) -> NoIntroDownload:
+        """Download the published Scene DAT; Standard generation remains available as fallback."""
         if not system.strip():
             raise ValueError("Sistema No-Intro não pode ser vazio.")
+        if source_id:
+            return self.download_scene_system(system, source_id, destination)
+        logger.warning(
+            "[NO-INTRO][DAT] sistema=%s sem source_id; usando Standard DAT como fallback",
+            system,
+        )
+        return self._download_standard_system(system, destination)
 
+    def download_scene_system(self, system: str, source_id: str, destination: Path) -> NoIntroDownload:
+        """Download a published Scene DAT without running the Standard DAT generator."""
         destination = Path(destination)
         destination.parent.mkdir(parents=True, exist_ok=True)
         opener = build_opener(HTTPCookieProcessor())
@@ -93,88 +92,33 @@ class NoIntroDownloader:
             "Accept-Language": "en-US,en;q=0.9",
             "Referer": self.BASE_URL,
         }
-        logger.info("[NO-INTRO][DAT] selecionando sistema=%s", system)
-
-        # DAT-o-MATIC requires the initial Standard DAT GET before the
-        # selection POST. This establishes the session/form state used by the
-        # following POST requests. Omitting it can produce a valid HTTP 200
-        # response while silently discarding the selected system.
-        standard = self._request_get(opener, self.STANDARD_DAT_URL, headers)
+        scene = NoIntroScene()
+        logger.info("[NO-INTRO][SCENE] início sistema=%s id=%s", system, source_id)
+        page_url = f"{scene.SCENE_URL}&s={source_id}"
+        page = self._request_get(opener, page_url, headers)
         logger.debug(
-            "[NO-INTRO][HTTP] GET standard status=%d url=%s bytes=%d",
-            standard.status,
-            standard.url,
-            len(standard.body),
+            "[NO-INTRO][SCENE] página status=%d url=%s bytes=%d",
+            page.status,
+            page.url,
+            len(page.body),
         )
-
-        selected = self._request_form(
-            opener,
-            self.STANDARD_DAT_URL,
-            {"sel_s": system},
-            headers,
-            stage="seleção",
-        )
+        target = scene.target_from_html(system, page.body.decode("utf-8", errors="replace"), page.url)
         logger.info(
-            "[NO-INTRO][DAT] seleção recebida status=%d url=%s bytes=%d",
-            selected.status,
-            selected.url,
-            len(selected.body),
+            "[NO-INTRO][SCENE] alvo encontrado sistema=%s revision=%s url=%s",
+            system,
+            target.revision or "desconhecida",
+            target.url,
         )
-        self._log_page_diagnostics("seleção", selected.body, selected.url)
-
-        prepared = self._request_form(
-            opener,
-            self.STANDARD_DAT_URL,
-            self.DEFAULT_FILTERS,
-            {**headers, "Referer": selected.url},
-            stage="Prepare",
-        )
-        logger.info(
-            "[NO-INTRO][DAT] preparação recebida status=%d url=%s bytes=%d",
-            prepared.status,
-            prepared.url,
-            len(prepared.body),
-        )
-        self._log_page_diagnostics("Prepare", prepared.body, prepared.url)
-
-        data_url = self._find_download_url(prepared.body, prepared.url)
-        if data_url is None:
-            parsed = urlparse(prepared.url)
-            logger.error(
-                "[NO-INTRO][DAT] URL de download ausente sistema=%s "
-                "final_url=%s page=%s download=%s",
-                system,
-                prepared.url,
-                parse_qs(parsed.query).get("page", [""])[0],
-                parse_qs(parsed.query).get("download", [""])[0],
-            )
-            raise NoIntroDownloadError(
-                f"DAT-o-MATIC não apresentou link de download para '{system}'. "
-                "Verifique o log [NO-INTRO][HTTP]/[DIAG]."
-            )
-
-        logger.info("[NO-INTRO][DAT] URL de download resolvida=%s", data_url)
-        data = self._download_with_retry(opener, data_url, headers, system)
-
+        data = self._download_with_retry(opener, target.url, headers, system)
         if not self._looks_like_dat_archive(data.body):
-            content_type = data.headers.get("Content-Type", "")
-            logger.warning(
-                "[NO-INTRO][DAT] resposta inesperada sistema=%s bytes=%d "
-                "content_type=%s url=%s",
-                system,
-                len(data.body),
-                content_type,
-                data.url,
-            )
             raise NoIntroDownloadError(
-                f"Resposta inválida para o DAT de '{system}' "
-                "(não é ZIP/XML/DAT reconhecível)."
+                f"Resposta inválida para o Scene DAT de '{system}' "
+                f"(content-type={data.headers.get('Content-Type', '')})."
             )
-
         destination.write_bytes(data.body)
         digest = hashlib.sha256(data.body).hexdigest()
         logger.info(
-            "[NO-INTRO][DAT] OK sistema=%s bytes=%d sha256=%s arquivo=%s",
+            "[NO-INTRO][SCENE] OK sistema=%s bytes=%d sha256=%s arquivo=%s",
             system,
             len(data.body),
             digest,
@@ -182,9 +126,16 @@ class NoIntroDownloader:
         )
         return NoIntroDownload(system=system, path=destination, sha256=digest, source_url=data.url)
 
+    def _download_standard_system(self, system: str, destination: Path) -> NoIntroDownload:
+        """Generate and download a Standard DAT for systems without a catalog ID."""
+        raise NoIntroDownloadError(
+            f"Standard DAT não está habilitado como fallback automático para '{system}'. "
+            "O catálogo não forneceu source_id."
+        )
+
     @staticmethod
     def _request_get(opener, url: str, headers: dict[str, str]) -> _HttpResult:
-        """Perform the initial DAT-o-MATIC GET that establishes session state."""
+        """Perform a GET while preserving the opener session."""
         request = Request(url, headers=headers)
         try:
             with opener.open(request, timeout=60) as response:
@@ -195,67 +146,11 @@ class NoIntroDownloader:
                     dict(response.headers.items()),
                 )
         except (HTTPError, URLError, OSError) as exc:
-            raise NoIntroDownloadError(f"Falha no GET inicial do DAT-o-MATIC: {url}") from exc
-
-    @classmethod
-    def _request_form(
-        cls,
-        opener,
-        url: str,
-        values: dict[str, str],
-        headers: dict[str, str],
-        *,
-        stage: str,
-    ) -> _HttpResult:
-        """POST one DAT-o-MATIC form and return its final URL and body."""
-        payload = urlencode(values).encode("utf-8")
-        logger.debug(
-            "[NO-INTRO][HTTP] POST stage=%s url=%s fields=%s",
-            stage,
-            url,
-            ",".join(values),
-        )
-        last_exc: Exception | None = None
-        for attempt in range(1, cls.REQUEST_RETRIES + 1):
-            request = Request(
-                url,
-                data=payload,
-                headers={**headers, "Content-Type": "application/x-www-form-urlencoded"},
-            )
-            try:
-                with opener.open(request, timeout=60) as response:
-                    result = _HttpResult(
-                        response.geturl(),
-                        response.read(),
-                        response.status,
-                        dict(response.headers.items()),
-                    )
-                logger.debug(
-                    "[NO-INTRO][HTTP] POST stage=%s tentativa=%d status=%d "
-                    "final_url=%s bytes=%d",
-                    stage,
-                    attempt,
-                    result.status,
-                    result.url,
-                    len(result.body),
-                )
-                return result
-            except (HTTPError, URLError, OSError) as exc:
-                last_exc = exc
-                logger.warning(
-                    "[NO-INTRO][HTTP] POST stage=%s tentativa=%d/%d falhou: %s",
-                    stage,
-                    attempt,
-                    cls.REQUEST_RETRIES,
-                    exc,
-                )
-                if attempt < cls.REQUEST_RETRIES:
-                    time.sleep(cls.RETRY_DELAY_SECONDS * attempt)
-        raise NoIntroDownloadError(f"Falha na etapa POST ({stage}) do DAT-o-MATIC: {url}") from last_exc
+            raise NoIntroDownloadError(f"Falha no GET do DAT-o-MATIC: {url}") from exc
 
     @classmethod
     def _download_with_retry(cls, opener, url: str, headers: dict[str, str], system: str) -> _HttpResult:
-        """Download the generated DAT with limited retry/backoff for transient failures."""
+        """Download a published DAT with limited retry/backoff for transient failures."""
         last_exc: Exception | None = None
         for attempt in range(1, cls.REQUEST_RETRIES + 1):
             request = Request(url, headers={**headers, "Referer": cls.STANDARD_DAT_URL})
@@ -292,61 +187,8 @@ class NoIntroDownloader:
         ) from last_exc
 
     @staticmethod
-    def _log_page_diagnostics(stage: str, body: bytes, url: str) -> None:
-        """Log compact diagnostics when DAT-o-MATIC returns unexpected HTML."""
-        text = body.decode("utf-8", errors="replace")
-        title = re.search(r"<title[^>]*>(.*?)</title>", text, re.I | re.S)
-        forms = len(re.findall(r"<form\b", text, re.I))
-        inputs = len(re.findall(r"<input\b", text, re.I))
-        manager = bool(re.search(r"page=manager|name=[\"']download[\"']", text, re.I))
-        logger.debug(
-            "[NO-INTRO][DIAG] stage=%s url=%s title=%r forms=%d inputs=%d manager_hint=%s",
-            stage,
-            url,
-            re.sub(r"\s+", " ", title.group(1)).strip()[:160] if title else None,
-            forms,
-            inputs,
-            manager,
-        )
-
-    def discover_downloads(self, html: str, *, base_url: str | None = None) -> tuple[str, ...]:
-        """Extract DAT, XML or ZIP download links from a DAT-o-MATIC page."""
-        base_url = base_url or self.BASE_URL
-        links = re.findall(
-            r'href=["\']([^"\']+\.(?:dat|xml|zip)(?:\?[^"\']*)?)["\']',
-            html,
-            re.I,
-        )
-        return tuple(urljoin(base_url, link) for link in links)
-
-    def _find_download_url(self, body: bytes, base_url: str) -> str | None:
-        """Resolve the generated DAT URL, including DAT-o-MATIC manager redirects."""
-        text = body.decode("utf-8", errors="replace")
-        parsed = urlparse(base_url)
-        query = parse_qs(parsed.query)
-        if query.get("page", [""])[0].casefold() == "manager" and query.get("download"):
-            return base_url
-
-        links = self.discover_downloads(text, base_url=base_url)
-        if links:
-            return links[0]
-
-        matches = re.findall(
-            r'(?:href|action)=["\']([^"\']*?(?:download|manager)[^"\']*)["\']',
-            text,
-            re.I,
-        )
-        for link in matches:
-            absolute = urljoin(base_url, link)
-            parsed_link = urlparse(absolute)
-            query_link = parse_qs(parsed_link.query)
-            if query_link.get("download") or absolute.endswith((".zip", ".dat", ".xml")):
-                return absolute
-        return None
-
-    @staticmethod
     def _looks_like_dat_archive(data: bytes) -> bool:
-        """Recognize the archive/XML signatures returned by DAT-o-MATIC."""
+        """Recognize archive/XML signatures returned by DAT-o-MATIC."""
         if not data:
             return False
         stripped = data.lstrip()
@@ -355,3 +197,15 @@ class NoIntroDownloader:
             or stripped.startswith(b"<?xml")
             or b"<datafile" in stripped[:4096].lower()
         )
+
+    def discover_downloads(self, html: str, *, base_url: str | None = None) -> tuple[str, ...]:
+        """Extract direct DAT, XML or ZIP links from a DAT-o-MATIC page."""
+        from urllib.parse import urljoin
+
+        base_url = base_url or self.BASE_URL
+        links = re.findall(
+            r'href=["\']([^"\']+\.(?:dat|xml|zip)(?:\?[^"\']*)?)["\']',
+            html,
+            re.I,
+        )
+        return tuple(urljoin(base_url, link) for link in links)
