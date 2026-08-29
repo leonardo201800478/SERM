@@ -37,6 +37,9 @@ sources = [
     "datoso-seed-nointro @ git+https://github.com/leonardo201800478/datoso_seed_nointro.git@master",
 ]
 
+[tool.hatch.metadata]
+allow-direct-references = true
+
 [project.scripts]
 serm = "serm_v2.main:main"
 serm-audit-launchbox = "serm_v2.tools.audit_launchbox:main"
