@@ -1,72 +1,62 @@
-# RetroArch no ARCADE MANAGER
+# RetroArch no SERM
 
-**Estado:** arquitetura definida; implementação pendente.
+**Produto:** Strife Emulator and Roms Manager (SERM)
+**Estado:** Home concluída e validada em fluxo real.
+**Referência:** 29/08/2026
 
-## Objetivo
+## Runtime
 
-Adicionar RetroArch como runtime de execução e gerenciamento, mantendo MAME, FBNeo e Flycast standalone independentes.
-
-## Modelo
-
-```text
-RetroArch Runtime
- ├── MAME Core
- ├── FBNeo Core
- └── Flycast Core
-```
-
-RetroArch não deve gerar cópias das entidades `machine`/`rom`.
-
-## Core
-
-Cada core deve possuir:
-
-- identificador;
-- nome;
-- arquivo `.dll`;
-- versão;
-- arquitetura;
-- sistema suportado;
-- caminho instalado;
-- origem do pacote;
-- hash/tamanho quando disponível;
-- status de instalação.
-
-## Execução
-
-Conceitualmente:
+RetroArch é um runtime. Cores Libretro são módulos independentes executados por ele.
 
 ```text
-Machine
- ↓
-RetroArch Backend
- ↓
-Core
- ↓
-Content
+RetroArch
+├── MAME core
+├── FBNeo core
+├── Flycast core
+└── outros cores futuros
 ```
 
-O backend deve montar a linha de comando adequada e validar que o core existe antes de iniciar.
+O catálogo de conteúdo não deve ser duplicado apenas porque existe execução standalone e via RetroArch.
 
-## MAME core
+## Home — estado concluído
 
-O core MAME não deve ser tratado como equivalente automático ao MAME standalone. Compatibilidade depende da versão do core e do conteúdo.
+A Home de RetroArch possui:
 
-O scanner/reconstructor continua tendo o dataset MAME como referência do set. A compatibilidade com um core específico é uma camada de execução.
+- instalação/atualização do runtime;
+- seleção Stable/Nightly;
+- descoberta de versões;
+- download para staging;
+- extração com 7-Zip externo quando disponível;
+- fallback `py7zr`;
+- validação do executável;
+- atualização de cores pelo índice oficial;
+- comparação CRC local × índice;
+- seleção automática somente dos cores desatualizados;
+- retry de até três tentativas por core;
+- continuidade para o próximo core após falha;
+- estado READY após conclusão/falha;
+- log operacional.
 
-## FBNeo core
+A Home não deve receber novos botões sem funcionalidade real.
 
-FBNeo possui seu próprio ecossistema de ROMs e regras. Não misturar automaticamente o catálogo FBNeo com o catálogo MAME.
+## Core Manager
 
-## Flycast core
+O índice oficial de cores é consultado quando necessário. A comparação deve distinguir:
 
-Flycast RetroArch é outra forma de execução do ecossistema Flycast. Configurações e conteúdo devem continuar separados do Flycast standalone quando necessário.
+```text
+instalado + CRC igual       → atualizado
+instalado + CRC divergente  → atualização disponível
+não instalado + índice      → novo
+instalado sem correspondência → sem correspondência
+```
+
+Falha de um core não deve cancelar a fila inteira. O log deve identificar claramente o core e o número da tentativa.
 
 ## Diretórios
 
-O runtime deverá permitir configurar, conforme suporte da versão instalada:
+O runtime pode utilizar:
 
-- RetroArch executable;
+- executável;
 - cores;
 - system;
 - assets;
@@ -75,43 +65,63 @@ O runtime deverá permitir configurar, conforme suporte da versão instalada:
 - states;
 - downloads.
 
-## Renderer e Presentation
+## BIOS
 
-O renderer gráfico do RetroArch e o sistema de shaders devem ser tratados como parte do Execution/Graphics Profile.
+BIOS de RetroArch é uma próxima área da reconstrução, separada dos DATs No-Intro e Redump.
+
+Fluxo planejado:
 
 ```text
-RetroArch
-   ↓
-Core
-   ↓
-Renderer
-   ↓
-RetroArch Shader / Presentation Profile
-   ↓
-Display
+.info / fonte confiável
+ ↓
+catalogação
+ ↓
+scan/hash
+ ↓
+OK / renomeável / movível / reconstruível / MISSING
+ ↓
+reconstrução/instalação
 ```
 
-Quando um jogo estiver sendo executado por RetroArch e houver um shader adequado, o ARCADE MANAGER deve preferir o mecanismo nativo de shaders do RetroArch.
+O objetivo é ser rápido e limpo, processando apenas o que realmente precisa de intervenção.
 
-ReShade não deve ser aplicado automaticamente sobre RetroArch apenas para duplicar uma função já disponível no runtime.
+## Shaders e apresentação
+
+RetroArch deve usar seu mecanismo nativo de shaders.
+
+Arquitetura por sistema:
+
+```text
+Sistema
+├── Core
+├── Override
+├── Shader
+└── Overlay
+```
+
+Shaders de terceiros não são incorporados ao repositório do SERM. O projeto armazena metadados e baixa o conteúdo diretamente do repositório de origem quando necessário.
+
+Prioridade visual:
+
+1. CRT limpo e fiel;
+2. baixo custo de processamento;
+3. compatibilidade por renderer;
+4. ausência de efeitos agressivos.
+
+Shaders/presets com reflexos de borda ou overlays pesados não devem ser padrões.
+
+Aspect ratio representa o sistema/emulação. Não forçar 16:9 apenas porque a tela do usuário possui 16:9.
 
 ## Configuração
 
-Não sobrescrever `retroarch.cfg` válido para simplesmente registrar configurações no banco.
+Não sobrescrever `retroarch.cfg` válido apenas para registrar estado no SERM. Alterar somente propriedades conhecidas e suportadas, preservando o restante.
 
-O ARCADE MANAGER deve editar somente propriedades que conhece e preservar outras configurações.
+## Próximas etapas
 
-## Versões
-
-A versão do RetroArch e a versão dos cores devem ser armazenadas separadamente.
-
-```text
-RetroArch 1.x
- ├── MAME core A
- ├── FBNeo core B
- └── Flycast core C
-```
-
-## Futuro
-
-O Download Manager deverá instalar/atualizar RetroArch e cores. O gerenciador deve validar arquivos baixados antes da instalação.
+1. finalizar infraestrutura Catalog Manager;
+2. No-Intro;
+3. Redump;
+4. Amiga/Retroplay;
+5. BIOS;
+6. shaders/overrides/overlays por sistema;
+7. integração com execução completa.
