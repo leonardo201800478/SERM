@@ -43,12 +43,12 @@ class NoIntroCatalog:
         return data.decode("utf-8", errors="replace")
 
     def systems(self, html_text: str) -> tuple[NoIntroSystem, ...]:
-        """Extract No-Intro systems from the current DAT-o-MATIC catalog format."""
+        """Extract No-Intro systems from current and legacy catalog date formats."""
         text = html.unescape(re.sub(r"<[^>]+>", " ", html_text))
         pattern = re.compile(
             r"(?P<name>[^|\n]+?\s+-\s+[^|\n]+?)\s*"
             r"\(#\d+(?:\s*\+[^~|\n]+)?\s*~\s*"
-            r"(?P<updated>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})"
+            r"(?P<updated>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}|\d{8}-\d{6})"
         )
         systems: list[NoIntroSystem] = []
         for match in pattern.finditer(text):
