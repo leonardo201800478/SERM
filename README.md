@@ -1,219 +1,226 @@
-# ARCADE MANAGER
+# Strife Emulator and Roms Manager — SERM
 
-**Estado de referência:** 23/08/2026
+**Nome do produto:** Strife Emulator and Roms Manager (SERM)
+**Repositório:** `mame-set-builder` (nome histórico preservado)
+**Estado de referência:** 29/08/2026
 
-O **ARCADE MANAGER** é uma aplicação desktop Python/Qt para gerenciamento de bibliotecas arcade. O projeto nasceu como MAME Set Builder, mas evoluiu para uma plataforma capaz de analisar datasets, auditar ROMs, reconstruir sets, administrar emuladores, perfis de controles, Force Feedback, cores RetroArch, plugins e futuras aquisições de conteúdo.
+O **SERM** é uma aplicação desktop Python/Qt para gerenciamento, auditoria, reconstrução e execução de bibliotecas de emulação. O projeto nasceu como MAME Set Builder e evoluiu para uma plataforma que separa preservação de conteúdo, emuladores, RetroArch, controles, apresentação, downloads e integrações externas.
 
-> **Fonte de verdade:** o código atual do repositório. Esta documentação distingue explicitamente o que já existe, o que está em validação e o que está planejado.
+> **Fonte de verdade:** o código atual do repositório. A documentação distingue explicitamente funcionalidade implementada, validada e planejada.
 
 ## Visão do produto
 
 ```text
-                    ARCADE MANAGER
-                           │
-       ┌───────────────────┼───────────────────┐
-       │                   │                   │
-    Biblioteca          Emuladores          Hardware
-       │                   │                   │
-   Dataset/ROMs      MAME/Flycast/FBNeo    Controles
-   Scan/Rebuild      Supermodel            G27/volantes
-   Dependências      RetroArch/cores        FFB
-       │                   │                   │
-       └───────────────────┼───────────────────┘
-                           │
-                    Perfis + Execução
-                           │
-                    Downloads/Updates
+                         SERM
+                          │
+       ┌──────────────────┼──────────────────┐
+       │                  │                  │
+   Biblioteca         Emuladores         Apresentação
+       │                  │                  │
+ MAME / Consoles    MAME/Flycast/FBNeo   CRT / Shaders
+ Scan / Rebuild      Supermodel          Overlays
+       │             RetroArch
+       │                  │
+       └──────────────────┼──────────────────┘
+                          │
+                Perfis / Downloads
+                          │
+             Catálogos / Integrações
 ```
 
-## Evolução do projeto
+## Núcleo de preservação
 
-O antigo **MAME Set Builder** continua sendo o núcleo de preservação e construção de sets. O novo nome **ARCADE MANAGER** representa o escopo completo do produto.
-
-O núcleo de ROMs permanece independente das novas camadas. Controles, FFB, emuladores, plugins e downloads não devem alterar a verdade física do FULLSET nem contaminar a lógica de integridade das ROMs.
-
-## Núcleo atual
+O núcleo MAME continua protegido e independente das camadas de execução:
 
 ```text
-MAME / listxml
-      ↓
+MAME listxml
+    ↓
 Dataset / SQLite
-      ↓
-Filtros / seleção
-      ↓
+    ↓
+Filtros
+    ↓
 Scan físico
-      ↓
+    ↓
 current_scan.jsonl
-      ↓
+    ↓
+Dependency Resolver
+    ↓
+Reconstrução MAME
+    ↓
+Set final / residual
+```
+
+Regras fundamentais:
+
+- FULLSET e origens são somente leitura;
+- Machine é entidade lógica; arquivo é artefato físico;
+- o Scan registra evidência física para a reconstrução;
+- ROMs são processadas em streaming;
+- staging é temporário;
+- arquivos finais só são publicados após validação;
+- nenhuma camada de emulação altera a verdade física do conteúdo.
+
+## Reconstrução ampla
+
+A reconstrução será dividida em domínios independentes:
+
+```text
 Reconstrução
-      ↓
-Meu Set
-      ↓
-residual
+├── MAME
+│   ├── ROMs
+│   ├── BIOS
+│   ├── devices / samples / disks
+│   └── CHDs
+│
+├── Consoles
+│   ├── No-Intro
+│   │   ├── DATs
+│   │   ├── Parent / Clone
+│   │   ├── Hash matching
+│   │   └── ZIP Builder
+│   │
+│   ├── Redump
+│   │   ├── DAT / catálogo
+│   │   ├── Disc metadata
+│   │   ├── Hash matching
+│   │   └── CHD Builder
+│   │
+│   └── Amiga / WHDLoad / Retroplay
+│       ├── catálogo
+│       ├── versões / variantes
+│       └── pacotes
+│
+└── RetroArch BIOS
+    ├── catálogo baseado em .info
+    ├── validação
+    └── reconstrução / instalação
 ```
 
-### Princípios do núcleo
+MAME e consoles **não compartilham regras de catálogo**. Compartilham apenas infraestrutura genérica quando isso não compromete a semântica da fonte.
 
-- FULLSET e origens são somente leitura.
-- Machine é entidade lógica; arquivo é artefato físico.
-- O Scan registra a origem física para que a reconstrução não precise revarrer globalmente as fontes.
-- Reconstrução trabalha machine por machine e ROM por ROM.
-- ROMs são processadas em streaming, sem cache permanente.
-- Staging é temporário e fica no destino.
-- Arquivos finais só são publicados depois de validação.
+## Catálogos externos
 
-## Camada de emuladores
+O SERM terá um **Catalog Manager** responsável por manter referências locais atualizadas, sem baixar conteúdo de jogos automaticamente.
 
-O projeto passa a suportar uma arquitetura de **backends de execução**:
+Fontes planejadas:
 
-- MAME standalone;
-- Flycast standalone;
-- FBNeo standalone;
-- Supermodel;
-- RetroArch como plataforma;
-- cores RetroArch MAME, FBNeo e Flycast.
+- **No-Intro Dat-o-MATIC** — cartuchos e mídias digitais;
+- **Redump** — discos ópticos;
+- **Retroplay / WHDLoad**, com índice de distribuição utilizado pelo GamesNostalgia — Amiga;
+- MAME/listxml — arcade.
 
-RetroArch não é tratado como três emuladores diferentes. É um runtime que seleciona um core para executar o conteúdo.
+O catálogo armazenará origem, conjunto, versão/data, hash do próprio DAT quando possível e data da sincronização. Atualizações serão detectadas sem substituir silenciosamente um catálogo válido.
 
-## Controles
+## Arquivos compactados
 
-Será criada uma camada dedicada para gerenciamento de controles:
+A infraestrutura comum é o `ArchiveService`:
 
 ```text
-Dispositivo físico
-      ↓
-Perfil de hardware
-      ↓
-Perfil de controles
-      ↓
-Grupo/família de jogos
-      ↓
-Configuração específica do backend
+ArchiveService
+├── ZIP → Python zipfile
+├── 7Z  → 7z.exe preferencial / py7zr fallback
+└── RAR → backend externo quando necessário
 ```
 
-O objetivo é permitir configurar uma máquina e replicar a configuração para famílias de jogos com controles comuns, por exemplo Street Fighter, Neo Geo, beat'em ups, shooters e jogos de corrida.
+O serviço atende leitura, inspeção, teste, extração e criação. ZIP é especialmente importante para a reconstrução de consoles e MAME. CHD permanece em serviço próprio.
 
-## Volantes e controles arcade
+## Emuladores
 
-O sistema deverá representar o hardware original do gabinete, não apenas teclas. Para jogos de corrida poderão existir perfis com:
+Backends standalone:
 
-- volante e eixo;
-- grau de rotação original;
-- acelerador;
-- freio;
-- embreagem;
-- câmbio H-pattern/sequencial;
-- botões auxiliares;
-- faixas analógicas;
-- Force Feedback.
+- MAME;
+- Flycast;
+- FBNeo;
+- Supermodel.
 
-Isso permitirá criar perfis específicos para equipamentos como Logitech G27 e aplicá-los a jogos compatíveis.
+RetroArch é tratado como runtime, com cores independentes.
 
-## Force Feedback
+A Home de RetroArch está concluída, incluindo instalação/atualização do runtime, atualização de cores por CRC, retry de três tentativas por core, continuidade após falha, detecção de 7-Zip e fallback de extração.
 
-O **FFBArcadePlugin** será integrado como plugin/runtime auxiliar, e não como emulador.
+## Apresentação / shaders
 
-Arquitetura:
+A camada de apresentação permanece separada da emulação:
 
 ```text
-MAME / Flycast / Supermodel / outros backends
-                    ↓
-              Plugin Manager
-                    ↓
-             FFBArcadePlugin
-                    ↓
-          perfil FFB por jogo/família
+Sistema
+├── Core
+├── Override
+├── Shader
+└── Overlay
 ```
 
-A integração deverá preservar a capacidade do plugin de tratar jogos específicos e parâmetros avançados. O fork de referência é `leonardo201800478/FFBArcadePlugin`.
+Para RetroArch, priorizar shaders nativos leves e fiéis a CRT. Shaders de terceiros serão baixados diretamente de seus repositórios, sem incorporar seus arquivos ao repositório do SERM. Presets que tragam overlays/reflexos pesados não devem ser escolhidos como padrão.
 
-## RetroArch e downloads
+A proporção de aspecto do shader deve representar o sistema/emulação, nunca ser forçada para 16:9 por causa do monitor do usuário.
 
-O projeto terá um gerenciador de instalação e atualização do ecossistema RetroArch, inspirado na arquitetura observada no projeto StellarUpdater/Stellar, mas com implementação própria.
+## Controles e Force Feedback
 
-O futuro gerenciador deverá tratar:
+Controles, hardware arcade e FFB permanecem domínios separados, com perfis por família/jogo e overrides específicos.
 
-- RetroArch;
-- cores;
-- system/BIOS;
-- assets;
-- shaders;
-- versões;
-- downloads;
-- validação;
-- instalação;
-- backup;
-- atualização;
-- rollback quando aplicável.
+## Estado atual — 29/08/2026
 
-## Status
+### Concluído / validado
 
-### Implementado
+- núcleo MAME/listxml, SQLite, filtros e Scan;
+- arquitetura estrutural de reconstrução MAME;
+- arquitetura de emuladores e configuração;
+- lazy loading das abas;
+- consolidação Schema × Adapter dos emuladores;
+- Home RetroArch;
+- instalação/atualização RetroArch e cores;
+- retry de download de cores: 3 tentativas por core e continuidade da fila;
+- detecção de 7-Zip no Windows com fallback `py7zr`;
+- infraestrutura inicial `ArchiveService`;
+- testes consolidados da arquitetura atual;
+- instalações reais validadas de MAME, Flycast, FBNeo e Supermodel;
+- atualização automática da Home para estado READY após operações.
 
-- dataset/listxml MAME;
-- SQLite e migrations;
-- filtros e classificação;
-- geração de XML filtrado;
-- Scan ROMs;
-- manifesto `current_scan.jsonl`;
-- registro de origem física;
-- Reconstrução integrada;
-- Split/Merged/Non-Merged em estrutura;
-- streaming e staging;
-- política segura de configuração de emuladores;
-- capabilities/runtime para MAME, Flycast, Supermodel e FBNeo;
-- guia de diretórios com configuração específica por emulador, incluindo quatro caminhos de ROM do Flycast.
+### Próxima fase
 
-### Em validação
+1. Catalog Manager;
+2. No-Intro DAT Manager/Parser;
+3. modelo Console Game/ROM/Parent-Clone;
+4. hash matching de consoles;
+5. planner de reconstrução de ZIPs;
+6. validador contra DAT;
+7. Redump catalog/parser;
+8. Disc model e CHD Builder;
+9. catálogo Amiga / WHDLoad / Retroplay;
+10. integração rápida de BIOS RetroArch;
+11. integração gradual do `ArchiveService` na reconstrução MAME.
 
-- protocolo transacional completo da reconstrução;
-- residual preciso;
-- recuperação após interrupção;
-- integração completa do discovery/importer;
-- semântica real dos três layouts;
-- cobertura completa dos `source.kind`.
+### Depois
 
-### Planejado / nova arquitetura
+- controles e hardware;
+- FFB;
+- shaders/overlays por sistema;
+- downloads adicionais;
+- LaunchBox;
+- aquisição/Torrent quando a base estiver madura.
 
-- consolidação do nome ARCADE MANAGER;
-- backend RetroArch;
-- cores MAME/FBNeo/Flycast;
-- Plugin Manager;
-- integração FFBArcadePlugin;
-- GUI dedicada de controles;
-- perfis e famílias de controles;
-- perfis de hardware arcade;
-- perfis de volante/pedais/câmbio;
-- aplicação em lote de configurações MAME;
-- Force Feedback por jogo/família;
-- gerenciador de downloads/atualizações RetroArch;
-- Dependency Resolver completo;
-- aquisição futura via torrent/qBittorrent.
+## Regras de desenvolvimento
 
-## Segurança
+Antes de alterar código:
 
-- Nunca modificar o FULLSET/origens.
-- Nunca renomear, mover ou apagar ROMs na origem.
-- Nunca criar cache permanente de ROMs.
-- Nunca publicar arquivo parcial.
-- Validar tamanho e hashes antes da publicação.
-- Preservar configurações válidas dos emuladores.
-- Fazer backup antes de substituir configuração inválida.
-- Não inventar formatos ou comandos não verificados na documentação/código do emulador.
+1. consultar o código atual no GitHub;
+2. verificar modelos, schema e consumidores;
+3. identificar funções ativas e legadas;
+4. não remover funcionalidade ativa sem auditoria;
+5. implementar em blocos pequenos;
+6. executar testes da arquitetura atual;
+7. validar fluxo real quando aplicável;
+8. atualizar documentação somente com fatos verificados.
+
+Documentação antiga não supera o código atual.
 
 ## Documentação principal
 
-- `docs/architecture.md` — arquitetura do ARCADE MANAGER.
-- `docs/controls.md` — arquitetura planejada de controles e perfis.
-- `docs/force-feedback.md` — integração e perfis FFB.
-- `docs/retroarch.md` — RetroArch, cores e execução.
-- `docs/download-manager.md` — gerenciador de downloads/updates.
-- `docs/database.md` — persistência e evolução do banco.
-- `docs/emulator-config-policy.md` — política de configuração.
-- `docs/sets.md` — Scan, manifesto e reconstrução.
-- `docs/phases.md` — roadmap.
+- `docs/architecture.md` — arquitetura geral do SERM;
+- `docs/reconstruction.md` — reconstrução e regras de integridade;
+- `docs/reconstruction-consoles.md` — reconstrução de consoles;
+- `docs/catalogs.md` — Catalog Manager e fontes externas;
+- `docs/archives.md` — ArchiveService;
+- `docs/chd-reconstruction.md` — CHDs MAME e CHDs derivados de discos;
+- `docs/retroarch.md` — RetroArch;
+- `docs/phases.md` — roadmap;
 - `mame-set-builder-Prompt MESTRE.md` — regras de evolução do projeto.
-
-## Desenvolvimento
-
-Antes de alterar qualquer componente: consultar o código atual no GitHub, modelos/schema afetados e consumidores; preservar funções ativas; testar o fluxo real; e atualizar a documentação somente com fatos verificados.
