@@ -1,7 +1,7 @@
-"""Compatibility facade for the complete SERM V2 Home."""
+"""Home V2 baseada nos componentes funcionais originais do SERM."""
 from __future__ import annotations
 
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QTabWidget, QVBoxLayout, QWidget
 
 from .emulator_home import EmulatorHomePage
 
