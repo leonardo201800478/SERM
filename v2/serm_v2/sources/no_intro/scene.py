@@ -44,10 +44,12 @@ class NoIntroScene:
             raise NoIntroDownloadError(f"Scene DAT não encontrado para '{system}'.")
         return candidates[0]
 
-    def fetch_target(self, system: str, fetch_html) -> NoIntroSceneTarget:
-        """Fetch the Scene page and resolve the published DAT for a system."""
-        url = f"{self.SCENE_URL}&s={system}"
-        logger.info("[NO-INTRO][SCENE] consultando sistema=%s", system)
+    def fetch_target(self, system: str, source_id: str, fetch_html) -> NoIntroSceneTarget:
+        """Fetch the Scene page for a DAT-o-MATIC numeric system ID."""
+        if not source_id or not source_id.isdigit():
+            raise NoIntroDownloadError(f"ID DAT-o-MATIC inválido para '{system}'.")
+        url = f"{self.SCENE_URL}&s={source_id}"
+        logger.info("[NO-INTRO][SCENE] consultando sistema=%s id=%s", system, source_id)
         body, final_url, status = fetch_html(url)
         logger.debug(
             "[NO-INTRO][SCENE] status=%d url=%s bytes=%d",
@@ -61,7 +63,13 @@ class NoIntroScene:
     def _links(html: str) -> tuple[tuple[str, str], ...]:
         """Extract href and visible label pairs from HTML."""
         pattern = re.compile(r'<a\b[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)</a>', re.I | re.S)
-        return tuple((href, re.sub(r"\s+", " ", unescape(re.sub(r"<[^>]+>", "", label))).strip()) for href, label in pattern.findall(html))
+        return tuple(
+            (
+                href,
+                re.sub(r"\s+", " ", unescape(re.sub(r"<[^>]+>", "", label))).strip(),
+            )
+            for href, label in pattern.findall(html)
+        )
 
     @staticmethod
     def _is_download_candidate(url: str) -> bool:
@@ -81,8 +89,8 @@ class NoIntroScene:
         """Normalize a display name for conservative matching."""
         return re.sub(r"[^a-z0-9]+", " ", value.casefold()).strip()
 
-    @classmethod
-    def _name_tokens_match(cls, wanted: str, haystack: str) -> bool:
+    @staticmethod
+    def _name_tokens_match(wanted: str, haystack: str) -> bool:
         """Match all meaningful system-name tokens without requiring exact formatting."""
         tokens = [token for token in wanted.split() if len(token) > 1]
         return bool(tokens) and all(token in haystack for token in tokens)
