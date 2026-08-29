@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.request import Request, urlopen
 
+from ..routing import SystemSourceRouter
 from .errors import NoIntroDownloadError
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,9 @@ class NoIntroCatalog:
 
     CATALOG_URL = "https://datomatic.no-intro.org/index.php?page=download&s=31"
     MIN_EXPECTED_SYSTEMS = 10
+
+    def __init__(self, router: SystemSourceRouter | None = None) -> None:
+        self.router = router or SystemSourceRouter()
 
     def fetch_catalog(self) -> str:
         """Download the catalog HTML from DAT-o-MATIC."""
@@ -51,16 +55,20 @@ class NoIntroCatalog:
 
     @staticmethod
     def _is_excluded(name: str) -> bool:
-        """Return whether a DAT-o-MATIC entry is not a normal No-Intro system."""
+        """Return whether a catalog entry is outside the normal No-Intro domain."""
         return name.startswith(("Source Code -", "Unofficial -", "Non-Redump -", "Non-Game -"))
 
-    def systems(self, html_text: str) -> tuple[NoIntroSystem, ...]:
-        """Extract system names, revisions and DAT-o-MATIC system IDs.
+    def _accept(self, name: str) -> bool:
+        """Accept only entries that are not explicitly owned by Redump."""
+        if not name or self._is_excluded(name):
+            return False
+        if self.router.is_redump_system(name):
+            logger.debug("[NO-INTRO][ROUTING] ignorando Redump='%s'", name)
+            return False
+        return True
 
-        DAT-o-MATIC has changed its table markup over time. The parser therefore
-        uses links for IDs when available, but always has a row-text fallback so
-        a markup-only change cannot silently reduce the catalog to one system.
-        """
+    def systems(self, html_text: str) -> tuple[NoIntroSystem, ...]:
+        """Extract systems, revisions and DAT-o-MATIC IDs despite markup changes."""
         source = html.unescape(html_text)
         row_pattern = re.compile(r"<tr\b[^>]*>(?P<row>.*?)</tr>", re.I | re.S)
         link_pattern = re.compile(
@@ -85,15 +93,11 @@ class NoIntroCatalog:
                 name = self._clean_text(link.group("label"))
                 source_id = link.group("id")
             else:
-                # Current DAT-o-MATIC markup can expose the system as plain
-                # table text without a system <a> element.
-                prefix = row_text.split("(#", 1)[0].strip()
-                name = prefix.rsplit("|", 1)[-1].strip()
+                name = row_text.split("(#", 1)[0].rsplit("|", 1)[-1].strip()
                 source_id = None
 
-            if not name or self._is_excluded(name):
+            if not self._accept(name):
                 continue
-
             systems.append(
                 NoIntroSystem(
                     name=name,
@@ -102,8 +106,6 @@ class NoIntroCatalog:
                 )
             )
 
-        # Some cached/legacy snapshots do not contain useful <tr> boundaries.
-        # Parse the visible text as a second independent strategy.
         if len(systems) < self.MIN_EXPECTED_SYSTEMS:
             text = self._clean_text(source)
             text_pattern = re.compile(
@@ -113,14 +115,9 @@ class NoIntroCatalog:
             )
             for match in text_pattern.finditer(text):
                 name = " ".join(match.group("name").split())
-                if not name or self._is_excluded(name):
+                if not self._accept(name):
                     continue
-                systems.append(
-                    NoIntroSystem(
-                        name=name,
-                        update_text=match.group("updated"),
-                    )
-                )
+                systems.append(NoIntroSystem(name=name, update_text=match.group("updated")))
 
         unique: dict[str, NoIntroSystem] = {}
         for item in systems:
@@ -133,8 +130,7 @@ class NoIntroCatalog:
         logger.info("[NO-INTRO][CATALOG] sistemas extraídos=%d", len(result))
         if len(result) < self.MIN_EXPECTED_SYSTEMS:
             logger.warning(
-                "[NO-INTRO][CATALOG] resultado suspeito: apenas %d sistema(s) extraído(s); "
-                "o markup do DAT-o-MATIC pode ter mudado",
+                "[NO-INTRO][CATALOG] resultado suspeito: apenas %d sistema(s) extraído(s)",
                 len(result),
             )
         logger.debug(
