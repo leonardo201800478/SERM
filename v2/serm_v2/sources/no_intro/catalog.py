@@ -26,6 +26,7 @@ class NoIntroCatalog:
     """Discover No-Intro systems from the public DAT-o-MATIC catalog page."""
 
     CATALOG_URL = "https://datomatic.no-intro.org/index.php?page=download&s=31"
+    MIN_EXPECTED_SYSTEMS = 10
 
     def fetch_catalog(self) -> str:
         """Download the catalog HTML from DAT-o-MATIC."""
@@ -43,8 +44,23 @@ class NoIntroCatalog:
             raise NoIntroDownloadError("O catálogo DAT-o-MATIC retornou conteúdo vazio.")
         return data.decode("utf-8", errors="replace")
 
+    @staticmethod
+    def _clean_text(value: str) -> str:
+        """Remove HTML and normalize whitespace from one catalog fragment."""
+        return " ".join(re.sub(r"<[^>]+>", " ", html.unescape(value)).split())
+
+    @staticmethod
+    def _is_excluded(name: str) -> bool:
+        """Return whether a DAT-o-MATIC entry is not a normal No-Intro system."""
+        return name.startswith(("Source Code -", "Unofficial -", "Non-Redump -", "Non-Game -"))
+
     def systems(self, html_text: str) -> tuple[NoIntroSystem, ...]:
-        """Extract system names, revisions and DAT-o-MATIC system IDs."""
+        """Extract system names, revisions and DAT-o-MATIC system IDs.
+
+        DAT-o-MATIC has changed its table markup over time. The parser therefore
+        uses links for IDs when available, but always has a row-text fallback so
+        a markup-only change cannot silently reduce the catalog to one system.
+        """
         source = html.unescape(html_text)
         row_pattern = re.compile(r"<tr\b[^>]*>(?P<row>.*?)</tr>", re.I | re.S)
         link_pattern = re.compile(
@@ -52,47 +68,75 @@ class NoIntroCatalog:
             re.I | re.S,
         )
         revision_pattern = re.compile(
-            r"#\d+(?:\s*\+[^~|<]+)?\s*~\s*(?P<updated>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}|\d{8}-\d{6})"
+            r"#(?P<revision>\d+)(?:\s*\+[^~|<]+)?\s*~\s*"
+            r"(?P<updated>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}|\d{8}-\d{6})"
         )
+
         systems: list[NoIntroSystem] = []
         for row_match in row_pattern.finditer(source):
             row = row_match.group("row")
+            row_text = self._clean_text(row)
+            revision = revision_pattern.search(row_text)
+            if not revision:
+                continue
+
             link = link_pattern.search(row)
-            if not link:
+            if link:
+                name = self._clean_text(link.group("label"))
+                source_id = link.group("id")
+            else:
+                # Current DAT-o-MATIC markup can expose the system as plain
+                # table text without a system <a> element.
+                prefix = row_text.split("(#", 1)[0].strip()
+                name = prefix.rsplit("|", 1)[-1].strip()
+                source_id = None
+
+            if not name or self._is_excluded(name):
                 continue
-            name = " ".join(re.sub(r"<[^>]+>", " ", link.group("label")).split())
-            if not name or name.startswith(("Source Code -", "Unofficial -", "Non-Redump -", "Non-Game -")):
-                continue
-            revision = revision_pattern.search(re.sub(r"<[^>]+>", " ", row))
+
             systems.append(
                 NoIntroSystem(
                     name=name,
-                    update_text=revision.group("updated") if revision else None,
-                    source_id=link.group("id"),
+                    update_text=revision.group("updated"),
+                    source_id=source_id,
                 )
             )
 
-        if not systems:
-            text = re.sub(r"<[^>]+>", " ", source)
-            pattern = re.compile(
-                r"(?P<name>[^|\n]+?\s+-\s+[^|\n]+?)\s*"
-                r"\(#\d+(?:\s*\+[^~|\n]+)?\s*~\s*"
+        # Some cached/legacy snapshots do not contain useful <tr> boundaries.
+        # Parse the visible text as a second independent strategy.
+        if len(systems) < self.MIN_EXPECTED_SYSTEMS:
+            text = self._clean_text(source)
+            text_pattern = re.compile(
+                r"(?P<name>[A-Za-z0-9À-ÿ][^|\r\n]*?\s+-\s+[^|\r\n]+?)\s+"
+                r"\(#(?P<revision>\d+)(?:\s*\+[^~|<]+)?\s*~\s*"
                 r"(?P<updated>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}|\d{8}-\d{6})"
             )
-            systems = [
-                NoIntroSystem(
-                    name=" ".join(match.group("name").split()),
-                    update_text=match.group("updated"),
+            for match in text_pattern.finditer(text):
+                name = " ".join(match.group("name").split())
+                if not name or self._is_excluded(name):
+                    continue
+                systems.append(
+                    NoIntroSystem(
+                        name=name,
+                        update_text=match.group("updated"),
+                    )
                 )
-                for match in pattern.finditer(text)
-                if not match.group("name").strip().startswith(("Source Code -", "Unofficial -", "Non-Redump -", "Non-Game -"))
-            ]
 
         unique: dict[str, NoIntroSystem] = {}
         for item in systems:
-            unique.setdefault(item.name.casefold(), item)
+            key = item.name.casefold()
+            current = unique.get(key)
+            if current is None or (current.source_id is None and item.source_id is not None):
+                unique[key] = item
+
         result = tuple(unique.values())
         logger.info("[NO-INTRO][CATALOG] sistemas extraídos=%d", len(result))
+        if len(result) < self.MIN_EXPECTED_SYSTEMS:
+            logger.warning(
+                "[NO-INTRO][CATALOG] resultado suspeito: apenas %d sistema(s) extraído(s); "
+                "o markup do DAT-o-MATIC pode ter mudado",
+                len(result),
+            )
         logger.debug(
             "[NO-INTRO][CATALOG] primeiros sistemas=%s",
             [(item.name, item.source_id, item.update_text) for item in result[:20]],
@@ -104,5 +148,9 @@ class NoIntroCatalog:
         destination = Path(destination)
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text(html_text, encoding="utf-8")
-        logger.info("[NO-INTRO][CATALOG] snapshot salvo em %s (%d bytes)", destination, len(html_text.encode("utf-8")))
+        logger.info(
+            "[NO-INTRO][CATALOG] snapshot salvo em %s (%d bytes)",
+            destination,
+            len(html_text.encode("utf-8")),
+        )
         return destination
