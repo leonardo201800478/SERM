@@ -1,10 +1,9 @@
 """Página unificada de diretórios do SERM V2."""
 from __future__ import annotations
 
-from PySide6.QtWidgets import QTabWidget, QVBoxLayout, QWidget
-
 from app.gui.tabs.directories_tab import DirectoriesTab
 from app.gui.tabs.retroarch_directories_tab import RetroArchDirectoriesTab
+from PySide6.QtWidgets import QTabWidget, QVBoxLayout, QWidget
 
 from .tools_directories import ToolsDirectoriesPage
 

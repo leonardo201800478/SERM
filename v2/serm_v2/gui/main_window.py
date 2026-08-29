@@ -1,10 +1,9 @@
 """Janela principal do SERM V2."""
 from __future__ import annotations
 
-from PySide6.QtWidgets import QLabel, QMainWindow, QTabWidget, QVBoxLayout, QWidget
-
 from app.config.app_config import AppConfig
 from app.database.database import Database
+from PySide6.QtWidgets import QLabel, QMainWindow, QTabWidget, QVBoxLayout, QWidget
 
 from .dat_scraper import DatScraperPage
 from .directories_page import DirectoriesPage

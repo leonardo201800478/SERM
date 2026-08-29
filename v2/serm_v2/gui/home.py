@@ -1,10 +1,9 @@
 """Home V2 baseada nos componentes funcionais originais do SERM."""
 from __future__ import annotations
 
-from PySide6.QtWidgets import QTabWidget, QVBoxLayout, QWidget
-
 from app.gui.tabs.home_tab import HomeTab
 from app.gui.tabs.retroarch_home_tab_v2 import RetroArchHomeTab
+from PySide6.QtWidgets import QTabWidget, QVBoxLayout, QWidget
 
 
 class HomePage(QWidget):
