@@ -34,7 +34,7 @@ dev = [
 ]
 sources = [
     "datoso>=1.1.1,<2",
-    "datoso-seed-nointro>=1.1.1,<2",
+    "datoso-seed-nointro @ git+https://github.com/leonardo201800478/datoso_seed_nointro.git@master",
 ]
 
 [project.scripts]
