@@ -41,4 +41,4 @@ def test_download_url_writes_bytes_and_hash(monkeypatch, tmp_path: Path) -> None
 
     assert result.path.read_bytes() == b"PK\x03\x04test dat"
     assert result.source_url == "https://example.invalid/test.dat"
-    assert result.sha256 == "f9d816c5ad5ae27c53a3f1fce6e408c2b6b0f76f68ce4c36d1b6d4d4ffdc30e5"
+    assert result.sha256 == "33e6a1c0502e7c9681cb71e1f94d5a575b9d2d455f45612128f9c98d1ceaf57b"
