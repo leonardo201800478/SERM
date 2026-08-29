@@ -4,11 +4,11 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QLabel, QMainWindow, QVBoxLayout, QWidget
 
-from .no_intro_home import NoIntroHomePage
+from .home import HomePage
 
 
 class MainWindow(QMainWindow):
-    """Top-level V2 window containing only the new application shell."""
+    """Top-level V2 window containing the new application shell."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -22,5 +22,5 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(root)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.addWidget(QLabel("SERM V2", alignment=Qt.AlignmentFlag.AlignLeft))
-        layout.addWidget(NoIntroHomePage(self), 1)
+        layout.addWidget(HomePage(self), 1)
         self.setCentralWidget(root)
