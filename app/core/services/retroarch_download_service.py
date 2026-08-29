@@ -52,6 +52,26 @@ class RetroArchCoreInfo:
         return re.sub(r"_libretro(?:_[^.]+)?$", "", name)
 
 
+@dataclass(frozen=True, slots=True)
+class InstalledCoreInfo:
+    """Estado local de um core comparado ao índice oficial."""
+
+    path: Path
+    core_name: str
+    local_crc32: str
+    remote_crc32: str | None
+
+    @property
+    def needs_update(self) -> bool:
+        """Indica se o core local difere do CRC publicado."""
+        return self.remote_crc32 is not None and self.local_crc32 != self.remote_crc32
+
+    @property
+    def is_current(self) -> bool:
+        """Indica se o CRC local é exatamente o publicado pelo Buildbot."""
+        return self.remote_crc32 is not None and self.local_crc32 == self.remote_crc32
+
+
 class RetroArchDownloadService:
     """Consulta o Buildbot, baixa e instala RetroArch/cores com segurança."""
 
@@ -149,7 +169,7 @@ class RetroArchDownloadService:
             date, crc, filename = parts[0], parts[1], parts[2]
             if not filename.endswith("_libretro.dll.zip"):
                 continue
-            result.append(RetroArchCoreInfo(filename=filename, date=date, crc32=crc.lower().removeprefix("0x")))
+            result.append(RetroArchCoreInfo(filename=filename, date=date, crc32=crc.lower().removeprefix("0x").zfill(8)))
         result.sort(key=lambda item: item.core_name.casefold())
         if not result:
             raise RetroArchDownloadError(f"O índice de cores não contém DLLs válidas: {index_url}")
@@ -248,10 +268,33 @@ class RetroArchDownloadService:
         return sorted(path.glob("*_libretro.dll"), key=lambda item: item.name.casefold())
 
     @classmethod
+    def compare_installed_cores(cls, cores: list[RetroArchCoreInfo], cores_dir: Path) -> list[InstalledCoreInfo]:
+        """Calcula CRC32 local e compara cada DLL instalada ao índice oficial.
+
+        Cores sem correspondência no índice também são retornados, mas com
+        ``remote_crc32=None`` para que nunca sejam substituídos automaticamente.
+        """
+        remote = {core.filename.removesuffix(".zip").casefold(): core for core in cores}
+        result: list[InstalledCoreInfo] = []
+        for path in cls.installed_cores(cores_dir):
+            local_crc = f"{cls._crc32(path):08x}"
+            core = remote.get(path.name.casefold())
+            result.append(
+                InstalledCoreInfo(
+                    path=path,
+                    core_name=path.stem.removesuffix("_libretro"),
+                    local_crc32=local_crc,
+                    remote_crc32=core.crc32.lower().removeprefix("0x").zfill(8) if core else None,
+                )
+            )
+        return result
+
+    @classmethod
     def match_installed_cores(cls, cores: list[RetroArchCoreInfo], cores_dir: Path) -> list[RetroArchCoreInfo]:
-        """Relaciona DLLs instaladas ao índice sem exigir que todos os cores existam."""
-        installed = {item.name.casefold() for item in cls.installed_cores(cores_dir)}
-        return [core for core in cores if core.filename.removesuffix(".zip").casefold() in installed]
+        """Retorna cores instalados que realmente precisam de atualização por CRC."""
+        remote = {core.filename.removesuffix(".zip").casefold(): core for core in cores}
+        comparisons = cls.compare_installed_cores(cores, cores_dir)
+        return [remote[item.path.name.casefold()] for item in comparisons if item.needs_update]
 
     @staticmethod
     def _download(url: str, target: Path, progress=None) -> None:
@@ -308,34 +351,29 @@ class RetroArchDownloadService:
             found = shutil.which(name)
             if found:
                 return found
-        for path in (Path(r"C:\Program Files\7-Zip\7z.exe"), Path(r"C:\Program Files (x86)\7-Zip\7z.exe")):
+        for path in (Path(r"C:\Program Files\7-Zip\7z.exe"), Path(r"C:\Program Files\7-Zip\7zz.exe"), Path(r"C:\Program Files\7-Zip\7za.exe")):
             if path.is_file():
                 return str(path)
-        raise RetroArchDownloadError("7-Zip não encontrado. Instale 7-Zip para extrair RetroArch e cores.")
+        raise RetroArchDownloadError("7-Zip não encontrado. Instale o 7-Zip ou adicione 7z.exe ao PATH.")
 
     @classmethod
     def _extract_7z(cls, archive: Path, destination: Path) -> None:
-        """Extrai um pacote 7z silenciosamente, sem executar seu conteúdo."""
+        """Extrai um pacote 7z com 7-Zip sem executar shell."""
         seven_zip = cls._find_7zip()
-        result = subprocess.run([seven_zip, "x", "-y", f"-o{destination}", str(archive)], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", shell=False, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), timeout=600, check=False)
+        result = subprocess.run([seven_zip, "x", str(archive), f"-o{destination}", "-y"], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", shell=False, check=False)
         if result.returncode != 0:
-            raise RetroArchDownloadError(f"7-Zip falhou ao extrair {archive.name}: {(result.stderr or result.stdout).strip()}")
+            raise RetroArchDownloadError(f"Falha ao extrair {archive.name}: {result.stdout[-4000:]}")
 
     @staticmethod
     def _merge(source: Path, destination: Path, excluded: set[str]) -> None:
-        """Mescla uma árvore extraída sem substituir dados protegidos."""
-        source = Path(source).resolve()
-        destination = Path(destination).resolve()
-        excluded_folded = {x.casefold() for x in excluded}
-        for item in source.rglob("*"):
-            relative = item.relative_to(source)
-            if relative.parts and relative.parts[0].casefold() in excluded_folded:
+        """Mescla uma árvore de instalação preservando entradas excluídas."""
+        for item in source.iterdir():
+            if item.name.casefold() in {value.casefold() for value in excluded}:
                 continue
-            if relative.name.casefold() in excluded_folded:
-                continue
-            target = destination / relative
+            target = destination / item.name
             if item.is_dir():
                 target.mkdir(parents=True, exist_ok=True)
+                RetroArchDownloadService._merge(item, target, set())
             else:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(item, target)
