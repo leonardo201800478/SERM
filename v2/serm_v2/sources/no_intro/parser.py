@@ -10,7 +10,7 @@ from .models import NoIntroDatInfo, NoIntroRomRecord, NoIntroSetRecord
 
 
 class NoIntroParser:
-    """Parse No-Intro DAT/XML input into deterministic source records."""
+    """Parse No-Intro XML DAT input into deterministic source records."""
 
     def parse(self, path: Path) -> tuple[NoIntroDatInfo, tuple[NoIntroSetRecord, ...]]:
         """Read a DAT file and return its metadata and source-defined sets."""
@@ -32,11 +32,17 @@ class NoIntroParser:
             if not name:
                 raise NoIntroParseError("Registro game sem nome/descrição.")
             roms = tuple(self._rom(record) for record in game.findall("rom"))
+            region = game.get("region") or self._text(game, "region")
+            release = game.find("release")
+            if region is None and release is not None:
+                region = release.get("region")
             sets.append(
                 NoIntroSetRecord(
                     name=name,
                     description=self._text(game, "description"),
-                    platform=game.get("source") or game.get("category"),
+                    platform=None,
+                    region=region,
+                    clone_of=game.get("cloneof"),
                     roms=roms,
                     provenance=SourceProvenance(
                         source="No-Intro",
@@ -55,16 +61,18 @@ class NoIntroParser:
         if not filename:
             raise NoIntroParseError("Registro rom sem nome.")
         hashes = tuple(
-            SourceHash(algorithm=key, value=value)
+            SourceHash(algorithm=key, value=value.lower())
             for key in ("crc", "md5", "sha1")
             if (value := element.get(key))
         )
         size = element.get("size")
+        serial = element.get("serial")
         return NoIntroRomRecord(
             filename=filename,
             size=int(size) if size and size.isdigit() else None,
             hashes=hashes,
             status=element.get("status"),
+            serial=serial,
         )
 
     @staticmethod
