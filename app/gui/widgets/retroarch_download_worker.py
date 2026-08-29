@@ -66,7 +66,6 @@ class RetroArchDownloadWorker(QObject):
                 self.status.emit("Consultando lista de cores…")
                 cores = service.list_cores(channel)
                 by_filename = {item.filename: item for item in cores}
-                by_name = {item.core_name.casefold(): item for item in cores}
                 app_config = AppConfig()
                 app_config.load()
                 cores_dir = app_config.get_emulator_path("retroarch", "cores") or (self.destination / "cores")
@@ -79,15 +78,25 @@ class RetroArchDownloadWorker(QObject):
                     if not selected_cores:
                         raise ValueError("Nenhum dos cores selecionados foi encontrado no índice oficial.")
                 else:
-                    installed = sorted(cores_dir.glob("*_libretro.dll")) if cores_dir.is_dir() else []
+                    comparisons = service.compare_installed_cores(cores, cores_dir)
                     selected_cores = []
-                    for dll in installed:
-                        logical = dll.stem.removesuffix("_libretro").casefold()
-                        if logical in by_name:
-                            selected_cores.append(by_name[logical])
+                    for comparison in comparisons:
+                        if comparison.remote_crc32 is None:
+                            self._log(f"CORE IGNORADO | {comparison.core_name} | não encontrado no índice oficial")
+                            continue
+                        remote = by_filename.get(comparison.path.name.casefold())
+                        if remote is None:
+                            continue
+                        if comparison.is_current:
+                            self._log(f"CORE ATUALIZADO | {comparison.core_name} | CRC={comparison.local_crc32}")
+                        elif comparison.needs_update:
+                            selected_cores.append(remote)
+                            self._log(f"ATUALIZAÇÃO DISPONÍVEL | {comparison.core_name} | local={comparison.local_crc32} | remoto={comparison.remote_crc32}")
+                    self._log(f"COMPARAÇÃO CRC | instalados={len(comparisons)} | atualizações={len(selected_cores)}")
                     if not selected_cores:
-                        raise ValueError("Nenhum core instalado corresponde ao índice oficial deste canal. Verifique o diretório Cores importado do retroarch.cfg.")
-                    self._log(f"CORES INSTALADOS | candidatos={len(selected_cores)}")
+                        self.status.emit("Todos os cores instalados já estão atualizados.")
+                        self.finished.emit("cores", "0", str(cores_dir))
+                        return
 
                 for index, selected in enumerate(selected_cores, start=1):
                     self.status.emit(f"Baixando core {index}/{len(selected_cores)}: {selected.core_name}…")
