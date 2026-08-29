@@ -28,12 +28,6 @@ class NoIntroCatalog:
 
     CATALOG_URL = "https://datomatic.no-intro.org/index.php?page=download&s=31"
     MIN_EXPECTED_SYSTEMS = 10
-    _EXCLUDED_PREFIXES = ("Source Code -", "Unofficial -", "Non-Redump -", "Non-Game -")
-    _ENTRY_RE = re.compile(
-        r"(?P<name>[A-Za-z0-9À-ÿ][^\r\n|]*?\s+-\s+[^\r\n|()]*?)\s*"
-        r"\(\s*#(?P<id>\d+)(?:\s*\+[^~)]*)?\s*~\s*"
-        r"(?P<updated>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}|\d{8}-\d{6})"
-    )
 
     def __init__(self, router: SystemSourceRouter | None = None) -> None:
         self.router = router or SystemSourceRouter()
@@ -59,38 +53,35 @@ class NoIntroCatalog:
         """Remove HTML and normalize whitespace from one catalog fragment."""
         return " ".join(re.sub(r"<[^>]+>", " ", html.unescape(value)).split())
 
+    @staticmethod
+    def _is_excluded(name: str) -> bool:
+        """Return whether a catalog entry is outside the normal No-Intro domain."""
+        return name.startswith(("Source Code -", "Unofficial -", "Non-Redump -", "Non-Game -"))
+
     def _accept(self, name: str) -> bool:
-        """Accept only systems inside the No-Intro domain and outside Redump."""
-        if not name or name.startswith(self._EXCLUDED_PREFIXES):
+        """Accept only entries that are not explicitly owned by Redump."""
+        if not name or self._is_excluded(name):
             return False
         if self.router.is_redump_system(name):
             logger.debug("[NO-INTRO][ROUTING] ignorando Redump='%s'", name)
             return False
         return True
 
-    def _extract_entries(self, text: str) -> list[NoIntroSystem]:
-        """Extract independent catalog entries without consuming the next row."""
-        normalized = " ".join(text.replace("\r", " ").replace("\n", " ").split())
-        systems: list[NoIntroSystem] = []
-        for match in self._ENTRY_RE.finditer(normalized):
-            name = self._clean_text(match.group("name"))
-            if not self._accept(name):
-                continue
-            systems.append(
-                NoIntroSystem(
-                    name=name,
-                    update_text=match.group("updated"),
-                    source_id=match.group("id"),
-                )
-            )
-        return systems
+    @staticmethod
+    def _extract_entry(text: str, match: re.Match[str]) -> tuple[str, str]:
+        """Extract the system name and revision directly preceding a DAT marker."""
+        prefix = text[: match.start()]
+        name_match = re.search(r"(?P<name>[A-Za-z0-9À-ÿ][^\n|]*?\s+-\s+[^\n|]+?)\s+$", prefix)
+        if not name_match:
+            raise ValueError("Nome de sistema não localizado antes do marcador DAT.")
+        return " ".join(name_match.group("name").split()), match.group("updated")
 
     def systems(self, html_text: str) -> tuple[NoIntroSystem, ...]:
         """Extract systems, revisions and DAT-o-MATIC IDs despite markup changes."""
         source = html.unescape(html_text)
         systems: list[NoIntroSystem] = []
 
-        rows = re.findall(r"<tr\b[^>]*>(?P<row>.*?)</tr>", source, re.I | re.S)
+        row_pattern = re.compile(r"<tr\b[^>]*>(?P<row>.*?)</tr>", re.I | re.S)
         link_pattern = re.compile(
             r'href=["\'][^"\']*[?&]s=(?P<id>\d+)[^"\']*["\'][^>]*>(?P<label>.*?)</a>',
             re.I | re.S,
@@ -99,28 +90,36 @@ class NoIntroCatalog:
             r"#(?P<revision>\d+)(?:\s*\+[^~|<]+)?\s*~\s*"
             r"(?P<updated>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}|\d{8}-\d{6})"
         )
-        for row in rows:
+
+        for row_match in row_pattern.finditer(source):
+            row = row_match.group("row")
             row_text = self._clean_text(row)
             revision = revision_pattern.search(row_text)
             if not revision:
                 continue
             link = link_pattern.search(row)
-            source_id = link.group("id") if link else None
             if link:
                 name = self._clean_text(link.group("label"))
+                source_id = link.group("id")
             else:
-                name = row_text.split("(#", 1)[0].rsplit("|", 1)[-1].strip()
-            if self._accept(name):
-                systems.append(
-                    NoIntroSystem(
-                        name=name,
-                        update_text=revision.group("updated"),
-                        source_id=source_id,
-                    )
-                )
+                name = row_text.split("(#", 1)[0].strip()
+                source_id = None
+            if not self._accept(name):
+                continue
+            systems.append(NoIntroSystem(name=name, update_text=revision.group("updated"), source_id=source_id))
 
         if len(systems) < self.MIN_EXPECTED_SYSTEMS:
-            systems = self._extract_entries(source)
+            text = self._clean_text(source)
+            text_pattern = re.compile(
+                r"(?:^|\s)(?P<name>[A-Za-z0-9À-ÿ][^\n|]*?\s+-\s+[^\n|]+?)\s+"
+                r"\(#(?P<revision>\d+)(?:\s*\+[^~|]+)?\s*~\s*"
+                r"(?P<updated>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}|\d{8}-\d{6})"
+            )
+            for match in text_pattern.finditer(text):
+                name = " ".join(match.group("name").split())
+                if not self._accept(name):
+                    continue
+                systems.append(NoIntroSystem(name=name, update_text=match.group("updated")))
 
         unique: dict[str, NoIntroSystem] = {}
         for item in systems:
