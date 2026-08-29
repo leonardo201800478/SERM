@@ -1,7 +1,9 @@
 from pathlib import Path
 
 import pytest
+
 from serm_v2.sources.no_intro.errors import NoIntroParseError
+from serm_v2.sources.no_intro.naming import parse_name
 from serm_v2.sources.no_intro.parser import NoIntroParser
 
 DAT = '''<?xml version="1.0"?>
@@ -46,3 +48,13 @@ def test_parser_rejects_malformed_xml(tmp_path: Path) -> None:
 
     with pytest.raises(NoIntroParseError):
         NoIntroParser().parse(path)
+
+
+def test_filename_parser_preserves_convention_tokens() -> None:
+    info = parse_name("Game Title (USA, Europe) (En,Ja) (Rev 1) (Aftermarket) (Unl).nes")
+
+    assert info.title == "Game Title"
+    assert info.region == "USA, Europe"
+    assert info.languages == ("En", "Ja")
+    assert info.version == "Rev 1"
+    assert info.additional == ("Aftermarket", "Unl")
