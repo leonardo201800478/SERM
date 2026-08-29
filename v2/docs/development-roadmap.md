@@ -4,9 +4,16 @@
 
 - V2 package exists;
 - application entry point exists;
-- clean Home exists;
+- Home uses only V2 modules;
+- proven Home layout migrated conceptually from the legacy application;
 - no V1 imports;
-- isolated V2 tests start here.
+- isolated V2 tests start here;
+- LaunchBox executable discovery/configuration/launch is available from Home;
+- LaunchBox metadata database and `Platforms.xml` locations are discoverable.
+
+### Milestone 0 boundary
+
+The emulator installation/update backend from V1 is **not imported** into V2. The Home keeps the visual organization and operational intent of the proven legacy screen, while runtime/emulator services will be rebuilt against V2 contracts.
 
 ## Milestone 1 — Data Foundation
 
