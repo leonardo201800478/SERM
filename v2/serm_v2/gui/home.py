@@ -1,4 +1,4 @@
-"""Home V2 baseada diretamente nos fluxos funcionais validados do SERM original."""
+"""Home V2 baseada nos componentes funcionais originais do SERM."""
 from __future__ import annotations
 
 from PySide6.QtWidgets import QTabWidget, QVBoxLayout, QWidget
@@ -8,7 +8,7 @@ from app.gui.tabs.retroarch_home_tab_v2 import RetroArchHomeTab
 
 
 class HomePage(QWidget):
-    """Replica a Home original sem reimplementar seus fluxos testados."""
+    """Composição da Home original: Arcade/MAME e RetroArch."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -16,7 +16,7 @@ class HomePage(QWidget):
         self._build_ui()
 
     def _build_ui(self) -> None:
-        """Monta Arcade/MAME e RetroArch usando as implementações originais."""
+        """Monta as duas subabas funcionais sem duplicar lógica já testada."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         self.home_section = QTabWidget()
@@ -30,7 +30,7 @@ class HomePage(QWidget):
         layout.addWidget(self.home_section)
 
     def _on_section_changed(self, index: int) -> None:
-        """Atualiza a subaba selecionada, preservando o comportamento original."""
+        """Atualiza a subaba selecionada usando o mesmo contrato da Home original."""
         widget = self.home_section.widget(index)
         if widget is self.arcade_tab:
             self.arcade_tab.refresh_status()
@@ -38,16 +38,16 @@ class HomePage(QWidget):
             self.retroarch_tab.refresh()
 
     def refresh(self) -> None:
-        """Atualiza os componentes funcionais da Home."""
+        """Atualiza os estados da Home Arcade e RetroArch."""
         self.arcade_tab.refresh_status()
         self.retroarch_tab.refresh()
 
     @property
     def home_tab(self) -> HomeTab:
-        """Retorna a implementação original da Home Arcade."""
+        """Retorna a Home Arcade funcional original."""
         return self.arcade_tab
 
     @property
     def retroarch_home_tab(self) -> RetroArchHomeTab:
-        """Retorna a implementação original da Home RetroArch."""
+        """Retorna a Home RetroArch funcional original."""
         return self.retroarch_tab
