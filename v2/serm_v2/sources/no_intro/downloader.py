@@ -8,8 +8,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import Request, urljoin
-from urllib.request import HTTPCookieProcessor, Request as UrlRequest, build_opener, urlopen
+from urllib.parse import Request as UrlRequest, urljoin
+from urllib.request import HTTPCookieProcessor, Request, build_opener, urlopen
 
 from .catalog import NoIntroCatalog
 from .errors import NoIntroDownloadError
