@@ -33,6 +33,7 @@ class _HttpResult:
     url: str
     body: bytes
     status: int
+    headers: dict[str, str]
 
 
 class NoIntroDownloader:
@@ -187,7 +188,12 @@ class NoIntroDownloader:
         request = Request(url, headers=headers)
         try:
             with opener.open(request, timeout=60) as response:
-                return _HttpResult(response.geturl(), response.read(), response.status)
+                return _HttpResult(
+                    response.geturl(),
+                    response.read(),
+                    response.status,
+                    dict(response.headers.items()),
+                )
         except (HTTPError, URLError, OSError) as exc:
             raise NoIntroDownloadError(f"Falha no GET inicial do DAT-o-MATIC: {url}") from exc
 
@@ -218,7 +224,12 @@ class NoIntroDownloader:
             )
             try:
                 with opener.open(request, timeout=60) as response:
-                    result = _HttpResult(response.geturl(), response.read(), response.status)
+                    result = _HttpResult(
+                        response.geturl(),
+                        response.read(),
+                        response.status,
+                        dict(response.headers.items()),
+                    )
                 logger.debug(
                     "[NO-INTRO][HTTP] POST stage=%s tentativa=%d status=%d "
                     "final_url=%s bytes=%d",
@@ -250,7 +261,12 @@ class NoIntroDownloader:
             request = Request(url, headers={**headers, "Referer": cls.STANDARD_DAT_URL})
             try:
                 with opener.open(request, timeout=60) as response:
-                    result = _HttpResult(response.geturl(), response.read(), response.status)
+                    result = _HttpResult(
+                        response.geturl(),
+                        response.read(),
+                        response.status,
+                        dict(response.headers.items()),
+                    )
                 logger.info(
                     "[NO-INTRO][HTTP] download tentativa=%d/%d status=%d bytes=%d url=%s",
                     attempt,
@@ -271,7 +287,9 @@ class NoIntroDownloader:
                 )
                 if attempt < cls.REQUEST_RETRIES:
                     time.sleep(cls.RETRY_DELAY_SECONDS * attempt)
-        raise NoIntroDownloadError(f"Falha ao baixar DAT de '{system}' após {cls.REQUEST_RETRIES} tentativas.") from last_exc
+        raise NoIntroDownloadError(
+            f"Falha ao baixar DAT de '{system}' após {cls.REQUEST_RETRIES} tentativas."
+        ) from last_exc
 
     @staticmethod
     def _log_page_diagnostics(stage: str, body: bytes, url: str) -> None:
