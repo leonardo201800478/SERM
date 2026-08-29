@@ -22,7 +22,7 @@ class RedumpEntry:
     category: str = "Redump"
 
     @classmethod
-    def from_catalog(cls, entry: DatCatalogEntry) -> "RedumpEntry":
+    def from_catalog(cls, entry: DatCatalogEntry) -> RedumpEntry:
         """Convert a generic public-catalog entry into a Redump entry."""
         return cls(entry.name, entry.url, entry.crc32, entry.size, entry.category)
 
