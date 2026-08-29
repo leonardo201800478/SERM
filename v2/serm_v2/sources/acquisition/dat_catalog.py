@@ -88,15 +88,12 @@ class PublicDatCatalogProvider:
         return entries
 
     @classmethod
-    def _parse_index(
-        cls, text: str, *, category: str = "No-Intro"
-    ) -> tuple[DatCatalogEntry, ...]:
+    def _parse_index(cls, text: str, *, category: str = "No-Intro") -> tuple[DatCatalogEntry, ...]:
         """Extract DAT files belonging to the requested catalog category."""
         reader = csv.DictReader(io.StringIO(text))
         entries: list[DatCatalogEntry] = []
         current_directory: str | None = None
         is_no_intro = cls._normalize(category) == cls._normalize("No-Intro")
-
         for row in reader:
             kind = (row.get("Type") or "").strip().upper()
             name = (row.get("Name") or "").strip()
@@ -116,126 +113,95 @@ class PublicDatCatalogProvider:
             except ValueError:
                 logger.warning("[DAT-CATALOG][CATALOG] metadados inválidos: %s", name)
                 continue
-            entries.append(
-                DatCatalogEntry(
-                    name=name,
-                    url=cls._normalize_url(url),
-                    crc32=crc32,
-                    size=size,
-                    category=category,
-                )
-            )
+            entries.append(DatCatalogEntry(name, cls._normalize_url(url), crc32, size, category))
         return tuple(entries)
 
-    def match(
-        self,
-        systems: tuple[str, ...],
-        entries: tuple[DatCatalogEntry, ...] | None = None,
-    ) -> tuple[DatCatalogEntry, ...]:
+    def match(self, systems: tuple[str, ...], entries: tuple[DatCatalogEntry, ...] | None = None) -> tuple[DatCatalogEntry, ...]:
         """Match LaunchBox system names against DAT filenames."""
         entries = entries if entries is not None else self.fetch_catalog()
-        launchbox_keys: set[str] = set()
+        keys: set[str] = set()
         for system in systems:
             key = self._normalize(system)
-            launchbox_keys.add(key)
-            launchbox_keys.update(self._aliases(key))
-        aliases = {self._strip_vendor(key) for key in launchbox_keys}
+            keys.add(key)
+            keys.update(self._aliases(key))
+        aliases = {self._strip_vendor(key) for key in keys}
         matches = tuple(
-            entry
-            for entry in entries
-            if self._normalize(Path(entry.name).stem) in launchbox_keys
+            entry for entry in entries
+            if self._normalize(Path(entry.name).stem) in keys
             or self._strip_vendor(self._normalize(Path(entry.name).stem)) in aliases
         )
-        logger.info(
-            "[DAT-CATALOG][MATCH] LaunchBox=%d | DATs=%d | matches=%d",
-            len(systems), len(entries), len(matches),
-        )
+        logger.info("[DAT-CATALOG][MATCH] LaunchBox=%d | DATs=%d | matches=%d", len(systems), len(entries), len(matches))
         return matches
 
     def status(self, entry: DatCatalogEntry) -> DatStatus:
-        """Determine freshness using the catalog manifest, not payload byte size."""
+        """Determine freshness from manifest provenance, with local CRC/size fallback."""
         path = self.destination(entry)
         if not path.is_file():
-            return DatStatus(entry=entry, path=path, state="missing")
-        manifest = self._read_manifest()
-        recorded = manifest.get(entry.name)
+            return DatStatus(entry, path, "missing")
+        recorded = self._read_manifest().get(entry.name)
         if not recorded:
-            return DatStatus(entry=entry, path=path, state="outdated")
+            # Preserve the original provider contract: if a local DAT is byte-for-byte
+            # identical to the catalog metadata it is current even before first manifest write.
+            if path.stat().st_size == entry.size and self._crc32(path) == entry.crc32:
+                return DatStatus(entry, path, "current", self._sha256(path))
+            return DatStatus(entry, path, "outdated")
         if (
             recorded.get("crc32") != entry.crc32
             or recorded.get("size") != entry.size
             or recorded.get("url") != entry.url
         ):
-            return DatStatus(entry=entry, path=path, state="outdated")
-        return DatStatus(
-            entry=entry,
-            path=path,
-            state="current",
-            local_sha256=recorded.get("sha256"),
-        )
+            return DatStatus(entry, path, "outdated")
+        return DatStatus(entry, path, "current", recorded.get("sha256"))
 
     def download(self, entry: DatCatalogEntry) -> DatStatus:
-        """Download a DAT or ZIP, extract a DAT when necessary, and record provenance.
-
-        The catalog's ``Size`` and ``CRC`` describe the published remote artifact.
-        They are metadata for freshness tracking; they are deliberately not used
-        to reject the extracted DAT.  This is important because a ZIP's size and
-        CRC differ from the DAT contained inside it, and HTTP error pages can be
-        tiny while still returning status 200 from mirrors/proxies.
-        """
+        """Download a DAT or ZIP, extract a DAT when necessary, and record provenance."""
         destination = self.destination(entry)
         destination.parent.mkdir(parents=True, exist_ok=True)
         url = self._normalize_url(entry.url)
         logger.info("[DAT-CATALOG][HTTP] GET %s", url)
-        request = urllib.request.Request(url, headers={"User-Agent": self.USER_AGENT})
-        try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                data = response.read()
-                content_type = response.headers.get("Content-Type", "")
-        except (HTTPError, URLError, OSError) as exc:
-            raise DatCatalogError(f"Falha ao baixar '{entry.name}': {exc}") from exc
-
+        data, content_type = self._get(url)
+        resolved_url = url
+        if self._is_pointer(data, content_type):
+            pointer = data.decode("utf-8-sig", errors="replace").strip()
+            from urllib.parse import urljoin
+            resolved_url = self._normalize_url(urljoin(url, pointer))
+            logger.info("[DAT-CATALOG][REDIRECT] %s -> %s", url, resolved_url)
+            data, content_type = self._get(resolved_url)
         dat_data = self._extract_dat(data, entry.name, content_type)
         partial = destination.with_suffix(destination.suffix + ".part")
         partial.write_bytes(dat_data)
         partial.replace(destination)
         sha256 = self._sha256(destination)
-        self._write_manifest(entry, sha256, len(data), zlib.crc32(data) & 0xFFFFFFFF)
-        return DatStatus(entry=entry, path=destination, state="current", local_sha256=sha256)
+        self._write_manifest(entry, sha256, len(data), zlib.crc32(data) & 0xFFFFFFFF, resolved_url)
+        return DatStatus(entry, destination, "current", sha256)
 
-    def update(self, entries: tuple[DatCatalogEntry, ...]) -> tuple[DatStatus, ...]:
-        """Download only missing or outdated DATs."""
-        results: list[DatStatus] = []
-        for entry in entries:
-            status = self.status(entry)
-            results.append(status if status.state == "current" else self.download(entry))
-        return tuple(results)
+    def _get(self, url: str) -> tuple[bytes, str]:
+        """Fetch bytes and content type from a public URL."""
+        request = urllib.request.Request(url, headers={"User-Agent": self.USER_AGENT})
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                return response.read(), response.headers.get("Content-Type", "")
+        except (HTTPError, URLError, OSError) as exc:
+            raise DatCatalogError(f"Falha ao baixar URL: {url}") from exc
 
-    def destination(self, entry: DatCatalogEntry) -> Path:
-        """Return the stable local path for a catalog DAT."""
-        safe = re.sub(r"[^A-Za-z0-9._()\- ]+", "", Path(entry.name).stem).strip()
-        return self.root / f"{safe}.dat"
-
-    @classmethod
-    def _normalize_url(cls, url: str) -> str:
-        """Normalize URL encoding and repair known stale catalog repository hosts."""
-        parts = urlsplit(url.strip())
-        path = parts.path
-        stale_prefix = f"/{cls.STALE_REPOSITORY_HOST}/"
-        canonical_prefix = f"/{cls.CANONICAL_REPOSITORY_HOST}/"
-        if path.startswith(stale_prefix):
-            path = canonical_prefix + path[len(stale_prefix):]
-        path = quote(path, safe="/%:@-._~!$&'()*+,;=")
-        return urlunsplit((parts.scheme, parts.netloc, path, parts.query, parts.fragment))
+    @staticmethod
+    def _is_pointer(data: bytes, content_type: str) -> bool:
+        """Identify a catalog relative pointer without mistaking DAT/XML content."""
+        if "html" in content_type.lower():
+            return False
+        try:
+            value = data.decode("utf-8-sig").strip()
+        except UnicodeDecodeError:
+            return False
+        return bool(value) and "\n" not in value and "\r" not in value and value.lower().endswith(".dat") and (
+            value.startswith("../") or value.startswith("./") or value.startswith("normalized/")
+        )
 
     @staticmethod
     def _extract_dat(data: bytes, entry_name: str, content_type: str) -> bytes:
-        """Return the DAT payload from either a direct DAT or a ZIP archive."""
+        """Return the DAT payload from either direct content or a ZIP archive."""
         if not data:
             raise DatCatalogError(f"Resposta vazia ao baixar '{entry_name}'.")
-
-        # ZIP magic takes precedence over HTTP Content-Type because mirrors often
-        # send application/octet-stream for archives.
         if data.startswith(b"PK\x03\x04") or "zip" in content_type.lower():
             try:
                 with zipfile.ZipFile(io.BytesIO(data)) as archive:
@@ -246,35 +212,24 @@ class PublicDatCatalogProvider:
                     if not candidates:
                         raise DatCatalogError(f"ZIP de '{entry_name}' não contém arquivo DAT.")
                     wanted = Path(entry_name).name.casefold()
-                    candidate = next(
-                        (item for item in candidates if Path(item.filename).name.casefold() == wanted),
-                        candidates[0],
-                    )
+                    candidate = next((item for item in candidates if Path(item.filename).name.casefold() == wanted), candidates[0])
                     payload = archive.read(candidate)
             except (zipfile.BadZipFile, OSError, KeyError) as exc:
                 raise DatCatalogError(f"ZIP inválido para '{entry_name}'.") from exc
             if not PublicDatCatalogProvider._looks_like_dat(payload):
                 raise DatCatalogError(f"Arquivo extraído de '{entry_name}' não é um DAT válido.")
             return payload
-
         if not PublicDatCatalogProvider._looks_like_dat(data):
             preview = data[:120].decode("utf-8", errors="replace").replace("\n", " ")
-            raise DatCatalogError(
-                f"Resposta inválida para '{entry_name}' (não é DAT/ZIP): {preview!r}"
-            )
+            raise DatCatalogError(f"Resposta inválida para '{entry_name}' (não é DAT/ZIP): {preview!r}")
         return data
 
     @staticmethod
     def _looks_like_dat(data: bytes) -> bool:
-        """Reject HTML/error responses and accept common DAT syntaxes."""
+        """Recognize common DAT/XML headers and reject arbitrary text/HTML."""
         sample = data[:4096].lstrip(b"\xef\xbb\xbf \t\r\n")
         lowered = sample.lower()
-        return (
-            lowered.startswith(b"clrmamepro (")
-            or lowered.startswith(b"<datafile")
-            or lowered.startswith(b"<?xml")
-            or b"<clrmamepro>" in lowered[:512]
-        )
+        return lowered.startswith(b"clrmamepro (") or lowered.startswith(b"<datafile") or lowered.startswith(b"<?xml") or b"<clrmamepro>" in lowered[:512]
 
     def _read_manifest(self) -> dict[str, dict[str, object]]:
         """Read the local DAT provenance manifest."""
@@ -286,14 +241,13 @@ class PublicDatCatalogProvider:
             return {}
         return value if isinstance(value, dict) else {}
 
-    def _write_manifest(
-        self, entry: DatCatalogEntry, sha256: str, downloaded_size: int, downloaded_crc32: int
-    ) -> None:
-        """Persist remote and downloaded artifact provenance."""
+    def _write_manifest(self, entry: DatCatalogEntry, sha256: str, downloaded_size: int, downloaded_crc32: int, resolved_url: str) -> None:
+        """Persist remote and resolved artifact provenance."""
         manifest = self._read_manifest()
         manifest[entry.name] = {
             "category": entry.category,
             "url": entry.url,
+            "resolved_url": resolved_url,
             "crc32": entry.crc32,
             "size": entry.size,
             "downloaded_size": downloaded_size,
@@ -301,9 +255,7 @@ class PublicDatCatalogProvider:
             "sha256": sha256,
         }
         self.manifest_path.parent.mkdir(parents=True, exist_ok=True)
-        self.manifest_path.write_text(
-            json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
+        self.manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
 
     @staticmethod
     def _sha256(path: Path) -> str:
@@ -315,6 +267,15 @@ class PublicDatCatalogProvider:
         return digest.hexdigest()
 
     @staticmethod
+    def _crc32(path: Path) -> int:
+        """Calculate an unsigned CRC32 for a local DAT."""
+        value = 0
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                value = zlib.crc32(chunk, value)
+        return value & 0xFFFFFFFF
+
+    @staticmethod
     def _normalize(value: str) -> str:
         """Normalize names for deterministic LaunchBox matching."""
         value = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
@@ -324,11 +285,7 @@ class PublicDatCatalogProvider:
     @classmethod
     def _strip_vendor(cls, value: str) -> str:
         """Strip common manufacturer prefixes from normalized DAT names."""
-        prefixes = (
-            "sony ", "nintendo ", "sega ", "microsoft ", "nec ", "panasonic ",
-            "philips ", "snk ", "commodore ", "bandai ", "atari ", "fujitsu ",
-            "mattel ", "apple ", "ibm ", "vm labs ", "vtech ", "tomy ",
-        )
+        prefixes = ("sony ", "nintendo ", "sega ", "microsoft ", "nec ", "panasonic ", "philips ", "snk ", "commodore ", "bandai ", "atari ", "fujitsu ", "mattel ", "apple ", "ibm ", "vm labs ", "vtech ", "tomy ")
         for prefix in prefixes:
             if value.startswith(prefix):
                 return value[len(prefix):]
