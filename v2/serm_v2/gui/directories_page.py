@@ -5,7 +5,6 @@ import json
 import re
 from pathlib import Path
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
@@ -13,6 +12,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QTabWidget,
     QVBoxLayout,
@@ -224,7 +224,12 @@ class DirectoriesPage(QWidget):
     def select_emulator(self, key: str) -> None:
         """Select an emulator executable and save its parent directory."""
         label = self.EMULATOR_PATHS[key]
-        path, _ = QFileDialog.getOpenFileName(self, f"Selecionar {label}.exe", str(Path.home()), "Executáveis (*.exe)")
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            f"Selecionar {label}.exe",
+            str(Path.home()),
+            "Executáveis (*.exe)",
+        )
         if not path:
             return
         data = self._load_json(self.PATHS_FILE)
@@ -235,7 +240,11 @@ class DirectoriesPage(QWidget):
     def select_retroarch(self) -> None:
         """Select and persist the RetroArch installation root."""
         current = self._load_json(self.PATHS_FILE).get("retroarch")
-        selected = QFileDialog.getExistingDirectory(self, "Diretório do RetroArch", str(current or Path.home()))
+        selected = QFileDialog.getExistingDirectory(
+            self,
+            "Diretório do RetroArch",
+            str(current or Path.home()),
+        )
         if not selected:
             return
         data = self._load_json(self.PATHS_FILE)
@@ -245,7 +254,12 @@ class DirectoriesPage(QWidget):
 
     def select_retroarch_cfg(self) -> None:
         """Select a retroarch.cfg and persist its explicit path."""
-        path, _ = QFileDialog.getOpenFileName(self, "Selecionar retroarch.cfg", str(Path.home()), "RetroArch config (retroarch.cfg)")
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Selecionar retroarch.cfg",
+            str(Path.home()),
+            "RetroArch config (retroarch.cfg)",
+        )
         if not path:
             return
         data = self._load_json(self.PATHS_FILE)
@@ -256,7 +270,11 @@ class DirectoriesPage(QWidget):
     def select_retro_subdir(self, key: str) -> None:
         """Select and persist one RetroArch subdirectory."""
         current = self.retro_edits[key].text()
-        selected = QFileDialog.getExistingDirectory(self, "Selecionar diretório", current or str(Path.home()))
+        selected = QFileDialog.getExistingDirectory(
+            self,
+            "Selecionar diretório",
+            current or str(Path.home()),
+        )
         if not selected:
             return
         data = self._load_json(self.PATHS_FILE)
@@ -266,7 +284,12 @@ class DirectoriesPage(QWidget):
 
     def select_launchbox(self) -> None:
         """Select and persist LaunchBox.exe."""
-        path, _ = QFileDialog.getOpenFileName(self, "Selecionar LaunchBox.exe", str(Path.home()), "LaunchBox (LaunchBox.exe);;Executáveis (*.exe)")
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Selecionar LaunchBox.exe",
+            str(Path.home()),
+            "LaunchBox (LaunchBox.exe);;Executáveis (*.exe)",
+        )
         if not path:
             return
         self.launchbox.set_executable(Path(path))
@@ -274,7 +297,12 @@ class DirectoriesPage(QWidget):
 
     def select_7zip(self) -> None:
         """Select and persist the command-line 7-Zip executable."""
-        path, _ = QFileDialog.getOpenFileName(self, "Selecionar 7z.exe", str(Path.home()), "7-Zip (7z.exe);;Executáveis (*.exe)")
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Selecionar 7z.exe",
+            str(Path.home()),
+            "7-Zip (7z.exe);;Executáveis (*.exe)",
+        )
         if not path:
             return
         data = self._load_json(self.TOOLS_FILE)
@@ -283,7 +311,7 @@ class DirectoriesPage(QWidget):
         self.refresh()
 
     def load_retroarch_cfg(self) -> None:
-        """Read supported directory keys from retroarch.cfg without rewriting unrelated settings."""
+        """Read supported directory keys from retroarch.cfg."""
         cfg = self._retroarch_cfg_path()
         if not cfg or not cfg.is_file():
             self.retroarch_status.setText("● retroarch.cfg não encontrado")
@@ -292,7 +320,11 @@ class DirectoriesPage(QWidget):
         text = cfg.read_text(encoding="utf-8", errors="replace")
         loaded = 0
         for key, cfg_key in self.RETROARCH_KEYS.items():
-            match = re.search(rf'^\s*{re.escape(cfg_key)}\s*=\s*"([^"]*)"', text, re.MULTILINE)
+            match = re.search(
+                rf'^\s*{re.escape(cfg_key)}\s*=\s*"([^"]*)"',
+                text,
+                re.MULTILINE,
+            )
             if not match:
                 continue
             value = match.group(1).strip()
@@ -311,15 +343,19 @@ class DirectoriesPage(QWidget):
         """Write supported directory values to retroarch.cfg, preserving unrelated lines."""
         cfg = self._retroarch_cfg_path()
         if not cfg:
-            QMessageBox = __import__("PySide6.QtWidgets", fromlist=["QMessageBox"]).QMessageBox
-            QMessageBox.information(self, "RetroArch", "Selecione ou configure um retroarch.cfg primeiro.")
+            QMessageBox.information(
+                self,
+                "RetroArch",
+                "Selecione ou configure um retroarch.cfg primeiro.",
+            )
             return
         text = cfg.read_text(encoding="utf-8", errors="replace") if cfg.is_file() else ""
         for key, cfg_key in self.RETROARCH_KEYS.items():
             value = self.retro_edits[key].text().strip()
             if not value:
                 continue
-            replacement = f'{cfg_key} = "{value.replace(chr(34), chr(39))}"'
+            safe_value = value.replace(chr(34), chr(39))
+            replacement = f'{cfg_key} = "{safe_value}"'
             pattern = rf'^\s*{re.escape(cfg_key)}\s*=.*$'
             if re.search(pattern, text, re.MULTILINE):
                 text = re.sub(pattern, replacement, text, flags=re.MULTILINE)
@@ -353,25 +389,37 @@ class DirectoriesPage(QWidget):
         executable, root, cores = RetroArchManager(retro_root).discover()
         if hasattr(self, "retroarch_edit"):
             self.retroarch_edit.setText(str(root or retro_root or ""))
-            self.retroarch_status.setText("● RetroArch encontrado" if executable else "● RetroArch não encontrado")
+            self.retroarch_status.setText(
+                "● RetroArch encontrado" if executable else "● RetroArch não encontrado"
+            )
             cfg = self._retroarch_cfg_path()
             self.retroarch_cfg_edit.setText(str(cfg or ""))
         for key, edit in getattr(self, "retro_edits", {}).items():
             value = paths.get(f"retroarch_{key}")
-            if not value:
-                value = str(cores) if key == "cores" and cores else ""
+            if not value and key == "cores" and cores:
+                value = str(cores)
             edit.setText(str(value or ""))
         tools = self._load_json(self.TOOLS_FILE)
         launchbox = self.launchbox.discover()
         launchbox_path = Path(launchbox) if launchbox else None
         if hasattr(self, "launchbox_edit"):
             self.launchbox_edit.setText(str(launchbox_path or tools.get("launchbox") or ""))
-            self.launchbox_status.setText("● Encontrado" if launchbox_path and launchbox_path.is_file() else "● Não encontrado")
+            self.launchbox_status.setText(
+                "● Encontrado"
+                if launchbox_path and launchbox_path.is_file()
+                else "● Não encontrado"
+            )
         configured_7zip = str(tools.get("sevenzip") or "")
-        sevenzip = Path(configured_7zip) if configured_7zip and Path(configured_7zip).is_file() else EmulatorManager.find_7zip()
+        sevenzip = (
+            Path(configured_7zip)
+            if configured_7zip and Path(configured_7zip).is_file()
+            else EmulatorManager.find_7zip()
+        )
         if hasattr(self, "sevenzip_edit"):
             self.sevenzip_edit.setText(str(sevenzip or ""))
-            self.sevenzip_status.setText("● Encontrado" if sevenzip and sevenzip.is_file() else "● Não encontrado")
+            self.sevenzip_status.setText(
+                "● Encontrado" if sevenzip and sevenzip.is_file() else "● Não encontrado"
+            )
 
 
 __all__ = ["DirectoriesPage"]
