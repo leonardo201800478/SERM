@@ -64,12 +64,7 @@ class PublicDatCatalogProvider:
         return Path(__file__).resolve().parents[3] / "data" / "sources" / "no_intro" / "dats"
 
     def fetch_catalog(self, category: str = "No-Intro") -> tuple[DatCatalogEntry, ...]:
-        """Download and parse the current DAT Catalog section.
-
-        ``category`` selects a top-level catalog maintained by the public
-        repository, such as ``No-Intro`` or ``Redump``.  The catalog itself
-        remains the source of truth; no web page scraping is performed.
-        """
+        """Download and parse the current DAT Catalog section."""
         if not category or any(char not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_" for char in category):
             raise ValueError(f"Categoria de catálogo inválida: {category!r}")
         url = self.INDEX_URL_TEMPLATE.format(category=quote(category, safe=""))
@@ -88,13 +83,7 @@ class PublicDatCatalogProvider:
 
     @staticmethod
     def _parse_index(text: str, *, category: str = "No-Intro") -> tuple[DatCatalogEntry, ...]:
-        """Extract valid DAT FILE entries from one catalog index.
-
-        Redump publishes its DAT files directly at the category root, while
-        No-Intro also contains nested informational directories.  We therefore
-        derive the category from the requested index and do not depend on a
-        particular directory ordering in the CSV.
-        """
+        """Extract valid DAT FILE entries from one catalog index."""
         reader = csv.DictReader(io.StringIO(text))
         entries: list[DatCatalogEntry] = []
         for row in reader:
@@ -111,16 +100,10 @@ class PublicDatCatalogProvider:
             except ValueError:
                 logger.warning("[DAT-CATALOG][CATALOG] metadados inválidos: %s", name)
                 continue
-            entries.append(
-                DatCatalogEntry(name=name, url=url, crc32=crc32, size=size, category=category)
-            )
+            entries.append(DatCatalogEntry(name=name, url=url, crc32=crc32, size=size, category=category))
         return tuple(entries)
 
-    def match(
-        self,
-        systems: tuple[str, ...],
-        entries: tuple[DatCatalogEntry, ...] | None = None,
-    ) -> tuple[DatCatalogEntry, ...]:
+    def match(self, systems: tuple[str, ...], entries: tuple[DatCatalogEntry, ...] | None = None) -> tuple[DatCatalogEntry, ...]:
         """Match LaunchBox system names against DAT filenames."""
         entries = entries if entries is not None else self.fetch_catalog()
         launchbox_keys: set[str] = set()
@@ -128,23 +111,13 @@ class PublicDatCatalogProvider:
             key = self._normalize(system)
             launchbox_keys.add(key)
             launchbox_keys.update(self._aliases(key))
-
+        aliases = {self._strip_vendor(key) for key in launchbox_keys}
         matches: list[DatCatalogEntry] = []
         for entry in entries:
             stem = self._normalize(Path(entry.name).stem)
-            if stem in launchbox_keys:
+            if stem in launchbox_keys or self._strip_vendor(stem) in aliases:
                 matches.append(entry)
-                continue
-            stripped = self._strip_vendor(stem)
-            if stripped and stripped in {self._strip_vendor(key) for key in launchbox_keys}:
-                matches.append(entry)
-
-        logger.info(
-            "[DAT-CATALOG][MATCH] LaunchBox=%d | DATs=%d | matches=%d",
-            len(systems),
-            len(entries),
-            len(matches),
-        )
+        logger.info("[DAT-CATALOG][MATCH] LaunchBox=%d | DATs=%d | matches=%d", len(systems), len(entries), len(matches))
         return tuple(matches)
 
     def status(self, entry: DatCatalogEntry) -> DatStatus:
@@ -170,26 +143,16 @@ class PublicDatCatalogProvider:
         except (HTTPError, URLError, OSError) as exc:
             raise DatCatalogError(f"Falha ao baixar '{entry.name}': {exc}") from exc
         if len(data) != entry.size:
-            raise DatCatalogError(
-                f"Tamanho inválido para '{entry.name}': esperado={entry.size}, recebido={len(data)}"
-            )
+            raise DatCatalogError(f"Tamanho inválido para '{entry.name}': esperado={entry.size}, recebido={len(data)}")
         crc32 = zlib.crc32(data) & 0xFFFFFFFF
         if crc32 != entry.crc32:
-            raise DatCatalogError(
-                f"CRC inválido para '{entry.name}': esperado={entry.crc32}, recebido={crc32}"
-            )
+            raise DatCatalogError(f"CRC inválido para '{entry.name}': esperado={entry.crc32}, recebido={crc32}")
         partial.write_bytes(data)
         partial.replace(destination)
         status = self.status(entry)
         if status.state != "current":
             raise DatCatalogError(f"DAT baixado não passou na validação: {entry.name}")
         self._write_manifest(entry, status)
-        logger.info(
-            "[DAT-CATALOG][DAT] OK sistema=%s arquivo=%s crc32=%08x",
-            entry.name,
-            destination,
-            crc32,
-        )
         return status
 
     def update(self, entries: tuple[DatCatalogEntry, ...]) -> tuple[DatStatus, ...]:
@@ -203,8 +166,7 @@ class PublicDatCatalogProvider:
     def destination(self, entry: DatCatalogEntry) -> Path:
         """Return the stable local path for a catalog DAT."""
         safe = re.sub(r"[^A-Za-z0-9._()\- ]+", "", Path(entry.name).stem).strip()
-        root = self.root.parent.parent / entry.category.casefold().replace("-", "_").replace(" ", "_") / "dats"
-        return root / f"{safe}.dat"
+        return self.root / f"{safe}.dat"
 
     @staticmethod
     def _normalize_url(url: str) -> str:
@@ -221,18 +183,9 @@ class PublicDatCatalogProvider:
                 manifest = json.loads(self.manifest_path.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 manifest = {}
-        manifest[entry.name] = {
-            "category": entry.category,
-            "url": entry.url,
-            "crc32": entry.crc32,
-            "size": entry.size,
-            "sha256": status.local_sha256,
-        }
+        manifest[entry.name] = {"category": entry.category, "url": entry.url, "crc32": entry.crc32, "size": entry.size, "sha256": status.local_sha256}
         self.manifest_path.parent.mkdir(parents=True, exist_ok=True)
-        self.manifest_path.write_text(
-            json.dumps(manifest, indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
+        self.manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
 
     @staticmethod
     def _crc32(path: Path) -> int:
@@ -262,11 +215,7 @@ class PublicDatCatalogProvider:
     @classmethod
     def _strip_vendor(cls, value: str) -> str:
         """Strip common manufacturer prefixes from normalized DAT names."""
-        prefixes = (
-            "sony ", "nintendo ", "sega ", "microsoft ", "nec ", "panasonic ",
-            "philips ", "snk ", "commodore ", "bandai ", "atari ", "fujitsu ",
-            "mattel ", "apple ", "ibm ", "vm labs ", "vtech ", "tomy ",
-        )
+        prefixes = ("sony ", "nintendo ", "sega ", "microsoft ", "nec ", "panasonic ", "philips ", "snk ", "commodore ", "bandai ", "atari ", "fujitsu ", "mattel ", "apple ", "ibm ", "vm labs ", "vtech ", "tomy ")
         for prefix in prefixes:
             if value.startswith(prefix):
                 return value[len(prefix):]
@@ -284,19 +233,11 @@ class PublicDatCatalogProvider:
             "sega genesis": {"mega drive genesis", "sega mega drive genesis"},
             "sms": {"master system mark iii", "sega master system mark iii"},
             "master system": {"master system mark iii", "sega master system mark iii"},
-            "playstation": {"sony playstation"},
-            "psx": {"sony playstation"},
-            "ps1": {"sony playstation"},
-            "playstation 2": {"sony playstation 2"},
-            "ps2": {"sony playstation 2"},
-            "playstation 3": {"sony playstation 3"},
-            "ps3": {"sony playstation 3"},
-            "playstation portable": {"sony playstation portable"},
-            "psp": {"sony playstation portable"},
-            "gamecube": {"nintendo gamecube"},
-            "game cube": {"nintendo gamecube"},
-            "wii": {"nintendo wii"},
-            "saturn": {"sega saturn"},
-            "dreamcast": {"sega dreamcast"},
+            "playstation": {"sony playstation"}, "psx": {"sony playstation"}, "ps1": {"sony playstation"},
+            "playstation 2": {"sony playstation 2"}, "ps2": {"sony playstation 2"},
+            "playstation 3": {"sony playstation 3"}, "ps3": {"sony playstation 3"},
+            "playstation portable": {"sony playstation portable"}, "psp": {"sony playstation portable"},
+            "gamecube": {"nintendo gamecube"}, "game cube": {"nintendo gamecube"},
+            "wii": {"nintendo wii"}, "saturn": {"sega saturn"}, "dreamcast": {"sega dreamcast"},
         }
         return aliases.get(value, set())
