@@ -1,71 +1,105 @@
-# Arquivos, auditoria e integridade
+# Arquivos compactados e integridade — SERM
 
-**Referência:** 17/08/2026
+**Referência:** 29/08/2026
 
 ## Papel
 
-O scanner físico identifica arquivos e membros disponíveis sem alterar as fontes. O resultado do Scan é persistido no manifesto JSONL e consumido pela reconstrução.
-
-## Identidade física
-
-Sempre que disponível, usar:
-
-- caminho/origem;
-- nome do arquivo/membro;
-- tamanho;
-- CRC;
-- SHA-1;
-- formato;
-- machine associada;
-- nome esperado da ROM.
-
-Não assumir que o nome do arquivo físico define a identidade da ROM.
-
-## Origem somente leitura
-
-As pastas configuradas na aba Scan ROMs são fontes. Nenhuma etapa de reconstrução pode renomear, mover, apagar ou sobrescrever arquivos nelas.
-
-## Reconstrução
-
-A reconstrução usa a origem registrada no `current_scan.jsonl`. Não deve executar uma nova indexação global de todos os ZIPs.
-
-Cada ROM deve ser processada individualmente em streaming. O destino recebe o nome esperado pelo set, mesmo quando o membro de origem tem outro nome.
-
-## Integridade
-
-A ordem recomendada é:
+O `ArchiveService` é a infraestrutura única para operações com arquivos compactados. Ele deve ser reutilizado por reconstrução MAME, reconstrução No-Intro, downloads RetroArch, shaders e demais funcionalidades que manipulem ZIP/7Z/RAR.
 
 ```text
-origem
- ↓
-leitura em blocos
- ↓
-CRC/tamanho
- ↓
-SHA-1 quando disponível
- ↓
-gravação em staging
- ↓
-validação do resultado
- ↓
-publicação
+ArchiveService
+├── inspeção
+├── listagem
+├── teste
+├── extração
+├── criação
+└── edição controlada
 ```
 
-Se a transferência falhar, o artefato parcial não deve ser publicado. O processo pode repetir a operação dentro do limite configurado.
+## Backends
 
-## Cache
+### ZIP
 
-Não manter cópias permanentes de ROMs como cache. O único espaço intermediário previsto é um staging temporário no destino.
+Usar `zipfile` da biblioteca padrão do Python como backend principal.
 
-## Formatos
+### 7Z
 
-ZIP é o formato principal da reconstrução atual. O scanner pode reconhecer outros tipos, mas cada `source.kind` deve ser explicitamente suportado pela reconstrução antes de ser considerado concluído.
+Preferência:
 
-CHD/disk e demais artefatos devem permanecer conceitualmente separados das ROMs.
+```text
+7z.exe detectado no Windows
+        ↓
+       usar
 
-## Pendências
+7z.exe ausente
+        ↓
+      py7zr
+```
 
-- Testes de integridade pós-escrita com arquivos grandes.
-- Testes de retry e interrupção.
-- Cobertura completa de ZIP/7Z/arquivos soltos conforme os `source.kind` efetivamente emitidos pelo scanner.
-- Auditoria completa de CHD/disk.
+A detecção procura o executável no PATH e em locais usuais de instalação do Windows. O SERM não altera o PATH do usuário nem exige instalação externa para funcionar.
+
+### RAR
+
+RAR é suportado como capacidade futura/condicional. O SERM não deve tornar WinRAR obrigatório. Quando um backend externo for necessário, sua disponibilidade deve ser detectada explicitamente.
+
+## Criação de ZIP
+
+Criação é uma operação crítica da reconstrução.
+
+```text
+arquivos
+ ↓
+ZIP temporário no destino
+ ↓
+teste de integridade
+ ↓
+os.replace()
+ ↓
+ZIP final
+```
+
+O temporário deve possuir extensão reconhecível pelo serviço ou ser testado explicitamente pelo formato conhecido.
+
+Nunca publicar ZIP parcial.
+
+## Edição
+
+O serviço deverá suportar, quando necessário:
+
+- adicionar;
+- substituir;
+- remover;
+- renomear;
+- criar a partir de conjunto de arquivos.
+
+A implementação deve evitar descompactar/recompactar um conjunto inteiro quando uma estratégia segura e eficiente puder executar a operação necessária diretamente.
+
+## Segurança
+
+Extrações devem rejeitar caminhos que escapem do destino, incluindo traversal relativo e caminhos absolutos.
+
+Arquivos temporários devem ser limpos em sucesso e falha.
+
+Conteúdo baixado não deve ser executado durante validação de arquivo.
+
+## Identidade de ROM
+
+Nome de arquivo não define identidade quando hashes estiverem disponíveis. Reconstrução deve utilizar a evidência do catálogo/Scan.
+
+## Relação com CHD
+
+CHD não é um archive genérico. Operações de CHD pertencem ao `CHDService`, usando ferramentas e validações próprias do formato/MAME.
+
+Para discos de consoles, o `CHDService` deverá permitir construção de CHD a partir de imagens compatíveis com a fonte Redump.
+
+## Testes obrigatórios
+
+- ZIP create/list/extract/test;
+- ZIP atomic publication;
+- path traversal;
+- arquivos grandes;
+- 7Z com 7z.exe;
+- 7Z sem 7z.exe usando py7zr;
+- RAR quando backend estiver implementado;
+- falha de extração sem resíduos;
+- falha de criação sem arquivo final parcial.
