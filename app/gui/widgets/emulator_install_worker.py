@@ -40,10 +40,9 @@ class EmulatorInstallWorker(QObject):
             f"INÍCIO | emulador={self.emulator} | destino={self.destination} | nightly={self.nightly}"
         )
         try:
+            service = EmulatorInstallService(log_callback=self._log)
             self.status.emit("Consultando release oficial…")
             self._log("1/8 Consultando o release oficial e procurando o link do pacote…")
-
-            service = EmulatorInstallService(log_callback=self._log)
             release = service.release(self.emulator, nightly=self.nightly)
             self._log(
                 f"2/8 Release encontrado | tag={release.tag} | assets={len(release.assets)}"
@@ -60,13 +59,10 @@ class EmulatorInstallWorker(QObject):
                 self.emulator,
                 self.destination,
                 nightly=self.nightly,
+                release=release,
                 progress=lambda received, total: self.progress.emit(received, total),
             )
 
-            # A descoberta local continua sendo a autoridade para MAME e FBNeo.
-            # Para Flycast e Supermodel, que não oferecem uma CLI de versão
-            # confiável, o release confirmado no download precisa sobreviver ao
-            # refresh da Home e às próximas execuções do aplicativo.
             try:
                 config = AppConfig()
                 setattr(config, f"{self.emulator}_version", release.tag)
