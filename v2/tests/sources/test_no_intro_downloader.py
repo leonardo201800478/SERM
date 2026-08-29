@@ -16,6 +16,9 @@ def test_discover_downloads_extracts_dat_links() -> None:
 
 def test_download_url_writes_bytes_and_hash(monkeypatch, tmp_path: Path) -> None:
     class Response:
+        status = 200
+        headers = {"Content-Type": "application/octet-stream"}
+
         def __enter__(self):
             return self
 
@@ -24,6 +27,9 @@ def test_download_url_writes_bytes_and_hash(monkeypatch, tmp_path: Path) -> None
 
         def read(self) -> bytes:
             return b"test dat"
+
+        def geturl(self) -> str:
+            return "https://example.invalid/test.dat"
 
     monkeypatch.setattr("serm_v2.sources.no_intro.downloader.urlopen", lambda request, timeout: Response())
 
@@ -34,4 +40,5 @@ def test_download_url_writes_bytes_and_hash(monkeypatch, tmp_path: Path) -> None
     )
 
     assert result.path.read_bytes() == b"test dat"
+    assert result.source_url == "https://example.invalid/test.dat"
     assert result.sha256 == "78ad0a5d968aec1f884e88aeb37cd8afb5506fb3aee8cf9723b3df0185e834c8"
