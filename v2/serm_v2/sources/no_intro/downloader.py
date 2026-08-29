@@ -9,7 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import Request, urljoin
-from urllib.request import HTTPCookieProcessor, Request as UrlRequest, build_opener, urlopen
+from urllib.request import HTTPCookieProcessor, build_opener, urlopen
+from urllib.request import Request as UrlRequest
 
 from .catalog import NoIntroCatalog
 from .errors import NoIntroDownloadError
