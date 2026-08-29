@@ -32,6 +32,10 @@ dev = [
     "pytest-cov>=7,<8",
     "ruff>=0.12,<1",
 ]
+sources = [
+    "datoso>=1.1.1,<2",
+    "datoso-seed-nointro>=1.1.1,<2",
+]
 
 [project.scripts]
 serm = "serm_v2.main:main"
