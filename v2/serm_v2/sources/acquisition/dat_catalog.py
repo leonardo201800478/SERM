@@ -13,6 +13,7 @@ import zlib
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.error import HTTPError, URLError
+from urllib.parse import quote, urlsplit, urlunsplit
 
 logger = logging.getLogger(__name__)
 
@@ -143,8 +144,9 @@ class PublicDatCatalogProvider:
         destination = self.destination(entry)
         destination.parent.mkdir(parents=True, exist_ok=True)
         partial = destination.with_suffix(destination.suffix + ".part")
-        logger.info("[DAT-CATALOG][HTTP] GET %s", entry.url)
-        request = urllib.request.Request(entry.url, headers={"User-Agent": self.USER_AGENT})
+        url = self._normalize_url(entry.url)
+        logger.info("[DAT-CATALOG][HTTP] GET %s", url)
+        request = urllib.request.Request(url, headers={"User-Agent": self.USER_AGENT})
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
                 data = response.read()
@@ -185,6 +187,13 @@ class PublicDatCatalogProvider:
         """Return the stable local path for a catalog DAT."""
         safe = re.sub(r"[^A-Za-z0-9._()\- ]+", "", Path(entry.name).stem).strip()
         return self.root / f"{safe}.dat"
+
+    @staticmethod
+    def _normalize_url(url: str) -> str:
+        """Percent-encode unsafe characters in the URL path without altering its structure."""
+        parts = urlsplit(url.strip())
+        path = quote(parts.path, safe="/%:@-._~!$&'()*+,;=")
+        return urlunsplit((parts.scheme, parts.netloc, path, parts.query, parts.fragment))
 
     def _write_manifest(self, entry: DatCatalogEntry, status: DatStatus) -> None:
         """Persist remote provenance for diagnostics and future auditing."""
