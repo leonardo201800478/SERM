@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QLabel, QMainWindow, QTabWidget, QVBoxLayout, QWid
 from ..config.settings import Settings
 from ..database.engine import create_sqlite_engine
 from .dat_scraper import DatScraperPage
-from .directories_page import DirectoriesPage
+from .emulator_directories_page import DirectoriesPage
 from .home import HomePage
 from .log_handler import LogViewer
 
