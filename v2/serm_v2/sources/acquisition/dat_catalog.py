@@ -103,7 +103,11 @@ class PublicDatCatalogProvider:
             entries.append(DatCatalogEntry(name=name, url=url, crc32=crc32, size=size))
         return tuple(entries)
 
-    def match(self, systems: tuple[str, ...], entries: tuple[DatCatalogEntry, ...] | None = None) -> tuple[DatCatalogEntry, ...]:
+    def match(
+        self,
+        systems: tuple[str, ...],
+        entries: tuple[DatCatalogEntry, ...] | None = None,
+    ) -> tuple[DatCatalogEntry, ...]:
         """Match LaunchBox system names against DAT filenames."""
         entries = entries if entries is not None else self.fetch_catalog()
         launchbox_keys: set[str] = set()
@@ -111,12 +115,18 @@ class PublicDatCatalogProvider:
             key = self._normalize(system)
             launchbox_keys.add(key)
             launchbox_keys.update(self._aliases(key))
+
         matches = tuple(
             entry
             for entry in entries
             if self._normalize(Path(entry.name).stem) in launchbox_keys
         )
-        logger.info("[DAT-CATALOG][MATCH] LaunchBox=%d | DATs=%d | matches=%d", len(systems), len(entries), len(matches))
+        logger.info(
+            "[DAT-CATALOG][MATCH] LaunchBox=%d | DATs=%d | matches=%d",
+            len(systems),
+            len(entries),
+            len(matches),
+        )
         return matches
 
     def status(self, entry: DatCatalogEntry) -> DatStatus:
@@ -141,17 +151,26 @@ class PublicDatCatalogProvider:
         except (HTTPError, URLError, OSError) as exc:
             raise DatCatalogError(f"Falha ao baixar '{entry.name}': {exc}") from exc
         if len(data) != entry.size:
-            raise DatCatalogError(f"Tamanho inválido para '{entry.name}': esperado={entry.size}, recebido={len(data)}")
+            raise DatCatalogError(
+                f"Tamanho inválido para '{entry.name}': esperado={entry.size}, recebido={len(data)}"
+            )
         crc32 = zlib.crc32(data) & 0xFFFFFFFF
         if crc32 != entry.crc32:
-            raise DatCatalogError(f"CRC inválido para '{entry.name}': esperado={entry.crc32}, recebido={crc32}")
+            raise DatCatalogError(
+                f"CRC inválido para '{entry.name}': esperado={entry.crc32}, recebido={crc32}"
+            )
         partial.write_bytes(data)
         partial.replace(destination)
         status = self.status(entry)
         if status.state != "current":
             raise DatCatalogError(f"DAT baixado não passou na validação: {entry.name}")
         self._write_manifest(entry, status)
-        logger.info("[DAT-CATALOG][DAT] OK sistema=%s arquivo=%s crc32=%08x", entry.name, destination, crc32)
+        logger.info(
+            "[DAT-CATALOG][DAT] OK sistema=%s arquivo=%s crc32=%08x",
+            entry.name,
+            destination,
+            crc32,
+        )
         return status
 
     def update(self, entries: tuple[DatCatalogEntry, ...]) -> tuple[DatStatus, ...]:
@@ -181,7 +200,11 @@ class PublicDatCatalogProvider:
             "size": entry.size,
             "sha256": status.local_sha256,
         }
-        self.manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+        self.manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        self.manifest_path.write_text(
+            json.dumps(manifest, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
 
     @staticmethod
     def _crc32(path: Path) -> int:
@@ -210,15 +233,21 @@ class PublicDatCatalogProvider:
 
     @classmethod
     def _aliases(cls, value: str) -> set[str]:
-        """Return common LaunchBox aliases for a normalized platform name."""
+        """Return normalized aliases including common vendor-prefixed DAT names."""
         aliases = {
-            "nes": "nintendo entertainment system",
-            "famicom": "nintendo entertainment system",
-            "snes": "super nintendo entertainment system",
-            "super nes": "super nintendo entertainment system",
-            "genesis": "mega drive genesis",
-            "sega genesis": "mega drive genesis",
-            "sms": "master system mark iii",
-            "master system": "master system mark iii",
+            "nes": {"nintendo entertainment system", "nintendo nintendo entertainment system"},
+            "famicom": {"nintendo entertainment system", "nintendo nintendo entertainment system"},
+            "snes": {
+                "super nintendo entertainment system",
+                "nintendo super nintendo entertainment system",
+            },
+            "super nes": {
+                "super nintendo entertainment system",
+                "nintendo super nintendo entertainment system",
+            },
+            "genesis": {"mega drive genesis", "sega mega drive genesis"},
+            "sega genesis": {"mega drive genesis", "sega mega drive genesis"},
+            "sms": {"master system mark iii", "sega master system mark iii"},
+            "master system": {"master system mark iii", "sega master system mark iii"},
         }
-        return {aliases[value]} if value in aliases else set()
+        return aliases.get(value, set())
