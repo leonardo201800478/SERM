@@ -12,6 +12,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
+    QComboBox,
     QFileDialog,
     QFrame,
     QGridLayout,
@@ -24,6 +25,8 @@ from PySide6.QtWidgets import (
 )
 
 from ..integrations.launchbox import LaunchBoxIntegration
+from ..integrations.launchbox_provider import LaunchBoxProvider
+from ..sources.no_intro.catalog import NoIntroCatalog, NoIntroSystem
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +37,8 @@ class HomePage(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.launchbox = LaunchBoxIntegration()
+        self.launchbox_provider = LaunchBoxProvider(self.launchbox)
+        self.no_intro_catalog = NoIntroCatalog()
         self._build_ui()
         self.refresh_status()
 
@@ -65,13 +70,9 @@ class HomePage(QWidget):
         grid = QGridLayout(status_frame)
         self.launchbox_card = self._create_launchbox_card()
         grid.addWidget(self.launchbox_card, 0, 0)
+        grid.addWidget(self._create_no_intro_card(), 0, 1)
         grid.addWidget(
             self._create_placeholder_card("Emuladores", "Runtime V2 será conectado nesta camada."),
-            0,
-            1,
-        )
-        grid.addWidget(
-            self._create_placeholder_card("Catálogo", "Data Foundation V2 será conectada nesta camada."),
             1,
             0,
         )
@@ -130,6 +131,39 @@ class HomePage(QWidget):
         layout.addLayout(row)
         return card
 
+    def _create_no_intro_card(self) -> QFrame:
+        """Create the No-Intro connectivity test using LaunchBox platforms."""
+        card = QFrame()
+        card.setObjectName("integrationCard")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(12, 10, 12, 10)
+
+        name = QLabel("No-Intro / DAT-o-MATIC")
+        name.setObjectName("integrationName")
+        layout.addWidget(name)
+
+        self.no_intro_status = QLabel("Aguardando teste…")
+        self.no_intro_status.setObjectName("detail")
+        layout.addWidget(self.no_intro_status)
+
+        self.no_intro_systems = QComboBox()
+        self.no_intro_systems.setPlaceholderText("Sistemas do LaunchBox encontrados no No-Intro")
+        self.no_intro_systems.setEnabled(False)
+        layout.addWidget(self.no_intro_systems)
+
+        row = QHBoxLayout()
+        test = QPushButton("🌐 Testar catálogo")
+        test.clicked.connect(self.test_no_intro_catalog)
+        row.addWidget(test)
+        self.no_intro_test_button = test
+
+        download = QPushButton("⬇ Testar download")
+        download.clicked.connect(self.test_no_intro_download)
+        row.addWidget(download)
+        self.no_intro_download_button = download
+        layout.addLayout(row)
+        return card
+
     @staticmethod
     def _create_placeholder_card(title: str, detail: str) -> QFrame:
         """Create a non-operational V2 domain card without legacy dependencies."""
@@ -158,6 +192,7 @@ class HomePage(QWidget):
                 self.launchbox_metadata.setText(f"Metadata DB: {metadata or 'não localizado'}")
                 self.launchbox_launch_button.setEnabled(True)
                 self.launchbox_metadata_button.setEnabled(metadata is not None)
+                self.no_intro_test_button.setEnabled(metadata is not None)
             else:
                 self.launchbox_status.setText("● Não configurado")
                 self.launchbox_status.setStyleSheet("color:#e5c454;font-weight:bold;")
@@ -165,11 +200,63 @@ class HomePage(QWidget):
                 self.launchbox_metadata.setText("Metadata DB: —")
                 self.launchbox_launch_button.setEnabled(False)
                 self.launchbox_metadata_button.setEnabled(False)
+                self.no_intro_test_button.setEnabled(False)
+                self.no_intro_download_button.setEnabled(False)
         except Exception as exc:
             logger.exception("Falha ao descobrir LaunchBox")
             self.launchbox_status.setText(f"● Erro: {type(exc).__name__}")
             self.launchbox_launch_button.setEnabled(False)
             self.launchbox_metadata_button.setEnabled(False)
+            self.no_intro_test_button.setEnabled(False)
+            self.no_intro_download_button.setEnabled(False)
+
+    def test_no_intro_catalog(self) -> None:
+        """Fetch DAT-o-MATIC and show only systems also present in LaunchBox."""
+        try:
+            catalog_html = self.no_intro_catalog.fetch_catalog()
+            systems = self.no_intro_catalog.systems(catalog_html)
+            platforms = tuple(self.launchbox_provider.iter_platforms())
+            matches = self._match_platforms(platforms, systems)
+            self.no_intro_systems.clear()
+            for system in matches:
+                self.no_intro_systems.addItem(system.name, system)
+            self.no_intro_systems.setEnabled(bool(matches))
+            self.no_intro_download_button.setEnabled(bool(matches))
+            self.no_intro_status.setText(f"● Catálogo OK — {len(matches)} sistema(s) compatível(is)")
+            self.no_intro_status.setStyleSheet("color:#55d66b;font-weight:bold;")
+        except Exception as exc:
+            logger.exception("Falha no teste do catálogo No-Intro")
+            self.no_intro_status.setText(f"● Erro: {exc}")
+            self.no_intro_status.setStyleSheet("color:#e05b5b;font-weight:bold;")
+            self.no_intro_download_button.setEnabled(False)
+
+    def test_no_intro_download(self) -> None:
+        """Save a DAT-o-MATIC catalog snapshot to V2 data as a download test."""
+        try:
+            catalog_html = self.no_intro_catalog.fetch_catalog()
+            destination = Path(__file__).resolve().parents[2] / "data" / "sources" / "no_intro" / "catalog.html"
+            self.no_intro_catalog.save_catalog(catalog_html, destination)
+            system = self.no_intro_systems.currentText() or "nenhum sistema selecionado"
+            self.no_intro_status.setText(f"● Download OK — {system}")
+            self.no_intro_status.setStyleSheet("color:#55d66b;font-weight:bold;")
+            QMessageBox.information(self, "No-Intro", f"Catálogo baixado com sucesso.\n\nArquivo:\n{destination}")
+        except Exception as exc:
+            logger.exception("Falha no download de teste No-Intro")
+            self.no_intro_status.setText(f"● Falha no download: {exc}")
+            self.no_intro_status.setStyleSheet("color:#e05b5b;font-weight:bold;")
+            QMessageBox.warning(self, "No-Intro", str(exc))
+
+    @staticmethod
+    def _match_platforms(platforms: tuple, systems: tuple[NoIntroSystem, ...]) -> tuple[NoIntroSystem, ...]:
+        """Match LaunchBox platform names against No-Intro names conservatively."""
+        launchbox_names = {platform.name.casefold().strip() for platform in platforms}
+        matches: list[NoIntroSystem] = []
+        for system in systems:
+            source_name = system.name.casefold().strip()
+            short_name = source_name.rsplit(" - ", 1)[-1]
+            if source_name in launchbox_names or short_name in launchbox_names:
+                matches.append(system)
+        return tuple(matches)
 
     def select_launchbox(self) -> None:
         """Select and persist a LaunchBox.exe outside the SERM repository."""
