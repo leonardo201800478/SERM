@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import logging
 import shutil
-import socket
 import ssl
 import subprocess
 import tempfile
@@ -248,7 +247,7 @@ class EmulatorInstallService:
                 if received <= 0:
                     raise EmulatorInstallError("Download retornou zero bytes.")
                 return
-            except (HTTPError, URLError, TimeoutError, socket.timeout, OSError, EmulatorInstallError) as exc:
+            except (HTTPError, URLError, TimeoutError, OSError, EmulatorInstallError) as exc:
                 last_error = exc
                 logger.exception(
                     "Emulator install: falha no download | attempt=%d/%d | received=%d",

@@ -1,9 +1,9 @@
 """Descoberta resiliente dos releases oficiais dos emuladores."""
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
 import re
+from dataclasses import dataclass
 from typing import Any
 from urllib.request import Request, urlopen
 

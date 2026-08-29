@@ -5,15 +5,17 @@ os imports existentes da GUI.
 """
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import replace
 from pathlib import Path
-from typing import Iterable
 
 from app.core.services.launchbox_integration_service_v2 import (
     LaunchBoxCoreOption,
     LaunchBoxInstallation,
-    LaunchBoxIntegrationService as _LaunchBoxIntegrationService,
     LaunchBoxSystem,
+)
+from app.core.services.launchbox_integration_service_v2 import (
+    LaunchBoxIntegrationService as _LaunchBoxIntegrationService,
 )
 from app.core.services.retroarch_info_service import RetroArchInfoCore
 
@@ -94,4 +96,4 @@ class LaunchBoxIntegrationService(_LaunchBoxIntegrationService):
         return super().build_systems(self._normalize_core_identity(infos), installation)
 
 
-__all__ = ["LaunchBoxIntegrationService", "LaunchBoxSystem", "LaunchBoxCoreOption", "LaunchBoxInstallation"]
+__all__ = ["LaunchBoxCoreOption", "LaunchBoxInstallation", "LaunchBoxIntegrationService", "LaunchBoxSystem"]

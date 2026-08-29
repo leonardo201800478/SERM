@@ -1,8 +1,9 @@
 """Coordenação da sessão de Scan ROMs entre GUI, engine e persistência."""
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any
 
 from app.core.services.scan_service import ScanService
 

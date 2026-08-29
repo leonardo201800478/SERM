@@ -12,12 +12,12 @@ import json
 import logging
 import sqlite3
 import time
-import zlib
 import zipfile
+import zlib
+from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Iterable
 
 logger = logging.getLogger(__name__)
 

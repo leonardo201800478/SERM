@@ -18,12 +18,12 @@ Widgets:
         menu contextual de reparo.
 """
 
+from .rom_tree_widget import RomTreeWidget
 from .scan_control_widget import ScanControlWidget
 from .scan_summary_widget import ScanSummaryWidget
-from .rom_tree_widget import RomTreeWidget
 
 __all__ = [
+    "RomTreeWidget",
     "ScanControlWidget",
     "ScanSummaryWidget",
-    "RomTreeWidget",
 ]

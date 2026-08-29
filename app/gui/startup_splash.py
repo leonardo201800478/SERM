@@ -8,7 +8,14 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
-from PySide6.QtWidgets import QApplication, QFrame, QLabel, QProgressBar, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QApplication,
+    QFrame,
+    QLabel,
+    QProgressBar,
+    QVBoxLayout,
+    QWidget,
+)
 
 
 class StartupSplash(QWidget):
@@ -86,7 +93,7 @@ class StartupSplash(QWidget):
         self.move(geometry.center() - self.rect().center())
 
     @classmethod
-    def startup(cls) -> "StartupSplash":
+    def startup(cls) -> StartupSplash:
         """Cria e exibe um splash de inicialização."""
         splash = cls("startup")
         splash.show()
@@ -94,7 +101,7 @@ class StartupSplash(QWidget):
         return splash
 
     @classmethod
-    def shutdown(cls) -> "StartupSplash":
+    def shutdown(cls) -> StartupSplash:
         """Cria e exibe um splash de encerramento."""
         splash = cls("shutdown")
         splash.show()

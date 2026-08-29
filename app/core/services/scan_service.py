@@ -6,9 +6,10 @@ continua responsável pela persistência SQLite.
 """
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any
 
 from app.core.models.scan_result import MachineScanResult, ScanResult
 from app.database.scan_repository import ScanRepository

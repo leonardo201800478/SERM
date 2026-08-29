@@ -79,15 +79,14 @@ from __future__ import annotations
 import io
 import logging
 import xml.etree.ElementTree as ET
-
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import IO, Iterator, Union
+from typing import IO, Union
 
 from app.core.models.disk import Disk
 from app.core.models.machine import Machine
 from app.core.models.rom import Rom
-
 
 logger = logging.getLogger(__name__)
 
@@ -1927,7 +1926,7 @@ def _safe_int(
 
 
 def _safe_float(
-    value: str | float | int | None,
+    value: str | float | None,
     default: float = 0.0,
 ) -> float:
     """

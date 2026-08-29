@@ -5,14 +5,13 @@ está instalado e não confunde versão desconhecida com instalação ausente.
 """
 from __future__ import annotations
 
-import os
 import platform
 import re
 import shutil
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, FrozenSet
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,8 +22,8 @@ class RuntimeCapabilities:
     executable: Path | None
     version: str | None
     available: bool
-    features: FrozenSet[str] = field(default_factory=frozenset)
-    renderers: FrozenSet[str] = field(default_factory=frozenset)
+    features: frozenset[str] = field(default_factory=frozenset)
+    renderers: frozenset[str] = field(default_factory=frozenset)
     notes: tuple[str, ...] = ()
     version_source: str | None = None
 

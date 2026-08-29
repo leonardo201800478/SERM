@@ -1,8 +1,6 @@
 """Interface de configurações do Supermodel para o ARCADE MANAGER."""
 from __future__ import annotations
 
-from pathlib import Path
-
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QCheckBox,

@@ -4,7 +4,10 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from app.core.services.retroarch_download_service import RetroArchCoreInfo, RetroArchDownloadService
+from app.core.services.retroarch_download_service import (
+    RetroArchCoreInfo,
+    RetroArchDownloadService,
+)
 from app.gui.widgets import retroarch_download_worker as worker_module
 
 

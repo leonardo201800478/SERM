@@ -12,11 +12,11 @@ forma determinística e auditável.
 """
 from __future__ import annotations
 
+import xml.etree.ElementTree as ET
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Iterable
-import xml.etree.ElementTree as ET
 
 
 class DependencyKind(str, Enum):

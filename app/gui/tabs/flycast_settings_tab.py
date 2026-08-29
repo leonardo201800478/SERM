@@ -206,7 +206,7 @@ class FlycastSettingsTab(QWidget):
         """Seleciona uma opção pelo valor nativo, mantendo fallback."""
         wanted = str(value if value is not None else default)
         index = combo.findData(wanted)
-        combo.setCurrentIndex(index if index >= 0 else 0)
+        combo.setCurrentIndex(max(index, 0))
 
     def save(self) -> None:
         """Grava as alterações no arquivo nativo do Flycast."""

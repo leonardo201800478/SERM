@@ -5,7 +5,6 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-
 _BOOL_KEYS = {
     "savestate", "cheats", "input_descriptors", "memory_descriptors",
     "libretro_saves", "core_options", "load_subsystem", "supports_no_game",
@@ -163,4 +162,4 @@ class RetroArchInfoService:
         return match.group(1).lower() if match else None
 
 
-__all__ = ["RetroArchInfoService", "RetroArchInfoCore", "RetroArchInfoFirmware"]
+__all__ = ["RetroArchInfoCore", "RetroArchInfoFirmware", "RetroArchInfoService"]

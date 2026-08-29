@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QColor
@@ -140,7 +141,7 @@ class RomTreeWidget(QWidget):
         machine_results: list[Any],
         *,
         batch_size: int = 50,
-        on_progress: Optional[Callable[[int, int], None]] = None,
+        on_progress: Callable[[int, int], None] | None = None,
     ) -> None:
         start_time = time.monotonic()
         self._populating = True

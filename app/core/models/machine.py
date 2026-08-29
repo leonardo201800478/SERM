@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 from app.core.models.disk import Disk
 from app.core.models.rom import Rom
@@ -10,7 +10,7 @@ from app.core.models.rom import Rom
 
 @dataclass
 class Machine:
-    id: Optional[int] = None
+    id: int | None = None
     mame_installation_id: int = 0
     name: str = ""
     description: str = ""

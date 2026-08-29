@@ -6,10 +6,11 @@ Modelos de resultado do escaneamento de ROMs.
 """
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 
 class ScanStatus(str, Enum):
@@ -314,4 +315,4 @@ RomResult = RomScanResult
 MachineResult = MachineScanResult
 ScanSummary = ScanResult
 
-__all__ = ["ScanStatus", "ScanItemType", "RomScanResult", "MachineScanResult", "ScanResult", "RomResult", "MachineResult", "ScanSummary"]
+__all__ = ["MachineResult", "MachineScanResult", "RomResult", "RomScanResult", "ScanItemType", "ScanResult", "ScanStatus", "ScanSummary"]

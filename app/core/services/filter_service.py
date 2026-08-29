@@ -1,9 +1,9 @@
 """Serviço central para filtragem de máquinas e importação de categorias."""
+import logging
 import re
 import sqlite3
-import logging
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple
+from typing import Any
 
 from app.core.constants.macro_categories import get_macro_category, macro_sort_key
 from app.core.models.filter_profile import FilterCriteria, FilterProfile
@@ -23,13 +23,13 @@ class FilterService:
     # CATEGORIAS
     # ========================================================================
 
-    def get_categories(self) -> List[str]:
+    def get_categories(self) -> list[str]:
         return [cat.name for cat in self.category_repo.get_all()]
 
-    def get_category_display_names(self) -> Dict[str, str]:
+    def get_category_display_names(self) -> dict[str, str]:
         return {cat.name: cat.display_name for cat in self.category_repo.get_all()}
 
-    def get_categories_with_counts(self) -> List[Dict[str, Any]]:
+    def get_categories_with_counts(self) -> list[dict[str, Any]]:
         cursor = self.conn.execute("""
             SELECT c.name, c.display_name, COUNT(mc.machine_id) as count
             FROM category c
@@ -44,12 +44,12 @@ class FilterService:
     # MACRO CATEGORIAS
     # ========================================================================
 
-    def get_macro_categories_with_counts(self) -> List[Dict[str, Any]]:
+    def get_macro_categories_with_counts(self) -> list[dict[str, Any]]:
         """Agrupa as categorias granulares em macro-grupos, somando as
         contagens. Categorias sem mapeamento explícito caem em
         ``UNCLASSIFIED_MACRO`` — nunca são descartadas silenciosamente."""
         granular = self.get_categories_with_counts()
-        groups: Dict[str, Dict[str, Any]] = {}
+        groups: dict[str, dict[str, Any]] = {}
         for cat in granular:
             macro_name = get_macro_category(cat["name"])
             group = groups.setdefault(
@@ -59,7 +59,7 @@ class FilterService:
             group["categories"].append(cat["name"])
         return sorted(groups.values(), key=lambda g: macro_sort_key(g["macro_name"]))
 
-    def import_categories_from_ini(self, ini_path: Path) -> Tuple[int, int, List[str]]:
+    def import_categories_from_ini(self, ini_path: Path) -> tuple[int, int, list[str]]:
         """Ponto de entrada genérico. Nesta fase do projeto, o único
         formato de INI de categorias suportado é o ``catver.ini``, então
         delega diretamente para ele em vez de retornar ``None``."""
@@ -69,7 +69,7 @@ class FilterService:
     # IMPORTAÇÃO DO CATVER.INI (com remoção de categorias indesejadas)
     # ========================================================================
 
-    def import_categories_from_catver(self, catver_path: Path) -> Tuple[int, int, List[str]]:
+    def import_categories_from_catver(self, catver_path: Path) -> tuple[int, int, list[str]]:
         if not catver_path.exists():
             raise FileNotFoundError(f"Arquivo não encontrado: {catver_path}")
 
@@ -78,14 +78,14 @@ class FilterService:
         cursor = self.conn.cursor()
         categorias_count = 0
         maquinas_count = 0
-        imported_categories: List[str] = []
+        imported_categories: list[str] = []
 
         def normalize_cat_name(name: str) -> str:
             name = re.sub(r"[^a-zA-Z0-9 ]", "", name)
             name = name.strip().lower()
             return re.sub(r"\s+", "_", name)
 
-        cat_cache: Dict[str, int] = {}
+        cat_cache: dict[str, int] = {}
         in_category_section = False
 
         with open(catver_path, "r", encoding="utf-8", errors="ignore") as f:
@@ -212,12 +212,12 @@ class FilterService:
     # MÉTODOS PÚBLICOS
     # ========================================================================
 
-    def apply_filters(self, criteria: FilterCriteria) -> List[int]:
+    def apply_filters(self, criteria: FilterCriteria) -> list[int]:
         query, params = self._build_filter_query(criteria)
         cursor = self.conn.execute(query, params)
         return [row[0] for row in cursor.fetchall()]
 
-    def get_machine_names(self, criteria: FilterCriteria) -> List[str]:
+    def get_machine_names(self, criteria: FilterCriteria) -> list[str]:
         """Nomes (``machine.name``) das máquinas filtradas — usados pela
         exportação de listxml, que localiza máquinas pelo atributo
         ``<machine name="...">``, não pelo id autoincrement do banco."""
@@ -282,7 +282,7 @@ class FilterService:
     # PERFIS
     # ========================================================================
 
-    def get_profiles(self) -> List[FilterProfile]:
+    def get_profiles(self) -> list[FilterProfile]:
         return self.profile_repo.get_all()
 
     def save_profile(self, profile: FilterProfile) -> int:
@@ -294,7 +294,7 @@ class FilterService:
     def set_default_profile(self, profile_id: int) -> None:
         self.profile_repo.set_default(profile_id)
 
-    def get_default_profile(self) -> Optional[FilterProfile]:
+    def get_default_profile(self) -> FilterProfile | None:
         return self.profile_repo.get_default()
 
     def seed_default_categories(self) -> None:

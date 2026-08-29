@@ -19,11 +19,10 @@ O projeto utiliza estes modelos para manter uma separação clara entre:
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable
-
 
 # ============================================================================
 # INI OPTION
@@ -159,7 +158,7 @@ class IniFileInfo:
         option_count: int = 0,
         duplicate_keys: Iterable[str] = (),
         has_bom: bool = False,
-    ) -> "IniFileInfo":
+    ) -> IniFileInfo:
         """
         Cria informações a partir de um caminho.
 

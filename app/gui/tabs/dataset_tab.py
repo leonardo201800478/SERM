@@ -1,9 +1,20 @@
 """Interface para a reconstrução do catálogo MAME."""
 from __future__ import annotations
+
 from PySide6.QtCore import QThread, Signal
-from PySide6.QtWidgets import QWidget,QVBoxLayout,QHBoxLayout,QPushButton,QProgressBar,QLabel,QPlainTextEdit
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QLabel,
+    QPlainTextEdit,
+    QProgressBar,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
+
 from app.config.app_config import AppConfig
 from app.mame.dataset_builder import MameDatasetBuilder
+
 
 class DatasetWorker(QThread):
     """Executa o pipeline fora da thread da interface."""

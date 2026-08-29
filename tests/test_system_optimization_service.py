@@ -4,7 +4,10 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-from app.core.services.system_optimization_service import MANAGED_HEADER, SystemOptimizationService
+from app.core.services.system_optimization_service import (
+    MANAGED_HEADER,
+    SystemOptimizationService,
+)
 
 
 def make_config(root: Path) -> SimpleNamespace:

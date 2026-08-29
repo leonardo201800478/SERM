@@ -9,7 +9,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.core.services.shader_download_service import ShaderDownloadService, ShaderDownloadSpec
+from app.core.services.shader_download_service import (
+    ShaderDownloadService,
+    ShaderDownloadSpec,
+)
 
 
 def config(root: Path) -> SimpleNamespace:

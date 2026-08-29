@@ -4,39 +4,38 @@ import logging
 import sqlite3
 import threading
 from pathlib import Path
-from typing import List
 
-from PySide6.QtCore import Qt, Signal, QTimer
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QGroupBox,
-    QFormLayout,
     QCheckBox,
     QComboBox,
-    QMessageBox,
-    QScrollArea,
-    QLineEdit,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
+    QFormLayout,
     QGridLayout,
-    QSplitter,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
     QSizePolicy,
+    QSplitter,
+    QVBoxLayout,
+    QWidget,
 )
 
-from app.core.services.filter_service import FilterService
-from app.core.models.filter_profile import FilterCriteria, FilterProfile
-from app.database.database import Database
 from app.config.app_config import AppConfig
-from app.mame.executable import MameExecutable
+from app.core.models.filter_profile import FilterCriteria, FilterProfile
 from app.core.services.database_service import DatabaseService
+from app.core.services.filter_service import FilterService
 from app.core.services.ini_service import IniService
-from app.mame.chd_scanner import scan_chd_sizes
+from app.database.database import Database
 from app.gui.widgets.log_panel import LogPanel
+from app.mame.chd_scanner import scan_chd_sizes
+from app.mame.executable import MameExecutable
 
 logger = logging.getLogger(__name__)
 
@@ -437,10 +436,10 @@ class FiltersTab(QWidget):
 
         self._update_excluded_categories_info(self._get_excluded_categories())
 
-    def _get_excluded_categories(self) -> List[str]:
+    def _get_excluded_categories(self) -> list[str]:
         return [name for name, chip in self.category_chips.items() if chip.state == self.CategoryChip.STATE_EXCLUDE]
 
-    def _update_excluded_categories_info(self, excluded_categories: List[str]) -> None:
+    def _update_excluded_categories_info(self, excluded_categories: list[str]) -> None:
         if not excluded_categories:
             self.lbl_excluded_categories.setText("Nenhuma")
             self.lbl_excluded_categories.setToolTip("")
@@ -524,7 +523,7 @@ class FiltersTab(QWidget):
     # Estado de emulação, opções (iguais)
     # ========================================================================
 
-    def _get_selected_status(self) -> List[str]:
+    def _get_selected_status(self) -> list[str]:
         return [v for v, cb in self.status_checkboxes.items() if cb.isChecked()]
 
     def _on_status_changed(self) -> None:
@@ -569,7 +568,7 @@ class FiltersTab(QWidget):
             self._apply_filters()
         except Exception as e:
             logger.error("Falha ao importar categorias.", exc_info=True)
-            QMessageBox.critical(self, "Erro", f"Falha ao importar categorias:\n{str(e)}")
+            QMessageBox.critical(self, "Erro", f"Falha ao importar categorias:\n{e!s}")
 
     def _scan_chd_sizes(self) -> None:
         if self._import_running:
@@ -857,7 +856,7 @@ class FiltersTab(QWidget):
                 self.finish_signal.emit(True, f"Banco atualizado! Versão: {version} ({total} máquinas)")
             except Exception as e:
                 logger.error(f"Falha na importação: {e}", exc_info=True)
-                self.finish_signal.emit(False, f"Erro: {str(e)}")
+                self.finish_signal.emit(False, f"Erro: {e!s}")
 
         threading.Thread(target=import_task, daemon=True).start()
 
@@ -892,10 +891,10 @@ class FiltersTab(QWidget):
             QMessageBox.critical(
                 self,
                 "Erro",
-                f"Não foi possível apagar o arquivo do banco de dados.\nCertifique-se de que nenhum outro programa está usando o arquivo.\nErro: {str(e)}"
+                f"Não foi possível apagar o arquivo do banco de dados.\nCertifique-se de que nenhum outro programa está usando o arquivo.\nErro: {e!s}"
             )
         except Exception as e:
-            QMessageBox.critical(self, "Erro", f"Falha ao recriar banco: {str(e)}")
+            QMessageBox.critical(self, "Erro", f"Falha ao recriar banco: {e!s}")
 
     # ========================================================================
     # Callbacks de progresso e importação

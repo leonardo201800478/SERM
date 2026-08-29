@@ -54,7 +54,7 @@ class MameIniEditor:
         """Indica se uma opção existe no arquivo atual."""
         return key in self._entries
 
-    def set(self, key: str, value: str | int | float) -> None:
+    def set(self, key: str, value: str | float) -> None:
         """Altera somente o valor da opção, mantendo indentação e quebra de linha."""
         entry = self._entries.get(key)
         if entry is None:

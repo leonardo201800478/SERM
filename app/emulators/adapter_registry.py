@@ -1,9 +1,10 @@
 """Registro único que conecta schema, capabilities, adapters e diretórios."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from .capabilities import EmulatorCapabilities, get_capabilities
 from .config_backend import EmulatorConfigBackend

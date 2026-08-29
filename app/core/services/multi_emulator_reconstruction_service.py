@@ -5,15 +5,27 @@ import json
 import os
 import shutil
 import xml.etree.ElementTree as ET
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from app.core.services.mame_build_planner import MameBuildPlanner
 from app.core.services.mame_dependency_resolver import DependencyKind, DependencyOptions
-from app.core.services.reconstruction_profiles import ReconstructionProfile, ReconstructionTarget, classify_xml
-from app.mame.mame_aware_reconstruction_engine import MameAwareReconstructionEngine, MameBuildOptions
-from app.mame.reconstruction_engine import ReconstructionEngine, ReconstructionMachine, ReconstructionResult
+from app.core.services.reconstruction_profiles import (
+    ReconstructionProfile,
+    ReconstructionTarget,
+    classify_xml,
+)
+from app.mame.mame_aware_reconstruction_engine import (
+    MameAwareReconstructionEngine,
+    MameBuildOptions,
+)
+from app.mame.reconstruction_engine import (
+    ReconstructionEngine,
+    ReconstructionMachine,
+    ReconstructionResult,
+)
 
 ProgressCallback = Callable[[int, int, str], None]
 LogCallback = Callable[[str], None]

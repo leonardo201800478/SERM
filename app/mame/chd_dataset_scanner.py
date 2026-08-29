@@ -1,9 +1,12 @@
 """Scanner de CHDs físicos usando chdman sem opção de reparo."""
 from __future__ import annotations
+
 import re
 import subprocess
 from pathlib import Path
+
 from app.config.app_config import AppConfig
+
 
 class ChdDatasetScanner:
     """Localiza CHDs no rompath e verifica integridade."""
@@ -47,7 +50,7 @@ class ChdDatasetScanner:
             v=subprocess.run([str(chdman),"verify","-i",str(path)],capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=3600,shell=False)
             i=subprocess.run([str(chdman),"info","-i",str(path)],capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=120,shell=False)
             out=(i.stdout or "")+"\n"+(i.stderr or "")
-            sha=re.search(r"^SHA1:\s*([0-9a-fA-F]{40})",out,re.M);data=re.search(r"^Data SHA1:\s*([0-9a-fA-F]{40})",out,re.M)
+            sha=re.search(r"^SHA1:\s*([0-9a-fA-F]{40})",out,re.MULTILINE);data=re.search(r"^Data SHA1:\s*([0-9a-fA-F]{40})",out,re.MULTILINE)
             err=None if v.returncode==0 else ((v.stdout or "")+(v.stderr or ""))[-1000:]
             return ("verified" if v.returncode==0 else "invalid",err,sha.group(1).lower() if sha else None,data.group(1).lower() if data else None)
         except Exception as exc:return "error",str(exc),None,None

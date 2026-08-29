@@ -1,22 +1,23 @@
 """Modelo para perfis de filtro."""
 from dataclasses import dataclass, field
-from typing import Optional, List, Dict, Any
+from typing import Any
+
 
 @dataclass
 class FilterCriteria:
     """Critérios de filtro."""
-    categories: List[str] = field(default_factory=list)
-    emulation_status: List[str] = field(default_factory=list)
+    categories: list[str] = field(default_factory=list)
+    emulation_status: list[str] = field(default_factory=list)
     include_clones: bool = True
-    include_categories: List[str] = field(default_factory=list)   # verde (forçar inclusão)
-    exclude_categories: List[str] = field(default_factory=list)   # vermelho (forçar exclusão)
+    include_categories: list[str] = field(default_factory=list)   # verde (forçar inclusão)
+    exclude_categories: list[str] = field(default_factory=list)   # vermelho (forçar exclusão)
     include_bios: bool = True
     include_devices: bool = True
     include_chd: bool = True
     set_type: str = "split"
-    arcade_systems: List[str] = field(default_factory=list)
+    arcade_systems: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "categories": self.categories,
             "include_categories": self.include_categories,
@@ -31,7 +32,7 @@ class FilterCriteria:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "FilterCriteria":
+    def from_dict(cls, data: dict[str, Any]) -> "FilterCriteria":
         # Migração: se houver 'categories' e não houver 'include_categories', usar categories como include
         include_cats = data.get("include_categories", [])
         exclude_cats = data.get("exclude_categories", [])
@@ -53,15 +54,15 @@ class FilterCriteria:
 
 @dataclass
 class FilterProfile:
-    id: Optional[int] = None
+    id: int | None = None
     name: str = ""
     description: str = ""
     criteria: FilterCriteria = field(default_factory=FilterCriteria)
-    created_at: Optional[str] = None
-    updated_at: Optional[str] = None
+    created_at: str | None = None
+    updated_at: str | None = None
     is_default: bool = False
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "name": self.name,
@@ -73,7 +74,7 @@ class FilterProfile:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "FilterProfile":
+    def from_dict(cls, data: dict[str, Any]) -> "FilterProfile":
         return cls(
             id=data.get("id"),
             name=data.get("name", ""),

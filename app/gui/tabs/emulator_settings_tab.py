@@ -16,11 +16,11 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QTabWidget, QVBoxLayout, QWidget
 
 from app.emulators.adapter_registry import get_adapter, list_adapters
-from app.gui.tabs.mame_settings_tab import MameSettingsTab
-from app.gui.tabs.flycast_settings_tab import FlycastSettingsTab
-from app.gui.tabs.supermodel_settings_tab import SupermodelSettingsTab
 from app.gui.tabs.fbneo_settings_tab import FBNeoSettingsTab
+from app.gui.tabs.flycast_settings_tab import FlycastSettingsTab
+from app.gui.tabs.mame_settings_tab import MameSettingsTab
 from app.gui.tabs.retroarch_settings_tab import RetroArchSettingsTab
+from app.gui.tabs.supermodel_settings_tab import SupermodelSettingsTab
 
 
 class EmulatorSettingsTab(QWidget):
@@ -145,9 +145,7 @@ class EmulatorSettingsTab(QWidget):
             widget.refresh()
         elif key == "supermodel":
             widget._load_installation()
-        elif key == "fbneo":
-            widget.refresh()
-        elif key == "retroarch":
+        elif key == "fbneo" or key == "retroarch":
             widget.refresh()
 
     def refresh(self) -> None:

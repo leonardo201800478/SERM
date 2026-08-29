@@ -5,8 +5,8 @@ import os
 import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable, List, Optional
 
 from app.config.app_config import AppConfig
 from app.core.models.filter_profile import FilterCriteria
@@ -20,12 +20,12 @@ class ListxmlExportService:
     ``<machine>`` selecionada — nunca reconstrói nós a partir de um
     modelo reduzido do banco."""
 
-    def __init__(self, db_path: Path, mame_exe: Optional[Path] = None):
+    def __init__(self, db_path: Path, mame_exe: Path | None = None):
         self.db_path = Path(db_path)
         self.mame_exe = mame_exe or AppConfig().mame_path
 
     def generate_filtered_xml(
-        self, machine_ids: List[str], output_path: Path, source_xml: Path | None = None,
+        self, machine_ids: list[str], output_path: Path, source_xml: Path | None = None,
     ) -> Path:
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -59,7 +59,7 @@ class ListxmlExportService:
             context = ET.iterparse(str(source_xml), events=("start", "end"))
             _, root = next(context)
             root_attrs = "".join(f' {k}="{_xml_escape(v)}"' for k, v in root.attrib.items())
-            out.write(f"<mame{root_attrs}>\n".encode("utf-8"))
+            out.write(f"<mame{root_attrs}>\n".encode())
 
             for event, elem in context:
                 if event == "end" and elem.tag == "machine":
@@ -82,7 +82,7 @@ class ListxmlExportService:
         problem_names = {m.machine_name for m in scan_result.problem_machines()}
         return ListxmlExportService.filter_xml(source_xml, problem_names, output_path)
 
-    def get_machine_ids_from_db(self, criteria: Optional[FilterCriteria] = None) -> List[str]:
+    def get_machine_ids_from_db(self, criteria: FilterCriteria | None = None) -> list[str]:
         """Nomes (``machine.name``) das máquinas que atendem aos
         critérios — usados para localizar as máquinas no XML original."""
         db = Database(self.db_path)

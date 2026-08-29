@@ -1,6 +1,7 @@
-from app.database.database import Database
 from app.core.models.machine import Machine
 from app.core.models.rom import Rom
+from app.database.database import Database
+
 
 class MachineRepository:
     def __init__(self, db: Database):

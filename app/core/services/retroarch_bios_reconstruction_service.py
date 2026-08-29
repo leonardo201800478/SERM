@@ -4,11 +4,14 @@ from __future__ import annotations
 import hashlib
 import os
 import shutil
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
-from app.core.services.retroarch_bios_service import RetroArchBiosFile, RetroArchBiosService
+from app.core.services.retroarch_bios_service import (
+    RetroArchBiosFile,
+    RetroArchBiosService,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -207,4 +210,4 @@ class RetroArchBiosReconstructionService:
         return {"sha1": sha1.hexdigest(), "md5": md5.hexdigest(), "crc32": f"{crc & 0xffffffff:08x}"}
 
 
-__all__ = ["RetroArchBiosReconstructionService", "RetroArchBiosReconstructionResult"]
+__all__ = ["RetroArchBiosReconstructionResult", "RetroArchBiosReconstructionService"]

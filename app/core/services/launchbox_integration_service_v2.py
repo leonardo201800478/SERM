@@ -5,12 +5,15 @@ import json
 import shutil
 import uuid
 import xml.etree.ElementTree as ET
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable
 
 from app.config.app_config import AppConfig
-from app.core.services.retroarch_info_service import RetroArchInfoCore, RetroArchInfoService
+from app.core.services.retroarch_info_service import (
+    RetroArchInfoCore,
+    RetroArchInfoService,
+)
 
 
 @dataclass(slots=True)
@@ -582,4 +585,4 @@ def _set_child(parent: ET.Element, name: str, value: str) -> None:
     node.text = value
 
 
-__all__ = ["LaunchBoxIntegrationService", "LaunchBoxSystem", "LaunchBoxCoreOption", "LaunchBoxInstallation"]
+__all__ = ["LaunchBoxCoreOption", "LaunchBoxInstallation", "LaunchBoxIntegrationService", "LaunchBoxSystem"]

@@ -6,10 +6,10 @@ import logging
 import shutil
 import subprocess
 import xml.etree.ElementTree as ET
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Sequence
 
 logger = logging.getLogger(__name__)
 Validator = Callable[[Path], bool]

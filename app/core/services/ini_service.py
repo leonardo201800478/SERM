@@ -11,7 +11,6 @@ conhecer detalhes do formato físico do arquivo.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, List, Optional
 
 from app.core.models.ini_models import (
     IniFileInfo,
@@ -119,8 +118,8 @@ class IniService:
     def get(
         self,
         key: str,
-        default: Optional[str] = None,
-    ) -> Optional[str]:
+        default: str | None = None,
+    ) -> str | None:
         """
         Obtém qualquer configuração do MAME.INI.
 
@@ -165,7 +164,7 @@ class IniService:
     # UPDATE (MÚLTIPLAS ALTERAÇÕES)
     # ========================================================================
 
-    def update(self, changes: Dict[str, str]) -> int:
+    def update(self, changes: dict[str, str]) -> int:
         """
         Aplica múltiplas alterações de uma só vez.
 
@@ -206,7 +205,7 @@ class IniService:
     # FILE INFORMATION
     # ========================================================================
 
-    def get_file_info(self) -> Optional[IniFileInfo]:
+    def get_file_info(self) -> IniFileInfo | None:
         """
         Retorna informações físicas do MAME.INI.
         """
@@ -217,7 +216,7 @@ class IniService:
     # ========================================================================
 
     @staticmethod
-    def split_paths(value: Optional[str]) -> List[str]:
+    def split_paths(value: str | None) -> list[str]:
         """
         Converte uma configuração de múltiplos caminhos em lista.
 
@@ -245,7 +244,7 @@ class IniService:
         ]
 
     @staticmethod
-    def join_paths(paths: List[str]) -> str:
+    def join_paths(paths: list[str]) -> str:
         """
         Converte uma lista de caminhos para o formato aceito pelo MAME.
 
@@ -266,7 +265,7 @@ class IniService:
     # GET PATHS (lista)
     # ========================================================================
 
-    def get_paths(self, key: str) -> List[str]:
+    def get_paths(self, key: str) -> list[str]:
         """
         Retorna uma opção de caminho como lista.
 
@@ -296,7 +295,7 @@ class IniService:
     def set_paths(
         self,
         key: str,
-        paths: List[str],
+        paths: list[str],
     ) -> bool:
         """
         Define uma configuração de caminhos.

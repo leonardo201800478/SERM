@@ -7,7 +7,6 @@ a specific emulator stores its configuration.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import FrozenSet
 
 
 @dataclass(frozen=True, slots=True)
@@ -15,8 +14,8 @@ class EmulatorCapabilities:
     """Declares the configuration domains supported by an emulator."""
 
     emulator: str
-    domains: FrozenSet[str] = field(default_factory=frozenset)
-    features: FrozenSet[str] = field(default_factory=frozenset)
+    domains: frozenset[str] = field(default_factory=frozenset)
+    features: frozenset[str] = field(default_factory=frozenset)
 
     def supports(self, feature: str) -> bool:
         """Return whether the emulator exposes a given feature."""

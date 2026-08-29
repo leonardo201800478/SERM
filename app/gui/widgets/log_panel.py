@@ -13,8 +13,13 @@ from collections import deque
 
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QComboBox, QPlainTextEdit
+    QComboBox,
+    QHBoxLayout,
+    QLabel,
+    QPlainTextEdit,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
 )
 
 # Quantas linhas manter em memória (tanto no widget quanto no buffer

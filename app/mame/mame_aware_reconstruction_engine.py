@@ -10,11 +10,16 @@ import json
 import os
 import shutil
 import xml.etree.ElementTree as ET
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any
 
-from app.mame.reconstruction_engine import ReconstructionEngine, ReconstructionMachine, ReconstructionResult
+from app.mame.reconstruction_engine import (
+    ReconstructionEngine,
+    ReconstructionMachine,
+    ReconstructionResult,
+)
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,14 +1,17 @@
 """Orquestração do dataset MAME: LISTXML, CatVer e CHD."""
 from __future__ import annotations
+
 import re
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
+
 from app.config.app_config import AppConfig
 from app.database.dataset_schema import ensure_dataset_schema
-from app.mame.dataset_importer import DatasetImporter
 from app.mame.catver_importer import CatverImporter
 from app.mame.chd_dataset_scanner import ChdDatasetScanner
+from app.mame.dataset_importer import DatasetImporter
+
 
 class MameDatasetBuilder:
     """Executa a reconstrução completa do catálogo persistente."""
@@ -41,7 +44,7 @@ class MameDatasetBuilder:
     def _version(mame:Path)->str:
         """Obtém a versão do executável MAME."""
         p=subprocess.run([str(mame),"-version"],capture_output=True,text=True,encoding="utf-8",errors="ignore",timeout=10,shell=False)
-        m=re.search(r"(?:MAME\s+)?([0-9]+(?:\.[0-9]+)+)",p.stdout+p.stderr,re.I); return m.group(1) if m else "unknown"
+        m=re.search(r"(?:MAME\s+)?([0-9]+(?:\.[0-9]+)+)",p.stdout+p.stderr,re.IGNORECASE); return m.group(1) if m else "unknown"
 
     def _find_catver(self)->Path|None:
         """Localiza CatVer configurado, ao lado do MAME ou no diretório de suporte."""

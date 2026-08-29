@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from .config_schema import Setting, _s
 
-
 RETROARCH_SCHEMA: dict[str, tuple[Setting, ...]] = {
     "general": (
         _s("video_driver", "Driver de vídeo", "Backend de vídeo do RetroArch.", "choice", "auto", (("auto", "Automático"), ("gl", "OpenGL"), ("glcore", "OpenGL Core"), ("vulkan", "Vulkan"), ("d3d11", "Direct3D 11"), ("d3d12", "Direct3D 12"), ("d3d10", "Direct3D 10"), ("d3d9", "Direct3D 9"), ("sdl2", "SDL2"), ("sdl3", "SDL3"), ("gdi", "GDI")), "video-backend"),

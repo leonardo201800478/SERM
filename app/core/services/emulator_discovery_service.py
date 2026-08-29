@@ -4,9 +4,9 @@ from __future__ import annotations
 import logging
 import re
 import subprocess
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable
 
 from app.core.services.emulator_config_service import (
     EmulatorConfigService,

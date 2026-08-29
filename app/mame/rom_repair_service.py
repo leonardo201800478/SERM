@@ -7,8 +7,8 @@ import shutil
 import tempfile
 import zipfile
 import zlib
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 from app.mame.reconstruction_service import ReconstructionMachine, ReconstructionRom
 

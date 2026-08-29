@@ -502,4 +502,4 @@ class SystemOptimizationService:
         return {"profile": profile, "removed": removed, "skipped": skipped, "backups": []}
 
 
-__all__ = ["CoreOptimization", "ShaderProfile", "ShaderOptimization", "ShaderOptimizationProfile", "SystemOptimizationProfile", "SystemOptimizationService"]
+__all__ = ["CoreOptimization", "ShaderOptimization", "ShaderOptimizationProfile", "ShaderProfile", "SystemOptimizationProfile", "SystemOptimizationService"]

@@ -29,7 +29,10 @@ from app.core.services.launchbox_integration_service import (
     LaunchBoxSystem,
 )
 from app.core.services.shader_dependency_service import ShaderDependencyService
-from app.core.services.system_optimization_service import SystemOptimizationProfile, SystemOptimizationService
+from app.core.services.system_optimization_service import (
+    SystemOptimizationProfile,
+    SystemOptimizationService,
+)
 
 
 class LaunchBoxIntegrationTab(QWidget):
@@ -261,7 +264,7 @@ class LaunchBoxIntegrationTab(QWidget):
             combo.setItemData(combo.count() - 1, profile.description, Qt.ItemDataRole.ToolTipRole)
         selected = self.optimization_selections.get(system.system_id, "")
         index = combo.findData(selected)
-        combo.setCurrentIndex(index if index >= 0 else 0)
+        combo.setCurrentIndex(max(index, 0))
         combo.currentIndexChanged.connect(lambda _index, s=system, c=combo: self._optimization_changed(s, c))
         return combo
 

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Iterable
 
 from app.core.models.scan_result import MachineScanResult, RomScanResult, ScanResult
 from app.core.services.mame_dependency_resolver import (

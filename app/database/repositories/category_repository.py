@@ -1,25 +1,26 @@
 """Repositório para categorias."""
 import sqlite3
-from typing import List, Optional
+
 from app.core.models.category import Category
+
 
 class CategoryRepository:
     def __init__(self, conn: sqlite3.Connection):
         self.conn = conn
 
-    def get_all(self) -> List[Category]:
+    def get_all(self) -> list[Category]:
         cursor = self.conn.execute("SELECT id, name, display_name, source FROM category ORDER BY display_name")
         rows = cursor.fetchall()
         return [Category(id=row[0], name=row[1], display_name=row[2], source=row[3]) for row in rows]
 
-    def get_by_name(self, name: str) -> Optional[Category]:
+    def get_by_name(self, name: str) -> Category | None:
         cursor = self.conn.execute("SELECT id, name, display_name, source FROM category WHERE name = ?", (name,))
         row = cursor.fetchone()
         if row:
             return Category(id=row[0], name=row[1], display_name=row[2], source=row[3])
         return None
 
-    def get_by_id(self, category_id: int) -> Optional[Category]:
+    def get_by_id(self, category_id: int) -> Category | None:
         cursor = self.conn.execute("SELECT id, name, display_name, source FROM category WHERE id = ?", (category_id,))
         row = cursor.fetchone()
         if row:
@@ -34,7 +35,7 @@ class CategoryRepository:
         self.conn.commit()
         return cursor.lastrowid
 
-    def get_machine_categories(self, machine_id: int) -> List[str]:
+    def get_machine_categories(self, machine_id: int) -> list[str]:
         cursor = self.conn.execute(
             """SELECT c.name FROM category c
                JOIN machine_category mc ON mc.category_id = c.id
@@ -50,7 +51,7 @@ class CategoryRepository:
         )
         self.conn.commit()
 
-    def assign_categories_to_machine(self, machine_id: int, category_names: List[str]) -> None:
+    def assign_categories_to_machine(self, machine_id: int, category_names: list[str]) -> None:
         for name in category_names:
             cat = self.get_by_name(name)
             if cat:

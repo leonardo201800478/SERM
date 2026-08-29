@@ -12,7 +12,10 @@ from app.core.services.emulator_discovery_service import (
     EmulatorInstallation,
 )
 from app.core.services.emulator_persistence_service import EmulatorPersistenceService
-from app.core.services.emulator_version_service import EmulatorVersionInfo, EmulatorVersionService
+from app.core.services.emulator_version_service import (
+    EmulatorVersionInfo,
+    EmulatorVersionService,
+)
 
 logger = logging.getLogger(__name__)
 

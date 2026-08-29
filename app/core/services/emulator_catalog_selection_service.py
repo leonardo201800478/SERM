@@ -14,7 +14,10 @@ from app.core.services.emulator_catalog_profile import (
     get_catalog_profile,
     select_machine_names,
 )
-from app.core.services.emulator_catalog_service import CatalogResult, EmulatorCatalogService
+from app.core.services.emulator_catalog_service import (
+    CatalogResult,
+    EmulatorCatalogService,
+)
 
 logger = logging.getLogger(__name__)
 

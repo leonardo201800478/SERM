@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import logging
-import zlib
 import zipfile
+import zlib
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from app.mame.physical_rom_scanner import PhysicalRomScanner
 

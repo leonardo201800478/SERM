@@ -5,12 +5,25 @@ import logging
 from pathlib import Path
 
 from PySide6.QtCore import QThread, Slot
-from PySide6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QPlainTextEdit, QProgressBar, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QFrame,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QPlainTextEdit,
+    QProgressBar,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 from app.config.app_config import AppConfig
 from app.core.services.emulator_catalog_build_service import CatalogBuildContext
 from app.core.services.emulator_catalog_repository import EmulatorCatalogRepository
-from app.gui.widgets.emulator_catalog_worker import EmulatorCatalogBatchWorker, EmulatorCatalogWorker
+from app.gui.widgets.emulator_catalog_worker import (
+    EmulatorCatalogBatchWorker,
+    EmulatorCatalogWorker,
+)
 
 logger = logging.getLogger(__name__)
 

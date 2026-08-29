@@ -1,5 +1,6 @@
 """Importador streaming do LISTXML para todas as entidades úteis do SQLite."""
 from __future__ import annotations
+
 import xml.etree.ElementTree as ET
 from pathlib import Path
 

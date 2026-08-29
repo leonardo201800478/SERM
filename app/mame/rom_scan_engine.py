@@ -11,13 +11,23 @@ import hashlib
 import logging
 import threading
 import zipfile
+from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any
 
 from app.core.models.scan_result import MachineScanResult, RomScanResult, ScanStatus
-from app.mame.rom_source_index import RomSourceCandidate, RomSourceIndexer, RomSourceIndex
-from app.mame.scan_manifest import ScanMachineRecord, ScanManifestWriter, ScanRomRecord, ScanSource
+from app.mame.rom_source_index import (
+    RomSourceCandidate,
+    RomSourceIndex,
+    RomSourceIndexer,
+)
+from app.mame.scan_manifest import (
+    ScanMachineRecord,
+    ScanManifestWriter,
+    ScanRomRecord,
+    ScanSource,
+)
 
 logger = logging.getLogger(__name__)
 DEFAULT_CHUNK_SIZE = 1024 * 1024

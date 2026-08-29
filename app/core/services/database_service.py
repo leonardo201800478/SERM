@@ -1,6 +1,7 @@
 import hashlib
 import logging
-from typing import Callable, Iterable, Optional
+from collections.abc import Callable, Iterable
+from typing import Optional
 
 from app.core.models.machine import Machine
 from app.mame.executable import MameExecutable

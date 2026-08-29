@@ -6,7 +6,10 @@ from types import SimpleNamespace
 
 from app.core.services.shader_dependency_service import ShaderDependencyService
 from app.core.services.shader_manager_service import ShaderStatus
-from app.core.services.system_optimization_service import ShaderOptimization, ShaderProfile
+from app.core.services.system_optimization_service import (
+    ShaderOptimization,
+    ShaderProfile,
+)
 
 
 def config(root: Path) -> SimpleNamespace:

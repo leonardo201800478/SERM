@@ -2,12 +2,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 
 @dataclass
 class Rom:
-    id: Optional[int] = None
+    id: int | None = None
     machine_id: int = 0
     name: str = ""
     size: int = 0

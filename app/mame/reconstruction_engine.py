@@ -13,11 +13,12 @@ import json
 import logging
 import os
 import shutil
-import zlib
 import zipfile
+import zlib
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 STREAM_CHUNK_SIZE = 1024 * 1024

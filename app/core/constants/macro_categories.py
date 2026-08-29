@@ -17,8 +17,6 @@ quanto por qualquer outra camada (relatórios, exportação, etc.).
 
 from __future__ import annotations
 
-from typing import Dict, List
-
 # ============================================================================
 # MAPEAMENTO PRINCIPAL
 # ============================================================================
@@ -26,7 +24,7 @@ from typing import Dict, List
 # Chave:   nome normalizado da categoria (igual a ``category.name`` no banco)
 # Valor:   nome do macro-grupo exibido na GUI
 #
-MACRO_CATEGORIES_MAPPING: Dict[str, str] = {
+MACRO_CATEGORIES_MAPPING: dict[str, str] = {
     # 1. Luta / Briga de Rua
     "fighter": "Fighter / Beat 'em Up",
 
@@ -82,7 +80,7 @@ UNCLASSIFIED_MACRO: str = "Outras / Não Classificadas"
 
 # Ordem de exibição dos macro-grupos na GUI. Qualquer macro-grupo que não
 # apareça aqui (não deveria acontecer, mas por segurança) vai para o final.
-MACRO_CATEGORY_ORDER: List[str] = [
+MACRO_CATEGORY_ORDER: list[str] = [
     "Fighter / Beat 'em Up",
     "Shooter / Shmup",
     "Platform / Action",
@@ -124,7 +122,7 @@ def macro_sort_key(macro_name: str) -> int:
         return len(MACRO_CATEGORY_ORDER)
 
 
-def get_categories_for_macro(macro_name: str) -> List[str]:
+def get_categories_for_macro(macro_name: str) -> list[str]:
     """Retorna todas as categorias (chaves) que pertencem a um macro-grupo.
 
     Útil para aplicar/desfazer exclusão em lote sem precisar consultar

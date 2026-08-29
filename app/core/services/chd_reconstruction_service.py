@@ -17,11 +17,16 @@ from __future__ import annotations
 
 import os
 import shutil
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
-from app.core.models.scan_result import RomScanResult, ScanResult, ScanStatus, ScanItemType
+from app.core.models.scan_result import (
+    RomScanResult,
+    ScanItemType,
+    ScanResult,
+    ScanStatus,
+)
 from app.mame.chdman_validator import ChdmanError, chdman_info, chdman_verify
 
 

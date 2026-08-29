@@ -4,7 +4,11 @@ import binascii
 import zipfile
 from pathlib import Path
 
-from app.mame.reconstruction_engine import ReconstructionEngine, ReconstructionMachine, ReconstructionRom
+from app.mame.reconstruction_engine import (
+    ReconstructionEngine,
+    ReconstructionMachine,
+    ReconstructionRom,
+)
 
 
 def _rom(name: str, data: bytes, source_zip: Path, member: str) -> ReconstructionRom:

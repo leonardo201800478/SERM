@@ -1,4 +1,6 @@
-from app.core.services.multi_emulator_reconstruction_service import MultiEmulatorReconstructionService
+from app.core.services.multi_emulator_reconstruction_service import (
+    MultiEmulatorReconstructionService,
+)
 from app.core.services.reconstruction_profiles import ReconstructionTarget
 from app.mame.reconstruction_engine import ReconstructionMachine
 

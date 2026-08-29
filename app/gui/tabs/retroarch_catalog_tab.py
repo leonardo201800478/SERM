@@ -14,9 +14,9 @@ from PySide6.QtWidgets import (
     QLabel,
     QMenu,
     QMessageBox,
+    QPlainTextEdit,
     QProgressBar,
     QPushButton,
-    QPlainTextEdit,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -24,11 +24,18 @@ from PySide6.QtWidgets import (
 )
 
 from app.config.app_config import AppConfig
-from app.core.services.retroarch_bios_reconstruction_service import RetroArchBiosReconstructionService
+from app.core.services.retroarch_bios_reconstruction_service import (
+    RetroArchBiosReconstructionService,
+)
 from app.core.services.retroarch_bios_service import RetroArchBiosService
-from app.core.services.retroarch_catalog_database_service import RetroArchCatalogDatabaseService
+from app.core.services.retroarch_catalog_database_service import (
+    RetroArchCatalogDatabaseService,
+)
 from app.core.services.retroarch_download_service import RetroArchDownloadService
-from app.core.services.retroarch_info_service import RetroArchInfoCore, RetroArchInfoService
+from app.core.services.retroarch_info_service import (
+    RetroArchInfoCore,
+    RetroArchInfoService,
+)
 from app.database.database import Database
 
 
@@ -206,9 +213,7 @@ class RetroArchCatalogTab(QWidget):
             build = buildbot_by_name.get(dll_name.casefold())
             if path is None:
                 status = "missing"
-            elif build is None:
-                status = "ok"
-            elif self._crc32(path) == str(build.crc32).casefold().zfill(8):
+            elif build is None or self._crc32(path) == str(build.crc32).casefold().zfill(8):
                 status = "ok"
             else:
                 status = "update"

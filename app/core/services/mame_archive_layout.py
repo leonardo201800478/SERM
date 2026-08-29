@@ -3,7 +3,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from app.core.services.mame_dependency_resolver import DependencyPlan, MachinePlan, RomDefinition
+from app.core.services.mame_dependency_resolver import (
+    DependencyPlan,
+    MachinePlan,
+    RomDefinition,
+)
 
 
 @dataclass(frozen=True, slots=True)

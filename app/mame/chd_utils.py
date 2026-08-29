@@ -8,7 +8,6 @@ oficial é delegada ao ``chdman verify`` e o digest lógico é obtido por
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from .chdman_validator import ChdmanError, chdman_info, chdman_verify, validate_chd
 
@@ -32,9 +31,9 @@ def read_chd_header(path: str | Path) -> dict[str, int | str]:
 
 __all__ = [
     "ChdFormatError",
-    "read_chd_header",
-    "validate_chd",
+    "ChdmanError",
     "chdman_info",
     "chdman_verify",
-    "ChdmanError",
+    "read_chd_header",
+    "validate_chd",
 ]

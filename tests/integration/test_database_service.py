@@ -1,8 +1,10 @@
-import unittest
 import tempfile
+import unittest
 from pathlib import Path
-from app.database.database import Database
+
 from app.core.services.database_service import DatabaseService
+from app.database.database import Database
+
 
 class TestDatabaseService(unittest.TestCase):
     def setUp(self):

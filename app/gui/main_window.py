@@ -3,24 +3,24 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from PySide6.QtWidgets import QMainWindow, QTabWidget, QStatusBar, QWidget
+from PySide6.QtWidgets import QMainWindow, QStatusBar, QTabWidget, QWidget
 
-from app.mame import physical_rom_scanner_guard  # noqa: F401
-from app.gui.tabs.home_tab import HomeTab
-from app.gui.tabs.directories_tab import DirectoriesTab
-from app.gui.tabs.filters_tab_realtime import FiltersTab
-from app.gui.tabs.scan_roms_tab import ScanRomsTab
-from app.gui.tabs.emulator_catalogs_tab import EmulatorCatalogsTab
+from app.config.app_config import AppConfig
+from app.database.database import Database
+from app.gui.mame_shader_test_widget import install_shader_test
 from app.gui.scan_thread_guard import install as install_scan_thread_guard
-from app.gui.tabs.reconstruction_tab import ReconstructionTab
+from app.gui.tabs.directories_tab import DirectoriesTab
+from app.gui.tabs.emulator_catalogs_tab import EmulatorCatalogsTab
 from app.gui.tabs.emulator_settings_tab import EmulatorSettingsTab
-from app.gui.tabs.retroarch_home_tab_v2 import RetroArchHomeTab
+from app.gui.tabs.filters_tab_realtime import FiltersTab
+from app.gui.tabs.home_tab import HomeTab
+from app.gui.tabs.launchbox_integration_tab import LaunchBoxIntegrationTab
+from app.gui.tabs.reconstruction_tab import ReconstructionTab
 from app.gui.tabs.retroarch_catalog_tab import RetroArchCatalogTab
 from app.gui.tabs.retroarch_directories_tab import RetroArchDirectoriesTab
-from app.gui.tabs.launchbox_integration_tab import LaunchBoxIntegrationTab
-from app.gui.mame_shader_test_widget import install_shader_test
-from app.database.database import Database
-from app.config.app_config import AppConfig
+from app.gui.tabs.retroarch_home_tab_v2 import RetroArchHomeTab
+from app.gui.tabs.scan_roms_tab import ScanRomsTab
+from app.mame import physical_rom_scanner_guard  # noqa: F401
 
 install_scan_thread_guard()
 

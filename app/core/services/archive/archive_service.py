@@ -1,7 +1,6 @@
 """Operações seguras e unificadas de ZIP, 7Z e RAR."""
 from __future__ import annotations
 
-import shutil
 import subprocess
 import tempfile
 import zipfile

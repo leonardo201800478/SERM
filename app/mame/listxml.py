@@ -7,7 +7,6 @@ mantida apenas para não quebrar código/testes existentes que importam
 prefira ``iter_machines`` diretamente em código novo.
 """
 
-from typing import List
 
 from app.core.models.machine import Machine
 from app.mame.listxml_parser import iter_machines
@@ -15,5 +14,5 @@ from app.mame.listxml_parser import iter_machines
 
 class ListXmlParser:
     @staticmethod
-    def parse(xml_string: str) -> List[Machine]:
+    def parse(xml_string: str) -> list[Machine]:
         return list(iter_machines(xml_string))

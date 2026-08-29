@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, List
 
 from app.core.models.scan_result import ScanResult
 from app.mame.listxml_parser import iter_machines
@@ -17,7 +16,7 @@ class RomScanService:
     em memória toda vez que o scanner encontra uma ROM ausente.
     """
 
-    def __init__(self, rom_paths: List[Path], *, workers: int | None = None):
+    def __init__(self, rom_paths: list[Path], *, workers: int | None = None):
         self.rom_paths = [Path(p) for p in rom_paths]
         self.scanner = PersistentRomScanner(
             self.rom_paths,

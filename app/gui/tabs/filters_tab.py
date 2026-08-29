@@ -4,40 +4,38 @@ import logging
 import sqlite3
 import threading
 from pathlib import Path
-from typing import List
 
-from PySide6.QtCore import Qt, Signal, QTimer
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QGroupBox,
-    QFormLayout,
     QCheckBox,
     QComboBox,
-    QMessageBox,
-    QScrollArea,
-    QLineEdit,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
+    QFormLayout,
     QGridLayout,
-    QSplitter,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
     QSizePolicy,
+    QSplitter,
+    QVBoxLayout,
+    QWidget,
 )
 
-from app.core.services.filter_service import FilterService
-from app.core.models.filter_profile import FilterCriteria, FilterProfile
-from app.database.database import Database
 from app.config.app_config import AppConfig
-from app.mame.executable import MameExecutable
+from app.core.models.filter_profile import FilterCriteria, FilterProfile
 from app.core.services.database_service import DatabaseService
+from app.core.services.filter_service import FilterService
 from app.core.services.ini_service import IniService
-from app.mame.chd_scanner import scan_chd_sizes
+from app.database.database import Database
 from app.gui.widgets.log_panel import LogPanel
-
+from app.mame.chd_scanner import scan_chd_sizes
+from app.mame.executable import MameExecutable
 
 logger = logging.getLogger(__name__)
 
@@ -703,7 +701,7 @@ class FiltersTab(QWidget):
             self._get_excluded_categories()
         )
 
-    def _get_excluded_categories(self) -> List[str]:
+    def _get_excluded_categories(self) -> list[str]:
         """Retorna os nomes das categorias atualmente marcadas em vermelho."""
         return [
             name
@@ -713,7 +711,7 @@ class FiltersTab(QWidget):
 
     def _update_excluded_categories_info(
         self,
-        excluded_categories: List[str],
+        excluded_categories: list[str],
     ) -> None:
         """Atualiza o resumo textual das categorias excluídas."""
         if not excluded_categories:
@@ -991,7 +989,7 @@ class FiltersTab(QWidget):
     # ESTADO DE EMULAÇÃO
     # ========================================================================
 
-    def _get_selected_status(self) -> List[str]:
+    def _get_selected_status(self) -> list[str]:
         """Retorna os estados de emulação selecionados na interface."""
         selected = []
 
@@ -1092,7 +1090,7 @@ class FiltersTab(QWidget):
             QMessageBox.critical(
                 self,
                 "Erro",
-                f"Falha ao importar categorias:\n{str(e)}",
+                f"Falha ao importar categorias:\n{e!s}",
             )
 
     # ========================================================================
@@ -1568,7 +1566,7 @@ class FiltersTab(QWidget):
 
                 self.finish_signal.emit(
                     False,
-                    f"Erro: {str(e)}",
+                    f"Erro: {e!s}",
                 )
 
         threading.Thread(
@@ -1635,7 +1633,7 @@ class FiltersTab(QWidget):
                     "de dados.\n"
                     "Certifique-se de que nenhum outro programa "
                     "está usando o arquivo.\n"
-                    f"Erro: {str(e)}"
+                    f"Erro: {e!s}"
                 ),
             )
 
@@ -1643,7 +1641,7 @@ class FiltersTab(QWidget):
             QMessageBox.critical(
                 self,
                 "Erro",
-                f"Falha ao recriar banco: {str(e)}",
+                f"Falha ao recriar banco: {e!s}",
             )
 
     # ========================================================================

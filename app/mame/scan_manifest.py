@@ -52,11 +52,11 @@ import shutil
 import tempfile
 import threading
 import uuid
-
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, Iterator, Mapping
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -933,7 +933,7 @@ class ScanManifestWriter:
                 self._file.close()
                 self._file = None
 
-    def __enter__(self) -> "ScanManifestWriter":
+    def __enter__(self) -> ScanManifestWriter:
         """Permite utilização através de context manager."""
         return self
 

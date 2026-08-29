@@ -34,12 +34,11 @@ import hashlib
 import json
 import logging
 import os
-import tempfile
 import threading
 import zipfile
-from dataclasses import dataclass, asdict
+from collections.abc import Iterable, Iterator
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Iterable, Iterator
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +113,7 @@ class RomSourceIndexWriter:
                 except OSError:
                     logger.warning("Não foi possível remover índice temporário %s", self._tmp_path)
 
-    def __enter__(self) -> "RomSourceIndexWriter":
+    def __enter__(self) -> RomSourceIndexWriter:
         self.open()
         return self
 

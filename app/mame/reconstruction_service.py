@@ -17,13 +17,12 @@ from app.mame.reconstruction_engine import (
 class ReconstructionService(ReconstructionEngine):
     """Compatibilidade legada; usa exatamente o mesmo motor do projeto."""
 
-    pass
 
 
 __all__ = [
-    "ReconstructionService",
     "ReconstructionEngine",
     "ReconstructionMachine",
     "ReconstructionResult",
     "ReconstructionRom",
+    "ReconstructionService",
 ]

@@ -11,13 +11,23 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
-    QPushButton, QScrollArea, QTabWidget, QVBoxLayout, QWidget, QFileDialog,
+    QFileDialog,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
 )
 
 from app.config.app_config import AppConfig
 from app.core.services.ini_service import IniService
-from app.emulators.adapter_registry import DirectorySpec, get_adapter, list_adapters
+from app.emulators.adapter_registry import DirectorySpec, get_adapter
 from app.mame.executable import MameExecutable
 
 

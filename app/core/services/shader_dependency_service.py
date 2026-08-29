@@ -8,13 +8,16 @@ instalação normal do RetroArch; shaders de terceiros passam pelo
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 from app.config.app_config import AppConfig
 from app.core.services.shader_manager_service import ShaderManagerService, ShaderStatus
-from app.core.services.system_optimization_service import ShaderOptimization, ShaderProfile
+from app.core.services.system_optimization_service import (
+    ShaderOptimization,
+    ShaderProfile,
+)
 
 
 @dataclass(frozen=True, slots=True)

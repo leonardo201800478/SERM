@@ -1,7 +1,8 @@
 """Importador do formato CatVer/CatList."""
 from __future__ import annotations
-from pathlib import Path
+
 import re
+from pathlib import Path
 
 
 def _slug(value: str) -> str:

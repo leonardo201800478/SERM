@@ -5,14 +5,13 @@ import logging
 import webbrowser
 from pathlib import Path
 
-from PySide6.QtCore import QThread, Qt, Slot
+from PySide6.QtCore import Qt, QThread, Slot
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
-    QMessageBox,
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
@@ -22,7 +21,10 @@ from PySide6.QtWidgets import (
 
 from app.config.app_config import AppConfig
 from app.core.services.emulator_persistence_service import EmulatorPersistenceService
-from app.core.services.emulator_status_service import EmulatorStatus, EmulatorStatusService
+from app.core.services.emulator_status_service import (
+    EmulatorStatus,
+    EmulatorStatusService,
+)
 from app.gui.widgets.emulator_install_worker import EmulatorInstallWorker
 
 logger = logging.getLogger(__name__)
@@ -218,7 +220,9 @@ class HomeTab(QWidget):
             window.tab_widget.setCurrentWidget(directories_tab)
             return
         # Fallback defensivo para usos fora da MainWindow.
-        from app.gui.widgets.emulator_directories_dialog import EmulatorDirectoriesDialog
+        from app.gui.widgets.emulator_directories_dialog import (
+            EmulatorDirectoriesDialog,
+        )
         dialog = EmulatorDirectoriesDialog(self.config, self)
         if dialog.exec():
             self.config.load()

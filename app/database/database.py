@@ -49,9 +49,10 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterable, Iterator, Sequence
+from typing import Any
 
 from app.config.app_config import AppConfig
 

@@ -1,5 +1,6 @@
 """Inicialização idempotente das tabelas do pipeline de dataset."""
 from __future__ import annotations
+
 from pathlib import Path
 
 

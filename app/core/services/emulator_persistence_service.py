@@ -7,9 +7,8 @@ Recebe somente os resultados produzidos pelo ``EmulatorDiscoveryService``.
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Iterable
 
 from app.core.services.emulator_discovery_service import EmulatorInstallation
 from app.database.database import Database

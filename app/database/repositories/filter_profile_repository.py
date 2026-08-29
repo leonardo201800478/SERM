@@ -1,14 +1,15 @@
 """Repositório para perfis de filtro."""
 import json
 import sqlite3
-from typing import List, Optional
-from app.core.models.filter_profile import FilterProfile, FilterCriteria
+
+from app.core.models.filter_profile import FilterCriteria, FilterProfile
+
 
 class FilterProfileRepository:
     def __init__(self, conn: sqlite3.Connection):
         self.conn = conn
 
-    def get_all(self) -> List[FilterProfile]:
+    def get_all(self) -> list[FilterProfile]:
         cursor = self.conn.execute(
             "SELECT id, name, description, profile_data, created_at, updated_at, is_default FROM filter_profile"
         )
@@ -29,7 +30,7 @@ class FilterProfileRepository:
             profiles.append(profile)
         return profiles
 
-    def get_by_id(self, profile_id: int) -> Optional[FilterProfile]:
+    def get_by_id(self, profile_id: int) -> FilterProfile | None:
         cursor = self.conn.execute(
             "SELECT id, name, description, profile_data, created_at, updated_at, is_default "
             "FROM filter_profile WHERE id = ?",
@@ -50,7 +51,7 @@ class FilterProfileRepository:
             )
         return None
 
-    def get_default(self) -> Optional[FilterProfile]:
+    def get_default(self) -> FilterProfile | None:
         cursor = self.conn.execute(
             "SELECT id, name, description, profile_data, created_at, updated_at, is_default FROM filter_profile WHERE is_default = 1 LIMIT 1"
         )

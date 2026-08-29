@@ -1,6 +1,8 @@
 from PySide6.QtCore import QThread, Signal
+
 from app.core.services.database_service import DatabaseService
 from app.mame.executable import MameExecutable
+
 
 class ImportWorker(QThread):
     progress = Signal(int, str)

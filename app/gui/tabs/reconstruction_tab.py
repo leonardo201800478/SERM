@@ -6,19 +6,30 @@ from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QGroupBox, QHBoxLayout, QLabel, QMessageBox,
-    QProgressBar, QPushButton, QVBoxLayout, QWidget,
+    QCheckBox,
+    QComboBox,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QProgressBar,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
 )
 
 from app.config.app_config import AppConfig
-from app.gui.widgets.log_panel import LogPanel
-from app.gui.widgets.reconstruction_tree_widget import ReconstructionTreeWidget
-from app.core.services.reconstruction_profiles import ReconstructionTarget
 from app.core.services.multi_emulator_reconstruction_service import (
     MultiEmulatorOptions,
     MultiEmulatorReconstructionService,
 )
-from app.mame.mame_aware_reconstruction_engine import MameAwareReconstructionEngine, MameBuildOptions
+from app.core.services.reconstruction_profiles import ReconstructionTarget
+from app.gui.widgets.log_panel import LogPanel
+from app.gui.widgets.reconstruction_tree_widget import ReconstructionTreeWidget
+from app.mame.mame_aware_reconstruction_engine import (
+    MameAwareReconstructionEngine,
+    MameBuildOptions,
+)
 from app.mame.reconstruction_engine import ReconstructionEngine
 from app.mame.rom_repair_engine import SingleRomRepairEngine
 

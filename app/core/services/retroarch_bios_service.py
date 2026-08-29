@@ -234,4 +234,4 @@ class RetroArchBiosService:
         return [{"name": r.definition.name, "destination": r.definition.destination, "required": r.definition.required, "status": r.status, "path": str(r.path), "actual_size": r.actual_size, "actual_sha1": r.actual_sha1, "actual_md5": r.actual_md5, "actual_crc32": r.actual_crc32, "message": r.message} for r in results]
 
 
-__all__ = ["RetroArchBiosService", "RetroArchBiosFile", "RetroArchBiosSystem", "RetroArchBiosResult"]
+__all__ = ["RetroArchBiosFile", "RetroArchBiosResult", "RetroArchBiosService", "RetroArchBiosSystem"]

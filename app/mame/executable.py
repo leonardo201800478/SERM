@@ -1,9 +1,8 @@
-import subprocess
-import re
 import logging
+import re
+import subprocess
 from contextlib import contextmanager  # <-- adicione esta linha
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger("MameExecutable")
 logger.setLevel(logging.WARNING)
@@ -15,7 +14,7 @@ class MameExecutable:
         logger.info(f"Inicializando MameExecutable com caminho: {path}")
 
     @property
-    def version(self) -> Optional[str]:
+    def version(self) -> str | None:
         if self._version is None:
             self._detect_version()
         return self._version

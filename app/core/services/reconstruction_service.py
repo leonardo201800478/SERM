@@ -6,14 +6,18 @@ import os
 import shutil
 import xml.etree.ElementTree as ET
 import zipfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 from app.core.models.scan_result import RomScanResult, ScanResult
-from app.core.services.mame_build_planner import MameBuildPlanner, MameBuildPlan
-from app.core.services.mame_dependency_resolver import DependencyOptions, DependencyKind
-from app.core.services.reconstruction_policy import ReconstructionAction, RomDecision, classify_rom
+from app.core.services.mame_build_planner import MameBuildPlan, MameBuildPlanner
+from app.core.services.mame_dependency_resolver import DependencyKind, DependencyOptions
+from app.core.services.reconstruction_policy import (
+    ReconstructionAction,
+    RomDecision,
+    classify_rom,
+)
 
 
 @dataclass(frozen=True)

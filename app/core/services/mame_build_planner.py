@@ -6,12 +6,17 @@ explícito que BIOS e devices são sets externos, enquanto samples ficam em
 """
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable
 
 from app.core.services.mame_archive_layout import ArchivePlan, MameArchiveLayoutPlanner
-from app.core.services.mame_dependency_resolver import DependencyKind, DependencyOptions, DependencyPlan, MameDependencyResolver
+from app.core.services.mame_dependency_resolver import (
+    DependencyKind,
+    DependencyOptions,
+    DependencyPlan,
+    MameDependencyResolver,
+)
 
 
 @dataclass(slots=True)

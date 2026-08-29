@@ -20,13 +20,13 @@ devolvido para quem chamar persistir no banco (ver
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Dict, Iterable, Tuple
 
 logger = logging.getLogger(__name__)
 
 
-def scan_chd_sizes(rompaths: Iterable[str]) -> Dict[Tuple[str, str], int]:
+def scan_chd_sizes(rompaths: Iterable[str]) -> dict[tuple[str, str], int]:
     """Varre os rompaths procurando arquivos .chd e retorna seus tamanhos reais.
 
     Args:
@@ -38,7 +38,7 @@ def scan_chd_sizes(rompaths: Iterable[str]) -> Dict[Tuple[str, str], int]:
         Se o mesmo (máquina, disco) aparecer em mais de um rompath, o
         primeiro encontrado vence (mesma prioridade que o MAME usa).
     """
-    result: Dict[Tuple[str, str], int] = {}
+    result: dict[tuple[str, str], int] = {}
 
     for rp in rompaths:
         root = Path(rp)

@@ -14,9 +14,9 @@ import tempfile
 import urllib.error
 import urllib.request
 import zipfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 from urllib.parse import urlparse
 
 from app.config.app_config import AppConfig
