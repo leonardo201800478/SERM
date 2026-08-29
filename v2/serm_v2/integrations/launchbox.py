@@ -10,13 +10,13 @@ import json
 import subprocess
 from pathlib import Path
 
-from ..runtime.paths import user_data_root
+from ..runtime.paths import integrations_root
 
 
 class LaunchBoxIntegration:
     """Discover, persist and launch a local LaunchBox installation."""
 
-    CONFIG_PATH = user_data_root() / "integrations" / "launchbox.json"
+    CONFIG_PATH = integrations_root() / "launchbox.json"
     DEFAULT_CANDIDATES = (
         Path(r"G:\LaunchBox\LaunchBox.exe"),
         Path(r"C:\LaunchBox\LaunchBox.exe"),
@@ -76,7 +76,7 @@ class LaunchBoxIntegration:
         return candidate if candidate.is_file() else None
 
     def _load(self) -> Path | None:
-        """Load the configured executable from V2 user data."""
+        """Load the configured executable from V2 data."""
         try:
             if self.CONFIG_PATH.is_file():
                 data = json.loads(self.CONFIG_PATH.read_text(encoding="utf-8"))
@@ -87,7 +87,7 @@ class LaunchBoxIntegration:
         return None
 
     def _save(self) -> None:
-        """Persist only the LaunchBox executable path."""
+        """Persist only the LaunchBox executable path in V2 data."""
         self.CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
         payload = {"executable": str(self.executable) if self.executable else None}
         self.CONFIG_PATH.write_text(json.dumps(payload, indent=2), encoding="utf-8")
