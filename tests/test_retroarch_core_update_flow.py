@@ -25,11 +25,11 @@ def test_compare_marks_only_crc_mismatch_as_update(tmp_path: Path) -> None:
 
     result = RetroArchDownloadService.compare_installed_cores([current, outdated], tmp_path)
     by_name = {entry.core_name: entry for entry in result}
-    assert by_name["current"].is_current
-    assert not by_name["current"].needs_update
-    assert by_name["outdated"].needs_update
-    assert by_name["custom"].remote_crc32 is None
-    assert not by_name["custom"].needs_update
+    assert by_name["current_libretro.dll"].is_current
+    assert not by_name["current_libretro.dll"].needs_update
+    assert by_name["outdated_libretro.dll"].needs_update
+    assert by_name["custom_libretro.dll"].remote_crc32 is None
+    assert not by_name["custom_libretro.dll"].needs_update
 
 
 def test_match_installed_cores_returns_only_outdated(tmp_path: Path) -> None:
@@ -40,7 +40,6 @@ def test_match_installed_cores_returns_only_outdated(tmp_path: Path) -> None:
     (tmp_path / "custom_libretro.dll").write_bytes(b"custom")
     ok = _core("ok", f"{RetroArchDownloadService._crc32(ok_path):08x}")
     old = _core("old", "00000000")
-
     matched = RetroArchDownloadService.match_installed_cores([ok, old], tmp_path)
     assert [item.core_name for item in matched] == ["old_libretro.dll"]
 
