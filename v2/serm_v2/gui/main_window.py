@@ -4,7 +4,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QLabel, QMainWindow, QTabWidget, QVBoxLayout, QWidget
 
-from .emulator_home import EmulatorHomePage
+from .emulator_home_fixed import EmulatorHomePage
 from .log_handler import LogViewer
 from .no_intro_home import NoIntroPage
 from .redump_home import RedumpPage
