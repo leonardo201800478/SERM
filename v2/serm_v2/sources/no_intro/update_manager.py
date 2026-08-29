@@ -27,8 +27,8 @@ class NoIntroLocalStatus:
 
     @property
     def needs_update(self) -> bool:
-        """Return whether an existing local DAT should be replaced."""
-        return self.state in {"outdated", "unknown"}
+        """Return whether the local DAT is proven to be outdated."""
+        return self.state == "outdated"
 
     @property
     def missing(self) -> bool:
@@ -77,11 +77,11 @@ class NoIntroUpdateManager:
         return tuple(self.inspect(system, destination_for(system)) for system in systems)
 
     def update_candidates(self, systems: tuple[NoIntroSystem, ...], destination_for) -> tuple[NoIntroSystem, ...]:
-        """Return only existing DATs whose recorded revision is older or unknown."""
+        """Return only existing DATs proven to have an older recorded revision."""
         result = []
         for system in systems:
             status = self.inspect(system, destination_for(system))
-            if status.needs_update and not status.missing:
+            if status.needs_update:
                 result.append(system)
         logger.info("[NO-INTRO][FRESHNESS] candidatos para atualização=%d", len(result))
         return tuple(result)
