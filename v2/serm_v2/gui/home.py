@@ -1,4 +1,4 @@
-"""SERM V2 Home page with LaunchBox and DAT source acquisition."""
+"""SERM V2 Home page with LaunchBox, No-Intro and Redump acquisition."""
 from __future__ import annotations
 
 import logging
@@ -6,94 +6,71 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import (
-    QApplication,
-    QComboBox,
-    QFileDialog,
-    QFrame,
-    QGridLayout,
-    QHBoxLayout,
-    QLabel,
-    QMessageBox,
-    QPushButton,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QMessageBox, QPushButton, QComboBox, QVBoxLayout, QWidget
 
 from ..integrations.launchbox import LaunchBoxIntegration
 from ..integrations.launchbox_provider import LaunchBoxProvider
-from ..sources.acquisition.dat_catalog import DatCatalogEntry, DatCatalogError, PublicDatCatalogProvider
-from ..sources.acquisition.redump import RedumpEntry, RedumpError, RedumpProvider
+from ..sources.acquisition.dat_catalog import DatCatalogError, PublicDatCatalogProvider
+from ..sources.acquisition.redump import RedumpError, RedumpProvider
 
 logger = logging.getLogger(__name__)
 
 
 class HomePage(QWidget):
-    """Present LaunchBox discovery and independent No-Intro/Redump catalogs."""
+    """Present LaunchBox status and independent public DAT catalogs."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.launchbox = LaunchBoxIntegration()
         self.launchbox_provider = LaunchBoxProvider(self.launchbox)
-        self.dat_catalog = PublicDatCatalogProvider()
+        self.no_intro = PublicDatCatalogProvider()
         self.redump = RedumpProvider()
-        self.no_intro_entries: tuple[DatCatalogEntry, ...] = ()
-        self.redump_entries: tuple[RedumpEntry, ...] = ()
+        self.no_intro_entries = ()
+        self.redump_entries = ()
         self._build_ui()
         self.refresh_status()
 
     def _build_ui(self) -> None:
-        """Build the V2 Home surface."""
+        """Build the V2 home surface."""
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(15)
         title = QLabel("SERM")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title.setStyleSheet("font-size: 28px; font-weight: 700;")
+        title.setStyleSheet("font-size:28px;font-weight:700;")
         layout.addWidget(title)
         subtitle = QLabel("Strife Emulator and Roms Manager")
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(subtitle)
 
-        status_frame = QFrame()
-        status_frame.setObjectName("statusFrame")
-        status_frame.setStyleSheet(
+        frame = QFrame()
+        frame.setObjectName("statusFrame")
+        frame.setStyleSheet(
             "QFrame#statusFrame{background:#151515;border:1px solid #3d3d3d;border-radius:8px;padding:10px;}"
             "QFrame#integrationCard{background:#202020;border:1px solid #414141;border-radius:7px;}"
             "QLabel#integrationName{font-size:15px;font-weight:bold;}"
             "QLabel#detail{color:#b8b8b8;}"
         )
-        grid = QGridLayout(status_frame)
-        grid.addWidget(self._create_launchbox_card(), 0, 0, 1, 2)
-        grid.addWidget(self._create_no_intro_card(), 1, 0)
-        grid.addWidget(self._create_redump_card(), 1, 1)
-        layout.addWidget(status_frame)
-        footer = QLabel("DATs são obtidos de catálogos públicos com links diretos; DAT-o-MATIC não é usado.")
+        grid = QGridLayout(frame)
+        grid.addWidget(self._launchbox_card(), 0, 0, 1, 2)
+        grid.addWidget(self._source_card("No-Intro / Public DAT Catalog", "no_intro"), 1, 0)
+        grid.addWidget(self._source_card("Redump / Public DAT Catalog", "redump"), 1, 1)
+        layout.addWidget(frame)
+        footer = QLabel("DAT-o-MATIC não é usado. As fontes são catálogos públicos com links diretos.")
         footer.setAlignment(Qt.AlignmentFlag.AlignCenter)
         footer.setStyleSheet("color:#888;font-size:10px;")
         layout.addWidget(footer)
         layout.addStretch(1)
 
-    @staticmethod
-    def _card(title: str) -> tuple[QFrame, QVBoxLayout]:
-        """Create a standard integration card and its layout."""
+    def _launchbox_card(self) -> QFrame:
+        """Create the LaunchBox status card."""
         card = QFrame()
         card.setObjectName("integrationCard")
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(12, 10, 12, 10)
-        name = QLabel(title)
+        name = QLabel("LaunchBox")
         name.setObjectName("integrationName")
         layout.addWidget(name)
-        return card, layout
-
-    def _create_launchbox_card(self) -> QFrame:
-        """Create the LaunchBox integration card."""
-        card, layout = self._card("LaunchBox")
-        self.launchbox_status = QLabel("Verificando…", objectName="detail")
-        self.launchbox_path = QLabel("Executável: —", objectName="detail")
-        self.launchbox_path.setWordWrap(True)
-        self.launchbox_metadata = QLabel("Metadata DB: —", objectName="detail")
-        self.launchbox_metadata.setWordWrap(True)
+        self.launchbox_status = self._detail("Verificando…")
+        self.launchbox_path = self._detail("Executável: —")
+        self.launchbox_metadata = self._detail("Metadata DB: —")
         layout.addWidget(self.launchbox_status)
         layout.addWidget(self.launchbox_path)
         layout.addWidget(self.launchbox_metadata)
@@ -112,209 +89,151 @@ class HomePage(QWidget):
         layout.addLayout(row)
         return card
 
-    def _create_no_intro_card(self) -> QFrame:
-        """Create No-Intro catalog actions."""
-        card, layout = self._card("No-Intro / Public DAT Catalog")
-        self.no_intro_status = QLabel("Aguardando teste…", objectName="detail")
-        layout.addWidget(self.no_intro_status)
-        self.no_intro_systems = QComboBox()
-        self.no_intro_systems.setPlaceholderText("Sistemas do LaunchBox encontrados")
-        layout.addWidget(self.no_intro_systems)
-        row = QHBoxLayout()
-        test = QPushButton("🌐 Atualizar catálogo")
-        test.clicked.connect(self.test_no_intro_catalog)
-        row.addWidget(test)
-        self.no_intro_test_button = test
-        download = QPushButton("⬇ Baixar selecionado")
-        download.clicked.connect(self.download_selected_no_intro)
-        row.addWidget(download)
-        self.no_intro_download_button = download
-        all_button = QPushButton("⬇ Baixar todos")
-        all_button.clicked.connect(lambda: self._batch_download("no_intro", False))
-        row.addWidget(all_button)
-        self.no_intro_download_all_button = all_button
-        update = QPushButton("🔄 Atualizar")
-        update.clicked.connect(lambda: self._batch_download("no_intro", True))
-        row.addWidget(update)
-        self.no_intro_update_button = update
-        layout.addLayout(row)
-        self._set_no_intro_download_enabled(False)
-        return card
+    @staticmethod
+    def _detail(text: str) -> QLabel:
+        """Create a detail label using the shared object name."""
+        label = QLabel(text)
+        label.setObjectName("detail")
+        label.setWordWrap(True)
+        return label
 
-    def _create_redump_card(self) -> QFrame:
-        """Create Redump catalog actions using the public direct-file mirror."""
-        card, layout = self._card("Redump / Public DAT Catalog")
-        self.redump_status = QLabel("Aguardando teste…", objectName="detail")
-        layout.addWidget(self.redump_status)
-        self.redump_systems = QComboBox()
-        self.redump_systems.setPlaceholderText("Sistemas de mídia de disco do LaunchBox")
-        layout.addWidget(self.redump_systems)
+    def _source_card(self, title: str, source: str) -> QFrame:
+        """Create a DAT acquisition card for No-Intro or Redump."""
+        card = QFrame()
+        card.setObjectName("integrationCard")
+        layout = QVBoxLayout(card)
+        name = QLabel(title)
+        name.setObjectName("integrationName")
+        layout.addWidget(name)
+        status = self._detail("Aguardando catálogo…")
+        combo = QComboBox()
+        combo.setPlaceholderText("Sistemas do LaunchBox encontrados")
         row = QHBoxLayout()
-        test = QPushButton("🌐 Atualizar catálogo")
-        test.clicked.connect(self.test_redump_catalog)
-        row.addWidget(test)
-        self.redump_test_button = test
-        download = QPushButton("⬇ Baixar selecionado")
-        download.clicked.connect(self.download_selected_redump)
+        refresh = QPushButton("🌐 Atualizar catálogo")
+        refresh.clicked.connect(lambda: self._refresh_source(source))
+        row.addWidget(refresh)
+        download = QPushButton("⬇ Baixar")
+        download.clicked.connect(lambda: self._download_selected(source))
         row.addWidget(download)
-        self.redump_download_button = download
-        all_button = QPushButton("⬇ Baixar todos")
-        all_button.clicked.connect(lambda: self._batch_download("redump", False))
-        row.addWidget(all_button)
-        self.redump_download_all_button = all_button
+        download_all = QPushButton("⬇ Todos")
+        download_all.clicked.connect(lambda: self._download_all(source))
+        row.addWidget(download_all)
         update = QPushButton("🔄 Atualizar")
-        update.clicked.connect(lambda: self._batch_download("redump", True))
+        update.clicked.connect(lambda: self._download_all(source, outdated_only=True))
         row.addWidget(update)
-        self.redump_update_button = update
+        layout.addWidget(status)
+        layout.addWidget(combo)
         layout.addLayout(row)
-        self._set_redump_download_enabled(False)
+        setattr(self, f"{source}_status", status)
+        setattr(self, f"{source}_combo", combo)
+        setattr(self, f"{source}_refresh", refresh)
+        setattr(self, f"{source}_download", download)
+        setattr(self, f"{source}_all", download_all)
+        setattr(self, f"{source}_update", update)
+        self._set_source_enabled(source, False)
         return card
 
     def refresh_status(self) -> None:
-        """Refresh LaunchBox discovery and availability of catalog actions."""
+        """Refresh LaunchBox discovery and enable catalog actions when available."""
         try:
             executable = self.launchbox.discover()
+            available = executable is not None and self.launchbox.metadata_database() is not None
+            self.launchbox_launch_button.setEnabled(executable is not None)
+            self.launchbox_metadata_button.setEnabled(available)
             if executable:
                 self.launchbox_status.setText("● Disponível")
-                self.launchbox_status.setStyleSheet("color:#55d66b;font-weight:bold;")
                 self.launchbox_path.setText(f"Executável: {executable}")
-                metadata = self.launchbox.metadata_database()
-                self.launchbox_metadata.setText(f"Metadata DB: {metadata or 'não localizado'}")
-                self.launchbox_launch_button.setEnabled(True)
-                self.launchbox_metadata_button.setEnabled(metadata is not None)
-                self.no_intro_test_button.setEnabled(metadata is not None)
-                self.redump_test_button.setEnabled(metadata is not None)
+                self.launchbox_metadata.setText(f"Metadata DB: {self.launchbox.metadata_database() or 'não localizado'}")
             else:
                 self.launchbox_status.setText("● Não configurado")
-                self.launchbox_status.setStyleSheet("color:#e5c454;font-weight:bold;")
-                self.launchbox_path.setText("Executável: —")
-                self.launchbox_metadata.setText("Metadata DB: —")
-                self.launchbox_launch_button.setEnabled(False)
-                self.launchbox_metadata_button.setEnabled(False)
-                self.no_intro_test_button.setEnabled(False)
-                self.redump_test_button.setEnabled(False)
         except Exception as exc:
             logger.exception("[LAUNCHBOX] Falha ao descobrir LaunchBox")
+            self.launchbox_status.setText(f"● Erro: {exc}")
 
     def _launchbox_names(self) -> tuple[str, ...]:
-        """Return every platform from LaunchBox Platforms.xml, without source filtering."""
+        """Return every platform from LaunchBox Platforms.xml, with no source filtering."""
         return tuple(platform.name for platform in self.launchbox_provider.iter_platforms())
 
-    def test_no_intro_catalog(self) -> None:
-        """Match all LaunchBox platforms against the No-Intro catalog."""
+    def _refresh_source(self, source: str) -> None:
+        """Fetch a complete source catalog and match it against every LaunchBox platform."""
         try:
-            entries = self.dat_catalog.fetch_catalog()
-            matches = self.dat_catalog.match(self._launchbox_names(), entries)
-            self.no_intro_entries = matches
-            self.no_intro_systems.clear()
+            names = self._launchbox_names()
+            if source == "no_intro":
+                entries = self.no_intro.fetch_catalog()
+                matches = self.no_intro.match(names, entries)
+            else:
+                entries = self.redump.fetch_catalog()
+                matches = self.redump.match(names, entries)
+            setattr(self, f"{source}_entries", matches)
+            combo: QComboBox = getattr(self, f"{source}_combo")
+            combo.clear()
             for entry in matches:
-                self.no_intro_systems.addItem(Path(entry.name).stem, entry)
-            self._set_no_intro_download_enabled(bool(matches))
-            self._refresh_freshness("no_intro")
-            logger.info("[NO-INTRO][MATCH] LaunchBox=%d matches=%d", len(self._launchbox_names()), len(matches))
+                combo.addItem(Path(entry.name).stem, entry)
+            self._set_source_enabled(source, bool(matches))
+            self._refresh_source_status(source)
+            logger.info("[%s][MATCH] LaunchBox=%d catalog=%d matches=%d", source.upper(), len(names), len(entries), len(matches))
         except Exception as exc:
-            logger.exception("[NO-INTRO][MATCH] Falha no catálogo")
-            self.no_intro_status.setText(f"● Erro: {exc}")
-            self._set_no_intro_download_enabled(False)
+            logger.exception("[%s][MATCH] Falha", source.upper())
+            getattr(self, f"{source}_status").setText(f"● Erro: {exc}")
+            self._set_source_enabled(source, False)
 
-    def test_redump_catalog(self) -> None:
-        """Match every LaunchBox platform against the complete Redump catalog."""
-        try:
-            platforms = self._launchbox_names()
-            entries = self.redump.fetch_catalog()
-            matches = self.redump.match(platforms, entries)
-            self.redump_entries = matches
-            self.redump_systems.clear()
-            for entry in matches:
-                self.redump_systems.addItem(Path(entry.name).stem, entry)
-            self._set_redump_download_enabled(bool(matches))
-            self._refresh_freshness("redump")
-            logger.info("[REDUMP][MATCH] LaunchBox=%d RedumpDATs=%d matches=%d", len(platforms), len(entries), len(matches))
-        except Exception as exc:
-            logger.exception("[REDUMP][MATCH] Falha no catálogo")
-            self.redump_status.setText(f"● Erro: {exc}")
-            self._set_redump_download_enabled(False)
-
-    def download_selected_no_intro(self) -> None:
-        """Download the selected No-Intro DAT."""
-        if not self.no_intro_entries:
-            return
-        try:
-            entry = self.no_intro_entries[self.no_intro_systems.currentIndex()]
-            status = self.dat_catalog.download(entry)
-            self._refresh_freshness("no_intro")
-            QMessageBox.information(self, "No-Intro", f"DAT validado.\n\n{status.path}")
-        except DatCatalogError as exc:
-            QMessageBox.warning(self, "No-Intro", str(exc))
-
-    def download_selected_redump(self) -> None:
-        """Download the selected Redump DAT."""
-        if not self.redump_entries:
-            return
-        try:
-            entry = self.redump_entries[self.redump_systems.currentIndex()]
-            status = self.redump.download(entry)
-            self._refresh_freshness("redump")
-            QMessageBox.information(self, "Redump", f"DAT validado.\n\n{status.path}")
-        except RedumpError as exc:
-            QMessageBox.warning(self, "Redump", str(exc))
-
-    def _batch_download(self, source: str, outdated_only: bool) -> None:
-        """Download all missing/outdated entries from one source."""
-        entries = self.no_intro_entries if source == "no_intro" else self.redump_entries
+    def _refresh_source_status(self, source: str) -> None:
+        """Update current/outdated/missing counters for one source."""
+        entries = getattr(self, f"{source}_entries")
         if not entries:
+            getattr(self, f"{source}_status").setText("● Nenhum sistema compatível encontrado")
             return
-        provider = self.dat_catalog if source == "no_intro" else self.redump
-        candidates = [entry for entry in entries if not outdated_only or provider.status(entry).state != "current"]
-        if not candidates:
-            self._refresh_freshness(source)
-            return
-        succeeded = 0
-        failed: list[str] = []
-        for index, entry in enumerate(candidates, 1):
-            self._set_source_status(source, f"● Baixando {index}/{len(candidates)} — {entry.name}")
-            QApplication.processEvents()
-            try:
-                provider.download(entry)
-                succeeded += 1
-            except Exception as exc:
-                failed.append(f"{entry.name}: {exc}")
-                logger.exception("[%s][BATCH] FALHA sistema=%s", source.upper(), entry.name)
-        self._refresh_freshness(source)
-        detail = f"Concluídos: {succeeded}/{len(candidates)}"
-        if failed:
-            detail += "\n\nFalhas:\n" + "\n".join(failed[:10])
-        QMessageBox.information(self, source.title(), detail)
-
-    def _refresh_freshness(self, source: str) -> None:
-        """Refresh current/outdated/missing counters for a source."""
-        entries = self.no_intro_entries if source == "no_intro" else self.redump_entries
-        provider = self.dat_catalog if source == "no_intro" else self.redump
-        if not entries:
-            return
+        provider = self.no_intro if source == "no_intro" else self.redump
         statuses = tuple(provider.status(entry) for entry in entries)
         current = sum(item.state == "current" for item in statuses)
         outdated = sum(item.state == "outdated" for item in statuses)
         missing = sum(item.state == "missing" for item in statuses)
-        self._set_source_status(source, f"● {len(statuses)} sistemas — atuais: {current} | desatualizados: {outdated} | ausentes: {missing}")
-        button = self.no_intro_update_button if source == "no_intro" else self.redump_update_button
-        button.setEnabled(bool(outdated or missing))
+        getattr(self, f"{source}_status").setText(
+            f"● {len(statuses)} sistemas — atuais: {current} | desatualizados: {outdated} | ausentes: {missing}"
+        )
+        getattr(self, f"{source}_update").setEnabled(bool(outdated or missing))
 
-    def _set_source_status(self, source: str, text: str) -> None:
-        """Set the status label for one catalog source."""
-        label = self.no_intro_status if source == "no_intro" else self.redump_status
-        label.setText(text)
-        label.setStyleSheet("color:#e5c454;font-weight:bold;")
+    def _set_source_enabled(self, source: str, enabled: bool) -> None:
+        """Enable or disable acquisition controls for one source."""
+        for suffix in ("combo", "download", "all", "update"):
+            getattr(self, f"{source}_{suffix}").setEnabled(enabled)
 
-    def _set_no_intro_download_enabled(self, enabled: bool) -> None:
-        """Enable or disable No-Intro acquisition controls."""
-        for widget in (self.no_intro_systems, self.no_intro_download_button, self.no_intro_download_all_button, self.no_intro_update_button):
-            widget.setEnabled(enabled)
+    def _download_selected(self, source: str) -> None:
+        """Download the selected DAT and validate it."""
+        entries = getattr(self, f"{source}_entries")
+        combo: QComboBox = getattr(self, f"{source}_combo")
+        if not entries:
+            return
+        entry = entries[combo.currentIndex()]
+        try:
+            provider = self.no_intro if source == "no_intro" else self.redump
+            status = provider.download(entry)
+            self._refresh_source_status(source)
+            QMessageBox.information(self, source.title(), f"DAT validado.\n\n{status.path}")
+        except (DatCatalogError, RedumpError) as exc:
+            QMessageBox.warning(self, source.title(), str(exc))
 
-    def _set_redump_download_enabled(self, enabled: bool) -> None:
-        """Enable or disable Redump acquisition controls."""
-        for widget in (self.redump_systems, self.redump_download_button, self.redump_download_all_button, self.redump_update_button):
-            widget.setEnabled(enabled)
+    def _download_all(self, source: str, outdated_only: bool = False) -> None:
+        """Download all matched DATs or only missing/outdated entries."""
+        entries = getattr(self, f"{source}_entries")
+        if not entries:
+            return
+        provider = self.no_intro if source == "no_intro" else self.redump
+        candidates = [entry for entry in entries if not outdated_only or provider.status(entry).state != "current"]
+        if not candidates:
+            self._refresh_source_status(source)
+            return
+        failed = []
+        for entry in candidates:
+            try:
+                provider.download(entry)
+            except Exception as exc:
+                failed.append(f"{entry.name}: {exc}")
+        self._refresh_source_status(source)
+        message = f"Concluídos: {len(candidates) - len(failed)}/{len(candidates)}"
+        if failed:
+            message += "\n\nFalhas:\n" + "\n".join(failed[:10])
+        QMessageBox.information(self, source.title(), message)
 
     def select_launchbox(self) -> None:
         """Select and persist a LaunchBox executable."""
@@ -328,14 +247,14 @@ class HomePage(QWidget):
             QMessageBox.warning(self, "LaunchBox", str(exc))
 
     def open_launchbox(self) -> None:
-        """Start the configured LaunchBox installation."""
+        """Start LaunchBox."""
         try:
             self.launchbox.launch()
         except (FileNotFoundError, OSError) as exc:
             QMessageBox.warning(self, "LaunchBox", str(exc))
 
     def open_metadata_folder(self) -> None:
-        """Open LaunchBox's Metadata directory in Windows Explorer."""
+        """Open LaunchBox's Metadata directory."""
         database = self.launchbox.metadata_database()
         if database is None:
             QMessageBox.information(self, "LaunchBox", "LaunchBox.Metadata.db não foi localizado.")
