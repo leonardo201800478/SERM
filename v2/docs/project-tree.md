@@ -1,6 +1,8 @@
-# SERM V2 — Árvore inicial
+# SERM V2 — Estrutura do projeto
 
-A V2 é um projeto Python independente dentro de `v2/`. A árvore foi organizada para facilitar o trabalho direto no Windows/VS Code e impedir que ferramentas de desenvolvimento descubram a V1 por acidente.
+A V2 é um projeto Python independente dentro de `v2/`. A V1 é somente referência histórica e não participa da execução da V2.
+
+## Árvore ativa
 
 ```text
 v2/
@@ -8,10 +10,6 @@ v2/
 ├── pyproject.toml
 ├── .gitignore
 ├── .vscode/
-│   ├── settings.json
-│   ├── extensions.json
-│   ├── launch.json
-│   └── tasks.json
 │
 ├── docs/
 │   ├── architecture-v2.md
@@ -20,110 +18,59 @@ v2/
 │   ├── development-environment.md
 │   ├── development-roadmap.md
 │   ├── legacy-boundary.md
+│   ├── launchbox-audit.md
+│   ├── launchbox-provider.md
 │   └── project-tree.md
 │
-├── serm_v2/
-│   ├── __init__.py
-│   ├── __main__.py
-│   ├── main.py
-│   │
-│   ├── config/
-│   │   ├── __init__.py
-│   │   └── settings.py
-│   │
+├── data/                         # dados operacionais locais, NÃO versionados
 │   ├── database/
-│   │   ├── __init__.py
-│   │   ├── engine.py
-│   │   ├── models/
-│   │   │   └── __init__.py
-│   │   └── migrations/
-│   │       └── README.md
-│   │
-│   ├── domain/
-│   │   └── __init__.py
-│   │
-│   ├── sources/
-│   │   ├── __init__.py
-│   │   └── base.py
-│   │
-│   ├── catalog/
-│   │   ├── __init__.py
-│   │   └── service.py
-│   │
-│   ├── library/
-│   │   └── __init__.py
-│   │
-│   ├── emulation/
-│   │   └── __init__.py
-│   │
-│   ├── reconstruction/
-│   │   └── __init__.py
-│   │
-│   ├── runtime/
-│   │   ├── __init__.py
-│   │   └── paths.py
-│   │
+│   ├── catalogs/
+│   ├── cache/
+│   ├── scans/
+│   ├── staging/
 │   ├── integrations/
-│   │   └── launchbox.py
-│   │
+│   ├── logs/
+│   ├── exports/
+│   └── backups/
+│
+├── serm_v2/
+│   ├── config/
+│   ├── database/
+│   ├── domain/
+│   ├── sources/
+│   ├── catalog/
+│   ├── library/
+│   ├── emulation/
+│   ├── reconstruction/
+│   ├── runtime/
+│   ├── integrations/
+│   │   ├── launchbox.py
+│   │   ├── launchbox_provider.py
+│   │   └── launchbox_audit.py
 │   └── gui/
-│       ├── __init__.py
-│       ├── main_window.py
-│       └── home.py
 │
 └── tests/
-    ├── test_bootstrap.py
-    └── test_launchbox.py
 ```
 
-## LaunchBox
+## Política de dados
 
-A integração inicial é deliberadamente pequena e independente do banco V2. Ela:
-
-- descobre `LaunchBox.exe`;
-- prioriza a instalação informada pelo usuário;
-- inclui `G:\LaunchBox\LaunchBox.exe` entre os candidatos iniciais do ambiente atual;
-- persiste somente o caminho do executável em `%LOCALAPPDATA%\SERM\integrations\launchbox.json`;
-- abre o LaunchBox;
-- localiza `Metadata\LaunchBox.Metadata.db`;
-- localiza `Metadata\Platforms.xml`.
-
-O banco do LaunchBox não é aberto nem copiado nesta etapa. Ele será consumido por um provider V2 depois que a Data Foundation estiver pronta.
-
-## Diretórios que não pertencem ao Git
-
-O projeto não deve criar um banco operacional dentro do checkout durante o uso normal. A política atual aponta os dados de usuário para:
+Durante o desenvolvimento, `data/` é a raiz operacional da V2. O mesmo modelo é usado em uma distribuição compilada: a raiz de dados fica ao lado do executável, salvo quando `SERM_DATA_DIR` for definido explicitamente.
 
 ```text
-%LOCALAPPDATA%\SERM\
-├── database\serm.db
-├── catalogs\
-├── cache\
-├── scans\
-├── staging\
-├── integrations\
-└── logs\
+v2/data/
+├── database/       → banco SQLite SERM
+├── catalogs/       → catálogos importados
+├── cache/          → dados descartáveis
+├── scans/          → resultados de scans
+├── staging/        → dados temporários de providers
+├── integrations/   → configurações de integrações
+├── logs/           → logs
+├── exports/        → exportações geradas
+└── backups/        → backups
 ```
 
-Um modo portable poderá futuramente usar um diretório local próprio, sem alterar a arquitetura do banco.
+A V2 não usa `%LOCALAPPDATA%\SERM` como localização padrão. Essa possibilidade pode ser fornecida futuramente por configuração explícita, mas a arquitetura atual privilegia dados pertencentes à instalação V2 e facilidade de portabilidade/backup.
 
-## Ferramentas de desenvolvimento
+## Regra de isolamento
 
-A configuração central está em `pyproject.toml`:
-
-```text
-pyproject.toml
-├── build-system      → Hatchling
-├── project           → metadados + runtime dependencies
-├── optional dev      → pytest / coverage / Ruff
-├── project.scripts   → comando `serm`
-├── pytest             → descoberta e regras dos testes
-├── coverage           → cobertura
-└── ruff               → lint + format
-```
-
-O workspace VS Code fica dentro de `v2/.vscode/` para ser aplicado quando `v2/` for aberto como pasta do projeto.
-
-## Regra de crescimento
-
-Novos diretórios não devem ser criados apenas para acomodar código temporário. Cada novo pacote deve ter uma responsabilidade arquitetural definida e documentada.
+Nenhum módulo V2 deve importar código, configuração ou banco da V1. Providers externos, como LaunchBox, também não são fonte de verdade: seus dados entram futuramente por adapters e normalizadores.
