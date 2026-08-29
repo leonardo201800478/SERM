@@ -6,6 +6,7 @@ import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
 
 from ..routing import SystemSourceRouter
@@ -30,6 +31,7 @@ class NoIntroCatalog:
     MIN_EXPECTED_SYSTEMS = 10
 
     def __init__(self, router: SystemSourceRouter | None = None) -> None:
+        """Initialize the catalog reader with the source-routing policy."""
         self.router = router or SystemSourceRouter()
 
     def fetch_catalog(self) -> str:
@@ -68,8 +70,19 @@ class NoIntroCatalog:
         return True
 
     @staticmethod
+    def _source_id_from_href(href: str) -> str | None:
+        """Extract a DAT-o-MATIC numeric source ID from any query-string form."""
+        query = parse_qs(urlparse(html.unescape(href)).query)
+        for key in ("s", "sid", "id"):
+            values = query.get(key)
+            if values and values[0].isdigit():
+                return values[0]
+        match = re.search(r"(?:[?&](?:s|sid|id)=)(\d+)", href, re.I)
+        return match.group(1) if match else None
+
+    @staticmethod
     def _extract_entries(text: str) -> tuple[tuple[str, str], ...]:
-        """Extract catalog names/revisions using each DAT marker as a boundary."""
+        """Extract catalog names and revisions from independent DAT markers."""
         pattern = re.compile(
             r"(?<![^\s|])(?P<name>[A-Za-z0-9À-ÿ][^\n|]*?\s+-\s+[^\n|]+?)\s+"
             r"\(#(?P<revision>\d+)(?:\s*\+[^~|\n)]*)?\s*~\s*"
@@ -88,7 +101,7 @@ class NoIntroCatalog:
 
         row_pattern = re.compile(r"<tr\b[^>]*>(?P<row>.*?)</tr>", re.I | re.S)
         link_pattern = re.compile(
-            r'href=["\'][^"\']*[?&]s=(?P<id>\d+)[^"\']*["\'][^>]*>(?P<label>.*?)</a>',
+            r'<a\b(?P<attrs>[^>]*)>(?P<label>.*?)</a>',
             re.I | re.S,
         )
         revision_pattern = re.compile(
@@ -103,12 +116,15 @@ class NoIntroCatalog:
             if not revision:
                 continue
             link = link_pattern.search(row)
+            source_id = None
             if link:
+                attrs = link.group("attrs")
+                href = re.search(r'href\s*=\s*["\']([^"\']+)["\']', attrs, re.I)
+                if href:
+                    source_id = self._source_id_from_href(href.group(1))
                 name = self._clean_text(link.group("label"))
-                source_id = link.group("id")
             else:
                 name = row_text.split("(#", 1)[0].strip()
-                source_id = None
             if not self._accept(name):
                 continue
             systems.append(
@@ -131,6 +147,8 @@ class NoIntroCatalog:
 
         result = tuple(unique.values())
         logger.info("[NO-INTRO][CATALOG] sistemas extraídos=%d", len(result))
+        missing_ids = sum(item.source_id is None for item in result)
+        logger.info("[NO-INTRO][CATALOG] sistemas sem source_id=%d", missing_ids)
         if len(result) < self.MIN_EXPECTED_SYSTEMS:
             logger.warning(
                 "[NO-INTRO][CATALOG] resultado suspeito: apenas %d sistema(s) extraído(s)",
