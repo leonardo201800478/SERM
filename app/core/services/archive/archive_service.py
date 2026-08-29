@@ -108,7 +108,11 @@ class ArchiveService:
         destination = Path(output).resolve()
         destination.parent.mkdir(parents=True, exist_ok=True)
         base = Path(base_dir).resolve() if base_dir else None
-        with tempfile.NamedTemporaryFile(prefix=f".{destination.stem}-", suffix=".tmp", dir=destination.parent, delete=False) as temp:
+
+        # O arquivo temporário precisa manter a extensão do formato que será
+        # validado. Caso contrário, ``test()`` rejeita o ``.tmp`` antes de
+        # conseguir verificar a integridade do ZIP.
+        with tempfile.NamedTemporaryFile(prefix=f".{destination.stem}-", suffix=".zip", dir=destination.parent, delete=False) as temp:
             temp_path = Path(temp.name)
         try:
             with zipfile.ZipFile(temp_path, "w", compression=compression) as handle:
