@@ -1,7 +1,7 @@
 """Acquisition backends used by SERM source integrations."""
 
 from .dat_catalog import DatCatalogEntry, DatCatalogError, DatStatus, PublicDatCatalogProvider
-from .redump import RedumpEntry, RedumpError, RedumpProvider, RedumpStatus
+from .redump import RedumpEntry, RedumpError, RedumpProvider
 
 __all__ = [
     "DatCatalogEntry",
@@ -11,5 +11,4 @@ __all__ = [
     "RedumpEntry",
     "RedumpError",
     "RedumpProvider",
-    "RedumpStatus",
 ]
