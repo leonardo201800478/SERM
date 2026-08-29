@@ -25,11 +25,11 @@ def test_compare_marks_only_crc_mismatch_as_update(tmp_path: Path) -> None:
 
     result = RetroArchDownloadService.compare_installed_cores([current, outdated], tmp_path)
     by_name = {entry.core_name: entry for entry in result}
-    assert by_name["current_libretro.dll"].is_current
-    assert not by_name["current_libretro.dll"].needs_update
-    assert by_name["outdated_libretro.dll"].needs_update
-    assert by_name["custom_libretro.dll"].remote_crc32 is None
-    assert not by_name["custom_libretro.dll"].needs_update
+    assert by_name["current"].is_current
+    assert not by_name["current"].needs_update
+    assert by_name["outdated"].needs_update
+    assert by_name["custom"].remote_crc32 is None
+    assert not by_name["custom"].needs_update
 
 
 def test_match_installed_cores_returns_only_outdated(tmp_path: Path) -> None:
@@ -65,7 +65,7 @@ def test_worker_retries_failed_core_and_continues_queue(tmp_path: Path, monkeypa
         def download_core(self, _channel, core, _cores_dir, progress=None):
             calls.append(core.core_name)
             attempts[core.core_name] = attempts.get(core.core_name, 0) + 1
-            if core.core_name == "broken_libretro.dll":
+            if core.core_name == "broken":
                 raise RuntimeError("falha simulada")
             return tmp_path / "working_libretro.dll"
 
@@ -85,8 +85,8 @@ def test_worker_retries_failed_core_and_continues_queue(tmp_path: Path, monkeypa
     worker._channel_override = SimpleNamespace(name="nightly", base_url="https://example.invalid/")
     worker.run()
 
-    assert calls == ["broken_libretro.dll"] * 3 + ["working_libretro.dll"]
-    assert attempts == {"broken_libretro.dll": 3, "working_libretro.dll": 1}
+    assert calls == ["broken"] * 3 + ["working"]
+    assert attempts == {"broken": 3, "working": 1}
 
 
 def test_worker_success_does_not_retry(tmp_path: Path, monkeypatch) -> None:
@@ -118,4 +118,4 @@ def test_worker_success_does_not_retry(tmp_path: Path, monkeypatch) -> None:
     worker._channel_override = SimpleNamespace(name="nightly", base_url="https://example.invalid/")
     worker.run()
 
-    assert calls == ["working_libretro.dll"]
+    assert calls == ["working"]
