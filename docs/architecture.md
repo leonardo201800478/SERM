@@ -1,12 +1,12 @@
 # Arquitetura do SERM
 
-**Produto:** Strife Emulator and Roms Manager (SERM)
-**Repositório histórico:** `mame-set-builder`
+**Produto:** Strife Emulator and Roms Manager (SERM)  
+**Repositório histórico:** `mame-set-builder`  
 **Referência:** 29/08/2026
 
 ## 1. Princípio arquitetural
 
-O SERM é dividido em domínios de preservação, reconstrução, execução, apresentação, hardware, downloads e integrações.
+O SERM é dividido em domínios de dados, catálogo, preservação, reconstrução, execução, apresentação, hardware, downloads e integrações.
 
 ```text
 GUI / Qt
@@ -14,27 +14,159 @@ GUI / Qt
 Application Services
    ↓
 Domain
+├── Data Foundation / Database
+├── Source Manager / Catalog
+├── Identity / Mapping
 ├── Library / Dataset / Scan
 ├── Reconstruction
 │   ├── MAME
 │   ├── Consoles / No-Intro
 │   ├── Discs / Redump
-│   └── Amiga / WHDLoad / Retroplay
+│   ├── Amiga / WHDLoad / Retroplay
+│   └── MS-DOS / eXoDOS
 ├── RetroArch BIOS
 ├── Emulator / Backend / Core
 ├── Archive / Package
 ├── Controls / Hardware / FFB
 ├── Presentation / Shader / Overlay
-└── Catalog Manager
+└── External Integrations
 ```
 
 A GUI coordena. Regras de negócio e I/O pesado permanecem em services/workers.
 
-## 2. Fonte de verdade
+## 2. Data Foundation
 
-O código atual do GitHub é a fonte de verdade. Documentação deve acompanhar o comportamento realmente implementado.
+O banco local principal será SQLite, acessado por Python via SQLAlchemy e migrations versionadas.
 
-## 3. Núcleo MAME
+```text
+serm.db
+├── Sources / Catalogs
+├── Identity / Releases
+├── Platforms / Systems
+├── Files / Hashes
+├── Archives / Discs / BIOS
+├── Runtime / Emulator / Core
+├── Execution Profiles / Paths
+├── Scan
+└── Mapping / Transformation
+```
+
+O banco guarda metadata, relações e estado. ROMs, ISOs, CHDs e pacotes permanecem no filesystem.
+
+O banco não deve ficar obrigatoriamente no diretório de instalação. A arquitetura deve suportar `%LOCALAPPDATA%/SERM/` e modo portable.
+
+### Source ≠ Catalog ≠ Identity ≠ File
+
+```text
+Source
+ ↓
+CatalogVersion
+ ↓
+CatalogEntry
+ ↓
+CanonicalIdentity
+ ↓
+File / Hash
+```
+
+A fonte oficial aplicável mantém a referência factual. Fontes convenientes e metadata providers são relacionados por adapters e mapping.
+
+## 3. Fontes e autoridade
+
+### Preservação / referência
+
+- No-Intro / Dat-o-MATIC;
+- Redump;
+- MAME/listxml;
+- FBNeo;
+- MAME Softlists;
+- fontes confiáveis de BIOS.
+
+### Conveniência
+
+- WHDLoad/Retroplay;
+- eXoDOS;
+- C64 Dreams/EasyFlash;
+- packs específicos.
+
+### Metadata / integração
+
+- RetroArch `.rdb`;
+- LaunchBox `LaunchBox.Metadata.db`;
+- LaunchBox `Platforms.xml`;
+- LaunchBox `MAME.xml`;
+- LaunchBox `Files.xml`;
+- caches externos quando comprovadamente úteis.
+
+Nenhum metadata provider se torna fonte de verdade física apenas por ser importado.
+
+## 4. Identity e DE-PARA
+
+```text
+Official Entry
+      ↕
+Identity Mapping
+      ↕
+Convenience Entry
+```
+
+O mapping registra origem, destino, tipo, confiança, evidências, regra, versão e data quando aplicável.
+
+O modelo de nomes deve distinguir, quando necessário:
+
+```text
+source_name
+canonical_name
+display_name
+scraper_name
+filename
+normalized_name
+```
+
+Isso permite reorganizar WHDLoad/eXoDOS para execução e scraping sem perder a nomenclatura de origem.
+
+## 5. Plataformas e execução
+
+`Platform` é entidade do SERM. Não é sinônimo de emulador, runtime, core ou fabricante.
+
+```text
+Runtime
+  └── Emulator / Backend
+        └── Core (quando aplicável)
+              ↓
+        ExecutionProfile
+              ↓
+          Platform
+```
+
+O ExecutionProfile poderá armazenar propriedades conhecidas de execução, incluindo argumentos, extensões, BIOS, shaders, overlays e paths.
+
+SQLite será a fonte de verdade das configurações administradas pelo SERM. XML/CFG/JSON externos serão formatos de interoperabilidade/artefatos derivados quando necessários.
+
+## 6. LaunchBox como referência e provider
+
+A análise do `LaunchBox.Metadata.db` mostrou estruturas úteis:
+
+```text
+Games
+Platforms
+Emulators
+EmulatorPlatforms
+GameAlternateTitles
+GameImages
+```
+
+O LaunchBox usa SQLite e Entity Framework migrations. O SERM não copiará o schema nem dependerá do LaunchBox.
+
+O `Platforms.xml` é fonte adicional de metadata técnica/classificação, incluindo `Category`, `Emulated` e `UseMameFiles`. Registros explicitamente obsoletos/duplicados não devem ser importados cegamente.
+
+O LaunchBox será provider de metadata, nomes, plataformas, IDs e relações úteis. O SERM manterá sua própria identidade e banco.
+
+## 7. RetroArch RDB
+
+`.rdb` é provider local de metadata/identificação. Pode auxiliar matching por hash/nome e associação com sistemas/core, mas não substitui No-Intro, Redump ou MAME quando aplicáveis.
+
+## 8. Núcleo MAME
 
 ```text
 MAME listxml
@@ -54,73 +186,29 @@ Reconstrução MAME
 Set / residual
 ```
 
-FULLSET e origens são somente leitura. O Scan fornece evidência física para a reconstrução. Nenhuma camada de execução deve alterar a identidade física do conteúdo.
+FULLSET e origens são somente leitura. O Scan fornece evidência física. Nenhuma camada de execução altera a identidade física do conteúdo.
 
-## 4. Reconstrução ampla
+## 9. Reconstrução
 
-A reconstrução é um domínio único com adaptadores por fonte:
+A reconstrução é um domínio comum com adapters por fonte. Hash matching, planejamento, staging, publicação atômica e validação podem ser compartilhados; a semântica de cada fonte não.
 
-```text
-                 Reconstruction Engine
-                          │
-          ┌───────────────┼────────────────┐
-          │               │                │
-        MAME          Console Sources   RetroArch BIOS
-          │               │                │
-   LISTXML rules    No-Intro/Redump/     .info rules
-                   Retroplay rules
-```
+### No-Intro
 
-O motor comum pode oferecer hash matching, planejamento, staging, publicação atômica e validação. Cada fonte mantém sua própria semântica.
+Cartuchos/mídias digitais suportadas. Preservar nome, parent/clone, ROM, tamanho, CRC32, MD5, SHA1 e demais metadados do DAT.
 
-### MAME
+### Redump
 
-MAME permanece conforme as regras já definidas para ROMs, parent/clone, BIOS, devices, samples, disks e CHDs.
+Discos e faixas. CHD é saída preferencial quando tecnicamente compatível; ISO/BIN-CUE podem ser intermediários.
 
-### Consoles — No-Intro
+### Amiga
 
-No-Intro é a fonte principal para conjuntos de cartuchos/mídias digitais suportados. O parser deve preservar, quando presentes:
+WHDLoad/Retroplay é fonte conveniente especializada. Pacotes, versões e variantes serão mapeados para identidade canônica e classificados por sistema/compatibilidade. Não modelar WHDLoad como No-Intro.
 
-- game name;
-- cloneof/parent;
-- ROM name;
-- size;
-- CRC32;
-- MD5;
-- SHA1;
-- demais metadados relevantes do DAT.
+### MS-DOS
 
-A identidade física da ROM é determinada por hashes/tamanho, não pelo nome isolado.
+eXoDOS é fonte conveniente. Quando compatível, preservar e executar o `.zip` diretamente com DOSBox-Pure, standalone ou core, evitando transformação desnecessária.
 
-### Discos — Redump
-
-Redump é tratado como fonte orientada a discos, não como uma simples extensão do modelo No-Intro. O domínio deverá preservar metadados de sistema, título, edição, versão, serial e hashes conforme a fonte disponibilizada.
-
-Quando a mídia for compatível com conversão, **CHD é o formato de saída preferencial**. ISO/BIN-CUE permanecem formatos intermediários/alternativos quando necessários.
-
-### Amiga — WHDLoad / Retroplay
-
-Amiga possui catálogo e regras próprios. A fonte de catálogo planejada é o ecossistema Retroplay/WHDLoad, com distribuição/índice compatível com a página de downloads do GamesNostalgia. O modelo deverá contemplar pacote, versão, variante e arquivo, sem fingir que um pacote WHDLoad é um DAT No-Intro.
-
-## 5. Catalog Manager
-
-O Catalog Manager mantém referências locais de fontes externas sem baixar conteúdo de jogos automaticamente.
-
-```text
-Catalog Manager
-├── No-Intro
-├── Redump
-├── Amiga / Retroplay
-└── MAME
-```
-
-Cada provider possui descoberta, download, validação, parsing e versionamento próprios. O cache de catálogo é separado do cache de ROMs: **não existe cache permanente de ROMs apenas por causa do catálogo**.
-
-O catálogo deve registrar origem, conjunto, versão/data, sincronização e integridade quando disponível.
-
-## 6. ArchiveService
-
-O SERM possui uma infraestrutura comum para arquivos compactados:
+## 10. ArchiveService
 
 ```text
 ArchiveService
@@ -129,88 +217,19 @@ ArchiveService
 └── RAR → backend externo quando necessário
 ```
 
-Responsabilidades:
+Responsabilidades: detectar, listar, testar, extrair, criar, editar quando necessário, temporários seguros e publicação atômica. CHD possui serviço próprio.
 
-- detectar formato;
-- listar;
-- testar integridade;
-- extrair;
-- criar;
-- editar quando necessário;
-- trabalhar com temporários seguros;
-- impedir path traversal;
-- publicar atomicamente.
+## 11. Hash matching
 
-ZIP é especialmente crítico para a reconstrução MAME e No-Intro.
+A infraestrutura deve suportar SHA-1, MD5, CRC32, SHA-256 e outros algoritmos quando necessários. Nome não é identidade física primária.
 
-CHD possui serviço próprio e não deve ser tratado como um archive genérico.
+## 12. RetroArch
 
-## 7. Hash matching
+RetroArch é runtime com cores Libretro, system, assets, saves, states, shaders e configuração própria. A Home está concluída e validada em fluxo real.
 
-A identidade física deve priorizar:
+Configurações nativas válidas devem ser preservadas. O SERM altera somente propriedades conhecidas e suportadas.
 
-```text
-SHA1
- ↓
-MD5
- ↓
-CRC32 + tamanho
-```
-
-A ordem exata depende da fonte e da evidência disponível. Nome é metadado de reconstrução, não identidade primária.
-
-## 8. Emulator / Backend / Core
-
-```text
-Emulator
-Backend
-Core
-```
-
-MAME, Flycast, FBNeo e Supermodel podem possuir backends standalone. RetroArch é runtime e executa cores Libretro.
-
-Não duplicar a entidade de conteúdo apenas porque existem diferentes backends.
-
-## 9. RetroArch
-
-RetroArch possui:
-
-- runtime;
-- cores;
-- system;
-- assets;
-- saves;
-- states;
-- shaders;
-- configuração própria.
-
-O runtime e os cores possuem versões independentes.
-
-A Home de RetroArch está concluída e validada em fluxo real, incluindo instalação/atualização do runtime, atualização de cores por CRC, retry por core e uso do 7-Zip externo quando disponível.
-
-## 10. BIOS RetroArch
-
-BIOS de RetroArch é um domínio separado de No-Intro/Redump. O catálogo é derivado dos `.info`/metadados do ecossistema RetroArch quando aplicável.
-
-Objetivo:
-
-```text
-catalogar
- ↓
-scan/hash
- ↓
-classificar
- ├── OK
- ├── renomeável/movível
- ├── reconstruível
- └── missing
- ↓
-reconstruir/instalar somente o necessário
-```
-
-A operação deve ser rápida e limpa, sem reprocessamento global desnecessário.
-
-## 11. Presentation
+## 13. Presentation
 
 ```text
 Sistema
@@ -220,65 +239,51 @@ Sistema
 └── Overlay
 ```
 
-Shaders de terceiros são baixados de seus próprios repositórios e não incorporados ao repositório do SERM. A seleção prioriza CRT limpo, fiel e leve. Presets agressivos, com reflexos/overlays pesados ou grande custo de processamento não são padrões.
+Shaders de terceiros vêm de seus repositórios de origem. CRT limpo e leve é prioridade. A proporção representa o sistema/emulação; não forçar 16:9 por causa do monitor.
 
-A proporção do shader representa o sistema/emulação. O SERM não deve forçar 16:9 apenas porque o monitor do usuário é 16:9.
-
-RetroArch deve preferir seu sistema nativo de shaders. Standalone pode utilizar mecanismos específicos, como ReShade, quando tecnicamente apropriado.
-
-## 12. Configuração de emuladores
-
-Arquivos nativos válidos devem ser preservados. O serviço deve alterar somente propriedades conhecidas e suportadas, com backup antes de substituir configuração inválida.
-
-## 13. Downloads
+## 14. Scan, transformação e segurança
 
 ```text
-Provider
+Source/Catalog
  ↓
-Package metadata
+Scan / Match
  ↓
-Download
+Mapping
  ↓
-Integrity
+Transformation / Reconstruction
  ↓
 Staging
  ↓
-Install
+Validation
+ ↓
+Atomic Publish
 ```
 
-Downloads não devem gravar diretamente em destinos finais antes de validação.
-
-## 14. Controles / Hardware / FFB
-
-Esses domínios permanecem separados da reconstrução e do catálogo. Perfis de hardware e controle podem ser convertidos para diferentes backends sem duplicar a entidade de ROM.
-
-## 15. GUI e lazy loading
-
-As abas devem ser carregadas sob demanda. Dados pesados de catálogo, scan, downloads e reconstrução não devem ser materializados no startup sem necessidade.
-
-A Home RetroArch está concluída; novas funcionalidades devem evitar reintroduzir carregamento antecipado ou botões sem implementação real.
-
-## 16. Testes
-
-A suíte deve cobrir somente a arquitetura atual. Testes de implementações legadas devem ser removidos, não adaptados artificialmente para manter código morto.
-
-Cada fase relevante requer:
-
-- testes unitários;
-- integração;
-- fixtures reais quando possível;
-- validação de filesystem;
-- fluxo real quando houver download/runtime.
-
-## 17. Segurança e integridade
+Regras:
 
 - origens somente leitura;
 - staging temporário;
-- publicação atômica;
 - hashes antes da publicação;
 - proteção contra path traversal;
 - nenhum arquivo parcial publicado;
-- nenhum cache permanente de ROMs;
+- nenhum cache permanente de ROMs por causa do catálogo;
 - não executar conteúdo baixado como parte da validação;
-- preservar configurações válidas;
 - registrar falhas de forma acionável.
+
+## 15. Testes
+
+A suíte cobre a arquitetura atual. Testes legados de código removido devem ser eliminados.
+
+Cada fase relevante exige unitários, integração, fixtures reais quando possível, falhas/interrupção, filesystem e fluxo real quando houver runtime/download.
+
+## 16. Referências internas
+
+- `docs/data-foundation.md` — banco, identidade, configuração, proveniência e modelo conceitual;
+- `docs/source-strategy.md` — classificação e estratégia de fontes;
+- `docs/catalogs.md` — Catalog Manager;
+- `docs/reconstruction.md` — reconstrução;
+- `docs/reconstruction-consoles.md` — consoles;
+- `docs/archives.md` — ArchiveService;
+- `docs/chd-reconstruction.md` — CHD;
+- `docs/retroarch.md` — RetroArch;
+- `docs/phases.md` — roadmap.
