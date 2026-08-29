@@ -1,39 +1,84 @@
 # Catalog Manager — SERM
 
-**Estado:** arquitetura definida; implementação da nova fase pendente.
+**Estado:** arquitetura consolidada; implementação da nova fase pendente.  
 **Referência:** 29/08/2026
 
-## Objetivo
+## 1. Papel
 
-O Catalog Manager mantém localmente as referências necessárias para auditoria e reconstrução sem transformar o catálogo em cache de ROMs.
+O Catalog Manager fica sobre a Data Foundation e mantém referências locais de fontes externas para identificação, auditoria, organização e reconstrução.
+
+Ele **não é um cache de ROMs** e não baixa conteúdo de jogos apenas para completar um catálogo.
 
 ```text
-Fonte externa
+Source
  ↓
 Provider
  ↓
-Download do catálogo
+Download / leitura local
  ↓
-Validação
+Staging
+ ↓
+Validation
  ↓
 Parser específico
  ↓
-Catálogo local
+Normalize
  ↓
-Reconstruction / Scan
+CatalogVersion
+ ↓
+Canonical Identity / Mapping
+ ↓
+Scan / Reconstruction / Execution
 ```
 
-## Fontes
+## 2. Classes de fonte
 
-### No-Intro
+### Preservação / referência
 
-Fonte principal para conjuntos de cartuchos e mídias digitais suportados.
+- No-Intro / Dat-o-MATIC;
+- Redump;
+- MAME/listxml;
+- FBNeo;
+- MAME Softlists;
+- fontes confiáveis de BIOS.
 
-Referência operacional: Dat-o-MATIC e seus downloads diários. O provider deve descobrir os conjuntos disponíveis e manter a versão mais recente conhecida.
+### Conveniência
 
-O parser deve aceitar as estruturas XML/DAT relevantes sem assumir que todos os sistemas possuem exatamente os mesmos campos.
+- WHDLoad/Retroplay;
+- eXoDOS;
+- C64 Dreams/EasyFlash e fontes semelhantes;
+- packs comunitários específicos.
 
-Campos prioritários:
+### Metadata / integração
+
+- RetroArch `.rdb`;
+- LaunchBox `LaunchBox.Metadata.db`;
+- LaunchBox `Platforms.xml`;
+- LaunchBox `MAME.xml`;
+- LaunchBox `Files.xml`;
+- caches externos quando sua utilidade for comprovada.
+
+## 3. Fontes não compartilham semântica automaticamente
+
+Cada provider mantém a semântica da fonte.
+
+```text
+NoIntroGame
+RedumpDisc
+MameMachine
+AmigaPackage
+ExoDosPackage
+RetroArchEntry
+LaunchBoxGame
+```
+
+Infraestrutura de armazenamento, hashing, staging, versionamento e mapping pode ser comum.
+
+## 4. No-Intro
+
+Fonte principal para cartuchos e mídias digitais suportadas.
+
+O parser deve preservar, quando presentes:
 
 - game name;
 - cloneof/parent;
@@ -42,126 +87,147 @@ Campos prioritários:
 - CRC32;
 - MD5;
 - SHA1;
-- demais metadados presentes.
+- demais metadados do DAT.
 
-### Redump
+A identidade física não deve depender somente do nome.
 
-Fonte para discos ópticos.
+## 5. Redump
 
-O provider deve ser implementado somente após validar os endpoints/arquivos de catálogo atualmente disponibilizados pelo Redump. Não assumir URLs de download sem verificação.
+Fonte orientada a discos ópticos. O modelo deve preservar sistema, título, edição, versão, serial, região, idiomas e dados de faixas/hashes conforme disponibilizados pela fonte.
 
-O modelo é orientado a `Disc`, com metadados de sistema, título, edição, versão, serial, região, idiomas e hashes quando disponíveis.
+O provider só deve assumir endpoints/arquivos depois de validação da fonte atual.
 
-### Amiga / WHDLoad / Retroplay
+## 6. MAME
 
-Fonte de catálogo própria para Amiga. O provider deve contemplar o ecossistema WHDLoad/Retroplay e a distribuição/índice utilizada pelo GamesNostalgia quando aplicável.
+MAME continua derivado do LISTXML e do pipeline existente. O novo Catalog Manager não deve criar uma segunda fonte de verdade para máquinas MAME.
 
-Não modelar esses pacotes como No-Intro.
+## 7. RetroArch RDB
 
-### MAME
+Os `.rdb` são providers locais de metadata/identificação. Podem auxiliar matching por hash/nome e associação com sistemas/core, mas não substituem No-Intro, Redump ou MAME quando essas fontes forem aplicáveis.
 
-O catálogo MAME continua derivado do LISTXML e do pipeline já existente. Não criar uma segunda fonte de verdade para máquinas MAME.
+## 8. LaunchBox
 
-## Atualização automática
+O LaunchBox será tratado como provider externo de metadata e referência arquitetural, nunca como dependência obrigatória do SERM.
 
-O Catalog Manager deve verificar atualizações e baixar apenas metadados/catalogação.
+A análise do `LaunchBox.Metadata.db` identificou:
 
 ```text
-catálogo local
- ↓
-verificar versão/data
- ↓
-┌───────────────┐
-│ atualizado?   │
-└──────┬────────┘
-       │
-   não ↓ sim
-      baixar  manter
+Games
+Platforms
+Emulators
+EmulatorPlatforms
+GameAlternateTitles
+GameImages
 ```
 
-Cada catálogo deve registrar:
+O `Platforms.xml` fornece dados úteis para normalização e classificação de plataformas, incluindo campos como `Category`, `Emulated` e `UseMameFiles`.
+
+O SERM poderá importar esses dados por adapter e armazenar a proveniência LaunchBox.
+
+## 9. DE-PARA
+
+Fontes convenientes são relacionadas à identidade canônica por mapping explícito:
+
+```text
+Official Entry
+      ↕
+Identity Mapping
+      ↕
+Convenience Entry
+```
+
+O mapping pode registrar confiança, evidências, regras, versão da fonte e data.
+
+## 10. Nomenclatura
+
+O Catalog Manager não deve destruir o nome original da fonte.
+
+O modelo deverá separar, quando aplicável:
+
+```text
+source_name
+canonical_name
+display_name
+scraper_name
+filename
+normalized_name
+```
+
+Isso permite organizar WHDLoad/eXoDOS e outras fontes para scraping e execução sem perder a proveniência.
+
+## 11. Atualização
+
+```text
+catálogo ativo
+ ↓
+verificar versão/data/integridade
+ ↓
+obter nova fonte
+ ↓
+staging
+ ↓
+validar
+ ↓
+parse
+ ↓
+importar em transação
+ ↓
+ativar nova versão
+```
+
+Se uma nova versão falhar, a anterior continua válida.
+
+Registrar:
 
 - provider;
 - conjunto;
-- versão/data da fonte;
-- URL de origem;
+- versão/data;
+- origem;
+- integridade quando disponível;
 - data da sincronização;
-- integridade do arquivo, quando possível;
-- parser/schema utilizado.
+- parser/schema.
 
-## Cache
-
-Catálogo e conteúdo são coisas diferentes.
+## 12. Cache
 
 ```text
-Catalog Cache
-    ≠
-ROM Cache
+Catalog Cache ≠ ROM Cache
 ```
 
-Manter DATs e índices locais é permitido. Não baixar ROMs somente para completar o catálogo.
+DATs, índices e arquivos de metadata podem ser mantidos localmente. ROMs não devem ser baixadas somente por causa do Catalog Manager.
 
-## Integridade
+## 13. Relação com reconstrução
 
-Um catálogo novo deve ser validado antes de substituir a versão local conhecida.
-
-Se o download falhar ou o parser rejeitar o conteúdo, o catálogo anterior permanece utilizável.
-
-## Modelo comum
-
-O Catalog Manager fornece metadados comuns, mas não força um modelo universal onde a semântica seja diferente.
+O Catalog Manager fornece referência lógica. Ele não cria ZIPs/CHDs/pacotes finais.
 
 ```text
-NoIntroGame
-RedumpDisc
-AmigaPackage
-MameMachine
-```
-
-Cada modelo pode possuir campos específicos.
-
-## Relação com reconstrução
-
-```text
-Catalog Manager
-      ↓
-referência lógica
-      ↓
-Matching Engine
-      ↓
+Catalog
+  ↓
+Matching
+  ↓
+Mapping
+  ↓
 Reconstruction Planner
+  ↓
+ArchiveService / CHD Service
 ```
 
-O Catalog Manager não cria ZIPs, CHDs ou pacotes finais. Essas responsabilidades pertencem aos serviços de reconstrução/Archive/CHD.
+## 14. GUI futura
 
-## GUI futura
+A GUI poderá exibir providers, conjuntos, versões, data da última sincronização, integridade e estado de atualização.
 
-A interface poderá exibir:
+Deve existir atualização manual mesmo com atualização automática.
 
-```text
-Catálogos
-├── No-Intro
-│   ├── sistema
-│   ├── versão
-│   └── status
-├── Redump
-│   ├── sistema
-│   ├── versão/data
-│   └── status
-└── Amiga / Retroplay
-    ├── versão/data
-    └── status
-```
+## 15. Próxima implementação
 
-A atualização manual `Atualizar agora` deve existir mesmo com atualização automática habilitada.
-
-## Próxima implementação
-
-1. infraestrutura `CatalogProvider`;
-2. cache e versionamento;
-3. No-Intro provider;
-4. parser No-Intro XML/DAT;
-5. fixture Mega Drive/Genesis fornecida para o projeto;
-6. testes de atualização/rollback do catálogo;
-7. Redump provider após validação da fonte;
-8. Amiga/Retroplay provider.
+1. Source Registry;
+2. CatalogVersion/cache;
+3. adapters locais de LaunchBox e RetroArch para validar o modelo;
+4. No-Intro provider/parser;
+5. fixture Mega Drive/Genesis;
+6. testes de sincronização/rollback;
+7. Redump após validar a fonte atual;
+8. MAME adapter integrado ao dataset existente;
+9. FBNeo;
+10. WHDLoad/Retroplay;
+11. eXoDOS;
+12. demais providers.
