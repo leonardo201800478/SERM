@@ -67,6 +67,12 @@ class SystemSourceRouter:
     def _normalize(value: str) -> str:
         return " ".join(value.casefold().replace("-", " ").split())
 
+    @staticmethod
+    def _platform_tail(value: str) -> str:
+        """Return the platform portion after a LaunchBox/DAT-o-MATIC vendor prefix."""
+        normalized = SystemSourceRouter._normalize(value)
+        return normalized.split(" ", 1)[-1] if " " in normalized else normalized
+
     def route(self, platform_name: str) -> SourceFamily:
         """Return the preservation source assigned to a LaunchBox platform."""
         normalized = self._normalize(platform_name)
@@ -84,8 +90,9 @@ class SystemSourceRouter:
 
     def is_redump_system(self, source_name: str) -> bool:
         """Return whether a DAT-o-MATIC system belongs to the Redump domain."""
-        normalized = self._normalize(source_name)
         redump = {self._normalize(name) for name in self._REDUMP_NAMES}
-        return normalized in redump or any(
-            normalized.startswith(f"{name} ") for name in redump
-        )
+        normalized = self._normalize(source_name)
+        candidates = {normalized, self._platform_tail(source_name)}
+        if " - " in source_name:
+            candidates.add(self._normalize(source_name.rsplit(" - ", 1)[-1]))
+        return any(candidate in redump or any(candidate.startswith(f"{name} ") for name in redump) for candidate in candidates)
