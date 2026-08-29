@@ -18,18 +18,38 @@ class RetroArchDownloadWorker(QObject):
     progress = Signal(int, int)
     status = Signal(str)
     log_message = Signal(str)
+    # Alias mantido para consumidores que usam a nomenclatura curta.
+    log = log_message
     finished = Signal(str, str, str)
     failed = Signal(str)
 
-    def __init__(self, operation: str, destination: Path, mode: str = "nightly", stable_version: str | None = None, core_filename: str | None = None, core_filenames: list[str] | None = None) -> None:
-        """Configura uma operação de instalação/atualização."""
+    def __init__(
+        self,
+        operation: str,
+        destination: Path,
+        mode: str = "nightly",
+        stable_version: str | None = None,
+        core_filename: str | None = None,
+        core_filenames: list[str] | None = None,
+        *,
+        service: RetroArchDownloadService | None = None,
+        channel=None,
+        selected_cores: list[str] | None = None,
+    ) -> None:
+        """Configura uma operação de instalação/atualização.
+
+        ``service``, ``channel`` e ``selected_cores`` são aliases de integração
+        usados pela Home. Os parâmetros originais continuam compatíveis.
+        """
         super().__init__()
         self.operation = operation
         self.destination = Path(destination)
         self.mode = mode
         self.stable_version = stable_version
         self.core_filename = core_filename
-        self.core_filenames = list(core_filenames or [])
+        self.core_filenames = list(core_filenames or selected_cores or [])
+        self._service = service
+        self._channel_override = channel
 
     def _log(self, message: str) -> None:
         """Publica uma mensagem operacional."""
@@ -39,9 +59,9 @@ class RetroArchDownloadWorker(QObject):
     def run(self) -> None:
         """Executa a operação selecionada e atualiza AppConfig."""
         try:
-            service = RetroArchDownloadService(log_callback=self._log)
+            service = self._service or RetroArchDownloadService(log_callback=self._log)
             self.status.emit("Consultando Buildbot oficial…")
-            channel = service.channel(self.mode, self.stable_version)
+            channel = self._channel_override or service.channel(self.mode, self.stable_version)
             self._log(f"CANAL | {channel.name} | base={channel.base_url}")
 
             if self.operation in {"install", "update"}:
@@ -64,7 +84,7 @@ class RetroArchDownloadWorker(QObject):
                 self.finished.emit("retroarch", config.retroarch_version or "nightly", str(executable))
                 return
 
-            if self.operation in {"core", "cores_installed"}:
+            if self.operation in {"core", "cores_installed", "cores"}:
                 self.status.emit("Consultando lista de cores…")
                 cores = service.list_cores(channel)
                 by_filename = {item.filename: item for item in cores}
@@ -74,7 +94,7 @@ class RetroArchDownloadWorker(QObject):
                 cores_dir = Path(cores_dir).expanduser().resolve()
                 self._log(f"DIRETÓRIO CORES | {cores_dir}")
 
-                if self.operation == "core":
+                if self.operation in {"core", "cores"}:
                     requested = self.core_filenames or ([self.core_filename] if self.core_filename else [])
                     selected_cores = [by_filename[name] for name in requested if name in by_filename]
                     if not selected_cores:
@@ -86,7 +106,7 @@ class RetroArchDownloadWorker(QObject):
                         if comparison.remote_crc32 is None:
                             self._log(f"CORE IGNORADO | {comparison.core_name} | não encontrado no índice oficial")
                             continue
-                        remote = by_filename.get(comparison.path.name.casefold())
+                        remote = next((item for item in cores if item.filename.casefold() == f"{comparison.path.name}.zip".casefold()), None)
                         if remote is None:
                             continue
                         if comparison.is_current:
@@ -124,7 +144,6 @@ class RetroArchDownloadWorker(QObject):
                     if not completed:
                         failed_cores.append(selected.core_name)
                         self._log(f"CORE PULADO | {selected.core_name} | falha após {self.CORE_ATTEMPTS} tentativas | erro={last_error}")
-                        continue
 
                 if failed_cores:
                     self._log(f"ATUALIZAÇÃO CONCLUÍDA COM FALHAS | sucesso={successful} | falhas={len(failed_cores)} | cores_com_falha={', '.join(failed_cores)}")
