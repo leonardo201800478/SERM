@@ -60,12 +60,17 @@ dmypy.json
 # ------------------------------------------------------------
 # IDEs / editors
 # ------------------------------------------------------------
-# V2 keeps its VS Code workspace configuration versioned.
+# Keep only the intentional V2 VS Code project files under version control.
 .vscode/*
 !.vscode/settings.json
 !.vscode/extensions.json
 !.vscode/launch.json
 !.vscode/tasks.json
+!v2/.vscode/
+!v2/.vscode/settings.json
+!v2/.vscode/extensions.json
+!v2/.vscode/launch.json
+!v2/.vscode/tasks.json
 
 .idea/
 *.iml
