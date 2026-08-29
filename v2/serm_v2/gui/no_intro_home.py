@@ -1,12 +1,13 @@
 """No-Intro-aware Home extension for V2."""
 from __future__ import annotations
 
+import hashlib
 import logging
-from pathlib import Path
 
 from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton
 
 from ..sources.no_intro.catalog import NoIntroSystem
+from ..sources.no_intro.downloader import NoIntroDownload
 from ..sources.no_intro.update_manager import NoIntroUpdateManager
 from .home import HomePage
 
@@ -44,9 +45,7 @@ class NoIntroHomePage(HomePage):
         system = self.no_intro_matches[self.no_intro_systems.currentIndex()]
         path = self._no_intro_destination(system)
         if path.is_file():
-            entry = self.no_intro_update_manager.inspect(system, path)
-            if entry.state != "current":
-                logger.warning("[NO-INTRO][FRESHNESS] download selecionado sem revisão registrada: %s", system.name)
+            self._register_file(system, path)
             self._refresh_freshness()
 
     def download_all_no_intro(self) -> None:
@@ -106,16 +105,27 @@ class NoIntroHomePage(HomePage):
             self._refresh_freshness()
 
     def _register_existing(self) -> None:
-        """Register already downloaded files that have a current source revision."""
+        """Register existing downloaded files using the current catalog revision."""
         for system in self.no_intro_matches:
             path = self._no_intro_destination(system)
             if path.is_file():
                 status = self.no_intro_update_manager.inspect(system, path)
                 if status.state == "unknown":
-                    logger.info(
-                        "[NO-INTRO][FRESHNESS] arquivo existente sem manifesto: %s",
-                        system.name,
-                    )
+                    self._register_file(system, path)
+                    logger.info("[NO-INTRO][FRESHNESS] manifesto inicializado: %s", system.name)
+
+    def _register_file(self, system: NoIntroSystem, path) -> None:
+        """Create freshness metadata for an existing DAT when its revision is known."""
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        self.no_intro_update_manager.record(
+            system,
+            NoIntroDownload(
+                system=system.name,
+                path=path,
+                sha256=digest,
+                source_url="",
+            ),
+        )
 
     def _refresh_freshness(self) -> None:
         """Refresh freshness counters and expose the update button state."""
@@ -137,7 +147,9 @@ class NoIntroHomePage(HomePage):
             f"● {len(self.no_intro_matches)} sistemas — atuais: {current} | "
             f"desatualizados: {outdated} | sem controle: {unknown} | ausentes: {missing}"
         )
-        self.no_intro_status.setStyleSheet("color:#e5c454;font-weight:bold;" if (outdated or unknown) else "color:#55d66b;font-weight:bold;")
+        self.no_intro_status.setStyleSheet(
+            "color:#e5c454;font-weight:bold;" if (outdated or unknown) else "color:#55d66b;font-weight:bold;"
+        )
         logger.info(
             "[NO-INTRO][FRESHNESS] atuais=%d desatualizados=%d sem_manifesto=%d ausentes=%d",
             current,
