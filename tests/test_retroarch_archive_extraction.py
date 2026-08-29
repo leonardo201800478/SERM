@@ -33,7 +33,7 @@ def test_extract_7z_uses_py7zr_when_system_7zip_is_missing(tmp_path: Path, monke
             (root / "retroarch.exe").write_bytes(b"exe")
 
     fake_py7zr = SimpleNamespace(SevenZipFile=FakeArchive)
-    monkeypatch.setattr("shutil.which", lambda _name: None)
+    monkeypatch.setattr(RetroArchDownloadService, "detect_7zip", classmethod(lambda cls: None))
     monkeypatch.setitem(sys.modules, "py7zr", fake_py7zr)
 
     RetroArchDownloadService._extract_7z(archive, destination)
