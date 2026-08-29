@@ -13,12 +13,11 @@ class SourceFamily(StrEnum):
 
 
 class SystemSourceRouter:
-    """Route LaunchBox platform names to the appropriate preservation source.
+    """Route platform names to the appropriate preservation source.
 
-    The router is intentionally conservative: known optical-disc platforms go to
-    Redump and are never presented as No-Intro candidates. Unknown platforms are
-    left unsupported until an explicit source rule is added, preventing an
-    incorrect No-Intro download from silently replacing a Redump source.
+    The rules are deliberately conservative. Known optical-disc platforms are
+    owned by Redump and are never admitted to the No-Intro candidate list.
+    Unknown platforms remain unsupported until an explicit rule is added.
     """
 
     _REDUMP_NAMES = frozenset(
@@ -82,3 +81,11 @@ class SystemSourceRouter:
     def allows_no_intro(self, platform_name: str) -> bool:
         """Return whether a LaunchBox platform may participate in No-Intro matching."""
         return self.route(platform_name) is SourceFamily.NO_INTRO
+
+    def is_redump_system(self, source_name: str) -> bool:
+        """Return whether a DAT-o-MATIC system belongs to the Redump domain."""
+        normalized = self._normalize(source_name)
+        redump = {self._normalize(name) for name in self._REDUMP_NAMES}
+        return normalized in redump or any(
+            normalized.startswith(f"{name} ") for name in redump
+        )
