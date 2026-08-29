@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import binascii
 import logging
+import os
 import re
 import shutil
 import ssl
@@ -17,10 +18,8 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-
 class RetroArchDownloadError(RuntimeError):
     """Erro controlado do downloader do RetroArch."""
-
 
 @dataclass(frozen=True, slots=True)
 class RetroArchChannel:
@@ -28,7 +27,6 @@ class RetroArchChannel:
     name: str
     base_url: str
     version: str | None
-
 
 @dataclass(frozen=True, slots=True)
 class RetroArchCoreInfo:
@@ -42,7 +40,6 @@ class RetroArchCoreInfo:
         """Retorna o nome lógico removendo ``_libretro.dll`` e ``.zip``."""
         name = self.filename.removesuffix(".zip")
         return re.sub(r"_libretro\.dll$", "", name, flags=re.IGNORECASE)
-
 
 @dataclass(frozen=True, slots=True)
 class InstalledCoreInfo:
@@ -61,7 +58,6 @@ class InstalledCoreInfo:
     def is_current(self) -> bool:
         """Indica se o CRC local é exatamente o publicado pelo Buildbot."""
         return self.remote_crc32 is not None and self.local_crc32 == self.remote_crc32
-
 
 class RetroArchDownloadService:
     """Consulta o Buildbot, baixa e instala RetroArch/cores com segurança."""
@@ -146,6 +142,36 @@ class RetroArchDownloadService:
                 return match.group(1)
         return None
 
+    @classmethod
+    def detect_7zip(cls) -> Path | None:
+        """Localiza 7-Zip no PATH ou nas instalações padrão do Windows."""
+        candidates: list[Path] = []
+        for command in ("7z.exe", "7z", "7za.exe", "7za"):
+            found = shutil.which(command)
+            if found:
+                candidates.append(Path(found))
+        roots = [
+            os.environ.get("ProgramFiles"),
+            os.environ.get("ProgramW6432"),
+            os.environ.get("ProgramFiles(x86)"),
+            os.environ.get("LOCALAPPDATA"),
+        ]
+        for root in filter(None, roots):
+            base = Path(root)
+            candidates.extend((base / "7-Zip" / "7z.exe", base / "7-Zip" / "7za.exe"))
+        seen: set[str] = set()
+        for candidate in candidates:
+            try:
+                resolved = candidate.expanduser().resolve()
+            except OSError:
+                continue
+            key = str(resolved).casefold()
+            if key in seen or not resolved.is_file():
+                continue
+            seen.add(key)
+            return resolved
+        return None
+
     def list_cores(self, channel: RetroArchChannel) -> list[RetroArchCoreInfo]:
         """Lê .index-extended e retorna todos os cores Windows x64 publicados."""
         index_url = channel.base_url + ".index-extended"
@@ -172,11 +198,7 @@ class RetroArchDownloadService:
 
     def download_retroarch(self, channel: RetroArchChannel, destination: Path, progress=None) -> Path:
         """Baixa o pacote RetroArch para TEMP e retorna o arquivo temporário."""
-        if channel.name.casefold() == "nightly":
-            filename, _, url = self.discover_nightly_archive()
-        else:
-            filename = "RetroArch.7z"
-            url = channel.base_url + filename
+        filename, _, url = self.discover_nightly_archive() if channel.name.casefold() == "nightly" else ("RetroArch.7z", 0, channel.base_url + "RetroArch.7z")
         temp = Path(tempfile.mkdtemp(prefix="mame-set-builder-retroarch-"))
         archive = temp / filename
         self._log(f"DOWNLOAD RETROARCH | canal={channel.name} | url={url}")
@@ -184,11 +206,13 @@ class RetroArchDownloadService:
         return archive
 
     def install_retroarch(self, archive: Path, destination: Path, preserve_config: bool = True) -> Path:
-        """Extrai RetroArch e achata uma pasta raiz do pacote antes de mesclar."""
+        """Extrai RetroArch e mescla a árvore na instalação existente."""
         destination = Path(destination).expanduser().resolve()
         destination.mkdir(parents=True, exist_ok=True)
         temp_extract = archive.parent / "extracted"
         temp_extract.mkdir(parents=True, exist_ok=True)
+        extractor = self.detect_7zip()
+        self._log(f"EXTRATOR | {extractor if extractor else 'py7zr fallback'}")
         self._extract_7z(archive, temp_extract)
         source = self._flatten_single_root(temp_extract)
         excluded = {"config", "saves", "states", "retroarch.cfg", "retroarch.default.cfg"} if preserve_config else set()
@@ -321,22 +345,20 @@ class RetroArchDownloadService:
                 crc = binascii.crc32(chunk, crc)
         return crc & 0xFFFFFFFF
 
-    @staticmethod
-    def _extract_7z(archive: Path, destination: Path) -> None:
-        """Extrai 7z usando 7-Zip se disponível ou py7zr como fallback embutido."""
-        candidates = [shutil.which("7z"), shutil.which("7z.exe"), shutil.which("7za"), shutil.which("7za.exe")]
-        executable = next((item for item in candidates if item), None)
+    @classmethod
+    def _extract_7z(cls, archive: Path, destination: Path) -> None:
+        """Extrai 7z com 7-Zip do Windows quando disponível, usando py7zr como fallback."""
+        executable = cls.detect_7zip()
         if executable:
-            result = subprocess.run([executable, "x", str(archive), f"-o{destination}", "-y"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", check=False)
+            result = subprocess.run([str(executable), "x", str(archive), f"-o{destination}", "-y"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", check=False)
             if result.returncode != 0:
                 raise RetroArchDownloadError(f"Falha ao extrair RetroArch com 7-Zip: {result.stdout[-2000:]}")
             return
         try:
             import py7zr
         except ImportError as exc:
-            raise RetroArchDownloadError("Não foi possível extrair RetroArch: 7-Zip não está instalado e py7zr não está disponível. Execute 'pip install -e .'.") from exc
+            raise RetroArchDownloadError("7-Zip não encontrado e o fallback py7zr não está instalado.") from exc
         try:
-            destination.mkdir(parents=True, exist_ok=True)
             with py7zr.SevenZipFile(archive, mode="r") as package:
                 package.extractall(path=destination)
         except Exception as exc:
