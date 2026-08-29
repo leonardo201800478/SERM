@@ -1,10 +1,4 @@
-"""Downloader oficial do RetroArch e dos cores libretro para Windows.
-
-O Buildbot oficial é a fonte de verdade. Pacotes do RetroArch são baixados
-para TEMP, extraídos e mesclados na raiz escolhida pelo usuário. Os cores
-libretro são arquivos ZIP; o CRC publicado no .index-extended é validado
-contra a DLL contida no ZIP, não contra o contêiner ZIP.
-"""
+"""Downloader oficial do RetroArch e dos cores libretro para Windows."""
 from __future__ import annotations
 
 import binascii
@@ -23,8 +17,10 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
+
 class RetroArchDownloadError(RuntimeError):
     """Erro controlado do downloader do RetroArch."""
+
 
 @dataclass(frozen=True, slots=True)
 class RetroArchChannel:
@@ -32,6 +28,7 @@ class RetroArchChannel:
     name: str
     base_url: str
     version: str | None
+
 
 @dataclass(frozen=True, slots=True)
 class RetroArchCoreInfo:
@@ -45,6 +42,7 @@ class RetroArchCoreInfo:
         """Retorna o nome lógico removendo ``_libretro.dll`` e ``.zip``."""
         name = self.filename.removesuffix(".zip")
         return re.sub(r"_libretro\.dll$", "", name, flags=re.IGNORECASE)
+
 
 @dataclass(frozen=True, slots=True)
 class InstalledCoreInfo:
@@ -63,6 +61,7 @@ class InstalledCoreInfo:
     def is_current(self) -> bool:
         """Indica se o CRC local é exatamente o publicado pelo Buildbot."""
         return self.remote_crc32 is not None and self.local_crc32 == self.remote_crc32
+
 
 class RetroArchDownloadService:
     """Consulta o Buildbot, baixa e instala RetroArch/cores com segurança."""
@@ -260,11 +259,7 @@ class RetroArchDownloadService:
 
     @classmethod
     def compare_installed_cores(cls, cores: list[RetroArchCoreInfo], cores_dir: Path) -> list[InstalledCoreInfo]:
-        """Calcula CRC32 local e compara cada DLL instalada ao índice oficial.
-
-        Cores sem correspondência no índice também são retornados, mas com
-        ``remote_crc32=None`` para que nunca sejam substituídos automaticamente.
-        """
+        """Calcula CRC32 local e compara cada DLL instalada ao índice oficial."""
         remote = {core.filename.removesuffix(".zip").casefold(): core for core in cores}
         result: list[InstalledCoreInfo] = []
         for path in cls.installed_cores(cores_dir):
@@ -328,14 +323,24 @@ class RetroArchDownloadService:
 
     @staticmethod
     def _extract_7z(archive: Path, destination: Path) -> None:
-        """Extrai um pacote 7z usando 7-Zip disponível no sistema."""
+        """Extrai 7z usando 7-Zip se disponível ou py7zr como fallback embutido."""
         candidates = [shutil.which("7z"), shutil.which("7z.exe"), shutil.which("7za"), shutil.which("7za.exe")]
         executable = next((item for item in candidates if item), None)
-        if not executable:
-            raise RetroArchDownloadError("7-Zip não encontrado no PATH para extrair o pacote RetroArch.")
-        result = subprocess.run([executable, "x", str(archive), f"-o{destination}", "-y"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", check=False)
-        if result.returncode != 0:
-            raise RetroArchDownloadError(f"Falha ao extrair RetroArch: {result.stdout[-2000:]}")
+        if executable:
+            result = subprocess.run([executable, "x", str(archive), f"-o{destination}", "-y"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", check=False)
+            if result.returncode != 0:
+                raise RetroArchDownloadError(f"Falha ao extrair RetroArch com 7-Zip: {result.stdout[-2000:]}")
+            return
+        try:
+            import py7zr
+        except ImportError as exc:
+            raise RetroArchDownloadError("Não foi possível extrair RetroArch: 7-Zip não está instalado e py7zr não está disponível. Execute 'pip install -e .'.") from exc
+        try:
+            destination.mkdir(parents=True, exist_ok=True)
+            with py7zr.SevenZipFile(archive, mode="r") as package:
+                package.extractall(path=destination)
+        except Exception as exc:
+            raise RetroArchDownloadError(f"Falha ao extrair RetroArch com py7zr: {exc}") from exc
 
     @staticmethod
     def _merge(source: Path, destination: Path, excluded: set[str]) -> None:
