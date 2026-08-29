@@ -13,6 +13,8 @@ from app.core.services.retroarch_download_service import RetroArchDownloadServic
 class RetroArchDownloadWorker(QObject):
     """Executa downloads do Buildbot fora da thread da GUI."""
 
+    CORE_ATTEMPTS = 3
+
     progress = Signal(int, int)
     status = Signal(str)
     log_message = Signal(str)
@@ -98,16 +100,37 @@ class RetroArchDownloadWorker(QObject):
                         self.finished.emit("cores", "0", str(cores_dir))
                         return
 
+                successful = 0
+                failed_cores: list[str] = []
                 for index, selected in enumerate(selected_cores, start=1):
-                    self.status.emit(f"Baixando core {index}/{len(selected_cores)}: {selected.core_name}…")
-                    self._log(f"CORE {index}/{len(selected_cores)} | {selected.core_name} | CRC={selected.crc32}")
-                    service.download_core(
-                        channel,
-                        selected,
-                        cores_dir,
-                        progress=lambda received, total, offset=index - 1, count=len(selected_cores): self.progress.emit(int(((offset + (received / total if total else 0)) / count) * 100), 100),
-                    )
-                self.finished.emit("cores", str(len(selected_cores)), str(cores_dir))
+                    completed = False
+                    last_error: Exception | None = None
+                    for attempt in range(1, self.CORE_ATTEMPTS + 1):
+                        self.status.emit(f"Baixando core {index}/{len(selected_cores)}: {selected.core_name} (tentativa {attempt}/{self.CORE_ATTEMPTS})…")
+                        self._log(f"CORE {index}/{len(selected_cores)} | {selected.core_name} | CRC={selected.crc32} | tentativa={attempt}/{self.CORE_ATTEMPTS}")
+                        try:
+                            service.download_core(
+                                channel,
+                                selected,
+                                cores_dir,
+                                progress=lambda received, total, offset=index - 1, count=len(selected_cores): self.progress.emit(int(((offset + (received / total if total else 0)) / count) * 100), 100),
+                            )
+                            completed = True
+                            successful += 1
+                            break
+                        except Exception as exc:
+                            last_error = exc
+                            self._log(f"FALHA CORE | {selected.core_name} | tentativa={attempt}/{self.CORE_ATTEMPTS} | {type(exc).__name__}: {exc}")
+                    if not completed:
+                        failed_cores.append(selected.core_name)
+                        self._log(f"CORE PULADO | {selected.core_name} | falha após {self.CORE_ATTEMPTS} tentativas | erro={last_error}")
+                        continue
+
+                if failed_cores:
+                    self._log(f"ATUALIZAÇÃO CONCLUÍDA COM FALHAS | sucesso={successful} | falhas={len(failed_cores)} | cores_com_falha={', '.join(failed_cores)}")
+                else:
+                    self._log(f"ATUALIZAÇÃO CONCLUÍDA | sucesso={successful} | falhas=0")
+                self.finished.emit("cores", str(successful), str(cores_dir))
                 return
 
             raise ValueError(f"Operação RetroArch desconhecida: {self.operation}")
