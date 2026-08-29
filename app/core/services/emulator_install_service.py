@@ -74,12 +74,7 @@ class EmulatorInstallService:
 
     @staticmethod
     def _mame_self_extracting_package(asset: ReleaseAsset, emulator: str) -> bool:
-        """Identifica o instalador Windows do MAME, que é um contêiner 7z com extensão .exe.
-
-        O arquivo ``mame0289b_x64.exe`` não é o emulador. Ele é um pacote
-        autoextraível. Portanto jamais pode ser passado para subprocess como
-        se fosse ``mame.exe``.
-        """
+        """Identifica o instalador Windows do MAME, que é um contêiner 7z com extensão .exe."""
         return (
             emulator.strip().lower() == "mame"
             and asset.name.lower().endswith("_x64.exe")
@@ -93,12 +88,12 @@ class EmulatorInstallService:
         *,
         nightly: bool = False,
         progress=None,
+        release: ReleaseInfo | None = None,
     ) -> tuple[ReleaseInfo, ReleaseAsset, Path]:
         """Baixa para TEMP, extrai, mescla no destino e valida o executável final.
 
-        O arquivo baixado nunca é executado. Para MAME, inclusive, o .exe de
-        release é tratado explicitamente como pacote autoextraível e aberto
-        somente pelo 7-Zip em modo oculto.
+        Quando ``release`` já foi resolvido pelo worker, ele é reutilizado para
+        evitar uma segunda consulta ao GitHub na mesma operação.
         """
         destination = Path(destination).expanduser().resolve()
         if not destination:
@@ -109,7 +104,12 @@ class EmulatorInstallService:
             destination.mkdir(parents=True, exist_ok=True)
             self._log(f"PASTA DE INSTALAÇÃO PRONTA | {destination}")
 
-            release = self.release(emulator, nightly=nightly)
+            if release is None:
+                release = self.release(emulator, nightly=nightly)
+            else:
+                self._log(
+                    f"RELEASE REUTILIZADO | tag={release.tag} | nome={release.name} | assets={len(release.assets)}"
+                )
             asset = self.select_asset(release)
 
             with tempfile.TemporaryDirectory(prefix="mame-set-builder-emu-") as temp_name:
@@ -159,8 +159,6 @@ class EmulatorInstallService:
                 else:
                     raise EmulatorInstallError(f"Formato de pacote não suportado: {suffix}")
 
-            # O TEMP já foi destruído. A partir daqui somente o destino pode
-            # participar da descoberta do executável.
             self._log("TEMP LIBERADO | procurando executável SOMENTE na instalação")
             executable = self._find_executable(destination, emulator)
             if executable is None:
@@ -327,8 +325,6 @@ class EmulatorInstallService:
         if not seven_zip:
             raise EmulatorInstallError("7z.exe/7zz.exe não foi encontrado no sistema.")
 
-        # Importante: este comando é o ÚNICO processo permitido a abrir o
-        # arquivo baixado. O arquivo nunca é executado pelo Windows.
         command = [seven_zip, "x", "-y", f"-o{destination}", str(archive)]
         logger.info("Emulator install: 7-Zip CLI silencioso | command=%s", command)
         creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
