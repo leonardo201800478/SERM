@@ -1,7 +1,17 @@
 """Sistema visual unificado do SERM V2 com estética arcade/pixel-art."""
 from __future__ import annotations
 
-from PySide6.QtWidgets import QApplication, QFrame, QLabel, QPlainTextEdit
+from PySide6.QtWidgets import (
+    QApplication,
+    QFrame,
+    QLabel,
+    QListWidget,
+    QLayout,
+    QPlainTextEdit,
+    QPushButton,
+    QProgressBar,
+    QTabWidget,
+)
 
 
 # Paleta inspirada em arcades 16-bit, CRT e terminais de desenvolvimento.
@@ -99,6 +109,7 @@ QPushButton {
     border: 1px solid #555555;
     padding: 7px 13px;
     min-height: 19px;
+    min-width: 92px;
     font-weight: 750;
 }
 
@@ -269,12 +280,20 @@ def apply_theme(app: QApplication) -> None:
 def refine_dashboard(root) -> dict[str, int]:
     """Refina a composição da janela após a construção dos widgets.
 
-    Remove estilos locais de painéis que conflitariam com o tema global,
-    identifica títulos/seções e aplica uma hierarquia visual consistente.
+    Uniformiza espaçamento, densidade dos controles e hierarquia visual sem
+    alterar a lógica das páginas ou os contratos funcionais existentes.
     """
     panels = 0
     titles = 0
     sections = 0
+
+    root_layout = root.layout()
+    if root_layout is not None:
+        root_layout.setContentsMargins(12, 10, 12, 8)
+        root_layout.setSpacing(8)
+
+    for layout in root.findChildren(QLayout):
+        layout.setSpacing(7)
 
     for frame in root.findChildren(QFrame):
         # O tema global passa a controlar os painéis; isso elimina diferenças
@@ -298,6 +317,22 @@ def refine_dashboard(root) -> dict[str, int]:
             label.style().unpolish(label)
             label.style().polish(label)
             sections += 1
+
+    for button in root.findChildren(QPushButton):
+        button.setMinimumHeight(max(button.minimumHeight(), 30))
+
+    for widget in root.findChildren(QListWidget):
+        widget.setMinimumHeight(max(widget.minimumHeight(), 210))
+
+    for widget in root.findChildren(QPlainTextEdit):
+        widget.setMinimumHeight(max(widget.minimumHeight(), 150))
+
+    for widget in root.findChildren(QProgressBar):
+        widget.setMaximumHeight(max(widget.maximumHeight(), 18))
+
+    for widget in root.findChildren(QTabWidget):
+        widget.setDocumentMode(True)
+        widget.setUsesScrollButtons(False)
 
     return {"panels": panels, "titles": titles, "sections": sections}
 
