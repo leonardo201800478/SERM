@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS config_option (
     max_value REAL,
     step_value REAL,
     unit TEXT,
-    scope_slug TEXT NOT NULL DEFAULT 'global',
+    scope_slug TEXT NOT NULL DEFAULT 'global' REFERENCES config_scope(slug),
     applies_when TEXT,
     driver_family TEXT,
     advanced INTEGER NOT NULL DEFAULT 0 CHECK (advanced IN (0,1)),
@@ -56,8 +56,7 @@ CREATE TABLE IF NOT EXISTS config_option (
     source_version TEXT,
     source_reference TEXT,
     sort_order INTEGER NOT NULL DEFAULT 0,
-    UNIQUE (emulator_id, key),
-    FOREIGN KEY (emulator_id, scope_slug) REFERENCES emulator_definition(id, slug) DEFERRABLE INITIALLY DEFERRED
+    UNIQUE (emulator_id, key)
 );
 
 CREATE INDEX IF NOT EXISTS ix_config_option_emulator_group
@@ -95,7 +94,7 @@ CREATE INDEX IF NOT EXISTS ix_config_dependency_parent
 CREATE TABLE IF NOT EXISTS config_file_binding (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     emulator_id INTEGER NOT NULL REFERENCES emulator_definition(id) ON DELETE CASCADE,
-    scope_slug TEXT NOT NULL,
+    scope_slug TEXT NOT NULL REFERENCES config_scope(slug),
     target_key TEXT,
     file_path TEXT NOT NULL,
     file_format TEXT NOT NULL,
@@ -109,7 +108,7 @@ CREATE TABLE IF NOT EXISTS config_file_binding (
 CREATE TABLE IF NOT EXISTS config_profile (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     emulator_id INTEGER NOT NULL REFERENCES emulator_definition(id) ON DELETE CASCADE,
-    scope_slug TEXT NOT NULL,
+    scope_slug TEXT NOT NULL REFERENCES config_scope(slug),
     name TEXT NOT NULL,
     target_key TEXT,
     parent_profile_id INTEGER REFERENCES config_profile(id) ON DELETE SET NULL,
