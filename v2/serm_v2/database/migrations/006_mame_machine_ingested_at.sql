@@ -1,9 +1,6 @@
 PRAGMA foreign_keys = ON;
 
--- Timestamp for the normalized MAME machine ingestion record.
--- Keep this as TEXT to match the SQLite timestamp conventions used by SERM.
-ALTER TABLE mame_machine ADD COLUMN ingested_at TEXT;
-
+-- Compatibility marker only. ingested_at is defined in migration 003.
 CREATE INDEX IF NOT EXISTS ix_mame_machine_ingested_at
     ON mame_machine(import_id, ingested_at);
 
