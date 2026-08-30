@@ -13,6 +13,7 @@ from .emulator_settings_page import EmulatorSettingsPage
 from .emulator_shaders_bezels_page import EmulatorShadersBezelsPage
 from .home import HomePage
 from .log_handler import LogViewer
+from .mame_catalog_page import MameCatalogPage
 
 
 class MainWindow(QMainWindow):
@@ -43,11 +44,13 @@ class MainWindow(QMainWindow):
         self.settings_tab = EmulatorSettingsPage(self)
         self.visuals_tab = EmulatorShadersBezelsPage(self)
         self.dat_scraper_tab = DatScraperPage(self)
+        self.mame_catalog_tab = MameCatalogPage(self)
         self.tab_widget.addTab(self.home_section, "Home")
         self.tab_widget.addTab(self.directories_tab, "Diretórios")
         self.tab_widget.addTab(self.settings_tab, "Configurações")
         self.tab_widget.addTab(self.visuals_tab, "Shaders / Bezels")
         self.tab_widget.addTab(self.dat_scraper_tab, "Scraper de DATs")
+        self.tab_widget.addTab(self.mame_catalog_tab, "MAME — Catálogo")
         self.tab_widget.currentChanged.connect(self._on_tab_changed)
         layout.addWidget(self.tab_widget, 1)
         self.setCentralWidget(root)
@@ -63,9 +66,10 @@ class MainWindow(QMainWindow):
             self.settings_tab.refresh()
         elif widget is self.visuals_tab:
             self.visuals_tab.refresh()
+        elif widget is self.mame_catalog_tab:
+            self.mame_catalog_tab.refresh()
 
     def closeEvent(self, event) -> None:  # noqa: N802
         """Fecha os recursos locais da aplicação."""
         self.log_viewer.close()
         self.database.dispose()
-        super().closeEvent(event)
