@@ -1,13 +1,11 @@
-"""Ingestão do catálogo produzido pelo executável MAME configurado no SERM."""
+"""Serviço de catálogo MAME baseado no pipeline canônico da V2."""
 from __future__ import annotations
 
 import json
-import sqlite3
-from datetime import datetime, timezone
 from pathlib import Path
 
-from ..emulation.mame_dat_scraper import MameDatError, scrape_mame_dat
 from ..runtime.paths import data_root, database_path
+from .mame_display_pipeline import MameDisplayPipeline, MameDisplayPipelineError
 
 
 class MameCatalogError(RuntimeError):
@@ -15,7 +13,7 @@ class MameCatalogError(RuntimeError):
 
 
 class MameCatalogService:
-    """Conecta o executável MAME configurado à base SQLite principal da V2."""
+    """Conecta o executável MAME configurado ao pipeline canônico do catálogo."""
 
     PATHS_FILE = data_root() / "emulator_paths.json"
     DB_FILE = database_path()
@@ -38,67 +36,34 @@ class MameCatalogService:
             raise MameCatalogError(f"Executável MAME configurado não encontrado: {executable}")
         return executable
 
-    def ingest(self, *, timeout: float = 120.0) -> dict[str, object]:
-        """Executa ``mame.exe -listxml`` e faz a ingestão na base principal da V2."""
+    def ingest(self, *, timeout: float = 180.0, force: bool = False) -> dict[str, object]:
+        """Executa -listxml e persiste import_id, máquinas, XML lossless e displays."""
         executable = self.configured_executable()
         try:
-            dat = scrape_mame_dat(executable, timeout=timeout)
-        except MameDatError as exc:
+            result = MameDisplayPipeline(self.DB_FILE).run(
+                executable,
+                timeout=timeout,
+                force=force,
+            )
+        except MameDisplayPipelineError as exc:
             raise MameCatalogError(str(exc)) from exc
 
+        # Compatibilidade com a GUI existente do Scraper de DATs.
         self.RAW_FILE.parent.mkdir(parents=True, exist_ok=True)
-        self.RAW_FILE.write_text(dat.xml_text, encoding="utf-8", newline="\n")
-        self._initialize_database()
+        source = Path(str(result["xml_path"]))
+        if source.is_file() and source != self.RAW_FILE:
+            self.RAW_FILE.write_bytes(source.read_bytes())
 
-        import xml.etree.ElementTree as ET
-
-        root = ET.fromstring(dat.xml_text)
-        machines: list[tuple[object, ...]] = []
-        for machine in root.findall("machine"):
-            name = machine.attrib.get("name", "").strip()
-            if not name:
-                continue
-            machines.append((
-                name, machine.attrib.get("sourcefile"), machine.attrib.get("isbios"),
-                machine.attrib.get("isdevice"), machine.attrib.get("runnable"),
-                machine.findtext("description"), machine.findtext("year"),
-                machine.findtext("manufacturer"),
-            ))
-
-        now = datetime.now(timezone.utc).isoformat()
-        with sqlite3.connect(self.DB_FILE) as connection:
-            connection.execute("DELETE FROM mame_machine")
-            connection.executemany(
-                """INSERT INTO mame_machine
-                (name, sourcefile, isbios, isdevice, runnable, description, year, manufacturer, ingested_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                [(*row, now) for row in machines],
-            )
-            connection.execute(
-                """INSERT INTO mame_catalog_run
-                (executable, machine_count, raw_xml, ingested_at)
-                VALUES (?, ?, ?, ?)""",
-                (str(executable), len(machines), str(self.RAW_FILE), now),
-            )
-            connection.commit()
-
-        return {"executable": executable, "machine_count": len(machines), "raw_xml": self.RAW_FILE, "database": self.DB_FILE}
-
-    def _initialize_database(self) -> None:
-        """Cria as tabelas pertencentes ao catálogo MAME sem alterar tabelas existentes."""
-        self.DB_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(self.DB_FILE) as connection:
-            connection.executescript("""
-                CREATE TABLE IF NOT EXISTS mame_catalog_run (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT, executable TEXT NOT NULL,
-                    machine_count INTEGER NOT NULL, raw_xml TEXT NOT NULL, ingested_at TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS mame_machine (
-                    name TEXT PRIMARY KEY, sourcefile TEXT, isbios TEXT, isdevice TEXT,
-                    runnable TEXT, description TEXT, year TEXT, manufacturer TEXT, ingested_at TEXT NOT NULL
-                );
-            """)
-            connection.commit()
+        return {
+            "executable": executable,
+            "machine_count": int(result["machine_count"]),
+            "display_count": int(result["display_count"]),
+            "mame_build": result.get("mame_build"),
+            "raw_xml": self.RAW_FILE,
+            "xml_path": source,
+            "database": self.DB_FILE,
+            "source_hash": result.get("source_hash"),
+        }
 
 
 __all__ = ["MameCatalogError", "MameCatalogService"]
