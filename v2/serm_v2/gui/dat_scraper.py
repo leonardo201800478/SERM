@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (
@@ -294,16 +295,25 @@ class _MameTab(QWidget):
         layout.addWidget(self.log, 1)
         self.refresh()
 
+    def _log(self, level: str, message: str) -> None:
+        """Adiciona uma entrada operacional padronizada com timestamp UTC."""
+        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        line = f"{timestamp} | {level:<7} | {message}"
+        self.log.appendPlainText(line)
+        logger.info("[MAME ListXML] %s", line)
+
     def refresh(self) -> None:
         """Mostra o executável MAME atualmente selecionado em Diretórios."""
         try:
             executable = self.service.configured_executable()
             self.executable.setText(f"Executável configurado: {executable}")
             self.run_button.setEnabled(True)
+            self._log("INFO", f"Executável validado: {executable}")
         except MameCatalogError as exc:
             self.executable.setText("Executável configurado: não definido")
             self.status.setText(str(exc))
             self.run_button.setEnabled(False)
+            self._log("WARN", str(exc))
 
     def ingest(self) -> None:
         """Inicia a ingestão do ListXML usando o executável configurado."""
@@ -316,7 +326,7 @@ class _MameTab(QWidget):
         self.refresh_button.setEnabled(False)
         self.progress.setVisible(True)
         self.status.setText("Executando MAME -listxml…")
-        self.log.appendPlainText("MAME | iniciando ingestão pelo executável configurado")
+        self._log("START", "Iniciando captura do ListXML pelo executável configurado")
         self.worker = _MameCatalogWorker(self)
         self.worker.completed.connect(self._completed)
         self.worker.failed.connect(self._failed)
@@ -324,18 +334,34 @@ class _MameTab(QWidget):
         self.worker.start()
 
     def _completed(self, result: object) -> None:
-        """Exibe o resultado da ingestão concluída."""
+        """Exibe métricas, proveniência e política de deduplicação da ingestão."""
         data = result
-        self.status.setText(f"Ingestão concluída: {data['machine_count']} máquinas")
-        self.log.appendPlainText(f"OK | executável={data['executable']}")
-        self.log.appendPlainText(f"OK | máquinas={data['machine_count']}")
-        self.log.appendPlainText(f"OK | XML={data['raw_xml']}")
-        self.log.appendPlainText(f"OK | banco={data['database']}")
+        build = data.get("mame_build") or "não informado"
+        source_hash = data.get("source_hash") or "não informado"
+        elapsed = float(data.get("elapsed_seconds") or 0.0)
+        mode = "REUTILIZADA (mesmo SHA-256)" if data.get("deduplicated") else "NOVA IMPORTAÇÃO"
+        if data.get("force"):
+            mode = "FORÇADA"
+        self.status.setText(
+            f"Concluído | MAME {build} | {data['machine_count']:,} máquinas | "
+            f"{data['display_count']:,} displays | {elapsed:.2f}s"
+        )
+        self._log("OK", f"Versão/build: {build}")
+        self._log("OK", f"Máquinas: {data['machine_count']:,}")
+        self._log("OK", f"Displays normalizados: {data['display_count']:,}")
+        self._log("OK", f"SHA-256 do ListXML: {source_hash}")
+        self._log("OK", f"Política de importação: {mode}")
+        self._log("OK", f"XML lossless: {data['xml_path']}")
+        self._log("OK", f"Cópia compatível: {data['raw_xml']}")
+        self._log("OK", f"Banco: {data['database']}")
+        self._log("OK", f"Tempo total: {elapsed:.2f}s")
+        self._log("DONE", "Ingestão finalizada com sucesso")
 
     def _failed(self, message: str) -> None:
         """Exibe a falha sem ocultar a causa original."""
         self.status.setText("Falha na ingestão")
-        self.log.appendPlainText(f"ERRO MAME | {message}")
+        self._log("ERROR", message)
+        self._log("DONE", "Ingestão encerrada com erro; dados anteriores foram preservados")
 
     def _finished(self) -> None:
         """Libera os controles após a thread terminar."""
