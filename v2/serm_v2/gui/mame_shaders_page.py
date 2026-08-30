@@ -1,9 +1,8 @@
 """Configuração global de chains BGFX do MAME V2.
 
-A GUI não trata um arquivo JSON como configuração por si só. Um chain só é
-selecionável quando o driver de vídeo efetivo do MAME é ``bgfx``. A aplicação
-global é feita pela chave nativa ``bgfx_screen_chains`` do mame.ini, preservando
-backup e formatação através de ConfigFileEditor.
+A GUI usa o valor aceito pelo MAME em ``bgfx_screen_chains``: o nome do
+chain, sem caminho absoluto e sem a extensão ``.json``. O chain só fica
+disponível quando o driver de vídeo efetivo é ``bgfx``.
 """
 from __future__ import annotations
 
@@ -119,17 +118,17 @@ class MameShadersPage(QWidget):
         self.video_driver.currentTextChanged.connect(self._video_changed)
 
     def _video_changed(self, value: str) -> None:
-        """Limita a seleção de chain ao driver BGFX e informa a consequência."""
-        is_bgfx = value.lower() == "bgfx"
+        """Habilita recursos BGFX exclusivamente quando o driver é ``bgfx``."""
+        is_bgfx = value.strip().lower() == "bgfx"
         self.chain.setEnabled(is_bgfx)
         self.backend.setEnabled(is_bgfx)
         if not is_bgfx:
             self.status.setText(
-                f"Driver selecionado: {value}. Chains BGFX estão desabilitados porque "
+                f"Driver selecionado: {value}. Chains BGFX desabilitados: "
                 "bgfx_screen_chains só é efetivo com video bgfx."
             )
         else:
-            self.status.setText("Driver BGFX ativo: o chain poderá ser aplicado globalmente no mame.ini.")
+            self.status.setText("Driver BGFX ativo: o chain selecionado será gravado como nome do preset, sem caminho ou .json.")
 
     @staticmethod
     def _config_value(editor: ConfigFileEditor, key: str) -> str:
@@ -137,8 +136,21 @@ class MameShadersPage(QWidget):
         values = editor.values(key)
         return values[0].strip() if values else ""
 
+    @staticmethod
+    def _chain_name(value: str) -> str:
+        """Normaliza valor existente para o identificador aceito em ``bgfx_screen_chains``."""
+        normalized = value.strip().strip('"')
+        if not normalized:
+            return ""
+        normalized = normalized.replace("\\", "/")
+        if "/" in normalized:
+            normalized = normalized.rsplit("/", 1)[-1]
+        if normalized.lower().endswith(".json"):
+            normalized = normalized[:-5]
+        return normalized.strip()
+
     def refresh(self) -> None:
-        """Lê o driver e o chain atuais e redescobre recursos BGFX instalados."""
+        """Lê configurações atuais e redescobre chains/backends instalados."""
         editor = self._editor()
         root = self._mame_root()
         self.chain.clear()
@@ -158,7 +170,7 @@ class MameShadersPage(QWidget):
             self.video_driver.addItem(driver)
         self.video_driver.setCurrentText(driver)
 
-        current_chain = self._config_value(editor, self.CHAIN_KEY)
+        configured_chain = self._chain_name(self._config_value(editor, self.CHAIN_KEY))
         current_backend = self._config_value(editor, self.BACKEND_KEY)
 
         chains_dir = root / "bgfx" / "chains" if root else None
@@ -166,14 +178,15 @@ class MameShadersPage(QWidget):
         chains = sorted(p for p in chains_dir.glob("*.json") if p.is_file()) if chains_dir and chains_dir.is_dir() else []
         backends = sorted(p.name for p in shaders_dir.iterdir() if p.is_dir()) if shaders_dir and shaders_dir.is_dir() else []
 
+        # DATA = nome que deve ir para o mame.ini; nunca o caminho do arquivo.
         for path in chains:
-            self.chain.addItem(path.stem, str(path))
-        if current_chain and self.chain.findText(current_chain) < 0:
-            self.chain.addItem(f"{current_chain} (configurado)", current_chain)
+            self.chain.addItem(path.stem, path.stem)
+        if configured_chain and self.chain.findData(configured_chain) < 0:
+            self.chain.addItem(f"{configured_chain} (configurado)", configured_chain)
         if self.chain.count() == 0:
             self.chain.addItem("Nenhum chain encontrado", "")
-        if current_chain:
-            index = self.chain.findData(current_chain)
+        if configured_chain:
+            index = self.chain.findData(configured_chain)
             if index >= 0:
                 self.chain.setCurrentIndex(index)
 
@@ -192,40 +205,44 @@ class MameShadersPage(QWidget):
         self.info.setText(
             f"BGFX: {root / 'bgfx' if root else 'não localizado'}\n"
             f"Chains instalados: {len(chains)} | Backends detectados: {len(backends)}\n"
-            "O chain é aplicado por bgfx_screen_chains; o arquivo .json não é executado diretamente."
+            "Valor gravado em bgfx_screen_chains: somente o nome do chain (ex.: crt-geom-deluxe)."
         )
 
     def apply_global(self) -> None:
-        """Aplica o chain global no mame.ini somente quando o driver é BGFX."""
+        """Aplica driver e chain global no mame.ini usando os valores nativos do MAME."""
         editor = self._editor()
         if editor is None:
             QMessageBox.warning(self, "MAME BGFX", "mame.ini não localizado. Configure o arquivo na guia Diretórios.")
             return
+
         driver = self.video_driver.currentText().strip().lower()
         if driver != "bgfx":
             QMessageBox.warning(
                 self,
                 "MAME BGFX",
-                "O chain BGFX não pode ser aplicado enquanto o driver de vídeo não for 'bgfx'. "
-                "Selecione BGFX primeiro.",
+                "O chain BGFX não pode ser aplicado enquanto o driver de vídeo não for 'bgfx'. Selecione BGFX primeiro.",
             )
             return
-        chain = str(self.chain.currentData() or self.chain.currentText()).strip()
+
+        chain = self._chain_name(str(self.chain.currentData() or self.chain.currentText()))
         if not chain or chain.startswith("Nenhum chain"):
             QMessageBox.warning(self, "MAME BGFX", "Nenhum chain BGFX válido foi selecionado.")
             return
+
         try:
+            # IMPORTANTE: nunca usar o path armazenado no item do ComboBox.
             editor.set_value(self.VIDEO_KEY, "bgfx")
             editor.set_value(self.CHAIN_KEY, chain)
             backup = editor.save()
         except (OSError, KeyError) as exc:
             QMessageBox.critical(self, "MAME BGFX", f"Não foi possível aplicar a configuração:\n{exc}")
             return
+
         self.refresh()
         QMessageBox.information(
             self,
             "MAME BGFX",
-            f"Chain global aplicado: {chain}\n\nBackup criado em:\n{backup}",
+            f"Configuração global aplicada.\n\nvideo = bgfx\nbgfx_screen_chains = {chain}\n\nBackup criado em:\n{backup}",
         )
 
 
