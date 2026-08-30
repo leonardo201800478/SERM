@@ -122,7 +122,15 @@ class DirectoriesPage(DirectoryGuidePage):
 
         output = (result.stdout or "").strip().splitlines()
         version = output[0] if output else "versão não identificada"
-        self.statusTip = lambda: None  # type: ignore[method-assign]
+        if result.returncode != 0:
+            QMessageBox.warning(
+                self,
+                "Executável do MAME selecionado",
+                f"O caminho foi salvo, mas o MAME retornou código {result.returncode}.\n\n"
+                f"Executável:\n{executable}\n\nSaída:\n{version}",
+            )
+            return
+
         QMessageBox.information(
             self,
             "Executável do MAME selecionado",
