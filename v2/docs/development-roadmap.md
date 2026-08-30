@@ -59,6 +59,18 @@ The emulator installation/update backend from V1 is **not imported** into V2. Th
 - FBNeo;
 - Softlists.
 
+### MAME foundation increment
+
+The first MAME integration is now implemented in `serm_v2.emulation.mame_dat_scraper`.
+
+It obtains the authoritative machine catalog from the installed executable with:
+
+```text
+mame.exe -listxml
+```
+
+This increment intentionally stops at safe extraction/validation. The next MAME increments are parser → provenance → persistence → resolution/refresh fallback handling → display geometry → Timing Advisor.
+
 ## Milestone 6 — Convenience providers
 
 - WHDLoad/Retroplay;
@@ -74,6 +86,24 @@ The emulator installation/update backend from V1 is **not imported** into V2. Th
 - ArchiveService;
 - CHD service;
 - atomic publication.
+
+## Cross-cutting MAME Display/Timing Track
+
+- machine-native resolution and refresh facts;
+- pixel aspect and physical/display aspect;
+- orientation;
+- monitor hardware profile;
+- VRR/G-Sync/FreeSync detection;
+- native monitor fullscreen policy;
+- integer/pixel-perfect geometry;
+- artwork-aware geometry;
+- adaptive Timing Advisor;
+- low-latency policy without frame-pacing regression;
+- A/V/input synchronization policy;
+- per-game SERM/MAME execution profiles;
+- decision provenance and diagnostics.
+
+See `v2/docs/timing-and-display-planning.md` and `v2/docs/mame-dat-scraper.md`.
 
 ## Rule
 
