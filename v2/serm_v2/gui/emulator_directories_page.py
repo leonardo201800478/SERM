@@ -58,7 +58,7 @@ class DirectoriesPage(BaseDirectoriesPage):
         layout.addWidget(group)
         hint = QLabel(
             "A instalação/download trabalha exclusivamente com o diretório de instalação. "
-            "O .exe é configurado separadamente nesta aba para integração, permitindo que o SERM use o arquivo de configuração próprio de cada emulador."
+            "O .exe é configurado separadamente nesta aba para integração. Para FBNeo, o SERM usa exclusivamente a build Windows 64-bit (fbneo64.exe)."
         )
         hint.setWordWrap(True)
         hint.setStyleSheet("color:#888;")
@@ -102,11 +102,29 @@ class DirectoriesPage(BaseDirectoriesPage):
         self.refresh()
 
     def refresh(self) -> None:
-        """Refresh both installation directories and integration executables."""
+        """Refresh paths and migrate an obsolete FBNeo executable reference."""
         super().refresh()
         paths = self._load_json(self.PATHS_FILE)
+        changed = False
         for key, edit in getattr(self, "emulator_exe_edits", {}).items():
-            edit.setText(str(paths.get(f"{key}_exe") or ""))
+            value = paths.get(f"{key}_exe")
+            if key == "fbneo":
+                expected = EmulatorManager.EXECUTABLES[key]
+                current = Path(str(value)).expanduser() if value else None
+                if current and current.name.casefold() != expected.casefold():
+                    root = Path(str(paths.get(key))).expanduser() if paths.get(key) else None
+                    candidate = root / expected if root else None
+                    if candidate and candidate.is_file():
+                        paths[f"{key}_exe"] = str(candidate.resolve())
+                        value = paths[f"{key}_exe"]
+                        changed = True
+                    else:
+                        paths[f"{key}_exe"] = None
+                        value = None
+                        changed = True
+            edit.setText(str(value or ""))
+        if changed:
+            self._save_json(self.PATHS_FILE, paths)
 
 
 __all__ = ["DirectoriesPage"]
