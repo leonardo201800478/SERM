@@ -1,11 +1,13 @@
 """Janela principal do SERM V2."""
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from PySide6.QtWidgets import QLabel, QMainWindow, QTabWidget, QVBoxLayout, QWidget
 
 from ..config.settings import Settings
+from ..database.bootstrap import apply_migrations
 from ..database.engine import create_sqlite_engine
 from .dat_scraper import DatScraperPage
 from .emulator_directories_page import DirectoriesPage
@@ -27,7 +29,11 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage("Pronto")
 
         settings = Settings()
-        self.database = create_sqlite_engine(Path(settings.database))
+        database_path = Path(settings.database)
+        applied = apply_migrations(database_path)
+        if applied:
+            logging.getLogger(__name__).info("[SERM][DB] migrations aplicadas=%s", ", ".join(applied))
+        self.database = create_sqlite_engine(database_path)
         self.log_viewer = LogViewer()
         self._build_ui()
 
