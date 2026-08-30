@@ -1,10 +1,7 @@
 PRAGMA foreign_keys = ON;
 
--- MAME ListXML exposes machine classification independently from device
--- classification. Keep this fact explicit because the catalog and filtering
--- layers use it to distinguish BIOS machines from normal runnable systems.
-ALTER TABLE mame_machine ADD COLUMN isbios TEXT;
-
+-- Compatibility marker only. The canonical MAME machine columns are defined
+-- once, in migration 003. This migration must never ALTER mame_machine.
 CREATE INDEX IF NOT EXISTS ix_mame_machine_classification
     ON mame_machine(import_id, isdevice, isbios, runnable);
 
