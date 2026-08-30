@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QApplication
 
 from .gui.main_window import MainWindow
 from .gui.startup_splash import StartupSplash
-from .gui.theme import apply_theme, normalize_log_widgets
+from .gui.theme import apply_theme, normalize_log_widgets, refine_dashboard
 
 
 def configure_logging() -> None:
@@ -21,7 +21,7 @@ def configure_logging() -> None:
 
 
 def main() -> int:
-    """Start SERM V2 with the 16:9 splash screen and unified gamer theme."""
+    """Start SERM V2 with the refined unified gamer interface."""
     configure_logging()
     logger = logging.getLogger(__name__)
     app = QApplication(sys.argv)
@@ -33,7 +33,14 @@ def main() -> int:
     splash.set_phase("Inicializando SERM V2", "Carregando interface e serviços...")
     window = MainWindow()
     log_count = normalize_log_widgets(window)
-    logger.info("[SERM][UI] tema gamer aplicado | consoles padronizados=%d", log_count)
+    ui_stats = refine_dashboard(window)
+    logger.info(
+        "[SERM][UI] tema gamer refinado | consoles=%d | painéis=%d | títulos=%d | seções=%d",
+        log_count,
+        ui_stats["panels"],
+        ui_stats["titles"],
+        ui_stats["sections"],
+    )
     splash.set_phase("Verificando emuladores", "Detectando executáveis e versões instaladas...")
     window.home_section.refresh()
     splash.set_phase("Pronto", "Abrindo a interface principal...")
