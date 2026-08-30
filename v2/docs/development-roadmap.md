@@ -23,7 +23,8 @@ The emulator installation/update backend from V1 is **not imported** into V2. Th
 - session management;
 - migration runner;
 - first schema;
-- database health check.
+- database health check;
+- configuration schema bootstrap.
 
 ## Milestone 2 — Canonical data model
 
@@ -42,7 +43,8 @@ The emulator installation/update backend from V1 is **not imported** into V2. Th
 - execution profile;
 - platform/runtime/core relationships;
 - configuration properties;
-- filesystem paths.
+- filesystem paths;
+- emulator configuration catalog.
 
 ## Milestone 4 — Metadata providers
 
@@ -69,7 +71,40 @@ It obtains the authoritative machine catalog from the installed executable with:
 mame.exe -listxml
 ```
 
-This increment intentionally stops at safe extraction/validation. The next MAME increments are parser → provenance → persistence → resolution/refresh fallback handling → display geometry → Timing Advisor.
+The real configured MAME executable has already produced a catalog of 50,368 machines in the user's V2 environment.
+
+### MAME configuration increment
+
+The V2 now contains a relational configuration schema and a catalog service in `serm_v2.services.mame_configuration_catalog`.
+
+The service uses the **configured MAME executable** as the source of truth and queries:
+
+```text
+mame.exe -version
+mame.exe -showconfig
+mame.exe -noreadconfig -showconfig
+mame.exe -showusage
+```
+
+The database records:
+
+- native options;
+- observed defaults;
+- current configuration observation;
+- option type and recommended UI control;
+- discrete choices declared by the executable usage text;
+- configuration surface;
+- scope and precedence model;
+- dependencies;
+- hardware capability constraints;
+- SERM profiles;
+- configuration file bindings.
+
+Shaders/artworks remain catalogued but are marked for the dedicated `Shaders / Bezels` surface rather than being mixed into the main configuration UI.
+
+The next increment is to expose this catalog in `Configurações → MAME`, replace the static V2 option specification progressively, and then add the documented dependency graph and Hardware Profile filtering.
+
+The first MAME integration intentionally stops at safe extraction/validation. The next MAME increments are parser → provenance → persistence → resolution/refresh fallback handling → display geometry → Timing Advisor.
 
 ## Milestone 6 — Convenience providers
 
@@ -103,7 +138,7 @@ This increment intentionally stops at safe extraction/validation. The next MAME 
 - per-game SERM/MAME execution profiles;
 - decision provenance and diagnostics.
 
-See `v2/docs/timing-and-display-planning.md` and `v2/docs/mame-dat-scraper.md`.
+See `v2/docs/timing-and-display-planning.md`, `v2/docs/mame-dat-scraper.md`, `v2/docs/mame-data-and-profile-storage.md` and `v2/docs/configuration-data-model.md`.
 
 ## Rule
 
