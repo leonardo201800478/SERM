@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 from ..integrations.launchbox import LaunchBoxIntegration
 from ..integrations.launchbox_provider import LaunchBoxProvider
 from ..services.mame_catalog_service import MameCatalogError, MameCatalogService
+from ..services.mame_classification_service import MameClassificationError, MameClassificationService
 from ..sources.acquisition.no_intro_archive import NoIntroArchiveProvider
 from ..sources.acquisition.redump import RedumpProvider
 
@@ -32,7 +33,6 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True, slots=True)
 class _Row:
     """Representa um sistema exibido e seu objeto de aquisição."""
-
     name: str
     entry: object
     state: str
@@ -40,7 +40,6 @@ class _Row:
 
 class _BatchWorker(QThread):
     """Executa downloads em lote fora da thread da interface."""
-
     progress = Signal(int, int, str)
     message = Signal(str)
     done = Signal(int, int)
@@ -73,7 +72,6 @@ class _BatchWorker(QThread):
 
 class _MameCatalogWorker(QThread):
     """Executa a ingestão do ListXML pelo MAME configurado sem bloquear o Qt."""
-
     completed = Signal(object)
     failed = Signal(str)
 
@@ -87,9 +85,31 @@ class _MameCatalogWorker(QThread):
             self.failed.emit(f"{type(exc).__name__}: {exc}")
 
 
+class _MameCatlistWorker(QThread):
+    """Importa o CATLIST em background para manter a interface responsiva."""
+    message = Signal(str)
+    completed = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, database_path, mame_root, parent=None) -> None:
+        super().__init__(parent)
+        self.database_path = database_path
+        self.mame_root = mame_root
+
+    def run(self) -> None:
+        """Executa a Etapa 2 e encaminha cada evento para o log da GUI."""
+        try:
+            service = MameClassificationService(self.database_path, self.mame_root)
+            result = service.ingest(logger=self.message.emit)
+            self.completed.emit(result)
+        except MameClassificationError as exc:
+            self.failed.emit(str(exc))
+        except Exception as exc:  # noqa: BLE001
+            self.failed.emit(f"{type(exc).__name__}: {exc}")
+
+
 class DatSourceTab(QWidget):
     """Aba genérica com seleção individual de sistemas e operações em lote."""
-
     def __init__(self, title: str, loader, installer, status_checker, parent=None) -> None:
         super().__init__(parent)
         self.title = title
@@ -108,13 +128,7 @@ class DatSourceTab(QWidget):
         self.summary = QLabel("Nenhum sistema carregado")
         layout.addWidget(self.summary)
         actions = QHBoxLayout()
-        actions_config = (
-            ("BUSCAR DATS", self.search, "search_button"),
-            ("INSTALAR SELECIONADOS", self.install_selected, "install_button"),
-            ("VERIFICAR ATUALIZAÇÕES", self.check_updates, "update_button"),
-            ("SELECIONAR TODOS", self.select_all, "select_button"),
-            ("LIMPAR SELEÇÃO", self.clear_selection, "clear_button"),
-        )
+        actions_config = (("BUSCAR DATS", self.search, "search_button"), ("INSTALAR SELECIONADOS", self.install_selected, "install_button"), ("VERIFICAR ATUALIZAÇÕES", self.check_updates, "update_button"), ("SELECIONAR TODOS", self.select_all, "select_button"), ("LIMPAR SELEÇÃO", self.clear_selection, "clear_button"))
         for text, slot, attr in actions_config:
             button = QPushButton(text)
             button.clicked.connect(slot)
@@ -257,27 +271,31 @@ class DatSourceTab(QWidget):
 
 
 class _MameTab(QWidget):
-    """Sessão MAME do Scraper de DATs; usa o executável definido em Diretórios."""
-
+    """Sessão MAME do Scraper de DATs; ListXML e CATLIST são etapas separadas."""
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.service = MameCatalogService()
         self.worker: _MameCatalogWorker | None = None
+        self.catlist_worker: _MameCatlistWorker | None = None
         self._build_ui()
 
     def _build_ui(self) -> None:
-        """Monta a sessão MAME com ingestão, status, progresso e log."""
+        """Monta a sessão MAME com operações independentes e log operacional."""
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("MAME — DAT / ListXML"))
+        layout.addWidget(QLabel("MAME — DAT / Catálogo"))
         self.executable = QLabel("Executável configurado: —")
         layout.addWidget(self.executable)
-        self.status = QLabel("Nenhuma ingestão executada.")
+        self.status = QLabel("Nenhuma operação executada.")
         layout.addWidget(self.status)
 
         actions = QHBoxLayout()
-        self.run_button = QPushButton("OBTER DAT DO MAME (-listxml)")
+        self.run_button = QPushButton("OBTER LISTXML (-listxml)")
         self.run_button.clicked.connect(self.ingest)
         actions.addWidget(self.run_button)
+        self.catlist_button = QPushButton("IMPORTAR CATLIST")
+        self.catlist_button.setToolTip("Importa folders\\catlist.ini; usa cat32en\\catlist.ini somente como fallback.")
+        self.catlist_button.clicked.connect(self.ingest_catlist)
+        actions.addWidget(self.catlist_button)
         self.refresh_button = QPushButton("ATUALIZAR EXECUTÁVEL")
         self.refresh_button.clicked.connect(self.refresh)
         actions.addWidget(self.refresh_button)
@@ -291,7 +309,7 @@ class _MameTab(QWidget):
 
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
-        self.log.setMaximumBlockCount(2000)
+        self.log.setMaximumBlockCount(3000)
         layout.addWidget(self.log, 1)
         self.refresh()
 
@@ -300,7 +318,7 @@ class _MameTab(QWidget):
         timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
         line = f"{timestamp} | {level:<7} | {message}"
         self.log.appendPlainText(line)
-        logger.info("[MAME ListXML] %s", line)
+        logger.info("[MAME Scraper] %s", line)
 
     def refresh(self) -> None:
         """Mostra o executável MAME atualmente selecionado em Diretórios."""
@@ -313,6 +331,7 @@ class _MameTab(QWidget):
             self.executable.setText("Executável configurado: não definido")
             self.status.setText(str(exc))
             self.run_button.setEnabled(False)
+            self.catlist_button.setEnabled(False)
             self._log("WARN", str(exc))
 
     def ingest(self) -> None:
@@ -323,6 +342,7 @@ class _MameTab(QWidget):
         if not self.run_button.isEnabled():
             return
         self.run_button.setEnabled(False)
+        self.catlist_button.setEnabled(False)
         self.refresh_button.setEnabled(False)
         self.progress.setVisible(True)
         self.status.setText("Executando MAME -listxml…")
@@ -333,6 +353,53 @@ class _MameTab(QWidget):
         self.worker.finished.connect(self._finished)
         self.worker.start()
 
+    def ingest_catlist(self) -> None:
+        """Inicia a importação do CATLIST sem bloquear a interface."""
+        if self.catlist_worker and self.catlist_worker.isRunning():
+            return
+        try:
+            executable = self.service.configured_executable()
+        except MameCatalogError as exc:
+            self._log("ERROR", str(exc))
+            return
+        database_path = self.service.DB_FILE
+        mame_root = executable.parent
+        self.run_button.setEnabled(False)
+        self.catlist_button.setEnabled(False)
+        self.refresh_button.setEnabled(False)
+        self.progress.setVisible(True)
+        self.status.setText("Importando CATLIST…")
+        self._log("START", "Iniciando Etapa 2 — classificação CATLIST")
+        self._log("INFO", f"Raiz MAME para fontes: {mame_root}")
+        self.catlist_worker = _MameCatlistWorker(database_path, mame_root, self)
+        self.catlist_worker.message.connect(lambda msg: self._log("INFO", msg))
+        self.catlist_worker.completed.connect(self._catlist_completed)
+        self.catlist_worker.failed.connect(self._catlist_failed)
+        self.catlist_worker.finished.connect(self._catlist_finished)
+        self.catlist_worker.start()
+
+    def _catlist_completed(self, result: object) -> None:
+        """Mostra o resumo da importação CATLIST."""
+        data = result
+        self.status.setText(f"CATLIST concluído | entradas={data['entries']:,} | resolvidas={data['resolved']:,} | não resolvidas={data['unresolved']:,}")
+        self._log("OK", f"CATLIST | entradas={data['entries']:,}")
+        self._log("OK", f"CATLIST | resolvidas={data['resolved']:,}")
+        self._log("OK", f"CATLIST | não resolvidas={data['unresolved']:,}")
+        self._log("OK", f"CATLIST | source_id={data['source_id']}")
+        self._log("DONE", "Etapa 2 — classificação CATLIST concluída")
+
+    def _catlist_failed(self, message: str) -> None:
+        """Exibe falha do CATLIST preservando a causa."""
+        self.status.setText("Falha na importação CATLIST")
+        self._log("ERROR", message)
+        self._log("DONE", "Etapa 2 encerrada com erro; dados anteriores preservados")
+
+    def _catlist_finished(self) -> None:
+        """Libera controles depois da thread CATLIST."""
+        self.progress.setVisible(False)
+        self.refresh_button.setEnabled(True)
+        self.refresh()
+
     def _completed(self, result: object) -> None:
         """Exibe métricas, proveniência e política de deduplicação da ingestão."""
         data = result
@@ -342,10 +409,7 @@ class _MameTab(QWidget):
         mode = "REUTILIZADA (mesmo SHA-256)" if data.get("deduplicated") else "NOVA IMPORTAÇÃO"
         if data.get("force"):
             mode = "FORÇADA"
-        self.status.setText(
-            f"Concluído | MAME {build} | {data['machine_count']:,} máquinas | "
-            f"{data['display_count']:,} displays | {elapsed:.2f}s"
-        )
+        self.status.setText(f"Concluído | MAME {build} | {data['machine_count']:,} máquinas | {data['display_count']:,} displays | {elapsed:.2f}s")
         self._log("OK", f"Versão/build: {build}")
         self._log("OK", f"Máquinas: {data['machine_count']:,}")
         self._log("OK", f"Displays normalizados: {data['display_count']:,}")
@@ -372,7 +436,6 @@ class _MameTab(QWidget):
 
 class DatScraperPage(QWidget):
     """Agrupa todas as sessões de DAT solicitadas pelo usuário."""
-
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.launchbox = LaunchBoxIntegration()
@@ -398,7 +461,6 @@ class DatScraperPage(QWidget):
             entries = self.no_intro.fetch_catalog()
             names = tuple(platform.name for platform in self.launchbox_provider.iter_platforms())
             return self.no_intro.match(names, entries)
-
         return DatSourceTab("No-Intro — DATs", load, self.no_intro.download, self.no_intro.status, self)
 
     def _redump_tab(self) -> DatSourceTab:
@@ -407,7 +469,6 @@ class DatScraperPage(QWidget):
             entries = self.redump.fetch_catalog()
             names = tuple(platform.name for platform in self.launchbox_provider.iter_platforms())
             return self.redump.match(names, entries)
-
         return DatSourceTab("Redump — DATs", load, self.redump.download, self.redump.status, self)
 
     @staticmethod
@@ -416,11 +477,7 @@ class DatScraperPage(QWidget):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.addWidget(QLabel(name))
-        detail = QLabel(
-            "A sessão está reservada para o backend original. O código-fonte atual "
-            "não contém uma implementação recuperável desta fonte; por isso nenhum "
-            "download fictício será executado."
-        )
+        detail = QLabel("A sessão está reservada para o backend original. O código-fonte atual não contém uma implementação recuperável desta fonte; por isso nenhum download fictício será executado.")
         detail.setWordWrap(True)
         layout.addWidget(detail)
         row = QHBoxLayout()
