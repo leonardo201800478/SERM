@@ -104,6 +104,7 @@ class MameCatalogService:
             if existing and not force:
                 self._log(f"MAME | [{run_id}] | DEDUP | import_id={existing[0]} | hash já persistido")
                 result = self._result(existing[0], existing[1], existing[2], Path(existing[3]) if existing[3] else source, source_hash, started, True, run_id)
+                db.commit()
                 result["ini_results"] = self._ingest_inis(executable.parent)
                 return result
 
