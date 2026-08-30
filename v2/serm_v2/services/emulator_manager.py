@@ -222,11 +222,36 @@ class RetroArchManager:
         """Inicializa o gerenciador."""
         self.root = Path(root).expanduser() if root else None
 
+    def discover(self) -> tuple[Path | None, Path | None, Path | None]:
+        """Localiza retroarch.exe, sua raiz e o diretório de cores."""
+        candidates: list[Path] = []
+        if self.root: candidates.append(self.root / "retroarch.exe")
+        candidates.extend((Path.home() / "RetroArch-Win64" / "retroarch.exe", Path("C:/RetroArch/retroarch.exe")))
+        executable = next((path.resolve() for path in candidates if path.is_file()), None)
+        root = executable.parent if executable else self.root
+        cores = root / "cores" if root else None
+        return executable, root, cores
+
+    def detect_version(self, executable: Path | None) -> str | None:
+        """Lê a versão persistida pelo SERM sem iniciar o RetroArch."""
+        if not executable or not executable.is_file(): return None
+        marker = executable.parent / self.VERSION_MARKER
+        if marker.is_file():
+            try: value = marker.read_text(encoding="utf-8-sig", errors="ignore").strip()
+            except OSError: value = ""
+            if value: return value.splitlines()[0].strip()
+        return None
+
+    @classmethod
+    def _version_key(cls, value: str) -> tuple[int, ...]:
+        """Converte uma versão numérica em chave ordenável."""
+        return tuple(int(part) for part in value.split("."))
+
     @classmethod
     def _download_text(cls, url: str) -> str:
         """Baixa texto UTF-8 do Buildbot com retry."""
         last: Exception | None = None
-        for _ in range(1, cls.RETRIES + 1):
+        for _ in range(cls.RETRIES):
             try:
                 request = Request(url, headers={"User-Agent": "SERM/2.0", "Accept-Encoding": "identity"})
                 with urlopen(request, timeout=cls.TIMEOUT) as response: return response.read().decode("utf-8", errors="replace")
@@ -241,11 +266,6 @@ class RetroArchManager:
             match = re.search(r"(?:^|/)v?(\d+\.\d+(?:\.\d+)*)/?$", href.strip())
             if match: versions.add(match.group(1))
         return sorted(versions, key=cls._version_key, reverse=True)
-
-    @classmethod
-    def _version_key(cls, value: str) -> tuple[int, ...]:
-        """Converte uma versão numérica em chave ordenável."""
-        return tuple(int(part) for part in value.split("."))
 
     @classmethod
     def latest_stable_version(cls) -> str:
@@ -266,7 +286,7 @@ class RetroArchManager:
 
     @classmethod
     def buildroot(cls, channel: str, stable_version: str | None = None) -> tuple[str, str]:
-        """Resolve URL e versão lógica para Stable ou Nightly do frontend."""
+        """Resolve URL e versão lógica para Stable ou Nightly."""
         normalized = channel.strip().casefold()
         if normalized == "stable":
             version = stable_version or cls.latest_stable_version(); return f"{cls.BUILD_ROOT}/stable/{version}/windows/{cls.WINDOWS_ARCH}/", version
@@ -275,7 +295,7 @@ class RetroArchManager:
 
     @classmethod
     def _core_catalog_url(cls, channel: str) -> str:
-        """Retorna o catálogo de cores independente da versão do frontend."""
+        """Retorna a URL do catálogo individual de cores."""
         normalized = channel.casefold()
         if normalized == "nightly": return f"{cls.NIGHTLY_ROOT}.index-extended"
         if normalized == "stable": return f"{cls.STABLE_CORES_ROOT}.index-extended"
@@ -283,7 +303,7 @@ class RetroArchManager:
 
     @staticmethod
     def _parse_core_index(text: str, channel: str) -> tuple[CoreInfo, ...]:
-        """Converte .index-extended em CoreInfo."""
+        """Converte um .index-extended em CoreInfo."""
         result: list[CoreInfo] = []
         for line in text.splitlines():
             parts = line.strip().split()
@@ -312,7 +332,7 @@ class RetroArchManager:
         return tuple(core for core in cores if (not current_only or not cls.is_legacy_core(core)) and (not hide_games or not cls.is_game_or_engine_core(core)))
 
     def list_cores(self, channel: str = "nightly", stable_version: str | None = None, *, current_only: bool = False, hide_games: bool = False) -> tuple[CoreInfo, ...]:
-        """Lê o catálogo oficial sem depender da versão do frontend."""
+        """Lê o catálogo oficial de cores, sem depender da versão do frontend."""
         _ = stable_version
         result = self._parse_core_index(self._download_text(self._core_catalog_url(channel)), channel)
         filtered = self.filter_cores(result, current_only=current_only, hide_games=hide_games)
@@ -358,15 +378,10 @@ class RetroArchManager:
 
     def install_core(self, filename: str, destination: Path, *, channel: str = "nightly", stable_version: str | None = None, progress=None, log=None) -> Path:
         """Baixa, valida CRC32 e instala um core do catálogo correto."""
-        _ = stable_version
-        normalized = channel.casefold()
-        if normalized == "nightly": base = self.NIGHTLY_ROOT
-        elif normalized == "stable": base = self.STABLE_CORES_ROOT
-        else: raise ValueError(f"Canal de core inválido: {channel!r}")
-        url = f"{base}{filename}"; destination = Path(destination).expanduser().resolve(); destination.mkdir(parents=True, exist_ok=True)
+        buildroot, version = self.buildroot(channel, stable_version); url = f"{buildroot}{filename}"; destination = Path(destination).expanduser().resolve(); destination.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix="serm-core-") as temp_name:
             temp = Path(temp_name); archive = temp / Path(filename).name
-            if log: log(f"RETROARCH | canal={channel} | core={filename}"); log(f"CORE | download={url}")
+            if log: log(f"RETROARCH | canal={channel} | versão={version} | core={filename}"); log(f"CORE | download={url}")
             self._download_file(url, archive, progress, log)
             with zipfile.ZipFile(archive) as package:
                 bad = package.testzip()
@@ -463,3 +478,6 @@ class RetroArchManager:
         except OSError: logger.warning("Não foi possível gravar marcador de versão: %s", destination / self.VERSION_MARKER)
         if log: log(f"RETROARCH OK | executável={executable} | versão={version}")
         return executable
+
+
+__all__ = ["EmulatorManager", "RetroArchManager", "EmulatorStatus", "DownloadResult", "CoreInfo"]
