@@ -79,7 +79,7 @@ class StartupSplash(QWidget):
             self.move(geometry.center() - self.rect().center())
 
     @classmethod
-    def startup(cls) -> "StartupSplash":
+    def startup(cls) -> StartupSplash:
         """Cria e mostra o splash de inicialização."""
         splash = cls("startup")
         splash.show()
@@ -87,7 +87,7 @@ class StartupSplash(QWidget):
         return splash
 
     @classmethod
-    def shutdown(cls) -> "StartupSplash":
+    def shutdown(cls) -> StartupSplash:
         """Cria e mostra o splash de encerramento."""
         splash = cls("shutdown")
         splash.show()
