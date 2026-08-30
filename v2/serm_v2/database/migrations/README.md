@@ -2,14 +2,29 @@
 
 Migrations in this directory belong exclusively to the V2 schema.
 
-The first migration will be created after the conceptual data model is reviewed. It will not alter or import the V1 schema.
+## Regras
 
-Rules:
+- não importar o schema da V1;
+- foreign keys habilitadas;
+- índices explícitos;
+- toda coluna precisa ter consumidor definido;
+- migrations versionadas e idempotentes;
+- mudanças destrutivas são permitidas durante o desenvolvimento da V2 quando melhorarem o modelo.
 
-- no compatibility tables;
-- no unused placeholder columns;
-- foreign keys enabled;
-- explicit indexes;
-- every column has a defined consumer;
-- migrations are versioned and tested;
-- destructive changes are allowed in V2 during development when they improve the model.
+## Migration atual
+
+`001_configuration_schema.sql` cria a base relacional para a futura aba **Configurações** e para o catálogo de hardware/configuração:
+
+- emuladores;
+- grupos de configuração;
+- opções nativas;
+- valores discretos;
+- dependências entre opções;
+- vínculos com capacidades do hardware;
+- escopos e precedência;
+- arquivos de configuração;
+- perfis SERM;
+- observações da versão real do executável;
+- capacidades detectadas do PC.
+
+A migration é aplicada automaticamente pelo bootstrap da V2.
