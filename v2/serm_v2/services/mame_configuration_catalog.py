@@ -34,6 +34,7 @@ class MameOption:
     value_type: str
     control_type: str
     default_value: str | None
+    choices: tuple[str, ...] = ()
 
 
 class MameConfigurationCatalog:
@@ -82,7 +83,8 @@ class MameConfigurationCatalog:
     }
 
     BOOL_RE = re.compile(r"^\[no\](.+)$")
-    OPTION_RE = re.compile(r"^\s*-{1,2}([^\s]+)(?:\s+.*)?$")
+    OPTION_RE = re.compile(r"^\s*-{1,2}([^\s]+)(?:\s+(.*))?$")
+    CHOICE_RE = re.compile(r"[<(]([^>)]*)[>)]")
 
     def configured_executable(self) -> Path:
         """Retorna o executável MAME escolhido explicitamente na guia Diretórios."""
@@ -170,48 +172,51 @@ class MameConfigurationCatalog:
         current: dict[str, str],
         defaults: dict[str, str],
     ) -> list[MameOption]:
-        """Extrai opções, grupos e descrições resumidas do ``-showusage``."""
+        """Extrai opções, grupos, descrições e choices do ``-showusage``."""
         result: list[MameOption] = []
         current_category = "Core Misc Options"
         pending_key: str | None = None
+        pending_spec = ""
         pending_description: list[str] = []
+        pending_boolean = False
+        seen: set[str] = set()
 
         def flush() -> None:
-            nonlocal pending_key, pending_description
+            nonlocal pending_key, pending_spec, pending_description, pending_boolean
             if pending_key is None:
                 return
-            category = current_category
-            value = current.get(pending_key, defaults.get(pending_key))
-            bool_match = cls.BOOL_RE.match(pending_key)
-            canonical = bool_match.group(1) if bool_match else pending_key
-            # MAME's usage may expose aliases with '/' in the same line. Keep the
-            # first canonical option as the database key; aliases are handled later.
-            canonical = canonical.lstrip("-")
-            group = cls.CATEGORY_MAP.get(category, ("system", "configuration"))
-            if canonical and canonical not in {item.key for item in result}:
-                if bool_match or canonical.startswith("no") and canonical[2:] in current:
+            canonical = pending_key.lstrip("-")
+            value = current.get(canonical, defaults.get(canonical))
+            if canonical and canonical not in seen:
+                choices = cls._extract_choices(pending_spec)
+                if pending_boolean:
                     value_type, control = "bool", "checkbox"
-                elif value is not None and cls._is_number(value):
-                    value_type, control = "number", "spinbox"
+                elif choices:
+                    value_type, control = "enum", "combobox"
                 elif canonical.endswith("path") or canonical.endswith("_directory"):
                     value_type, control = "path", "path"
+                elif value is not None and cls._is_number(value):
+                    value_type, control = "number", "spinbox"
                 else:
                     value_type, control = "string", "text"
                 result.append(
                     MameOption(
                         key=canonical,
                         description=" ".join(pending_description).strip(),
-                        category=category,
+                        category=current_category,
                         value_type=value_type,
                         control_type=control,
                         default_value=defaults.get(canonical, value),
+                        choices=choices,
                     )
                 )
+                seen.add(canonical)
             pending_key = None
+            pending_spec = ""
             pending_description = []
+            pending_boolean = False
 
-        lines = text.splitlines()
-        for line in lines:
+        for line in text.splitlines():
             stripped = line.strip()
             if not stripped:
                 continue
@@ -223,16 +228,30 @@ class MameConfigurationCatalog:
             if match:
                 flush()
                 token = match.group(1)
+                spec = match.group(2) or ""
                 token = token.split("/", 1)[0]
-                token = token.replace("-[no]", "")
-                if token.startswith("[no]"):
+                pending_boolean = token.startswith("[no]")
+                if pending_boolean:
                     token = token[4:]
                 pending_key = token
+                pending_spec = spec
                 continue
             if pending_key is not None:
                 pending_description.append(stripped)
         flush()
         return result
+
+    @classmethod
+    def _extract_choices(cls, spec: str) -> tuple[str, ...]:
+        """Extrai alternativas declaradas diretamente na assinatura da opção."""
+        if not spec:
+            return ()
+        match = cls.CHOICE_RE.search(spec)
+        if not match:
+            return ()
+        raw = match.group(1)
+        values = tuple(part.strip().strip("`") for part in raw.split("|") if part.strip())
+        return values
 
     @staticmethod
     def _is_number(value: str) -> bool:
@@ -304,6 +323,18 @@ class MameConfigurationCatalog:
                         surface, 0, version, "mame -showusage", order,
                     ),
                 )
+                option_id = connection.execute(
+                    "SELECT id FROM config_option WHERE emulator_id=? AND key=?",
+                    (emulator_id, option.key),
+                ).fetchone()[0]
+                connection.execute("DELETE FROM config_option_value WHERE option_id=?", (option_id,))
+                for value_order, choice in enumerate(option.choices):
+                    connection.execute(
+                        """INSERT INTO config_option_value
+                        (option_id, value, label, description, sort_order, is_default)
+                        VALUES (?, ?, ?, NULL, ?, ?)""",
+                        (option_id, choice, choice, value_order, int(choice == option.default_value)),
+                    )
             connection.commit()
 
     def _ensure_schema(self, connection: sqlite3.Connection) -> None:
