@@ -1,7 +1,6 @@
 """Importação versionada do CATLIST para enriquecimento do catálogo MAME."""
 from __future__ import annotations
 
-import configparser
 import hashlib
 import re
 import sqlite3
@@ -17,8 +16,8 @@ class MameClassificationService:
     """Localiza e importa o CATLIST sem alterar os dados do ListXML.
 
     Prioridade: folders/catlist.ini; fallback: cat32en/catlist.ini.
-    Cada arquivo é uma fonte versionada. Entradas sem máquina correspondente
-    no catálogo ficam preservadas como ``unresolved``.
+    Entradas sem máquina correspondente no catálogo ficam preservadas como
+    ``unresolved``.
     """
 
     SOURCE_TYPE = "catlist"
@@ -99,8 +98,13 @@ class MameClassificationService:
             if source:
                 source_id = int(source[0])
                 log(f"MAME | CATLIST | SKIP | fonte já importada | source_id={source_id}")
-                connection.close()
-                return {"source_id": source_id, "entries": 0, "resolved": 0, "unresolved": 0, "status": "already_imported"}
+                return {
+                    "source_id": source_id,
+                    "entries": 0,
+                    "resolved": 0,
+                    "unresolved": 0,
+                    "status": "already_imported",
+                }
 
             connection.execute("BEGIN")
             cursor = connection.execute(
@@ -111,40 +115,73 @@ class MameClassificationService:
             )
             source_id = int(cursor.lastrowid)
 
+            # O dicionário deve mapear nome -> ID real da máquina.
+            # A versão anterior usava SELECT name e acabava gravando o nome
+            # textual na FK machine_id, causando FOREIGN KEY constraint failed.
             machine_rows = {
-                row[0]: row[0] for row in connection.execute("SELECT name FROM mame_machine")
+                row[1]: row[0]
+                for row in connection.execute("SELECT id, name FROM mame_machine")
             }
+
             entries = resolved = unresolved = 0
             for section, machine_name in self._entries(path):
                 category, subcategory, flags = self._parse_section(section)
                 machine_id = machine_rows.get(machine_name)
                 resolved_status = "resolved" if machine_id is not None else "unresolved"
+
                 connection.execute(
                     """INSERT INTO mame_classification
                        (machine_id, source_document_id, machine_name, section_raw,
                         category, subcategory, flags_raw, resolved_status, imported_at)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (machine_id, source_id, machine_name, section, category, subcategory, flags, resolved_status, now),
+                    (
+                        machine_id,
+                        source_id,
+                        machine_name,
+                        section,
+                        category,
+                        subcategory,
+                        flags,
+                        resolved_status,
+                        now,
+                    ),
                 )
                 entries += 1
                 if machine_id is None:
                     unresolved += 1
                 else:
                     resolved += 1
+
                 if entries % 5000 == 0:
-                    log(f"MAME | CATLIST | PROGRESS | entradas={entries:,} | resolvidas={resolved:,} | não_resolvidas={unresolved:,}")
+                    log(
+                        f"MAME | CATLIST | PROGRESS | entradas={entries:,} | "
+                        f"resolvidas={resolved:,} | não_resolvidas={unresolved:,}"
+                    )
 
             connection.execute(
-                "UPDATE mame_source_document SET status='completed' WHERE id=?", (source_id,)
+                "UPDATE mame_source_document SET status='completed' WHERE id=?",
+                (source_id,),
             )
             connection.commit()
-            log(f"MAME | CATLIST | DONE | entradas={entries:,} | resolvidas={resolved:,} | não_resolvidas={unresolved:,} | source_id={source_id}")
-            return {"source_id": source_id, "entries": entries, "resolved": resolved, "unresolved": unresolved, "status": "completed"}
+            log(
+                f"MAME | CATLIST | DONE | entradas={entries:,} | "
+                f"resolvidas={resolved:,} | não_resolvidas={unresolved:,} | source_id={source_id}"
+            )
+            return {
+                "source_id": source_id,
+                "entries": entries,
+                "resolved": resolved,
+                "unresolved": unresolved,
+                "status": "completed",
+            }
         except Exception:
             connection.rollback()
             try:
-                if 'source_id' in locals():
-                    connection.execute("DELETE FROM mame_source_document WHERE id=?", (source_id,))
+                if "source_id" in locals():
+                    connection.execute(
+                        "DELETE FROM mame_source_document WHERE id=?",
+                        (source_id,),
+                    )
                     connection.commit()
             except sqlite3.Error:
                 connection.rollback()
