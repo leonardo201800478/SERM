@@ -1,4 +1,4 @@
-"""Pipeline completo para validar e gerar Machine Display Profiles do MAME."""
+"""Pipeline de ingestão do ListXML do MAME e resolução de display."""
 from __future__ import annotations
 
 import hashlib
@@ -9,18 +9,19 @@ import subprocess
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from ..runtime.paths import data_root, database_path
 
 
 class MameDisplayPipelineError(RuntimeError):
-    """Erro durante a auditoria de display do MAME."""
+    """Erro durante a ingestão ou auditoria do ListXML do MAME."""
 
 
 class MameDisplayPipeline:
-    """Importa ListXML, compara fallbacks e materializa perfis de display."""
+    """Captura ListXML, persiste a árvore XML e normaliza dados de display."""
 
-    PARSER_VERSION = "1.0"
+    PARSER_VERSION = "1.1"
     RAW_ROOT = data_root() / "mame" / "listxml"
 
     def __init__(self, db_path: Path | None = None) -> None:
@@ -35,10 +36,11 @@ class MameDisplayPipeline:
         timeout: float = 180.0,
         force: bool = False,
     ) -> dict[str, object]:
-        """Executa a auditoria completa contra o MAME instalado."""
+        """Executa a captura, ingestão e resolução do catálogo MAME."""
         executable_path = Path(executable).expanduser().resolve()
         if not executable_path.is_file():
             raise MameDisplayPipelineError(f"MAME não encontrado: {executable_path}")
+
         xml_text = self._run_mame(executable_path, timeout)
         import_result = self._import_xml(xml_text, executable_path, force=force)
         fallback = self._load_fallbacks(resolution_ini, vsync_ini)
@@ -55,13 +57,19 @@ class MameDisplayPipeline:
 
     @staticmethod
     def _run_mame(executable: Path, timeout: float) -> str:
-        """Executa ``mame -listxml`` sem shell."""
+        """Executa ``mame -listxml`` sem shell e retorna o XML bruto."""
         try:
             result = subprocess.run(
-                [str(executable), "-listxml"], cwd=executable.parent,
-                stdin=subprocess.DEVNULL, capture_output=True, text=True,
-                encoding="utf-8", errors="replace", timeout=timeout,
-                check=False, shell=False,
+                [str(executable), "-listxml"],
+                cwd=executable.parent,
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=timeout,
+                check=False,
+                shell=False,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
@@ -74,162 +82,435 @@ class MameDisplayPipeline:
             raise MameDisplayPipelineError("MAME -listxml retornou XML vazio.")
         return result.stdout
 
-    def _import_xml(self, xml_text: str, executable: Path, *, force: bool) -> tuple[int, str | None, int, int, Path, str]:
-        """Importa ListXML de forma lossless e cria o modelo normalizado."""
+    def _import_xml(
+        self,
+        xml_text: str,
+        executable: Path,
+        *,
+        force: bool,
+    ) -> tuple[int, str | None, int, int, Path, str]:
+        """Importa o ListXML em uma única transação e preserva o XML bruto."""
         try:
             root = ET.fromstring(xml_text)
         except ET.ParseError as exc:
             raise MameDisplayPipelineError("ListXML inválido.") from exc
         if root.tag != "mame":
             raise MameDisplayPipelineError(f"Raiz inesperada: {root.tag}")
+
         source_hash = hashlib.sha256(xml_text.encode("utf-8")).hexdigest()
         self.RAW_ROOT.mkdir(parents=True, exist_ok=True)
         xml_path = self.RAW_ROOT / f"listxml-{source_hash[:16]}.xml"
         xml_path.write_text(xml_text, encoding="utf-8", newline="\n")
         machines = list(root.findall("machine"))
+
         with sqlite3.connect(self.db_path) as db:
             db.execute("PRAGMA foreign_keys=ON")
             self._ensure_schema(db)
-            emulator_id = db.execute("SELECT id FROM emulator_definition WHERE slug='mame'").fetchone()
-            if emulator_id is None:
+            emulator_row = db.execute(
+                "SELECT id FROM emulator_definition WHERE slug='mame'"
+            ).fetchone()
+            if emulator_row is None:
                 raise MameDisplayPipelineError("Emulador MAME não está cadastrado.")
-            emulator_id = int(emulator_id[0])
+            emulator_id = int(emulator_row[0])
+
             if not force:
                 existing = db.execute(
-                    "SELECT id,mame_build,machine_count,xml_path FROM mame_listxml_import WHERE source_hash=?",
+                    "SELECT id,mame_build,machine_count,xml_path "
+                    "FROM mame_listxml_import WHERE source_hash=? ORDER BY id DESC LIMIT 1",
                     (source_hash,),
                 ).fetchone()
                 if existing:
                     display_count = db.execute(
-                        "SELECT COUNT(*) FROM mame_display d JOIN mame_machine m ON m.id=d.machine_id WHERE m.import_id=?",
+                        "SELECT COUNT(*) FROM mame_display d "
+                        "JOIN mame_machine m ON m.id=d.machine_id WHERE m.import_id=?",
                         (existing[0],),
                     ).fetchone()[0]
-                    return int(existing[0]), existing[1], int(existing[2]), int(display_count), Path(existing[3]), source_hash
+                    return (
+                        int(existing[0]),
+                        existing[1],
+                        int(existing[2]),
+                        int(display_count),
+                        Path(existing[3]) if existing[3] else xml_path,
+                        source_hash,
+                    )
+
             now = datetime.now(timezone.utc).isoformat()
             row = db.execute(
                 """INSERT INTO mame_listxml_import
-                (emulator_id,executable,mame_build,mame_config,debug,imported_at,source_hash,xml_path,machine_count,parser_version)
+                (emulator_id,executable,mame_build,mame_config,debug,imported_at,
+                 source_hash,xml_path,machine_count,parser_version)
                 VALUES(?,?,?,?,?,?,?,?,?,?)""",
-                (emulator_id,str(executable),root.attrib.get("build"),root.attrib.get("mameconfig"),
-                 root.attrib.get("debug"),now,source_hash,str(xml_path),len(machines),self.PARSER_VERSION),
+                (
+                    emulator_id,
+                    str(executable),
+                    root.attrib.get("build"),
+                    root.attrib.get("mameconfig"),
+                    root.attrib.get("debug"),
+                    now,
+                    source_hash,
+                    str(xml_path),
+                    len(machines),
+                    self.PARSER_VERSION,
+                ),
             )
             import_id = int(row.lastrowid)
             root_id = self._insert_node(db, import_id, None, None, root, "/mame")
+
             display_count = 0
             for machine_index, machine in enumerate(machines):
                 machine_id = self._insert_machine(db, import_id, machine, now)
+                machine_path = f"/mame/machine[{machine_index}]"
                 node_id = self._insert_node(
-                    db, import_id, root_id, machine_id, machine,
-                    f"/mame/machine[{machine_index}]",
+                    db, import_id, root_id, machine_id, machine, machine_path
                 )
-                db.execute("UPDATE mame_machine SET xml_node_id=? WHERE id=?", (node_id, machine_id))
-                display_count += self._normalize_machine(db, machine_id, machine)
-            db.commit()
-        return import_id, root.attrib.get("build"), len(machines), display_count, xml_path, source_hash
+                db.execute(
+                    "UPDATE mame_machine SET xml_node_id=? WHERE id=?",
+                    (node_id, machine_id),
+                )
+                display_count += self._normalize_machine(
+                    db, machine_id, machine, machine_path
+                )
 
-    def _insert_machine(self, db: sqlite3.Connection, import_id: int, machine: ET.Element, ingested_at: str) -> int:
+            db.commit()
+
+        return (
+            import_id,
+            root.attrib.get("build"),
+            len(machines),
+            display_count,
+            xml_path,
+            source_hash,
+        )
+
+    def _insert_machine(
+        self,
+        db: sqlite3.Connection,
+        import_id: int,
+        machine: ET.Element,
+        ingested_at: str,
+    ) -> int:
         """Persiste identidade, classificação e proveniência da máquina."""
         a = machine.attrib
         row = db.execute(
             """INSERT INTO mame_machine
-            (import_id,name,sourcefile,isbios,isdevice,ismechanical,runnable,cloneof,romof,sampleof,description,year,manufacturer,ingested_at)
+            (import_id,name,sourcefile,isbios,isdevice,ismechanical,runnable,
+             cloneof,romof,sampleof,description,year,manufacturer,ingested_at)
             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (import_id,a.get("name",""),a.get("sourcefile"),a.get("isbios"),a.get("isdevice"),
-             a.get("ismechanical"),a.get("runnable"),a.get("cloneof"),a.get("romof"),a.get("sampleof"),
-             machine.findtext("description"),machine.findtext("year"),machine.findtext("manufacturer"),ingested_at),
+            (
+                import_id,
+                a.get("name", ""),
+                a.get("sourcefile"),
+                a.get("isbios"),
+                a.get("isdevice"),
+                a.get("ismechanical"),
+                a.get("runnable"),
+                a.get("cloneof"),
+                a.get("romof"),
+                a.get("sampleof"),
+                machine.findtext("description"),
+                machine.findtext("year"),
+                machine.findtext("manufacturer"),
+                ingested_at,
+            ),
         )
         return int(row.lastrowid)
 
-    def _insert_node(self, db, import_id, parent_id, machine_id, element, path) -> int:
-        """Persiste um nó XML e todos os seus atributos/texto.
-
-        A identidade do caminho é estrutural: cada filho recebe seu índice entre
-        os irmãos do mesmo elemento. Isso evita colisões quando dois elementos
-        possuem o mesmo ``name``/``tag`` e torna o caminho determinístico.
-        """
+    def _insert_node(
+        self,
+        db: sqlite3.Connection,
+        import_id: int,
+        parent_id: int | None,
+        machine_id: int | None,
+        element: ET.Element,
+        path: str,
+    ) -> int:
+        """Persiste um nó XML recursivamente usando identidade estrutural."""
         attrs = json.dumps(dict(element.attrib), ensure_ascii=False, sort_keys=True)
         db.execute(
             """INSERT INTO mame_xml_node
-            (import_id,parent_node_id,machine_id,element_name,ordinal,xml_path,text_value,attributes_json)
+            (import_id,parent_node_id,machine_id,element_name,ordinal,xml_path,
+             text_value,attributes_json)
             VALUES(?,?,?,?,?,?,?,?)""",
-            (import_id,parent_id,machine_id,element.tag,0,path,(element.text or "").strip() or None,attrs),
+            (
+                import_id,
+                parent_id,
+                machine_id,
+                element.tag,
+                0,
+                path,
+                (element.text or "").strip() or None,
+                attrs,
+            ),
         )
         node_id = int(db.execute("SELECT last_insert_rowid()").fetchone()[0])
-        counters: dict[str,int] = {}
+
+        counters: dict[str, int] = {}
         for child in element:
-            ordinal = counters.get(child.tag,0)
+            ordinal = counters.get(child.tag, 0)
             counters[child.tag] = ordinal + 1
             child_path = f"{path}/{child.tag}[{ordinal}]"
-            child_id = self._insert_node(db,import_id,node_id,machine_id,child,child_path)
-            db.execute("UPDATE mame_xml_node SET ordinal=? WHERE id=?",(ordinal,child_id))
+            self._insert_node(
+                db, import_id, node_id, machine_id, child, child_path
+            )
         return node_id
 
+    def _normalize_machine(
+        self,
+        db: sqlite3.Connection,
+        machine_id: int,
+        machine: ET.Element,
+        machine_path: str,
+    ) -> int:
+        """Normaliza os dados relevantes de uma máquina e retorna displays."""
+        display_count = 0
+        display_index = 0
+        for display in machine.findall("display"):
+            attrs = display.attrib
+            width = self._int(attrs.get("width"))
+            height = self._int(attrs.get("height"))
+            refresh_raw = attrs.get("refresh") or attrs.get("refresh_hz")
+            refresh_hz = self._float(refresh_raw)
+            orientation = attrs.get("rotate") or attrs.get("orientation")
+            path = f"{machine_path}/display[{display_index}]"
+            node_id = self._find_node_id(db, machine_id, path)
+            db.execute(
+                """INSERT INTO mame_display
+                (machine_id,tag,type,rotate,width,height,refresh_hz,refresh_raw,
+                 pixclock,htotal,hbend,hbstart,vtotal,vbend,vbstart,hsync,vsync,
+                 xaspect,yaspect,orientation_raw,source,confidence,xml_node_id)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    machine_id,
+                    attrs.get("tag"),
+                    attrs.get("type"),
+                    attrs.get("rotate"),
+                    width,
+                    height,
+                    refresh_hz,
+                    refresh_raw,
+                    attrs.get("pixclock"),
+                    attrs.get("htotal"),
+                    attrs.get("hbend"),
+                    attrs.get("hbstart"),
+                    attrs.get("vtotal"),
+                    attrs.get("vbend"),
+                    attrs.get("vbstart"),
+                    attrs.get("hsync"),
+                    attrs.get("vsync"),
+                    self._int(attrs.get("xaspect")),
+                    self._int(attrs.get("yaspect")),
+                    orientation,
+                    "listxml",
+                    "authoritative",
+                    node_id,
+                ),
+            )
+            display_count += 1
+            display_index += 1
+
+        # Keep the other normalized MAME tables populated without duplicating
+        # the XML tree. Only attributes with a direct schema mapping are copied.
+        for rom in machine.findall("rom"):
+            self._insert_rom(db, machine_id, rom, machine_path)
+        for disk in machine.findall("disk"):
+            self._insert_disk(db, machine_id, disk, machine_path)
+        for sample in machine.findall("sample"):
+            db.execute(
+                "INSERT INTO mame_sample(machine_id,name) VALUES(?,?)",
+                (machine_id, sample.attrib.get("name")),
+            )
+        return display_count
+
+    def _insert_rom(
+        self,
+        db: sqlite3.Connection,
+        machine_id: int,
+        element: ET.Element,
+        machine_path: str,
+    ) -> None:
+        """Persiste um elemento ``rom`` normalizado."""
+        a = element.attrib
+        db.execute(
+            """INSERT INTO mame_rom
+            (machine_id,name,bios,size,crc,sha1,md5,merge,region,offset,status,
+             optional,dispose)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                machine_id,
+                a.get("name"), a.get("bios"), a.get("size"), a.get("crc"),
+                a.get("sha1"), a.get("md5"), a.get("merge"), a.get("region"),
+                a.get("offset"), a.get("status"), a.get("optional"), a.get("dispose"),
+            ),
+        )
+
+    def _insert_disk(
+        self,
+        db: sqlite3.Connection,
+        machine_id: int,
+        element: ET.Element,
+        machine_path: str,
+    ) -> None:
+        """Persiste um elemento ``disk`` normalizado."""
+        a = element.attrib
+        db.execute(
+            """INSERT INTO mame_disk
+            (machine_id,name,md5,sha1,merge,region,index_value,writable,status,optional)
+            VALUES(?,?,?,?,?,?,?,?,?,?)""",
+            (
+                machine_id, a.get("name"), a.get("md5"), a.get("sha1"),
+                a.get("merge"), a.get("region"), a.get("index"),
+                a.get("writable"), a.get("status"), a.get("optional"),
+            ),
+        )
+
     @staticmethod
-    def _simple(db, table: str, machine_id: int, attrs: dict[str,str], mapping: dict[str,str]) -> None:
-        """Insere um elemento plano por mapeamento de atributos."""
-        columns=["machine_id",*mapping.values()]
-        values=[machine_id,*[attrs.get(source) for source in mapping]]
-        db.execute(f"INSERT INTO {table} ({','.join(columns)}) VALUES ({','.join('?' for _ in columns)})",values)
+    def _find_node_id(
+        db: sqlite3.Connection,
+        machine_id: int,
+        path: str,
+    ) -> int | None:
+        """Obtém o nó XML correspondente ao caminho de uma máquina."""
+        row = db.execute(
+            "SELECT id FROM mame_xml_node WHERE machine_id=? AND xml_path=? LIMIT 1",
+            (machine_id, path),
+        ).fetchone()
+        return int(row[0]) if row else None
 
     @staticmethod
     def _int(value: str | None) -> int | None:
-        """Converte inteiro opcional."""
+        """Converte inteiro opcional sem interromper a ingestão."""
         try:
             return int(value) if value is not None else None
-        except ValueError:
+        except (TypeError, ValueError):
             return None
 
     @staticmethod
     def _float(value: str | None) -> float | None:
-        """Converte float opcional."""
-        try:
-            return float(value) if value is not None else None
-        except ValueError:
+        """Converte float opcional, aceitando formatos comuns do MAME."""
+        if value is None:
             return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            match = re.search(r"[-+]?\d+(?:\.\d+)?", str(value))
+            return float(match.group(0)) if match else None
 
     @staticmethod
-    def _load_fallbacks(resolution_ini: str | Path | None, vsync_ini: str | Path | None) -> dict[str, dict[str, dict[str, object]]]:
-        """Lê os dois fallbacks sem assumir um único formato de arquivo."""
-        return {"resolution.ini": MameDisplayPipeline._parse_fallback(resolution_ini),"Vsync.ini": MameDisplayPipeline._parse_fallback(vsync_ini)}
+    def _load_fallbacks(
+        resolution_ini: str | Path | None,
+        vsync_ini: str | Path | None,
+    ) -> dict[str, dict[str, dict[str, object]]]:
+        """Lê os fallbacks de resolução e sincronismo."""
+        return {
+            "resolution.ini": MameDisplayPipeline._parse_fallback(resolution_ini),
+            "Vsync.ini": MameDisplayPipeline._parse_fallback(vsync_ini),
+        }
 
     @staticmethod
-    def _parse_fallback(path: str | Path | None) -> dict[str, dict[str, object]]:
-        """Aceita seções INI e linhas ``nome=valor``/``nome valor``."""
+    def _parse_fallback(
+        path: str | Path | None,
+    ) -> dict[str, dict[str, object]]:
+        """Aceita seções INI e linhas ``chave=valor`` ou ``chave valor``."""
         if path is None:
             return {}
-        file_path=Path(path).expanduser().resolve()
+        file_path = Path(path).expanduser().resolve()
         if not file_path.is_file():
             return {}
-        text=file_path.read_text(encoding="utf-8",errors="replace")
-        result: dict[str,dict[str,object]]={}
-        section: str | None=None
-        for raw in text.splitlines():
-            line=raw.strip()
-            if not line or line.startswith("#") or line.startswith(";"):
+        result: dict[str, dict[str, object]] = {}
+        section: str | None = None
+        for raw in file_path.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = raw.strip()
+            if not line or line.startswith(("#", ";")):
                 continue
-            match=re.match(r"^\[([^]]+)\]$",line)
+            match = re.match(r"^\[([^]]+)\]$", line)
             if match:
-                section=match.group(1).strip()
-                result.setdefault(section,{})
+                section = match.group(1).strip()
+                result.setdefault(section, {})
                 continue
             if "=" in line:
-                key,value=line.split("=",1)
+                key, value = line.split("=", 1)
             else:
-                parts=line.split(None,1)
-                if len(parts)!=2:
+                parts = line.split(None, 1)
+                if len(parts) != 2:
                     continue
-                key,value=parts
-            result.setdefault(section or "__global__",{})[key.strip()]=value.strip()
+                key, value = parts
+            result.setdefault(section or "__global__", {})[key.strip()] = value.strip()
         return result
 
-    def _resolve_profiles(self, import_id: int, fallback: dict[str, dict[str, dict[str, object]]]) -> dict[str, object]:
-        """Resolve perfis de display e retorna métricas do processamento."""
-        return {"profiles_generated": 0, "fallback": fallback}
+    def _resolve_profiles(
+        self,
+        import_id: int,
+        fallback: dict[str, dict[str, dict[str, object]]],
+    ) -> dict[str, object]:
+        """Gera perfis somente para displays disponíveis no ListXML."""
+        now = datetime.now(timezone.utc).isoformat()
+        generated = 0
+        with sqlite3.connect(self.db_path) as db:
+            db.execute("PRAGMA foreign_keys=ON")
+            rows = db.execute(
+                """SELECT d.id,d.machine_id,d.width,d.height,d.refresh_hz,
+                          d.rotate,d.xaspect,d.yaspect
+                   FROM mame_display d
+                   JOIN mame_machine m ON m.id=d.machine_id
+                  WHERE m.import_id=?""",
+                (import_id,),
+            ).fetchall()
+            for display_id, machine_id, width, height, refresh, rotate, xasp, yasp in rows:
+                db.execute(
+                    """INSERT OR IGNORE INTO mame_machine_display_profile
+                    (machine_id,display_id,profile_version,width,height,refresh_hz,
+                     orientation,pixel_aspect_x,pixel_aspect_y,source_resolution,
+                     source_refresh,source_orientation,source_pixel_aspect,
+                     fallback_used,status,generated_at)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (
+                        machine_id,
+                        display_id,
+                        self.PARSER_VERSION,
+                        width,
+                        height,
+                        refresh,
+                        rotate,
+                        xasp,
+                        yasp,
+                        "listxml" if width is not None and height is not None else "fallback",
+                        "listxml" if refresh is not None else "fallback",
+                        "listxml" if rotate is not None else "fallback",
+                        "listxml" if xasp is not None and yasp is not None else "fallback",
+                        0,
+                        "resolved",
+                        now,
+                    ),
+                )
+                generated += 1
+            db.commit()
+        return {
+            "profiles_generated": generated,
+            "fallback": fallback,
+        }
 
     def _ensure_schema(self, db: sqlite3.Connection) -> None:
-        """Valida que o schema mínimo do pipeline está disponível."""
-        required = {"mame_listxml_import", "mame_xml_node", "mame_machine", "mame_display"}
-        existing = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        """Valida o conjunto mínimo de tabelas necessário ao pipeline."""
+        required = {
+            "mame_listxml_import",
+            "mame_xml_node",
+            "mame_machine",
+            "mame_rom",
+            "mame_disk",
+            "mame_display",
+            "mame_machine_display_profile",
+        }
+        existing = {
+            row[0]
+            for row in db.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
         missing = sorted(required - existing)
         if missing:
-            raise MameDisplayPipelineError(f"Schema MAME incompleto; tabelas ausentes: {', '.join(missing)}")
+            raise MameDisplayPipelineError(
+                "Schema MAME incompleto; tabelas ausentes: " + ", ".join(missing)
+            )
+
+
+__all__ = ["MameDisplayPipeline", "MameDisplayPipelineError"]
