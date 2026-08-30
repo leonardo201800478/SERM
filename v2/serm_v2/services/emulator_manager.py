@@ -81,7 +81,7 @@ class EmulatorManager:
         return None
 
     def discover(self) -> dict[str, EmulatorStatus]:
-        """Detecta executável, diretório e versão instalada sem download."""
+        """Detecta executável, diretório e versão sem iniciar emuladores de forma destrutiva."""
         result: dict[str, EmulatorStatus] = {}
         for key, label in self.LABELS.items():
             root = self.roots.get(key)
@@ -236,7 +236,7 @@ class EmulatorManager:
 
     @staticmethod
     def _read_version(key: str, root: Path | None, executable: Path | None) -> str | None:
-        """Detecta a versão por metadados oficiais e, quando seguro, pela CLI do executável."""
+        """Detecta a versão sem iniciar Flycast, Supermodel ou FBNeo durante a descoberta."""
         if root:
             for filename in (".serm-version", "VERSION", "version.txt", "build.txt"):
                 path = root / filename
@@ -258,34 +258,30 @@ class EmulatorManager:
                         return match.group(1)
                 except OSError:
                     pass
-        if executable:
-            return EmulatorManager._probe_executable_version(key, executable)
+        # Somente MAME possui uma chamada de versão explicitamente segura para
+        # a descoberta. Flycast, Supermodel e FBNeo não são executados aqui:
+        # algumas builds tratam --version/-version como inicialização normal.
+        if key == "mame" and executable:
+            return EmulatorManager._probe_mame_version(executable)
         return None
 
     @staticmethod
-    def _probe_executable_version(key: str, executable: Path) -> str | None:
-        """Consulta versões por CLI sem shell e sem criar janela visível."""
-        argument_sets = {
-            "mame": (("-noreadconfig", "-version"),),
-            "flycast": (("--version",), ("-version",)),
-            "supermodel": (("--version",), ("-version",)),
-            "fbneo": (("--version",), ("-version",)),
-        }
-        for args in argument_sets.get(key, ()):
-            try:
-                result = subprocess.run(
-                    [str(executable), *args], cwd=str(executable.parent), stdin=subprocess.DEVNULL,
-                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
-                    errors="replace", shell=False, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                    timeout=4, check=False,
-                )
-                text = (result.stdout or "").strip()
-                match = re.search(r"\b(?:v(?:ersion)?\s*)?([0-9]+\.[0-9]+(?:\.[0-9]+)?(?:[a-z]-[0-9]{8})?)\b", text, re.I)
-                if match:
-                    return match.group(1)
-            except (OSError, subprocess.SubprocessError):
-                continue
-        return None
+    def _probe_mame_version(executable: Path) -> str | None:
+        """Consulta a versão do MAME com uma CLI conhecida e sem shell."""
+        try:
+            result = subprocess.run(
+                [str(executable), "-noreadconfig", "-version"],
+                cwd=str(executable.parent), stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                encoding="utf-8", errors="replace", shell=False,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                timeout=4, check=False,
+            )
+            text = (result.stdout or "").strip()
+            match = re.search(r"\b(?:v)?([0-9]+\.[0-9]+)\b", text)
+            return match.group(1) if match else None
+        except (OSError, subprocess.SubprocessError, subprocess.TimeoutExpired):
+            return None
 
     @staticmethod
     def _log(callback, message: str) -> None:
@@ -301,6 +297,7 @@ class RetroArchManager:
     NIGHTLY_ROOT = "https://buildbot.libretro.com/nightly/windows/x86_64/latest"
     STABLE_ROOT_TEMPLATE = "https://buildbot.libretro.com/stable/{version}/windows/x86_64"
     RETROARCH_ARCHIVE = "RetroArch.7z"
+    VERSION_MARKER = ".serm-version"
 
     def __init__(self, root: Path | None = None) -> None:
         """Inicializa o gerenciador."""
@@ -330,7 +327,7 @@ class RetroArchManager:
         return cls.NIGHTLY_ROOT, "nightly"
 
     def discover(self) -> tuple[Path | None, Path | None, Path | None]:
-        """Localiza retroarch.exe, raiz e diretório de cores."""
+        """Localiza retroarch.exe, raiz e diretório de cores sem executar o programa."""
         candidates = [self.root / "retroarch.exe"] if self.root else []
         candidates += [Path.home() / "RetroArch-Win64" / "retroarch.exe", Path("C:/RetroArch/retroarch.exe")]
         executable = next((p.resolve() for p in candidates if p.is_file()), None)
@@ -339,19 +336,18 @@ class RetroArchManager:
         return executable, root, cores
 
     def detect_version(self, executable: Path | None) -> str | None:
-        """Detecta a versão local do RetroArch."""
+        """Lê a versão persistida pelo SERM sem iniciar o RetroArch."""
         if not executable or not executable.is_file():
             return None
-        try:
-            result = subprocess.run(
-                [str(executable), "--version"], capture_output=True, stderr=subprocess.STDOUT,
-                text=True, encoding="utf-8", errors="replace", shell=False,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), timeout=4, check=False,
-            )
-            match = re.search(r"RetroArch\s+v?([0-9]+\.[0-9]+(?:\.[0-9]+)?)", result.stdout or "", re.I)
-            return match.group(1) if match else None
-        except (OSError, subprocess.SubprocessError):
-            return None
+        marker = executable.parent / self.VERSION_MARKER
+        if marker.is_file():
+            try:
+                value = marker.read_text(encoding="utf-8-sig", errors="ignore").strip()
+            except OSError:
+                return None
+            if value:
+                return value.splitlines()[0].strip()
+        return None
 
     def list_cores(self, channel: str = "nightly") -> tuple[CoreInfo, ...]:
         """Lê o catálogo de cores correspondente ao canal selecionado."""
@@ -401,6 +397,10 @@ class RetroArchManager:
         executable = destination / "retroarch.exe"
         if not executable.is_file():
             raise RuntimeError(f"RetroArch não encontrado após extração: {executable}")
+        try:
+            (destination / self.VERSION_MARKER).write_text(version + "\n", encoding="utf-8")
+        except OSError:
+            logger.warning("RetroArch: não foi possível persistir marcador de versão | path=%s", destination / self.VERSION_MARKER)
         if log:
             log(f"RETROARCH OK | executável={executable} | versão={version}")
         return executable
