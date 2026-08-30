@@ -7,6 +7,8 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .mame_vsync_service import MameVsyncError, MameVsyncService
+
 
 class MameResolutionError(RuntimeError):
     """Erro controlado da ingestão de resolution.ini."""
@@ -49,8 +51,23 @@ class MameResolutionService:
                     width, height = int(match.group(1)), int(match.group(2)); raw = line[1:-1].strip(); continue
                 if raw is not None: yield raw, width, height, line
 
+    def _ingest_vsync(self, log) -> dict[str, int | str]:
+        """Executa Vsync.ini após a resolução, usando o mesmo catálogo e log da fila."""
+        try:
+            result = MameVsyncService(self.database_path, self.mame_root).ingest(logger=log)
+        except MameVsyncError as exc:
+            raise MameResolutionError(str(exc)) from exc
+        log(
+            "MAME | VSYNC | SUMMARY | "
+            f"entradas={int(result['entries']):,} | "
+            f"resolvidas={int(result['resolved']):,} | "
+            f"não_resolvidas={int(result['unresolved']):,} | "
+            f"source_id={result['source_id']}"
+        )
+        return result
+
     def ingest(self, logger=None) -> dict[str, int | str]:
-        """Importa a fonte; um SHA já concluído é reutilizado sem novo source_id."""
+        """Importa resolution.ini e, ao concluir, Vsync.ini na mesma operação da fila."""
         path = self.locate_resolution_ini(); source_hash, byte_length = self._hash_file(path)
         now = datetime.now(timezone.utc).isoformat(); log = logger or (lambda message: None)
         log(f"MAME | RESOLUTION | START | arquivo={path}")
@@ -68,7 +85,9 @@ class MameResolutionService:
                 ).fetchone()
                 entries, resolved, unresolved = (int(stats[0] or 0), int(stats[1] or 0), int(stats[2] or 0))
                 log(f"MAME | RESOLUTION | REUSE | source_id={source_id} | mesmo SHA-256 | entradas={entries:,}")
-                return {"source_id": source_id, "entries": entries, "resolved": resolved, "unresolved": unresolved, "status": "reused"}
+                result = {"source_id": source_id, "entries": entries, "resolved": resolved, "unresolved": unresolved, "status": "reused"}
+                self._ingest_vsync(log)
+                return result
 
             connection.execute("BEGIN")
             cursor = connection.execute(
@@ -95,6 +114,7 @@ class MameResolutionService:
                     log(f"MAME | RESOLUTION | PROGRESS | entradas={entries:,} | resolvidas={resolved:,} | não_resolvidas={unresolved:,}")
             connection.execute("UPDATE mame_source_document SET status='completed' WHERE id=?", (source_id,)); connection.commit()
             log(f"MAME | RESOLUTION | DONE | entradas={entries:,} | resolvidas={resolved:,} | não_resolvidas={unresolved:,} | source_id={source_id}")
+            self._ingest_vsync(log)
             return {"source_id": source_id, "entries": entries, "resolved": resolved, "unresolved": unresolved, "status": "completed"}
         except Exception:
             connection.rollback(); raise
