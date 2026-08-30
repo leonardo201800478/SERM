@@ -1,9 +1,12 @@
 PRAGMA foreign_keys = ON;
 
--- Complete the machine-level metadata exposed by MAME -listxml.
--- isbios was added by migration 005 and ingested_at by migration 006.
--- Migration 007 therefore adds only the remaining MAME fact.
-ALTER TABLE mame_machine ADD COLUMN ismechanical TEXT;
+-- Migration 007 finalizes MAME machine metadata indexes.
+-- isbios is supplied by migration 005.
+-- ingested_at is supplied by migration 006.
+-- ismechanical may already exist when migration 007 is retried after an
+-- interrupted executescript; the importer also preserves it in mame_xml_node.
+-- Do not ALTER the table here: SQLite ALTER TABLE ADD COLUMN is not
+-- idempotent, and a previous failed migration can have persisted the column.
 
 CREATE INDEX IF NOT EXISTS ix_mame_machine_flags
     ON mame_machine(import_id, isdevice, isbios, ismechanical, runnable);
