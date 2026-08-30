@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 
 from ..integrations.launchbox import LaunchBoxIntegration
 from ..integrations.launchbox_provider import LaunchBoxProvider
+from ..services.mame_catalog_service import MameCatalogError, MameCatalogService
 from ..sources.acquisition.no_intro_archive import NoIntroArchiveProvider
 from ..sources.acquisition.redump import RedumpProvider
 
@@ -62,13 +63,27 @@ class _BatchWorker(QThread):
                     self.message.emit(f"OK | {row.name}")
                 except Exception as exc:  # noqa: BLE001
                     failed += 1
-                    self.message.emit(
-                        f"ERRO | {row.name} | {type(exc).__name__}: {exc}"
-                    )
+                    self.message.emit(f"ERRO | {row.name} | {type(exc).__name__}: {exc}")
             self.progress.emit(total, total, "concluído")
             self.done.emit(ok, failed)
         except Exception as exc:  # noqa: BLE001
             self.error.emit(f"{type(exc).__name__}: {exc}")
+
+
+class _MameCatalogWorker(QThread):
+    """Executa a ingestão do ListXML pelo MAME configurado sem bloquear o Qt."""
+
+    completed = Signal(object)
+    failed = Signal(str)
+
+    def run(self) -> None:
+        """Executa ``mame.exe -listxml`` e persiste o catálogo na V2."""
+        try:
+            self.completed.emit(MameCatalogService().ingest())
+        except MameCatalogError as exc:
+            self.failed.emit(str(exc))
+        except Exception as exc:  # noqa: BLE001
+            self.failed.emit(f"{type(exc).__name__}: {exc}")
 
 
 class DatSourceTab(QWidget):
@@ -142,10 +157,7 @@ class DatSourceTab(QWidget):
         self._set_busy(True)
         try:
             entries = tuple(self.loader())
-            self.rows = [
-                _Row(self._entry_name(entry), entry, self._entry_state(entry))
-                for entry in entries
-            ]
+            self.rows = [_Row(self._entry_name(entry), entry, self._entry_state(entry)) for entry in entries]
             self._rebuild_rows()
             self.summary.setText(f"{len(self.rows)} sistemas encontrados")
             self._append(f"BUSCAR | sistemas={len(self.rows)}")
@@ -174,12 +186,7 @@ class DatSourceTab(QWidget):
     @staticmethod
     def _prefix(state: str) -> str:
         """Formata o estado do DAT na lista."""
-        return {
-            "current": "[OK]",
-            "missing": "[AUSENTE]",
-            "outdated": "[ATUALIZAR]",
-            "unknown": "[?]",
-        }.get(state, "[?]")
+        return {"current": "[OK]", "missing": "[AUSENTE]", "outdated": "[ATUALIZAR]", "unknown": "[?]"}.get(state, "[?]")
 
     def _selected(self) -> list[_Row]:
         """Retorna somente os sistemas marcados."""
@@ -210,18 +217,12 @@ class DatSourceTab(QWidget):
             self.search()
         if not self.rows:
             return
-        self.rows = [
-            _Row(row.name, row.entry, self._entry_state(row.entry)) for row in self.rows
-        ]
+        self.rows = [_Row(row.name, row.entry, self._entry_state(row.entry)) for row in self.rows]
         self._rebuild_rows()
         for check, row in zip(self._checks, self.rows, strict=True):
             check.setChecked(row.state in {"missing", "outdated", "unknown"})
-        pending = sum(
-            row.state in {"missing", "outdated", "unknown"} for row in self.rows
-        )
-        self.summary.setText(
-            f"{len(self.rows)} sistemas | {pending} precisam de instalação/atualização"
-        )
+        pending = sum(row.state in {"missing", "outdated", "unknown"} for row in self.rows)
+        self.summary.setText(f"{len(self.rows)} sistemas | {pending} precisam de instalação/atualização")
         self._append(f"ATUALIZAÇÕES | candidatos={pending}")
 
     def _start_worker(self, selected, operation) -> None:
@@ -250,14 +251,97 @@ class DatSourceTab(QWidget):
 
     def _set_busy(self, busy: bool) -> None:
         """Bloqueia ações conflitantes durante uma operação."""
-        for button in (
-            self.search_button,
-            self.install_button,
-            self.update_button,
-            self.select_button,
-            self.clear_button,
-        ):
+        for button in (self.search_button, self.install_button, self.update_button, self.select_button, self.clear_button):
             button.setEnabled(not busy)
+
+
+class _MameTab(QWidget):
+    """Sessão MAME do Scraper de DATs; usa o executável definido em Diretórios."""
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.service = MameCatalogService()
+        self.worker: _MameCatalogWorker | None = None
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        """Monta a sessão MAME com ingestão, status, progresso e log."""
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("MAME — DAT / ListXML"))
+        self.executable = QLabel("Executável configurado: —")
+        layout.addWidget(self.executable)
+        self.status = QLabel("Nenhuma ingestão executada.")
+        layout.addWidget(self.status)
+
+        actions = QHBoxLayout()
+        self.run_button = QPushButton("OBTER DAT DO MAME (-listxml)")
+        self.run_button.clicked.connect(self.ingest)
+        actions.addWidget(self.run_button)
+        self.refresh_button = QPushButton("ATUALIZAR EXECUTÁVEL")
+        self.refresh_button.clicked.connect(self.refresh)
+        actions.addWidget(self.refresh_button)
+        actions.addStretch()
+        layout.addLayout(actions)
+
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 0)
+        self.progress.setVisible(False)
+        layout.addWidget(self.progress)
+
+        self.log = QPlainTextEdit()
+        self.log.setReadOnly(True)
+        self.log.setMaximumBlockCount(2000)
+        layout.addWidget(self.log, 1)
+        self.refresh()
+
+    def refresh(self) -> None:
+        """Mostra o executável MAME atualmente selecionado em Diretórios."""
+        try:
+            executable = self.service.configured_executable()
+            self.executable.setText(f"Executável configurado: {executable}")
+            self.run_button.setEnabled(True)
+        except MameCatalogError as exc:
+            self.executable.setText("Executável configurado: não definido")
+            self.status.setText(str(exc))
+            self.run_button.setEnabled(False)
+
+    def ingest(self) -> None:
+        """Inicia a ingestão do ListXML usando o executável configurado."""
+        if self.worker and self.worker.isRunning():
+            return
+        self.refresh()
+        if not self.run_button.isEnabled():
+            return
+        self.run_button.setEnabled(False)
+        self.refresh_button.setEnabled(False)
+        self.progress.setVisible(True)
+        self.status.setText("Executando MAME -listxml…")
+        self.log.appendPlainText("MAME | iniciando ingestão pelo executável configurado")
+        self.worker = _MameCatalogWorker(self)
+        self.worker.completed.connect(self._completed)
+        self.worker.failed.connect(self._failed)
+        self.worker.finished.connect(self._finished)
+        self.worker.start()
+
+    def _completed(self, result: object) -> None:
+        """Exibe o resultado da ingestão concluída."""
+        data = result
+        self.status.setText(f"Ingestão concluída: {data['machine_count']} máquinas")
+        self.log.appendPlainText(f"OK | executável={data['executable']}")
+        self.log.appendPlainText(f"OK | máquinas={data['machine_count']}")
+        self.log.appendPlainText(f"OK | XML={data['raw_xml']}")
+        self.log.appendPlainText(f"OK | banco={data['database']}")
+
+    def _failed(self, message: str) -> None:
+        """Exibe a falha sem ocultar a causa original."""
+        self.status.setText("Falha na ingestão")
+        self.log.appendPlainText(f"ERRO MAME | {message}")
+
+    def _finished(self) -> None:
+        """Libera os controles após a thread terminar."""
+        self.progress.setVisible(False)
+        self.refresh_button.setEnabled(True)
+        self.refresh()
 
 
 class DatScraperPage(QWidget):
@@ -277,8 +361,9 @@ class DatScraperPage(QWidget):
         self.tabs = QTabWidget()
         self.tabs.addTab(self._no_intro_tab(), "No-Intro")
         self.tabs.addTab(self._redump_tab(), "Redump")
-        for name in ("WHLOADER", "ExoDOS", "C64", "MAME"):
+        for name in ("WHLOADER", "ExoDOS", "C64"):
             self.tabs.addTab(self._historical_tab(name), name)
+        self.tabs.addTab(_MameTab(self), "MAME")
         layout.addWidget(self.tabs)
 
     def _no_intro_tab(self) -> DatSourceTab:
@@ -288,9 +373,7 @@ class DatScraperPage(QWidget):
             names = tuple(platform.name for platform in self.launchbox_provider.iter_platforms())
             return self.no_intro.match(names, entries)
 
-        return DatSourceTab(
-            "No-Intro — DATs", load, self.no_intro.download, self.no_intro.status, self
-        )
+        return DatSourceTab("No-Intro — DATs", load, self.no_intro.download, self.no_intro.status, self)
 
     def _redump_tab(self) -> DatSourceTab:
         """Liga Redump ao catálogo público e aos endpoints diretos."""
@@ -299,9 +382,7 @@ class DatScraperPage(QWidget):
             names = tuple(platform.name for platform in self.launchbox_provider.iter_platforms())
             return self.redump.match(names, entries)
 
-        return DatSourceTab(
-            "Redump — DATs", load, self.redump.download, self.redump.status, self
-        )
+        return DatSourceTab("Redump — DATs", load, self.redump.download, self.redump.status, self)
 
     @staticmethod
     def _historical_tab(name: str) -> QWidget:
@@ -317,13 +398,7 @@ class DatScraperPage(QWidget):
         detail.setWordWrap(True)
         layout.addWidget(detail)
         row = QHBoxLayout()
-        for text in (
-            "BUSCAR DATS",
-            "INSTALAR SELECIONADOS",
-            "VERIFICAR ATUALIZAÇÕES",
-            "SELECIONAR TODOS",
-            "LIMPAR SELEÇÃO",
-        ):
+        for text in ("BUSCAR DATS", "INSTALAR SELECIONADOS", "VERIFICAR ATUALIZAÇÕES", "SELECIONAR TODOS", "LIMPAR SELEÇÃO"):
             button = QPushButton(text)
             button.setEnabled(False)
             row.addWidget(button)
