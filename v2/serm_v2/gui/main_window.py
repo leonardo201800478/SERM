@@ -14,12 +14,13 @@ from .log_handler import LogViewer
 
 
 class MainWindow(QMainWindow):
-    """Janela principal com Home, Diretórios unificados e Scraper de DATs."""
+    """Janela principal otimizada para telas 16:9."""
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("SERM")
-        self.resize(1280, 820)
+        self.setWindowTitle("SERM V2")
+        self.resize(1280, 720)
+        self.setMinimumSize(1152, 648)
         self.status_bar = self.statusBar()
         self.status_bar.showMessage("Pronto")
 
@@ -29,10 +30,10 @@ class MainWindow(QMainWindow):
         self._build_ui()
 
     def _build_ui(self) -> None:
-        """Monta a navegação sem duplicar Diretórios, No-Intro ou Redump."""
+        """Monta a navegação principal sem duplicar funcionalidades."""
         root = QWidget(self)
         layout = QVBoxLayout(root)
-        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setContentsMargins(12, 12, 12, 12)
         layout.addWidget(QLabel("SERM V2"))
         self.tab_widget = QTabWidget()
         self.home_section = HomePage(self)
