@@ -13,12 +13,10 @@ class MameClassificationError(RuntimeError):
 
 
 class MameClassificationService:
-    """Localiza e importa o CATLIST sem alterar os dados do ListXML.
+    """Localiza, valida e importa CATLIST sem alterar dados do ListXML.
 
     ``folders/catlist.ini`` tem prioridade sobre ``cat32en/catlist.ini``.
-    Se uma seção não representa uma classificação de máquina, ela é ignorada
-    como classificação. FOLDER_SETTINGS é metadado do arquivo e não uma lista
-    de máquinas.
+    Seções de configuração do arquivo não são classificações de máquinas.
     """
 
     SOURCE_TYPE = "catlist"
@@ -29,19 +27,18 @@ class MameClassificationService:
         self.mame_root = Path(mame_root)
 
     def locate_catlist(self) -> Path:
-        """Retorna o primeiro CATLIST válido segundo a precedência definida."""
-        candidates = (
+        """Retorna o primeiro CATLIST existente na ordem de precedência."""
+        for candidate in (
             self.mame_root / "folders" / "catlist.ini",
             self.mame_root / "cat32en" / "catlist.ini",
-        )
-        for candidate in candidates:
+        ):
             if candidate.is_file():
                 return candidate
         raise MameClassificationError("CATLIST não encontrado em folders/ nem cat32en/.")
 
     @staticmethod
     def _hash_file(path: Path) -> tuple[str, int]:
-        """Calcula SHA-256 e tamanho sem carregar o arquivo inteiro."""
+        """Calcula SHA-256 e tamanho do arquivo em streaming."""
         digest = hashlib.sha256()
         size = 0
         with path.open("rb") as handle:
@@ -52,7 +49,7 @@ class MameClassificationService:
 
     @classmethod
     def _parse_section(cls, section: str) -> tuple[str | None, str | None, str | None]:
-        """Interpreta uma seção de classificação CATLIST."""
+        """Extrai categoria, subcategoria e flags de uma seção CATLIST."""
         raw = section.strip()
         if raw.upper() in cls.NON_CLASSIFICATION_SECTIONS or ":" not in raw:
             return None, None, None
@@ -63,13 +60,11 @@ class MameClassificationService:
             flags = flag_match.group(1).strip() or None
             value = value[: flag_match.start()].strip()
         parts = [part.strip() for part in value.split("/", 1)]
-        category = parts[0] or None
-        subcategory = parts[1] if len(parts) == 2 and parts[1] else None
-        return category, subcategory, flags
+        return parts[0] or None, (parts[1] if len(parts) == 2 else None), flags
 
     @classmethod
     def _entries(cls, path: Path):
-        """Produz somente entradas de classificação, ignorando metadados."""
+        """Produz somente classificações, ignorando FOLDER_SETTINGS e outras seções sem ':'."""
         current = ""
         is_classification = False
         with path.open("r", encoding="utf-8-sig", errors="replace") as handle:
@@ -84,11 +79,16 @@ class MameClassificationService:
                         and ":" in current
                     )
                     continue
-                if current and is_classification:
+                if is_classification:
                     yield current, line
 
+    def _remove_previous_source(self, connection: sqlite3.Connection, source_id: int) -> None:
+        """Remove uma importação anterior da mesma fonte para permitir reprocessamento."""
+        connection.execute("DELETE FROM mame_classification WHERE source_document_id=?", (source_id,))
+        connection.execute("DELETE FROM mame_source_document WHERE id=?", (source_id,))
+
     def ingest(self, logger=None) -> dict[str, int | str]:
-        """Importa CATLIST em uma transação atômica sem contaminar o catálogo."""
+        """Importa CATLIST atomicamente e permite reprocessamento da mesma versão."""
         path = self.locate_catlist()
         source_hash, byte_length = self._hash_file(path)
         now = datetime.now(timezone.utc).isoformat()
@@ -98,16 +98,16 @@ class MameClassificationService:
         connection = sqlite3.connect(self.database_path, timeout=60.0)
         connection.execute("PRAGMA foreign_keys=ON")
         try:
-            source = connection.execute(
+            connection.execute("BEGIN")
+            previous = connection.execute(
                 "SELECT id FROM mame_source_document WHERE source_type=? AND source_hash=?",
                 (self.SOURCE_TYPE, source_hash),
             ).fetchone()
-            if source:
-                source_id = int(source[0])
-                log(f"MAME | CATLIST | SKIP | fonte já importada | source_id={source_id}")
-                return {"source_id": source_id, "entries": 0, "resolved": 0, "unresolved": 0, "status": "already_imported"}
+            if previous:
+                old_id = int(previous[0])
+                self._remove_previous_source(connection, old_id)
+                log(f"MAME | CATLIST | REPROCESS | source_id_anterior={old_id} | mesmo SHA-256")
 
-            connection.execute("BEGIN")
             cursor = connection.execute(
                 """INSERT INTO mame_source_document
                    (source_type, source_name, source_path, source_hash, byte_length, imported_at, status)
@@ -123,8 +123,6 @@ class MameClassificationService:
             entries = resolved = unresolved = 0
             for section, machine_name in self._entries(path):
                 category, subcategory, flags = self._parse_section(section)
-                if category is None:
-                    continue
                 machine_id = machine_rows.get(machine_name)
                 resolved_status = "resolved" if machine_id is not None else "unresolved"
                 connection.execute(
@@ -147,8 +145,7 @@ class MameClassificationService:
                     )
 
             connection.execute(
-                "UPDATE mame_source_document SET status='completed' WHERE id=?",
-                (source_id,),
+                "UPDATE mame_source_document SET status='completed' WHERE id=?", (source_id,)
             )
             connection.commit()
             log(
@@ -159,15 +156,13 @@ class MameClassificationService:
                     "unresolved": unresolved, "status": "completed"}
         except Exception:
             connection.rollback()
-            try:
-                if "source_id" in locals():
-                    connection.execute("DELETE FROM mame_source_document WHERE id=?", (source_id,))
-                    connection.commit()
-            except sqlite3.Error:
-                connection.rollback()
+            connection.close()
             raise
         finally:
-            connection.close()
+            try:
+                connection.close()
+            except Exception:
+                pass
 
 
 __all__ = ["MameClassificationError", "MameClassificationService"]
