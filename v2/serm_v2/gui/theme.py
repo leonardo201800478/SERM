@@ -13,9 +13,6 @@ from PySide6.QtWidgets import (
     QTabWidget,
 )
 
-
-# Paleta inspirada em arcades 16-bit, CRT e monitores de fósforo.
-# Os consoles usam verde fósforo sobre preto e fontes monoespaçadas pixel-friendly.
 PIXEL_THEME = """
 QWidget {
     background-color: #1b1b1b;
@@ -23,230 +20,51 @@ QWidget {
     font-family: "Segoe UI";
     font-size: 10pt;
 }
-
-QMainWindow, QWidget#centralWidget {
-    background-color: #1b1b1b;
-}
-
+QMainWindow, QWidget#centralWidget { background-color: #1b1b1b; }
 QLabel { color: #dddddd; }
-
-QLabel[role="title"] {
-    color: #ffffff;
-    font-size: 20pt;
-    font-weight: 900;
-    padding: 2px 0 7px 0;
-}
-
-QLabel[role="section"] {
-    color: #d13d78;
-    font-size: 11pt;
-    font-weight: 800;
-    padding: 3px 0;
-}
-
-QTabWidget::pane {
-    background-color: #242424;
-    border: 1px solid #454545;
-    border-top: 2px solid #9c2f60;
-}
-
-QTabBar { background-color: #171717; }
-
-QTabBar::tab {
-    background-color: #202020;
-    color: #a9a9a9;
-    border: 1px solid #383838;
-    border-bottom: none;
-    padding: 8px 18px 9px 18px;
-    min-width: 82px;
-    margin-right: 2px;
-}
-
-QTabBar::tab:hover {
-    background-color: #2a2a2a;
-    color: #ffffff;
-    border-top: 2px solid #00c8d7;
-}
-
-QTabBar::tab:selected {
-    background-color: #292929;
-    color: #ffffff;
-    border-top: 2px solid #d13d78;
-}
-
-QGroupBox {
-    background-color: #232323;
-    border: 1px solid #4b4b4b;
-    margin-top: 14px;
-    padding: 12px 10px 9px 10px;
-}
-
-QGroupBox::title {
-    subcontrol-origin: margin;
-    left: 11px;
-    padding: 0 6px;
-    color: #d13d78;
-    background-color: #1b1b1b;
-    font-weight: 900;
-}
-
-QFrame#panel {
-    background-color: #232323;
-    border: 1px solid #404040;
-}
-
-QFrame#panel:hover { border-color: #555555; }
-
-QPushButton {
-    background-color: #303030;
-    color: #eeeeee;
-    border: 1px solid #555555;
-    padding: 7px 13px;
-    min-height: 19px;
-    min-width: 92px;
-    font-weight: 750;
-}
-
-QPushButton:hover {
-    background-color: #393939;
-    border-color: #00c8d7;
-    color: #ffffff;
-}
-
-QPushButton:pressed {
-    background-color: #252525;
-    border-color: #d13d78;
-    padding-top: 8px;
-    padding-bottom: 6px;
-}
-
-QPushButton:disabled {
-    color: #666666;
-    border-color: #363636;
-    background-color: #252525;
-}
-
-QLineEdit, QComboBox, QSpinBox {
-    background-color: #151515;
-    color: #e8e8e8;
-    border: 1px solid #4d4d4d;
-    padding: 6px 8px;
-    selection-background-color: #79274b;
-}
-
-QLineEdit:focus, QComboBox:focus, QSpinBox:focus { border-color: #00c8d7; }
-
-QComboBox QAbstractItemView {
-    background-color: #202020;
-    color: #eeeeee;
-    border: 1px solid #00c8d7;
-    selection-background-color: #79274b;
-}
-
-QCheckBox, QRadioButton { spacing: 7px; color: #d6d6d6; }
-QCheckBox:hover, QRadioButton:hover { color: #ffffff; }
-
-QCheckBox::indicator, QRadioButton::indicator {
-    width: 13px;
-    height: 13px;
-    border: 1px solid #666666;
-    background-color: #151515;
-}
-
-QCheckBox::indicator:checked, QRadioButton::indicator:checked {
-    background-color: #a72f5d;
-    border-color: #d13d78;
-}
-
-QRadioButton::indicator { border-radius: 7px; }
-
-QListWidget, QTreeWidget, QTableWidget {
-    background-color: #151515;
-    color: #dedede;
-    border: 1px solid #474747;
-    alternate-background-color: #1c1c1c;
-    selection-background-color: #54203a;
-    selection-color: #ffffff;
-    outline: none;
-}
-
-QListWidget::item, QTreeWidget::item {
-    padding: 6px 6px;
-    border-bottom: 1px solid #252525;
-}
-
-QListWidget::item:hover, QTreeWidget::item:hover { background-color: #282828; }
-
-QHeaderView::section {
-    background-color: #242424;
-    color: #bdbdbd;
-    border: 0;
-    border-right: 1px solid #3d3d3d;
-    border-bottom: 1px solid #4d4d4d;
-    padding: 6px 8px;
-    font-weight: 800;
-}
-
-/* Fallback global; a barra específica XP é aplicada pela camada de layout. */
-QProgressBar {
-    background-color: #111111;
-    border: 1px solid #494949;
-    text-align: center;
-    color: #f0f0f0;
-    min-height: 13px;
-}
-
-QProgressBar::chunk {
-    background-color: #00aebc;
-    border-right: 1px solid #62f2fa;
-}
-
-QScrollArea { background-color: #1b1b1b; border: 0; }
-
-QScrollBar:vertical {
-    background: #161616;
-    width: 12px;
-    margin: 0;
-}
-
-QScrollBar::handle:vertical {
-    background: #4a4a4a;
-    min-height: 28px;
-    border: 1px solid #5e5e5e;
-}
-
-QScrollBar::handle:vertical:hover { background: #00aebc; }
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
-QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
-    background: none;
-    border: none;
-}
-
-/* Monitor de fósforo: verde CRT + fonte pixel/terminal com fallbacks Windows. */
-QPlainTextEdit#logConsole {
-    background-color: #020904;
-    color: #8ee28e;
-    border: 1px solid #315c3b;
-    selection-background-color: #194827;
-    selection-color: #caffca;
-    font-family: "Px437 IBM VGA8", "Perfect DOS VGA 437", "Fixedsys", "Cascadia Mono", "Consolas", monospace;
-    font-size: 9pt;
-    padding: 6px;
-}
-
-QStatusBar {
-    background-color: #121212;
-    color: #8ee28e;
-    border-top: 1px solid #3c3c3c;
-    font-family: "Px437 IBM VGA8", "Fixedsys", "Consolas", monospace;
-}
-
-QToolTip {
-    background-color: #111111;
-    color: #ffffff;
-    border: 1px solid #00c8d7;
-    padding: 5px;
-}
+QLabel[role="title"] { color:#fff; font-size:20pt; font-weight:900; padding:2px 0 7px 0; }
+QLabel[role="section"] { color:#d13d78; font-size:11pt; font-weight:800; padding:3px 0; }
+QTabWidget::pane { background:#242424; border:1px solid #454545; border-top:2px solid #9c2f60; }
+QTabBar { background:#171717; }
+QTabBar::tab { background:#202020; color:#a9a9a9; border:1px solid #383838; border-bottom:none; padding:8px 18px 9px 18px; min-width:82px; margin-right:2px; }
+QTabBar::tab:hover { background:#2a2a2a; color:#fff; border-top:2px solid #00c8d7; }
+QTabBar::tab:selected { background:#292929; color:#fff; border-top:3px solid #d13d78; }
+QGroupBox { background:#202020; border:1px solid #4b4b4b; margin-top:14px; padding:16px 12px 12px 12px; }
+QGroupBox::title { subcontrol-origin:margin; left:11px; padding:0 7px; color:#ff4f96; background:#1b1b1b; font-weight:900; }
+QFrame#panel { background:#232323; border:1px solid #404040; }
+QPushButton { background:#303030; color:#f2f2f2; border:1px solid #666; padding:7px 14px; min-height:20px; min-width:118px; font-weight:800; }
+QPushButton:hover { background:#3b3b3b; border:1px solid #00d9e8; color:#fff; }
+QPushButton:pressed { background:#54203a; border:2px solid #ff4f96; }
+QPushButton:disabled { color:#666; border-color:#363636; background:#252525; }
+QPushButton[role="primary"] { background:#5b2040; border:2px solid #d13d78; color:#fff; font-weight:900; }
+QPushButton[role="primary"]:hover { background:#70284f; border-color:#00d9e8; }
+QPushButton[role="folder"] { background:#15383b; border:2px solid #00c8d7; color:#bffcff; font-weight:900; min-width:132px; }
+QPushButton[role="folder"]:hover { background:#1d5054; border-color:#62f2fa; }
+QPushButton[role="danger"] { background:#3a2028; border-color:#9e3b59; }
+QLineEdit, QComboBox, QSpinBox { background:#111; color:#f0f0f0; border:1px solid #555; padding:7px 9px; selection-background-color:#79274b; }
+QLineEdit:read-only { background:#101718; color:#b9dadd; border:1px solid #49666a; }
+QLineEdit:focus, QComboBox:focus, QSpinBox:focus { border:2px solid #00c8d7; }
+QCheckBox, QRadioButton { spacing:7px; color:#d6d6d6; }
+QCheckBox:hover, QRadioButton:hover { color:#fff; }
+QCheckBox::indicator, QRadioButton::indicator { width:13px; height:13px; border:1px solid #666; background:#151515; }
+QCheckBox::indicator:checked, QRadioButton::indicator:checked { background:#a72f5d; border-color:#ff4f96; }
+QRadioButton::indicator { border-radius:7px; }
+QListWidget, QTreeWidget, QTableWidget { background:#101212; color:#dedede; border:1px solid #3f5759; alternate-background-color:#151a1a; selection-background-color:#8d2857; selection-color:#fff; outline:none; }
+QListWidget::item, QTreeWidget::item { padding:5px 8px; border-bottom:1px solid #242d2d; min-height:24px; }
+QListWidget::item:hover, QTreeWidget::item:hover { background:#203335; }
+QListWidget::item:selected, QTreeWidget::item:selected { background:#8d2857; color:#fff; border-left:3px solid #00d9e8; }
+QListWidget:focus { border:2px solid #00c8d7; }
+QHeaderView::section { background:#242424; color:#bdbdbd; border:0; border-right:1px solid #3d3d3d; border-bottom:1px solid #4d4d4d; padding:6px 8px; font-weight:800; }
+QProgressBar { background:#111; border:1px solid #555; text-align:center; color:#f0f0f0; min-height:13px; }
+QProgressBar::chunk { background:#16a34a; border-right:2px solid #58e47a; margin:1px; }
+QScrollArea { background:#1b1b1b; border:0; }
+QScrollBar:vertical { background:#161616; width:12px; margin:0; }
+QScrollBar::handle:vertical { background:#4a4a4a; min-height:28px; border:1px solid #5e5e5e; }
+QScrollBar::handle:vertical:hover { background:#00aebc; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical, QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background:none; border:none; }
+QPlainTextEdit#logConsole { background:#020904; color:#8ee28e; border:1px solid #315c3b; selection-background-color:#194827; selection-color:#caffca; font-family:"Px437 IBM VGA8","Perfect DOS VGA 437","Fixedsys","Cascadia Mono","Consolas",monospace; font-size:9pt; padding:6px; }
+QStatusBar { background:#121212; color:#8ee28e; border-top:1px solid #3c3c3c; font-family:"Px437 IBM VGA8","Fixedsys","Consolas",monospace; }
+QToolTip { background:#111; color:#fff; border:1px solid #00c8d7; padding:5px; }
 """
 
 
@@ -257,15 +75,15 @@ def apply_theme(app: QApplication) -> None:
 
 
 def refine_dashboard(root) -> dict[str, int]:
-    """Refina a composição da janela após a construção dos widgets."""
+    """Refina a composição sem criar áreas gigantes de edição."""
     panels = titles = sections = 0
     root_layout = root.layout()
     if root_layout is not None:
-        root_layout.setContentsMargins(12, 10, 12, 8)
-        root_layout.setSpacing(8)
+        root_layout.setContentsMargins(10, 8, 10, 6)
+        root_layout.setSpacing(6)
 
     for layout in root.findChildren(QLayout):
-        layout.setSpacing(7)
+        layout.setSpacing(6)
 
     for frame in root.findChildren(QFrame):
         if frame.styleSheet():
@@ -278,24 +96,28 @@ def refine_dashboard(root) -> dict[str, int]:
         if text in {"SERM V2", "SERM V2 — Home"} or text.startswith("SERM V2 —"):
             label.setStyleSheet("")
             label.setProperty("role", "title")
-            label.style().unpolish(label)
-            label.style().polish(label)
-            titles += 1
+            label.style().unpolish(label); label.style().polish(label); titles += 1
         elif text in {"Log RetroArch", "Log detalhado da instalação"}:
             label.setStyleSheet("")
             label.setProperty("role", "section")
-            label.style().unpolish(label)
-            label.style().polish(label)
-            sections += 1
+            label.style().unpolish(label); label.style().polish(label); sections += 1
 
     for button in root.findChildren(QPushButton):
         button.setMinimumHeight(max(button.minimumHeight(), 30))
+
     for widget in root.findChildren(QListWidget):
-        widget.setMinimumHeight(max(widget.minimumHeight(), 210))
+        # PathListWidget lists must be compact; generic result lists can remain larger.
+        parent_name = widget.parentWidget().__class__.__name__ if widget.parentWidget() else ""
+        if parent_name == "PathListWidget":
+            widget.setMinimumHeight(82)
+            widget.setMaximumHeight(130)
+        else:
+            widget.setMinimumHeight(max(widget.minimumHeight(), 140))
+
     for widget in root.findChildren(QPlainTextEdit):
         widget.setMinimumHeight(max(widget.minimumHeight(), 150))
     for widget in root.findChildren(QProgressBar):
-        widget.setMaximumHeight(max(widget.maximumHeight(), 18))
+        widget.setMaximumHeight(20)
     for widget in root.findChildren(QTabWidget):
         widget.setDocumentMode(True)
         widget.setUsesScrollButtons(False)
