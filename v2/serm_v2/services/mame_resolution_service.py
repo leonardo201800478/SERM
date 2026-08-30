@@ -7,8 +7,6 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .mame_vsync_service import MameVsyncError, MameVsyncService
-
 
 class MameResolutionError(RuntimeError):
     """Erro controlado da ingestão de resolution.ini."""
@@ -21,21 +19,30 @@ class MameResolutionService:
     SECTION_RE = re.compile(r"^\[\s*(\d+)\s*x\s*(\d+)\s*\]$")
 
     def __init__(self, database_path: Path, mame_root: Path) -> None:
-        self.database_path = Path(database_path); self.mame_root = Path(mame_root)
+        self.database_path = Path(database_path)
+        self.mame_root = Path(mame_root)
 
     def locate_resolution_ini(self) -> Path:
         """Localiza resolution.ini em folders e depois na raiz do MAME."""
-        for candidate in (self.mame_root / "folders" / "resolution.ini", self.mame_root / "resolution.ini"):
-            if candidate.is_file(): return candidate
-        raise MameResolutionError("resolution.ini não encontrado em folders/ nem na raiz do MAME.")
+        for candidate in (
+            self.mame_root / "folders" / "resolution.ini",
+            self.mame_root / "resolution.ini",
+        ):
+            if candidate.is_file():
+                return candidate
+        raise MameResolutionError(
+            "resolution.ini não encontrado em folders/ nem na raiz do MAME."
+        )
 
     @staticmethod
     def _hash_file(path: Path) -> tuple[str, int]:
         """Calcula SHA-256 e tamanho sem carregar o arquivo inteiro."""
-        digest = hashlib.sha256(); size = 0
+        digest = hashlib.sha256()
+        size = 0
         with path.open("rb") as handle:
             for block in iter(lambda: handle.read(1024 * 1024), b""):
-                size += len(block); digest.update(block)
+                size += len(block)
+                digest.update(block)
         return digest.hexdigest(), size
 
     @classmethod
@@ -45,79 +52,134 @@ class MameResolutionService:
         with path.open("r", encoding="utf-8-sig", errors="replace") as handle:
             for raw_line in handle:
                 line = raw_line.strip()
-                if not line or line.startswith(";") or line.startswith("#"): continue
+                if not line or line.startswith((";", "#")):
+                    continue
                 match = cls.SECTION_RE.match(line)
                 if match:
-                    width, height = int(match.group(1)), int(match.group(2)); raw = line[1:-1].strip(); continue
-                if raw is not None: yield raw, width, height, line
-
-    def _ingest_vsync(self, log) -> dict[str, int | str]:
-        """Executa Vsync.ini após a resolução, usando o mesmo catálogo e log da fila."""
-        try:
-            result = MameVsyncService(self.database_path, self.mame_root).ingest(logger=log)
-        except MameVsyncError as exc:
-            raise MameResolutionError(str(exc)) from exc
-        log(
-            "MAME | VSYNC | SUMMARY | "
-            f"entradas={int(result['entries']):,} | "
-            f"resolvidas={int(result['resolved']):,} | "
-            f"não_resolvidas={int(result['unresolved']):,} | "
-            f"source_id={result['source_id']}"
-        )
-        return result
+                    width = int(match.group(1))
+                    height = int(match.group(2))
+                    raw = line[1:-1].strip()
+                    continue
+                if raw is not None:
+                    yield raw, width, height, line
 
     def ingest(self, logger=None) -> dict[str, int | str]:
-        """Importa resolution.ini e, ao concluir, Vsync.ini na mesma operação da fila."""
-        path = self.locate_resolution_ini(); source_hash, byte_length = self._hash_file(path)
-        now = datetime.now(timezone.utc).isoformat(); log = logger or (lambda message: None)
+        """Importa somente resolution.ini; VSYNC é responsabilidade da fila de INIs."""
+        path = self.locate_resolution_ini()
+        source_hash, byte_length = self._hash_file(path)
+        now = datetime.now(timezone.utc).isoformat()
+        log = logger or (lambda message: None)
         log(f"MAME | RESOLUTION | START | arquivo={path}")
-        connection = sqlite3.connect(self.database_path, timeout=60.0); connection.execute("PRAGMA foreign_keys=ON")
+
+        connection = sqlite3.connect(self.database_path, timeout=60.0)
+        connection.execute("PRAGMA foreign_keys=ON")
         try:
             previous = connection.execute(
-                "SELECT id, status FROM mame_source_document WHERE source_type=? AND source_hash=? ORDER BY id DESC LIMIT 1",
+                """SELECT id, status
+                   FROM mame_source_document
+                   WHERE source_type=? AND source_hash=?
+                   ORDER BY id DESC LIMIT 1""",
                 (self.SOURCE_TYPE, source_hash),
             ).fetchone()
+
             if previous and previous[1] == "completed":
                 source_id = int(previous[0])
                 stats = connection.execute(
-                    """SELECT COUNT(*), SUM(resolved_status='resolved'), SUM(resolved_status='unresolved')
-                       FROM mame_resolution WHERE source_document_id=?""", (source_id,)
+                    """SELECT COUNT(*),
+                              SUM(resolved_status='resolved'),
+                              SUM(resolved_status='unresolved')
+                       FROM mame_resolution
+                       WHERE source_document_id=?""",
+                    (source_id,),
                 ).fetchone()
-                entries, resolved, unresolved = (int(stats[0] or 0), int(stats[1] or 0), int(stats[2] or 0))
-                log(f"MAME | RESOLUTION | REUSE | source_id={source_id} | mesmo SHA-256 | entradas={entries:,}")
-                result = {"source_id": source_id, "entries": entries, "resolved": resolved, "unresolved": unresolved, "status": "reused"}
-                self._ingest_vsync(log)
-                return result
+                entries = int(stats[0] or 0)
+                resolved = int(stats[1] or 0)
+                unresolved = int(stats[2] or 0)
+                log(
+                    f"MAME | RESOLUTION | REUSE | source_id={source_id} "
+                    f"| mesmo SHA-256 | entradas={entries:,}"
+                )
+                return {
+                    "source_id": source_id,
+                    "entries": entries,
+                    "resolved": resolved,
+                    "unresolved": unresolved,
+                    "status": "reused",
+                }
 
             connection.execute("BEGIN")
             cursor = connection.execute(
                 """INSERT INTO mame_source_document
-                   (source_type, source_name, source_path, source_hash, byte_length, imported_at, status)
+                   (source_type, source_name, source_path, source_hash,
+                    byte_length, imported_at, status)
                    VALUES (?, ?, ?, ?, ?, ?, 'captured')""",
-                (self.SOURCE_TYPE, path.name, str(path), source_hash, byte_length, now),
+                (
+                    self.SOURCE_TYPE,
+                    path.name,
+                    str(path),
+                    source_hash,
+                    byte_length,
+                    now,
+                ),
             )
             source_id = int(cursor.lastrowid)
-            machines = {row[1]: row[0] for row in connection.execute("SELECT id, name FROM mame_machine")}
+            machines = {
+                row[1]: row[0]
+                for row in connection.execute("SELECT id, name FROM mame_machine")
+            }
+
             entries = resolved = unresolved = 0
             for resolution_raw, width, height, machine_name in self._entries(path):
-                machine_id = machines.get(machine_name); status = "resolved" if machine_id is not None else "unresolved"
+                machine_id = machines.get(machine_name)
+                status = "resolved" if machine_id is not None else "unresolved"
                 connection.execute(
                     """INSERT INTO mame_resolution
-                       (source_document_id, machine_id, machine_name, resolution_raw, width, height, resolved_status, imported_at)
+                       (source_document_id, machine_id, machine_name,
+                        resolution_raw, width, height, resolved_status, imported_at)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (source_id, machine_id, machine_name, resolution_raw, width, height, status, now),
+                    (
+                        source_id,
+                        machine_id,
+                        machine_name,
+                        resolution_raw,
+                        width,
+                        height,
+                        status,
+                        now,
+                    ),
                 )
                 entries += 1
-                if machine_id is None: unresolved += 1
-                else: resolved += 1
+                if machine_id is None:
+                    unresolved += 1
+                else:
+                    resolved += 1
+
                 if entries % 5000 == 0:
-                    log(f"MAME | RESOLUTION | PROGRESS | entradas={entries:,} | resolvidas={resolved:,} | não_resolvidas={unresolved:,}")
-            connection.execute("UPDATE mame_source_document SET status='completed' WHERE id=?", (source_id,)); connection.commit()
-            log(f"MAME | RESOLUTION | DONE | entradas={entries:,} | resolvidas={resolved:,} | não_resolvidas={unresolved:,} | source_id={source_id}")
-            self._ingest_vsync(log)
-            return {"source_id": source_id, "entries": entries, "resolved": resolved, "unresolved": unresolved, "status": "completed"}
+                    log(
+                        f"MAME | RESOLUTION | PROGRESS | entradas={entries:,} "
+                        f"| resolvidas={resolved:,} | não_resolvidas={unresolved:,}"
+                    )
+
+            connection.execute(
+                "UPDATE mame_source_document SET status='completed' WHERE id=?",
+                (source_id,),
+            )
+            connection.commit()
+            log(
+                f"MAME | RESOLUTION | DONE | entradas={entries:,} "
+                f"| resolvidas={resolved:,} | não_resolvidas={unresolved:,} "
+                f"| source_id={source_id}"
+            )
+            return {
+                "source_id": source_id,
+                "entries": entries,
+                "resolved": resolved,
+                "unresolved": unresolved,
+                "status": "completed",
+            }
         except Exception:
-            connection.rollback(); raise
+            connection.rollback()
+            raise
         finally:
             connection.close()
 
