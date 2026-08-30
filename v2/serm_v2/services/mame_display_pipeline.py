@@ -9,7 +9,7 @@ import subprocess
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Sequence
 
 from ..runtime.paths import data_root, database_path
 
@@ -32,6 +32,45 @@ class MameDisplayPipeline:
     def _log(self, message: str) -> None:
         """Emite uma mensagem para a GUI/console sem depender do logger da UI."""
         self.logger(message)
+
+    @staticmethod
+    def _bind_value(value: Any, *, operation: str, parameter: int) -> Any:
+        """Normaliza valores para o SQLite e rejeita estruturas não escalares.
+
+        SQLite aceita valores escalares, não tuplas/listas/dicionários como um
+        único parâmetro. Tuplas unitárias são desempacotadas para tolerar fontes
+        legadas que eventualmente entreguem ``(valor,)``; estruturas maiores são
+        rejeitadas com contexto suficiente para localizar a origem do problema.
+        """
+        if isinstance(value, tuple):
+            if len(value) == 1:
+                return MameDisplayPipeline._bind_value(
+                    value[0], operation=operation, parameter=parameter
+                )
+            raise MameDisplayPipelineError(
+                f"Valor não escalar no SQLite | operação={operation} | "
+                f"parâmetro={parameter} | tipo=tuple | tamanho={len(value)}"
+            )
+        if isinstance(value, (list, dict, set)):
+            raise MameDisplayPipelineError(
+                f"Valor não escalar no SQLite | operação={operation} | "
+                f"parâmetro={parameter} | tipo={type(value).__name__}"
+            )
+        return value
+
+    def _execute(self, db: sqlite3.Connection, sql: str, params: Sequence[Any], *, operation: str) -> sqlite3.Cursor:
+        """Executa SQL preparado garantindo que cada bind seja escalar."""
+        normalized = tuple(
+            self._bind_value(value, operation=operation, parameter=index)
+            for index, value in enumerate(params, 1)
+        )
+        try:
+            return db.execute(sql, normalized)
+        except sqlite3.ProgrammingError as exc:
+            raise MameDisplayPipelineError(
+                f"Falha no SQLite | operação={operation} | "
+                f"parâmetros={len(normalized)} | {exc}"
+            ) from exc
 
     def run(self, executable: str | Path, *, resolution_ini: str | Path | None = None,
             vsync_ini: str | Path | None = None, timeout: float = 180.0,
@@ -94,15 +133,29 @@ class MameDisplayPipeline:
             emulator_id = int(emulator_row[0])
 
             if not force:
-                existing = db.execute("SELECT id,mame_build,machine_count,xml_path FROM mame_listxml_import WHERE source_hash=? ORDER BY id DESC LIMIT 1", (source_hash,)).fetchone()
+                existing = db.execute(
+                    "SELECT id,mame_build,machine_count,xml_path FROM mame_listxml_import "
+                    "WHERE source_hash=? ORDER BY id DESC LIMIT 1",
+                    (source_hash,),
+                ).fetchone()
                 if existing:
+                    display_total = db.execute(
+                        "SELECT COUNT(*) FROM mame_display d "
+                        "JOIN mame_machine m ON m.id=d.machine_id WHERE m.import_id=?",
+                        (existing[0],),
+                    ).fetchone()[0]
                     self._log(f"MAME | ListXML já ingerido | import_id={existing[0]}")
-                    return int(existing[0]), existing[1], int(existing[2]), int(db.execute("SELECT COUNT(*) FROM mame_display d JOIN mame_machine m ON m.id=d.machine_id WHERE m.import_id=?", (existing[0],)).fetchone()[0]), Path(existing[3]) if existing[3] else xml_path, source_hash
+                    return int(existing[0]), existing[1], int(existing[2]), int(display_total), Path(existing[3]) if existing[3] else xml_path, source_hash
 
             now = datetime.now(timezone.utc).isoformat()
-            cur = db.execute("""INSERT INTO mame_listxml_import
+            cur = self._execute(
+                db,
+                """INSERT INTO mame_listxml_import
                 (emulator_id,executable,mame_build,mame_config,debug,imported_at,source_hash,xml_path,machine_count,parser_version)
-                VALUES(?,?,?,?,?,?,?,?,?,?)""", (emulator_id, str(executable), root.attrib.get("build"), root.attrib.get("mameconfig"), root.attrib.get("debug"), now, source_hash, str(xml_path), len(machines), self.PARSER_VERSION))
+                VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                (emulator_id, str(executable), root.attrib.get("build"), root.attrib.get("mameconfig"), root.attrib.get("debug"), now, source_hash, str(xml_path), len(machines), self.PARSER_VERSION),
+                operation="mame_listxml_import",
+            )
             import_id = int(cur.lastrowid)
             root_id = self._insert_node(db, import_id, None, None, root, "/mame")
             display_count = 0
@@ -114,7 +167,12 @@ class MameDisplayPipeline:
                 machine_path = f"/mame/machine[{machine_index}]"
                 node_id, nodes = self._insert_node(db, import_id, root_id, machine_id, machine, machine_path)
                 node_count += nodes
-                db.execute("UPDATE mame_machine SET xml_node_id=? WHERE id=?", (node_id, machine_id))
+                self._execute(
+                    db,
+                    "UPDATE mame_machine SET xml_node_id=? WHERE id=?",
+                    (node_id, machine_id),
+                    operation="mame_machine.xml_node_id",
+                )
                 d, r, k, s = self._normalize_machine(db, machine_id, machine, machine_path)
                 display_count += d; rom_count += r; disk_count += k; sample_count += s
                 if (machine_index + 1) % self.PROGRESS_INTERVAL == 0 or machine_index + 1 == len(machines):
@@ -128,16 +186,26 @@ class MameDisplayPipeline:
     def _insert_machine(self, db: sqlite3.Connection, import_id: int, machine: ET.Element, ingested_at: str) -> int:
         """Persiste os campos de identidade e classificação da máquina."""
         a = machine.attrib
-        cur = db.execute("""INSERT INTO mame_machine
+        cur = self._execute(
+            db,
+            """INSERT INTO mame_machine
             (import_id,name,sourcefile,isbios,isdevice,ismechanical,runnable,cloneof,romof,sampleof,description,year,manufacturer,ingested_at)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (import_id, a.get("name", ""), a.get("sourcefile"), a.get("isbios"), a.get("isdevice"), a.get("ismechanical"), a.get("runnable"), a.get("cloneof"), a.get("romof"), a.get("sampleof"), machine.findtext("description"), machine.findtext("year"), machine.findtext("manufacturer"), ingested_at))
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (import_id, a.get("name", ""), a.get("sourcefile"), a.get("isbios"), a.get("isdevice"), a.get("ismechanical"), a.get("runnable"), a.get("cloneof"), a.get("romof"), a.get("sampleof"), machine.findtext("description"), machine.findtext("year"), machine.findtext("manufacturer"), ingested_at),
+            operation="mame_machine",
+        )
         return int(cur.lastrowid)
 
     def _insert_node(self, db: sqlite3.Connection, import_id: int, parent_id: int | None, machine_id: int | None, element: ET.Element, path: str) -> tuple[int, int]:
         """Persiste recursivamente a árvore XML e retorna o ID e quantidade de nós."""
-        cur = db.execute("""INSERT INTO mame_xml_node
+        cur = self._execute(
+            db,
+            """INSERT INTO mame_xml_node
             (import_id,parent_node_id,machine_id,element_name,ordinal,xml_path,text_value,attributes_json)
-            VALUES(?,?,?,?,?,?,?,?)""", (import_id, parent_id, machine_id, element.tag, 0, path, (element.text or "").strip() or None, json.dumps(dict(element.attrib), ensure_ascii=False, sort_keys=True)))
+            VALUES(?,?,?,?,?,?,?,?)""",
+            (import_id, parent_id, machine_id, element.tag, 0, path, (element.text or "").strip() or None, json.dumps(dict(element.attrib), ensure_ascii=False, sort_keys=True)),
+            operation="mame_xml_node",
+        )
         node_id = int(cur.lastrowid); count = 1
         counters: dict[str, int] = {}
         for child in element:
@@ -153,24 +221,22 @@ class MameDisplayPipeline:
         for display_index, display in enumerate(machine.findall("display")):
             a = display.attrib; width = self._int(a.get("width")); height = self._int(a.get("height")); refresh_raw = a.get("refresh") or a.get("refresh_hz"); refresh = self._float(refresh_raw); rotate = a.get("rotate") or a.get("orientation"); path = f"{machine_path}/display[{display_index}]"
             node_id = self._find_node_id(db, machine_id, path)
-            db.execute("""INSERT INTO mame_display
+            self._execute(db, """INSERT INTO mame_display
                 (machine_id,tag,type,rotate,width,height,refresh_hz,refresh_raw,pixclock,htotal,hbend,hbstart,vtotal,vbend,vbstart,hsync,vsync,xaspect,yaspect,orientation_raw,source,confidence,xml_node_id)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (machine_id,a.get("tag"),a.get("type"),a.get("rotate"),width,height,refresh,refresh_raw,a.get("pixclock"),a.get("htotal"),a.get("hbend"),a.get("hbstart"),a.get("vtotal"),a.get("vbend"),a.get("vbstart"),a.get("hsync"),a.get("vsync"),self._int(a.get("xaspect")),self._int(a.get("yaspect")),rotate,"listxml","authoritative",node_id)); display_count += 1
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (machine_id,a.get("tag"),a.get("type"),a.get("rotate"),width,height,refresh,refresh_raw,a.get("pixclock"),a.get("htotal"),a.get("hbend"),a.get("hbstart"),a.get("vtotal"),a.get("vbend"),a.get("vbstart"),a.get("hsync"),a.get("vsync"),self._int(a.get("xaspect")),self._int(a.get("yaspect")),rotate,"listxml","authoritative",node_id), operation="mame_display"); display_count += 1
         for rom in machine.findall("rom"): self._insert_rom(db, machine_id, rom); rom_count += 1
         for disk in machine.findall("disk"): self._insert_disk(db, machine_id, disk); disk_count += 1
         for sample in machine.findall("sample"):
-            db.execute("INSERT INTO mame_sample(machine_id,name) VALUES(?,?)", (machine_id, sample.attrib.get("name"))); sample_count += 1
+            self._execute(db, "INSERT INTO mame_sample(machine_id,name) VALUES(?,?)", (machine_id, sample.attrib.get("name")), operation="mame_sample"); sample_count += 1
         return display_count, rom_count, disk_count, sample_count
 
-    @staticmethod
-    def _insert_rom(db: sqlite3.Connection, machine_id: int, element: ET.Element) -> None:
+    def _insert_rom(self, db: sqlite3.Connection, machine_id: int, element: ET.Element) -> None:
         """Persiste um ROM normalizado."""
-        a = element.attrib; db.execute("INSERT INTO mame_rom(machine_id,name,bios,size,crc,sha1,md5,merge,region,offset,status,optional,dispose) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", (machine_id,a.get("name"),a.get("bios"),a.get("size"),a.get("crc"),a.get("sha1"),a.get("md5"),a.get("merge"),a.get("region"),a.get("offset"),a.get("status"),a.get("optional"),a.get("dispose")))
+        a = element.attrib; self._execute(db, "INSERT INTO mame_rom(machine_id,name,bios,size,crc,sha1,md5,merge,region,offset,status,optional,dispose) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", (machine_id,a.get("name"),a.get("bios"),a.get("size"),a.get("crc"),a.get("sha1"),a.get("md5"),a.get("merge"),a.get("region"),a.get("offset"),a.get("status"),a.get("optional"),a.get("dispose")), operation="mame_rom")
 
-    @staticmethod
-    def _insert_disk(db: sqlite3.Connection, machine_id: int, element: ET.Element) -> None:
+    def _insert_disk(self, db: sqlite3.Connection, machine_id: int, element: ET.Element) -> None:
         """Persiste um disk normalizado."""
-        a = element.attrib; db.execute("INSERT INTO mame_disk(machine_id,name,md5,sha1,merge,region,index_value,writable,status,optional) VALUES(?,?,?,?,?,?,?,?,?,?)", (machine_id,a.get("name"),a.get("md5"),a.get("sha1"),a.get("merge"),a.get("region"),a.get("index"),a.get("writable"),a.get("status"),a.get("optional")))
+        a = element.attrib; self._execute(db, "INSERT INTO mame_disk(machine_id,name,md5,sha1,merge,region,index_value,writable,status,optional) VALUES(?,?,?,?,?,?,?,?,?,?)", (machine_id,a.get("name"),a.get("md5"),a.get("sha1"),a.get("merge"),a.get("region"),a.get("index"),a.get("writable"),a.get("status"),a.get("optional")), operation="mame_disk")
 
     @staticmethod
     def _find_node_id(db: sqlite3.Connection, machine_id: int, path: str) -> int | None:
@@ -219,9 +285,9 @@ class MameDisplayPipeline:
             db.execute("PRAGMA foreign_keys=ON")
             rows = db.execute("SELECT d.id,d.machine_id,d.width,d.height,d.refresh_hz,d.rotate,d.xaspect,d.yaspect FROM mame_display d JOIN mame_machine m ON m.id=d.machine_id WHERE m.import_id=?", (import_id,)).fetchall()
             for display_id, machine_id, width, height, refresh, rotate, xasp, yasp in rows:
-                db.execute("""INSERT OR IGNORE INTO mame_machine_display_profile
+                self._execute(db, """INSERT OR IGNORE INTO mame_machine_display_profile
                     (machine_id,display_id,profile_version,width,height,refresh_hz,orientation,pixel_aspect_x,pixel_aspect_y,source_resolution,source_refresh,source_orientation,source_pixel_aspect,fallback_used,status,generated_at)
-                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (machine_id,display_id,self.PARSER_VERSION,width,height,refresh,rotate,xasp,yasp,"listxml" if width is not None and height is not None else "fallback","listxml" if refresh is not None else "fallback","listxml" if rotate is not None else "fallback","listxml" if xasp is not None and yasp is not None else "fallback",0,"resolved",now)); generated += 1
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (machine_id,display_id,self.PARSER_VERSION,width,height,refresh,rotate,xasp,yasp,"listxml" if width is not None and height is not None else "fallback","listxml" if refresh is not None else "fallback","listxml" if rotate is not None else "fallback","listxml" if xasp is not None and yasp is not None else "fallback",0,"resolved",now), operation="mame_machine_display_profile"); generated += 1
             db.commit()
         self._log(f"MAME | Machine Display Profiles={generated:,}")
         return {"profiles_generated": generated, "fallback": fallback}
