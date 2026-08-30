@@ -17,7 +17,7 @@ from .emulator_home import EmulatorHomePage, _Worker
 
 
 class HomePage(EmulatorHomePage):
-    """Expose the complete emulator Home under the original V2 API."""
+    """Expose a Home completa e preserva o contrato funcional da V1."""
     CORE_MAX_ATTEMPTS = 3
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -26,9 +26,10 @@ class HomePage(EmulatorHomePage):
         self._core_destination: Path | None = None
         self._retro_continuation = None
         self._retro_operation_ok = False
+        self._core_catalog_cache = None
 
     def _retroarch_tab(self) -> QWidget:
-        """Adiciona os filtros do catálogo de cores à mesma tela do RetroArch."""
+        """Adiciona filtros locais ao catálogo sem alterar o canal do RetroArch."""
         page = super()._retroarch_tab()
         layout = page.layout()
         if layout is None:
@@ -48,57 +49,85 @@ class HomePage(EmulatorHomePage):
         return page
 
     def _core_filters_changed(self, _state: int) -> None:
-        """Recarrega o catálogo quando um filtro é alterado."""
-        if hasattr(self, "core_list") and self.worker is None:
-            self.refresh_cores()
+        """Aplica filtros somente ao catálogo já carregado; não faz requisição HTTP."""
+        if self.worker is not None:
+            return
+        if self._core_catalog_cache is None:
+            self._append_retro_log("FILTRO | catálogo ainda não carregado; use 'Buscar cores' para consultar o Buildbot.")
+            return
+        self._render_core_catalog(self._filtered_cached_cores())
+
+    def _filtered_cached_cores(self):
+        """Filtra em memória o último catálogo obtido do Buildbot."""
+        cores = tuple(self._core_catalog_cache or ())
+        manager = self.retroarch
+        return manager.filter_cores(
+            cores,
+            current_only=self.core_current_only.isChecked(),
+            hide_games=self.core_hide_games.isChecked(),
+        )
 
     def refresh_cores(self) -> None:
-        """Atualiza o catálogo Stable/Beta aplicando os filtros selecionados."""
+        """Consulta o catálogo e somente depois aplica os filtros selecionados."""
+        if self.worker is not None:
+            self._append_retro_log("CATÁLOGO | operação RetroArch já em execução.")
+            return
         try:
+            # O canal do frontend (Stable/Nightly) NÃO é alterado pelos filtros.
+            # Stable e Beta/Nightly são tratados como fontes independentes pelo serviço.
             cores = self.retroarch.list_filtered_cores(
                 include_beta=self.core_include_beta.isChecked(),
-                current_only=self.core_current_only.isChecked(),
-                hide_games=self.core_hide_games.isChecked(),
+                current_only=False,
+                hide_games=False,
             )
-            _, _, destination = self.retroarch.discover()
-            installed = self.retroarch.installed_cores(destination) if destination else ()
-            comparisons = self.retroarch.compare_installed_cores(cores, destination) if destination and destination.is_dir() else []
-            state_map = {path.name.casefold(): state for path, _, state in comparisons}
-            installed_names = {path.name.casefold() for path in installed}
-            self.core_list.blockSignals(True)
-            self.core_list.clear()
-            self.core_items.clear()
-            installed_count = update_count = 0
-            for core in cores:
-                key = core.filename.removesuffix(".zip").casefold()
-                state = state_map.get(key, "new")
-                installed_count += key in installed_names
-                update_count += state == "update"
-                marker = "[ATUALIZADO]" if state == "current" else "[ATUALIZAÇÃO]" if state == "update" else "[NOVO]"
-                beta = " | BETA/NIGHTLY" if core.channel == "nightly" else ""
-                item = QListWidgetItem(f"{marker}{beta} {core.core_name} | {core.date} | CRC {core.crc32}")
-                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-                item.setCheckState(Qt.CheckState.Unchecked)
-                item.setData(Qt.ItemDataRole.UserRole, core.filename)
-                item.setData(Qt.ItemDataRole.UserRole + 1, state)
-                item.setData(Qt.ItemDataRole.UserRole + 2, core.channel)
-                self.core_list.addItem(item)
-                self.core_items[core.filename] = item
-            self.core_list.blockSignals(False)
-            new_count = len(cores) - installed_count
+            self._core_catalog_cache = tuple(cores)
+            self._render_core_catalog(self._filtered_cached_cores())
             source = "Stable + Beta/Nightly" if self.core_include_beta.isChecked() else "Stable"
-            current = "atuais" if self.core_current_only.isChecked() else "todos"
-            games = "sem jogos/engines" if self.core_hide_games.isChecked() else "com jogos/engines"
-            self.core_summary.setText(f"{len(cores)} publicados • {installed_count} instalados • {update_count} atualizações • {new_count} novos")
-            self._update_core_summary()
-            self._append_retro_log(f"CATÁLOGO | fonte={source} | {current} | {games} | cores={len(cores)} | atualizações={update_count}")
+            self._append_retro_log(
+                f"CATÁLOGO | fonte={source} | atuais={self.core_current_only.isChecked()} | "
+                f"sem jogos/engines={self.core_hide_games.isChecked()} | cores={len(self._core_catalog_cache)}"
+            )
         except Exception as exc:  # noqa: BLE001
             self._append_retro_log(f"ERRO CORES | {type(exc).__name__}: {exc}")
             from PySide6.QtWidgets import QMessageBox
             QMessageBox.warning(self, "RetroArch", str(exc))
 
+    def _render_core_catalog(self, cores) -> None:
+        """Renderiza uma coleção de CoreInfo e compara com os cores instalados."""
+        _, _, destination = self.retroarch.discover()
+        installed = self.retroarch.installed_cores(destination) if destination else ()
+        comparisons = self.retroarch.compare_installed_cores(cores, destination) if destination and destination.is_dir() else []
+        state_map = {path.name.casefold(): state for path, _, state in comparisons}
+        installed_names = {path.name.casefold() for path in installed}
+        self.core_list.blockSignals(True)
+        self.core_list.clear()
+        self.core_items.clear()
+        installed_count = update_count = 0
+        for core in cores:
+            key = core.filename.removesuffix(".zip").casefold()
+            state = state_map.get(key, "new")
+            installed_count += key in installed_names
+            update_count += state == "update"
+            marker = "[ATUALIZADO]" if state == "current" else "[ATUALIZAÇÃO]" if state == "update" else "[NOVO]"
+            beta = " | BETA/NIGHTLY" if core.channel == "nightly" else ""
+            item = QListWidgetItem(f"{marker}{beta} {core.core_name} | {core.date} | CRC {core.crc32}")
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Unchecked)
+            item.setData(Qt.ItemDataRole.UserRole, core.filename)
+            item.setData(Qt.ItemDataRole.UserRole + 1, state)
+            item.setData(Qt.ItemDataRole.UserRole + 2, core.channel)
+            self.core_list.addItem(item)
+            self.core_items[core.filename] = item
+        self.core_list.blockSignals(False)
+        new_count = len(cores) - installed_count
+        self.core_summary.setText(
+            f"{len(cores)} publicados • {installed_count} instalados • "
+            f"{update_count} atualizações • {new_count} novos"
+        )
+        self._update_core_summary()
+
     def install_selected_cores(self) -> None:
-        """Enfileira os cores selecionados, preservando a origem Stable/Beta."""
+        """Enfileira cores e processa cada item sequencialmente, com até três tentativas."""
         if self.worker:
             self._append_retro_log("FILA | já existe uma operação RetroArch em execução.")
             return
@@ -108,7 +137,10 @@ class HomePage(EmulatorHomePage):
             QMessageBox.information(self, "RetroArch", "Configure o diretório do RetroArch primeiro.")
             return
         selected = [
-            (str(self.core_list.item(i).data(Qt.ItemDataRole.UserRole)), str(self.core_list.item(i).data(Qt.ItemDataRole.UserRole + 2) or "stable"))
+            (
+                str(self.core_list.item(i).data(Qt.ItemDataRole.UserRole)),
+                str(self.core_list.item(i).data(Qt.ItemDataRole.UserRole + 2) or "stable"),
+            )
             for i in range(self.core_list.count())
             if self.core_list.item(i).checkState() == Qt.CheckState.Checked
         ]
@@ -124,20 +156,25 @@ class HomePage(EmulatorHomePage):
         self._install_next_core(self._core_destination)
 
     def _install_next_core(self, destination: Path) -> None:
-        """Retira o próximo core da fila e inicia suas três tentativas máximas."""
+        """Retira o próximo core da fila e inicia suas tentativas."""
         if not self._core_queue:
             self._core_current_filename = None
             self._core_destination = None
             self.core_list.setEnabled(True)
             self._append_retro_log("FILA | todos os cores selecionados foram processados")
             self._update_core_summary()
-            self.refresh_cores()
+            self.refresh()
             return
         filename, channel = self._core_queue.pop(0)
         self._core_current_filename = filename
-        self._append_retro_log(f"FILA | iniciando {filename} | canal={channel} | restantes={len(self._core_queue)} | máximo={self.CORE_MAX_ATTEMPTS} tentativas")
+        self._append_retro_log(
+            f"FILA | iniciando {filename} | canal={channel} | "
+            f"restantes={len(self._core_queue)} | máximo={self.CORE_MAX_ATTEMPTS} tentativas"
+        )
         self._start_retro(
-            lambda progress, log, f=filename, d=destination, c=channel: self._install_core_with_retries(f, d, c, progress, log),
+            lambda progress, log, f=filename, d=destination, c=channel: self._install_core_with_retries(
+                f, d, c, progress, log
+            ),
             continuation=lambda f=filename: self._finish_core_queue_item(f, destination),
         )
 
@@ -147,27 +184,34 @@ class HomePage(EmulatorHomePage):
         for attempt in range(1, self.CORE_MAX_ATTEMPTS + 1):
             try:
                 log(f"CORE | {filename} | canal={channel} | tentativa={attempt}/{self.CORE_MAX_ATTEMPTS}")
-                return self.retroarch.install_core(filename, destination, channel=channel, progress=progress, log=log)
+                return self.retroarch.install_core(
+                    filename, destination, channel=channel, progress=progress, log=log
+                )
             except Exception as exc:  # noqa: BLE001
                 last_error = exc
-                log(f"CORE ERRO | {filename} | tentativa={attempt}/{self.CORE_MAX_ATTEMPTS} | {type(exc).__name__}: {exc}")
+                log(
+                    f"CORE ERRO | {filename} | tentativa={attempt}/{self.CORE_MAX_ATTEMPTS} | "
+                    f"{type(exc).__name__}: {exc}"
+                )
                 if attempt < self.CORE_MAX_ATTEMPTS:
                     log(f"CORE | {filename} | repetindo operação completa")
         assert last_error is not None
         raise last_error
 
     def _finish_core_queue_item(self, filename: str, destination: Path) -> None:
-        """Desmarca o core concluído/falhado e avança na fila."""
+        """Desmarca o item processado, inclusive após as três tentativas falharem."""
         item = self._find_core_item(filename)
         if item is not None:
             item.setCheckState(Qt.CheckState.Unchecked)
             item.setData(Qt.ItemDataRole.UserRole + 1, "processed")
-        self._append_retro_log(f"FILA | {filename} | processado | seleção removida | próximos={len(self._core_queue)}")
+        self._append_retro_log(
+            f"FILA | {filename} | processado | seleção removida | próximos={len(self._core_queue)}"
+        )
         self._update_core_summary()
         self._install_next_core(destination)
 
     def _find_core_item(self, filename: str) -> QListWidgetItem | None:
-        """Localiza na lista o item correspondente ao nome do arquivo do core."""
+        """Localiza um core na lista pelo nome do arquivo."""
         for index in range(self.core_list.count()):
             item = self.core_list.item(index)
             if str(item.data(Qt.ItemDataRole.UserRole) or "").casefold() == filename.casefold():
@@ -175,7 +219,7 @@ class HomePage(EmulatorHomePage):
         return None
 
     def _start_retro(self, operation, continuation=None) -> None:
-        """Executa uma operação RetroArch e só libera a próxima após QThread.finished."""
+        """Executa uma operação RetroArch e aguarda o encerramento da thread."""
         if self.worker:
             return
         self.retro_progress.show()
@@ -190,17 +234,17 @@ class HomePage(EmulatorHomePage):
         self.worker.start()
 
     def _retro_done(self, result) -> None:
-        """Registra sucesso e aguarda o encerramento real da thread."""
+        """Registra sucesso da operação."""
         self._retro_operation_ok = True
         self._append_retro_log(f"OK | {result}")
 
     def _retro_error(self, message: str) -> None:
-        """Registra falha após esgotar as tentativas da operação."""
+        """Registra a falha final da operação."""
         self._retro_operation_ok = False
         self._append_retro_log(f"ERRO | {message}")
 
     def _retro_worker_finished(self) -> None:
-        """Libera o worker e somente então inicia o próximo item da fila."""
+        """Libera o worker e inicia o próximo item da fila somente depois do término."""
         continuation = self._retro_continuation
         ok = self._retro_operation_ok
         self._retro_continuation = None
@@ -213,42 +257,55 @@ class HomePage(EmulatorHomePage):
             self._append_retro_log("RETROARCH | operação encerrada com erro")
 
     def configure(self, key: str) -> None:
-        """Select only the installation directory used by download/update."""
-        selected = QFileDialog.getExistingDirectory(self, f"Diretório de instalação — {self.LABELS[key]}", str(Path.home()))
+        """Seleciona somente o diretório de instalação."""
+        selected = QFileDialog.getExistingDirectory(
+            self, f"Diretório de instalação — {self.LABELS[key]}", str(Path.home())
+        )
         if not selected:
             return
-        paths = self._load_paths(); paths[key] = Path(selected).resolve(); self._save_paths(paths); self.manager.roots = paths; self.refresh()
+        paths = self._load_paths()
+        paths[key] = Path(selected).resolve()
+        self._save_paths(paths)
+        self.manager.roots = paths
+        self.refresh()
 
     def refresh_status(self) -> None:
-        """Compatibility entry point preserved from the V1 Home contract."""
+        """Compatibility entry point preservado da V1."""
         self.refresh()
 
     def update_all_emulators(self) -> None:
-        """Compatibility entry point for the V1 bulk-update action."""
+        """Compatibility entry point para atualização em lote."""
         self.update_all()
 
     def install_emulator(self, emulator: str) -> None:
-        """Compatibility entry point for installing one standalone emulator."""
+        """Compatibility entry point para instalar um emulador."""
         self.install(emulator)
 
     def clear_install_log(self) -> None:
-        """Clear the Home installation diagnostic console."""
+        """Limpa o console de instalação."""
         self.log_view.clear()
 
     def open_official_site(self, key: str) -> None:
-        """Open the official emulator repository used by the Home card."""
+        """Abre o repositório oficial do emulador."""
         import webbrowser
         url = self.SITES.get(key)
         if url:
             webbrowser.open(url)
 
     def _done(self, key: str, result, continuation=None) -> None:
-        """Persist the installation root and integration executable separately."""
-        paths = self._load_paths(); installation = paths.get(key)
+        """Persiste instalação, executável e versão separadamente."""
+        paths = self._load_paths()
+        installation = paths.get(key)
         if installation is None:
-            installation = Path(result.executable).parent; paths[key] = installation
-        paths[f"{key}_exe"] = Path(result.executable).resolve(); paths[f"{key}_version"] = str(result.version); self._save_paths(paths)
-        self._append_log(f"SUCESSO | {self.LABELS[key]} | versão={result.version} | instalação={installation} | exe={result.executable}")
+            installation = Path(result.executable).parent
+            paths[key] = installation
+        paths[f"{key}_exe"] = Path(result.executable).resolve()
+        paths[f"{key}_version"] = str(result.version)
+        self._save_paths(paths)
+        self._append_log(
+            f"SUCESSO | {self.LABELS[key]} | versão={result.version} | "
+            f"instalação={installation} | exe={result.executable}"
+        )
         self.refresh()
         if continuation:
             continuation()
