@@ -1,10 +1,4 @@
-"""Aquisição e persistência do catálogo completo do ListXML do MAME.
-
-O XML bruto permanece preservado integralmente. Em seguida, os dados
-semânticos do ListXML são normalizados em tabelas relacionais para permitir
-filtros, reconstrução de ROMs/CHDs e construção de sets sem reprocessar o XML.
-Nenhum profile ou decisão de configuração é gerado nesta etapa.
-"""
+"""Aquisição e persistência do catálogo completo do ListXML do MAME."""
 from __future__ import annotations
 
 import hashlib
@@ -20,6 +14,9 @@ from typing import Callable
 
 from ..runtime.paths import data_root, database_path
 from .mame_catalog_normalizer import MameCatalogNormalizer
+from .mame_classification_service import MameClassificationService
+from .mame_resolution_service import MameResolutionService
+from .mame_vsync_service import MameVsyncService
 
 
 class MameCatalogError(RuntimeError):
@@ -59,7 +56,7 @@ class MameCatalogService:
         return executable
 
     def ingest(self, *, timeout: float = 180.0, force: bool = False) -> dict[str, object]:
-        """Captura, valida, preserva e normaliza o ListXML em uma única operação."""
+        """Captura o ListXML e, após sucesso, importa CATLIST, Resolution e Vsync."""
         executable = self.configured_executable()
         started = perf_counter()
         run_id = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
@@ -106,7 +103,9 @@ class MameCatalogService:
             ).fetchone()
             if existing and not force:
                 self._log(f"MAME | [{run_id}] | DEDUP | import_id={existing[0]} | hash já persistido")
-                return self._result(existing[0], existing[1], existing[2], Path(existing[3]) if existing[3] else source, source_hash, started, True, run_id)
+                result = self._result(existing[0], existing[1], existing[2], Path(existing[3]) if existing[3] else source, source_hash, started, True, run_id)
+                result["ini_results"] = self._ingest_inis(executable.parent)
+                return result
 
             now = datetime.now(timezone.utc).isoformat()
             self._log(f"MAME | [{run_id}] | DB | criando importação | tamanho={self._human_bytes(raw_bytes)}")
@@ -114,8 +113,7 @@ class MameCatalogService:
                 """INSERT INTO mame_listxml_import
                 (emulator_id,executable,mame_build,mame_config,debug,imported_at,source_hash,xml_path,machine_count,byte_length,parser_version,status)
                 VALUES(?,?,?,?,?,?,?,?,?,?,?,'captured')""",
-                (int(emulator[0]), str(executable), build, root.attrib.get("mameconfig"), root.attrib.get("debug"),
-                 now, source_hash, str(source), machine_count, raw_bytes, self.PARSER_VERSION),
+                (int(emulator[0]), str(executable), build, root.attrib.get("mameconfig"), root.attrib.get("debug"), now, source_hash, str(source), machine_count, raw_bytes, self.PARSER_VERSION),
             )
             import_id = int(cur.lastrowid)
             self._log(f"MAME | [{run_id}] | DB | import_id={import_id} | salvando documento lossless")
@@ -141,7 +139,26 @@ class MameCatalogService:
         self._log(f"MAME | [{run_id}] | DB OK | banco={self._human_bytes(db_size)} | tempo_db={db_elapsed:.2f}s")
         self._log(f"MAME | [{run_id}] | AUDITORIA | XML={self._human_bytes(raw_bytes)} | hash={source_hash[:16]} | máquinas={machine_count:,}")
         self._log(f"MAME | [{run_id}] | DONE | catálogo completo ingerido | tempo_total={elapsed:.2f}s")
-        return self._result(import_id, build, machine_count, source, source_hash, started, False, run_id, totals)
+        result = self._result(import_id, build, machine_count, source, source_hash, started, False, run_id, totals)
+        result["ini_results"] = self._ingest_inis(executable.parent)
+        return result
+
+    def _ingest_inis(self, mame_root: Path) -> list[tuple[str, dict[str, object]]]:
+        """Importa os INIs dependentes somente depois que o catálogo ListXML terminou."""
+        stages = (
+            ("CATLIST", MameClassificationService),
+            ("RESOLUTION", MameResolutionService),
+            ("VSYNC", MameVsyncService),
+        )
+        results: list[tuple[str, dict[str, object]]] = []
+        total = len(stages)
+        self._log(f"MAME | INIS | QUEUE | 1/{total} CATLIST → 2/{total} RESOLUTION → 3/{total} VSYNC")
+        for index, (name, service_class) in enumerate(stages, 1):
+            self._log(f"MAME | INIS | QUEUE | {index}/{total} | {name}")
+            service = service_class(self.DB_FILE, mame_root)
+            results.append((name, service.ingest(logger=self._log)))
+        self._log("MAME | INIS | DONE | todas as fontes concluídas")
+        return results
 
     @staticmethod
     def _run_mame(executable: Path, timeout: float) -> str:
