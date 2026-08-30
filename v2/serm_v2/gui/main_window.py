@@ -15,6 +15,7 @@ from .emulator_settings_page import EmulatorSettingsPage
 from .emulator_shaders_bezels_page import EmulatorShadersBezelsPage
 from .home import HomePage
 from .log_handler import LogViewer
+from .mame_guides_page import MameGuidesPage
 
 
 class MainWindow(QMainWindow):
@@ -48,11 +49,13 @@ class MainWindow(QMainWindow):
         self.directories_tab = DirectoriesPage(self)
         self.settings_tab = EmulatorSettingsPage(self)
         self.visuals_tab = EmulatorShadersBezelsPage(self)
+        self.mame_guides_tab = MameGuidesPage(self)
         self.dat_scraper_tab = DatScraperPage(self)
         self.tab_widget.addTab(self.home_section, "Home")
         self.tab_widget.addTab(self.directories_tab, "Diretórios")
         self.tab_widget.addTab(self.settings_tab, "Configurações")
         self.tab_widget.addTab(self.visuals_tab, "Shaders / Bezels")
+        self.tab_widget.addTab(self.mame_guides_tab, "MAME")
         self.tab_widget.addTab(self.dat_scraper_tab, "Scraper de DATs")
         self.tab_widget.currentChanged.connect(self._on_tab_changed)
         layout.addWidget(self.tab_widget, 1)
@@ -69,6 +72,8 @@ class MainWindow(QMainWindow):
             self.settings_tab.refresh()
         elif widget is self.visuals_tab:
             self.visuals_tab.refresh()
+        elif widget is self.mame_guides_tab:
+            self.mame_guides_tab.refresh()
         elif widget is self.dat_scraper_tab:
             self.dat_scraper_tab.setFocus()
 
