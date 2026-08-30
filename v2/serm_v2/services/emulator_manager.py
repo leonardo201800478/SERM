@@ -300,12 +300,39 @@ class RetroArchManager:
     BUILD_ROOT = "https://buildbot.libretro.com"
     WINDOWS_ARCH = "x86_64"
     NIGHTLY_ROOT = f"{BUILD_ROOT}/nightly/windows/{WINDOWS_ARCH}/latest/"
-    STABLE_ROOT_TEMPLATE = f"{BUILD_ROOT}/stable/{{version}}/windows/{WINDOWS_ARCH}/"
+    STABLE_ROOT_TEMPLATE = f"{BUILD_ROOT}/stable/{{version}}/windows/{{WINDOWS_ARCH}}/"
     RETROARCH_ARCHIVE = "RetroArch.7z"
     VERSION_MARKER = ".serm-version"
     CHUNK_SIZE = 1024 * 1024
     TIMEOUT = 60
     RETRIES = 3
+
+    # Snapshots históricos que o filtro "Somente cores atuais" deve remover.
+    # A lista é deliberadamente explícita para não eliminar variantes modernas
+    # que apenas contenham um número no nome.
+    LEGACY_CORE_NAMES = frozenset({
+        "bnes2014", "desmume2015", "puae2021", "stella2014", "stella2023",
+        "snes9x2002", "snes9x2005", "snes9x2005plus", "snes9x2010",
+        "mame2000", "mame2003", "mame2003plus", "mame2003midway", "mame2009", "mame2010",
+        "citra2018", "melonds2021", "fbalpha2012", "fbalpha2012cps1", "fbalpha2012cps2", "fbalpha2012neogeo",
+        "genesisplusgxwide", "genesisplusgx", "picodrive", "quicknes",
+    })
+    LEGACY_CORE_PATTERNS = (
+        re.compile(r"^bsnes2014(?:accuracy|balanced|performance)?$", re.I),
+        re.compile(r"^snes9x20(?:0[25]|10)(?:plus)?$", re.I),
+        re.compile(r"^mame(?:2000|2003|2003plus|2003midway|2009|2010)$", re.I),
+    )
+
+    # Cores classificados pela documentação Libretro como jogos, game engines,
+    # ports de jogos ou engines específicas, e não como emuladores de sistemas.
+    # O filtro "Ocultar jogos/engines" usa estes nomes/prefixos.
+    GAME_ENGINE_CORE_PATTERNS = (
+        re.compile(r"^(?:2048|anarch|boom|boom3|boom3xp|craft|cruzes|gong|jumpnbump|mrboom|opentyrian|puzzlescript|superbroswar)$", re.I),
+        re.compile(r"^(?:openlara|prboom|prboomplus|nxengine|cannonball|chailove|lutro|lowresnx|retro8|reminiscence|scummvm|mkxpz)$", re.I),
+        re.compile(r"^vita(?:quake|quake2|quake3|voyager).*$", re.I),
+        re.compile(r"^(?:xrick|pascalpong|vircon32|wasm4|3dengine|imageviewer|mpv|pockets?cdg)$", re.I),
+        re.compile(r"^(?:doom|quake|tyrquake|dosboxpuregame).*$", re.I),
+    )
 
     def __init__(self, root: Path | None = None) -> None:
         """Inicializa o gerenciador."""
@@ -370,7 +397,7 @@ class RetroArchManager:
         normalized = channel.strip().casefold()
         if normalized == "stable":
             version = stable_version or cls.latest_stable_version()
-            return cls.STABLE_ROOT_TEMPLATE.format(version=version), version
+            return f"{cls.BUILD_ROOT}/stable/{version}/windows/{cls.WINDOWS_ARCH}/", version
         if normalized == "nightly":
             return cls.NIGHTLY_ROOT, "nightly"
         raise ValueError(f"Canal RetroArch inválido: {channel!r}")
@@ -532,8 +559,38 @@ class RetroArchManager:
             log(f"RETROARCH OK | executável={executable} | versão={version}")
         return executable
 
-    def list_cores(self, channel: str = "nightly", stable_version: str | None = None) -> tuple[CoreInfo, ...]:
-        """Lê .index-extended e retorna os cores Windows x64 publicados."""
+    @classmethod
+    def is_legacy_core(cls, core: CoreInfo) -> bool:
+        """Retorna True para snapshots históricos que não devem aparecer no modo atual."""
+        normalized = re.sub(r"[^a-z0-9]", "", core.core_name.casefold())
+        return normalized in cls.LEGACY_CORE_NAMES or any(pattern.fullmatch(normalized) for pattern in cls.LEGACY_CORE_PATTERNS)
+
+    @classmethod
+    def is_game_or_engine_core(cls, core: CoreInfo) -> bool:
+        """Classifica ports de jogos e game engines que não são emuladores de sistemas."""
+        normalized = re.sub(r"[^a-z0-9]", "", core.core_name.casefold())
+        return any(pattern.fullmatch(normalized) for pattern in cls.GAME_ENGINE_CORE_PATTERNS)
+
+    @classmethod
+    def filter_cores(
+        cls,
+        cores: tuple[CoreInfo, ...],
+        *,
+        current_only: bool = True,
+        hide_games: bool = True,
+    ) -> tuple[CoreInfo, ...]:
+        """Aplica os filtros de cores atuais e de jogos/engines."""
+        result = []
+        for core in cores:
+            if current_only and cls.is_legacy_core(core):
+                continue
+            if hide_games and cls.is_game_or_engine_core(core):
+                continue
+            result.append(core)
+        return tuple(result)
+
+    def list_cores(self, channel: str = "nightly", stable_version: str | None = None, *, current_only: bool = False, hide_games: bool = False) -> tuple[CoreInfo, ...]:
+        """Lê .index-extended e retorna cores Windows x64, com filtros opcionais."""
         buildroot, _ = self.buildroot(channel, stable_version)
         index_url = buildroot + ".index-extended"
         text = self._download_text(index_url)
@@ -547,9 +604,22 @@ class RetroArchManager:
                 continue
             result.append(CoreInfo(filename=filename, core_name=re.sub(r"_libretro\.dll$", "", filename.removesuffix(".zip"), flags=re.I), date=date, crc32=crc.lower().removeprefix("0x").zfill(8)))
         result.sort(key=lambda item: item.core_name.casefold())
-        if not result:
-            raise RuntimeError(f"O índice de cores está vazio ou inválido: {index_url}")
-        return tuple(result)
+        filtered = self.filter_cores(tuple(result), current_only=current_only, hide_games=hide_games)
+        if not filtered:
+            raise RuntimeError(f"Nenhum core corresponde aos filtros: {index_url}")
+        return filtered
+
+    def list_filtered_cores(self, *, include_beta: bool = False, current_only: bool = True, hide_games: bool = True, stable_version: str | None = None) -> tuple[CoreInfo, ...]:
+        """Retorna a união dos cores Stable e, opcionalmente, dos Beta/Nightly."""
+        channels = ["stable", "nightly"] if include_beta else ["stable"]
+        merged: dict[str, CoreInfo] = {}
+        for channel in channels:
+            for core in self.list_cores(channel, stable_version, current_only=False, hide_games=False):
+                key = core.core_name.casefold()
+                # Stable é a fonte preferencial quando o mesmo core existe nos dois catálogos.
+                if key not in merged or channel == "stable":
+                    merged[key] = core
+        return self.filter_cores(tuple(merged.values()), current_only=current_only, hide_games=hide_games)
 
     @staticmethod
     def _crc32(path: Path) -> str:
