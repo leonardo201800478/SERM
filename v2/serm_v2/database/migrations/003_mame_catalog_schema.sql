@@ -27,11 +27,11 @@ CREATE TABLE IF NOT EXISTS mame_xml_node (
     ordinal INTEGER NOT NULL DEFAULT 0,
     xml_path TEXT NOT NULL,
     text_value TEXT,
-    attributes_json TEXT NOT NULL DEFAULT '{}',
-    UNIQUE(import_id, xml_path)
+    attributes_json TEXT NOT NULL DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS ix_mame_xml_node_machine ON mame_xml_node(import_id, machine_id);
 CREATE INDEX IF NOT EXISTS ix_mame_xml_node_element ON mame_xml_node(import_id, element_name);
+CREATE INDEX IF NOT EXISTS ix_mame_xml_node_path ON mame_xml_node(import_id, xml_path);
 
 CREATE TABLE IF NOT EXISTS mame_machine (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
