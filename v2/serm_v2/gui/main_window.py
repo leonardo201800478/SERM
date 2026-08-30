@@ -9,6 +9,7 @@ from ..config.settings import Settings
 from ..database.engine import create_sqlite_engine
 from .dat_scraper import DatScraperPage
 from .emulator_directories_page import DirectoriesPage
+from .emulator_settings_page import EmulatorSettingsPage
 from .home import HomePage
 from .log_handler import LogViewer
 
@@ -38,9 +39,11 @@ class MainWindow(QMainWindow):
         self.tab_widget = QTabWidget()
         self.home_section = HomePage(self)
         self.directories_tab = DirectoriesPage(self)
+        self.settings_tab = EmulatorSettingsPage(self)
         self.dat_scraper_tab = DatScraperPage(self)
         self.tab_widget.addTab(self.home_section, "Home")
         self.tab_widget.addTab(self.directories_tab, "Diretórios")
+        self.tab_widget.addTab(self.settings_tab, "Configurações")
         self.tab_widget.addTab(self.dat_scraper_tab, "Scraper de DATs")
         self.tab_widget.currentChanged.connect(self._on_tab_changed)
         layout.addWidget(self.tab_widget, 1)
@@ -53,6 +56,8 @@ class MainWindow(QMainWindow):
             self.home_section.refresh()
         elif widget is self.directories_tab:
             self.directories_tab.refresh()
+        elif widget is self.settings_tab:
+            self.settings_tab.refresh()
 
     def closeEvent(self, event) -> None:  # noqa: N802
         """Fecha os recursos locais da aplicação."""
