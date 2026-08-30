@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS config_option (
     step_value REAL,
     unit TEXT,
     scope_slug TEXT NOT NULL DEFAULT 'global' REFERENCES config_scope(slug),
+    surface TEXT NOT NULL DEFAULT 'configuration',
     applies_when TEXT,
     driver_family TEXT,
     advanced INTEGER NOT NULL DEFAULT 0 CHECK (advanced IN (0,1)),
@@ -63,6 +64,8 @@ CREATE INDEX IF NOT EXISTS ix_config_option_emulator_group
     ON config_option(emulator_id, group_id, sort_order);
 CREATE INDEX IF NOT EXISTS ix_config_option_scope
     ON config_option(emulator_id, scope_slug);
+CREATE INDEX IF NOT EXISTS ix_config_option_surface
+    ON config_option(emulator_id, surface, group_id);
 
 CREATE TABLE IF NOT EXISTS config_option_value (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -197,6 +200,8 @@ INSERT OR IGNORE INTO config_group(emulator_id, slug, name, description, sort_or
 SELECT id, 'performance', 'Desempenho', 'Frame pacing, throttling e latência.', 50 FROM emulator_definition WHERE slug='mame';
 INSERT OR IGNORE INTO config_group(emulator_id, slug, name, description, sort_order)
 SELECT id, 'system', 'Sistema', 'Idioma, BIOS, plugins e comportamento geral.', 60 FROM emulator_definition WHERE slug='mame';
+INSERT OR IGNORE INTO config_group(emulator_id, slug, name, description, sort_order)
+SELECT id, 'visuals', 'Shaders / Artworks', 'Opções visuais que pertencem à aba Shaders / Bezels.', 70 FROM emulator_definition WHERE slug='mame';
 INSERT OR IGNORE INTO config_group(emulator_id, slug, name, description, sort_order)
 SELECT id, 'debug', 'Avançado/Debug', 'Opções de diagnóstico e desenvolvimento.', 90 FROM emulator_definition WHERE slug='mame';
 
