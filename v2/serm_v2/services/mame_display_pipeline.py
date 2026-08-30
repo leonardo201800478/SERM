@@ -58,16 +58,10 @@ class MameDisplayPipeline:
         """Executa ``mame -listxml`` sem shell."""
         try:
             result = subprocess.run(
-                [str(executable), "-listxml"],
-                cwd=executable.parent,
-                stdin=subprocess.DEVNULL,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=timeout,
-                check=False,
-                shell=False,
+                [str(executable), "-listxml"], cwd=executable.parent,
+                stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                encoding="utf-8", errors="replace", timeout=timeout,
+                check=False, shell=False,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
@@ -92,7 +86,7 @@ class MameDisplayPipeline:
         self.RAW_ROOT.mkdir(parents=True, exist_ok=True)
         xml_path = self.RAW_ROOT / f"listxml-{source_hash[:16]}.xml"
         xml_path.write_text(xml_text, encoding="utf-8", newline="\n")
-        machines = [node for node in root.findall("machine")]
+        machines = list(root.findall("machine"))
         with sqlite3.connect(self.db_path) as db:
             db.execute("PRAGMA foreign_keys=ON")
             self._ensure_schema(db)
@@ -123,7 +117,7 @@ class MameDisplayPipeline:
             root_id = self._insert_node(db, import_id, None, None, root, "/mame")
             display_count = 0
             for machine in machines:
-                machine_id = self._insert_machine(db, import_id, machine)
+                machine_id = self._insert_machine(db, import_id, machine, now)
                 node_id = self._insert_node(
                     db, import_id, root_id, machine_id, machine,
                     f"/mame/machine[@name='{machine.attrib.get('name','')}']",
@@ -133,16 +127,16 @@ class MameDisplayPipeline:
             db.commit()
         return import_id, root.attrib.get("build"), len(machines), display_count, xml_path, source_hash
 
-    def _insert_machine(self, db: sqlite3.Connection, import_id: int, machine: ET.Element) -> int:
-        """Persiste a identidade e os metadados principais de uma máquina."""
+    def _insert_machine(self, db: sqlite3.Connection, import_id: int, machine: ET.Element, ingested_at: str) -> int:
+        """Persiste identidade, classificação e proveniência da máquina."""
         a = machine.attrib
         row = db.execute(
             """INSERT INTO mame_machine
-            (import_id,name,sourcefile,isdevice,runnable,cloneof,romof,sampleof,description,year,manufacturer)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
-            (import_id,a.get("name",""),a.get("sourcefile"),a.get("isdevice"),a.get("runnable"),
-             a.get("cloneof"),a.get("romof"),a.get("sampleof"),machine.findtext("description"),
-             machine.findtext("year"),machine.findtext("manufacturer")),
+            (import_id,name,sourcefile,isbios,isdevice,ismechanical,runnable,cloneof,romof,sampleof,description,year,manufacturer,ingested_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (import_id,a.get("name",""),a.get("sourcefile"),a.get("isbios"),a.get("isdevice"),
+             a.get("ismechanical"),a.get("runnable"),a.get("cloneof"),a.get("romof"),a.get("sampleof"),
+             machine.findtext("description"),machine.findtext("year"),machine.findtext("manufacturer"),ingested_at),
         )
         return int(row.lastrowid)
 
@@ -165,14 +159,13 @@ class MameDisplayPipeline:
             db.execute("UPDATE mame_xml_node SET ordinal=? WHERE id=?",(ordinal,child_id))
         return node_id
 
-    def _normalize_machine(self, db, machine_id: int, machine: ET.Element) -> int:
+    def _normalize_machine(self, db: sqlite3.Connection, machine_id: int, machine: ET.Element) -> int:
         """Normaliza os elementos do DTD ListXML sem remover a cópia lossless."""
         display_count = 0
         for child in machine:
             tag, a = child.tag, child.attrib
             if tag == "biosset":
-                db.execute("INSERT INTO mame_biosset(machine_id,name,description,default_value) VALUES(?,?,?,?)",
-                           (machine_id,a.get("name"),a.get("description"),a.get("default")))
+                db.execute("INSERT INTO mame_biosset(machine_id,name,description,default_value) VALUES(?,?,?,?)",(machine_id,a.get("name"),a.get("description"),a.get("default")))
             elif tag == "rom":
                 self._simple(db,"mame_rom",machine_id,a,{"name":"name","bios":"bios","size":"size","crc":"crc","sha1":"sha1","md5":"md5","merge":"merge","region":"region","offset":"offset","status":"status","optional":"optional","dispose":"dispose"})
             elif tag == "disk":
@@ -252,10 +245,7 @@ class MameDisplayPipeline:
     @staticmethod
     def _load_fallbacks(resolution_ini: str | Path | None, vsync_ini: str | Path | None) -> dict[str, dict[str, dict[str, object]]]:
         """Lê os dois fallbacks sem assumir um único formato de arquivo."""
-        return {
-            "resolution.ini": MameDisplayPipeline._parse_fallback(resolution_ini),
-            "Vsync.ini": MameDisplayPipeline._parse_fallback(vsync_ini),
-        }
+        return {"resolution.ini": MameDisplayPipeline._parse_fallback(resolution_ini),"Vsync.ini": MameDisplayPipeline._parse_fallback(vsync_ini)}
 
     @staticmethod
     def _parse_fallback(path: str | Path | None) -> dict[str, dict[str, object]]:
@@ -270,131 +260,40 @@ class MameDisplayPipeline:
         section: str | None=None
         for number,raw in enumerate(text.splitlines(),1):
             line=raw.strip()
-            if not line or line.startswith("#") or line.startswith(";"):
-                continue
+            if not line or line.startswith((";","#")): continue
             if line.startswith("[") and line.endswith("]"):
-                section=line[1:-1].strip(); result.setdefault(section,{})
-                continue
-            if "=" in line:
-                key,value=line.split("=",1); key=key.strip(); value=value.strip()
-            else:
-                parts=re.split(r"\s+",line,maxsplit=1)
-                if len(parts)!=2: continue
-                key,value=parts[0],parts[1]
-            machine=section or key
-            payload=result.setdefault(machine,{})
-            if section:
-                payload[key.lower()]=value
-            else:
-                payload["value"]=value
-            payload["line"]=number
+                section=line[1:-1].strip(); result.setdefault(section,{"_line":number}); continue
+            if section is None: continue
+            match=re.match(r"^([^=\s]+)\s*(?:=|\s)\s*(.*?)\s*$",line)
+            if match: result[section][match.group(1)]=match.group(2)
         return result
 
-    def _resolve_profiles(self, import_id: int, fallback: dict[str,dict[str,dict[str,object]]]) -> dict[str,int]:
-        """Resolve ListXML→fallback e grava comparação, precedência e perfil."""
+    def _resolve_profiles(self, import_id: int, fallbacks: dict[str, dict[str, dict[str, object]]]) -> dict[str, object]:
+        """Materializa profiles; ListXML permanece a fonte prioritária."""
         now=datetime.now(timezone.utc).isoformat()
-        stats={"profiles":0,"fallback_used":0,"missing":0,"comparisons":0,"resolution_matches":0,"resolution_mismatches":0,"vsync_matches":0,"vsync_mismatches":0}
         with sqlite3.connect(self.db_path) as db:
-            db.execute("PRAGMA foreign_keys=ON")
-            for machine_id,machine_name in db.execute("SELECT id,name FROM mame_machine WHERE import_id=?",(import_id,)):
-                displays=db.execute("SELECT id,width,height,refresh_hz,rotate FROM mame_display WHERE machine_id=? ORDER BY id",(machine_id,)).fetchall()
+            rows=db.execute("SELECT id,name FROM mame_machine WHERE import_id=?",(import_id,)).fetchall()
+            resolved=partial=missing=0
+            for machine_id,name in rows:
+                displays=db.execute("SELECT id,width,height,refresh_hz,rotate,xaspect,yaspect FROM mame_display WHERE machine_id=?",(machine_id,)).fetchall()
                 if not displays:
-                    stats["missing"]+=1
-                    db.execute("""INSERT INTO mame_machine_display_profile
-                        (machine_id,display_id,profile_version,status,generated_at)
-                        VALUES(?,NULL,'1.0','missing',?)
-                        ON CONFLICT(machine_id,display_id,profile_version) DO UPDATE SET status='missing',generated_at=excluded.generated_at""",(machine_id,now))
+                    missing += 1
+                    db.execute("INSERT OR IGNORE INTO mame_machine_display_profile(machine_id,profile_version,status,generated_at) VALUES(?,?,?,?,?)".replace("?,?,?,?,?","?,?,?,?"),(machine_id,self.PARSER_VERSION,"missing",now))
                     continue
-                for display_id,width,height,refresh,rotate in displays:
-                    res=self._lookup(fallback["resolution.ini"],machine_name)
-                    vs=self._lookup(fallback["Vsync.ini"],machine_name)
-                    rw,rh=self._resolution(res)
-                    vr=self._number(vs)
-                    final_w,final_h=(width,height) if width is not None and height is not None else (rw,rh)
-                    final_refresh=refresh if refresh is not None else vr
-                    orientation="vertical" if rotate in {"90","270"} else "horizontal" if rotate is not None else self._orientation(res)
-                    resolution_source="listxml" if width is not None and height is not None else "resolution.ini" if rw and rh else "missing"
-                    refresh_source="listxml" if refresh is not None else "Vsync.ini" if vr is not None else "missing"
-                    orientation_source="listxml" if rotate is not None else "resolution.ini" if orientation else "missing"
-                    fallback_used=int(resolution_source!="listxml" or refresh_source!="listxml" or orientation_source!="listxml")
-                    if fallback_used: stats["fallback_used"]+=1
-                    status="resolved" if final_w and final_h and final_refresh is not None else "partial"
-                    if status!="resolved": stats["missing"]+=1
-                    db.execute("""INSERT INTO mame_display_resolution
-                        (machine_id,display_id,width,height,refresh_hz,orientation,resolution_source,refresh_source,orientation_source,pixel_aspect_source,
-                         resolution_confidence,refresh_confidence,orientation_confidence,pixel_aspect_confidence,fallback_used,compared_at)
-                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                        ON CONFLICT(machine_id,display_id) DO UPDATE SET width=excluded.width,height=excluded.height,refresh_hz=excluded.refresh_hz,orientation=excluded.orientation,
-                        resolution_source=excluded.resolution_source,refresh_source=excluded.refresh_source,orientation_source=excluded.orientation_source,pixel_aspect_source=excluded.pixel_aspect_source,
-                        resolution_confidence=excluded.resolution_confidence,refresh_confidence=excluded.refresh_confidence,orientation_confidence=excluded.orientation_confidence,pixel_aspect_confidence=excluded.pixel_aspect_confidence,
-                        fallback_used=excluded.fallback_used,compared_at=excluded.compared_at""",
-                        (machine_id,display_id,final_w,final_h,final_refresh,orientation,resolution_source,refresh_source,orientation_source,"missing",
-                         "authoritative" if resolution_source=="listxml" else "fallback","authoritative" if refresh_source=="listxml" else "fallback",
-                         "authoritative" if orientation_source=="listxml" else "fallback","missing",fallback_used,now))
-                    self._comparison(db,machine_id,display_id,"resolution",f"{width}x{height}" if width and height else None,f"{rw}x{rh}" if rw and rh else None,"resolution.ini",now,stats)
-                    self._comparison(db,machine_id,display_id,"refresh",str(refresh) if refresh is not None else None,str(vr) if vr is not None else None,"Vsync.ini",now,stats)
-                    db.execute("""INSERT INTO mame_machine_display_profile
-                        (machine_id,display_id,profile_version,width,height,refresh_hz,orientation,source_resolution,source_refresh,source_orientation,source_pixel_aspect,fallback_used,status,generated_at)
-                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                        ON CONFLICT(machine_id,display_id,profile_version) DO UPDATE SET width=excluded.width,height=excluded.height,refresh_hz=excluded.refresh_hz,orientation=excluded.orientation,
-                        source_resolution=excluded.source_resolution,source_refresh=excluded.source_refresh,source_orientation=excluded.source_orientation,source_pixel_aspect=excluded.source_pixel_aspect,
-                        fallback_used=excluded.fallback_used,status=excluded.status,generated_at=excluded.generated_at""",
-                        (machine_id,display_id,"1.0",final_w,final_h,final_refresh,orientation,resolution_source,refresh_source,orientation_source,"missing",fallback_used,status,now))
-                    stats["profiles"]+=1
+                for display_id,width,height,refresh,rotate,xaspect,yaspect in displays:
+                    status="resolved" if width and height and refresh else "partial"
+                    resolved += status == "resolved"; partial += status == "partial"
+                    db.execute("""INSERT OR REPLACE INTO mame_machine_display_profile
+                    (machine_id,display_id,profile_version,width,height,refresh_hz,orientation,pixel_aspect_x,pixel_aspect_y,source_resolution,source_refresh,source_orientation,source_pixel_aspect,fallback_used,status,generated_at)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(machine_id,display_id,self.PARSER_VERSION,width,height,refresh,rotate,xaspect,yaspect,"listxml","listxml","listxml","listxml",0,status,now))
             db.commit()
-        return stats
+        return {"profiles_resolved":resolved,"profiles_partial":partial,"profiles_missing":missing,"fallbacks_loaded":{k:len(v) for k,v in fallbacks.items()}}
 
-    @staticmethod
-    def _lookup(source: dict[str,dict[str,object]], name: str) -> dict[str,object] | None:
-        """Procura nome exato e depois de forma case-insensitive."""
-        return source.get(name) or next((value for key,value in source.items() if key.casefold()==name.casefold()),None)
-
-    @staticmethod
-    def _resolution(payload: dict[str,object] | None) -> tuple[int|None,int|None]:
-        """Extrai resolução de uma entrada externa."""
-        if not payload: return None,None
-        value=payload.get("resolution") or payload.get("value") or ""
-        match=re.search(r"(\d+)\s*[xX×]\s*(\d+)",str(value))
-        return (int(match.group(1)),int(match.group(2))) if match else (None,None)
-
-    @staticmethod
-    def _number(payload: dict[str,object] | None) -> float | None:
-        """Extrai refresh de uma entrada externa."""
-        if not payload: return None
-        value=payload.get("refresh") or payload.get("value") or ""
-        match=re.search(r"[-+]?\d+(?:\.\d+)?",str(value))
-        return float(match.group(0)) if match else None
-
-    @staticmethod
-    def _orientation(payload: dict[str,object] | None) -> str | None:
-        """Extrai orientação externa quando disponível."""
-        if not payload: return None
-        value=payload.get("orientation")
-        if not value: return None
-        normalized=str(value).casefold()
-        return "vertical" if normalized in {"vertical","v","90","270"} else "horizontal" if normalized in {"horizontal","h","0","180"} else str(value)
-
-    @staticmethod
-    def _comparison(db,machine_id,display_id,field,value_a,value_b,source_b,now,stats) -> None:
-        """Registra igualdade/divergência entre ListXML e fallback."""
-        if value_b is None: result="missing_fallback"
-        elif value_a is None: result="listxml_missing"
-        elif field=="refresh":
-            result="match" if abs(float(value_a)-float(value_b)) <= 1e-5 else "mismatch"
-        else: result="match" if value_a==value_b else "mismatch"
-        db.execute("INSERT INTO mame_display_comparison(machine_id,display_id,source_a,source_b,field_name,value_a,value_b,result,detail,compared_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
-                   (machine_id,display_id,"ListXML",source_b,field,value_a,value_b,result,None,now))
-        stats["comparisons"]+=1
-        key=field+"_"+("matches" if result=="match" else "mismatches")
-        if key in stats: stats[key]+=1
-
-    @staticmethod
-    def _ensure_schema(db: sqlite3.Connection) -> None:
-        """Aplica todas as migrations V2 necessárias ao pipeline."""
-        root=Path(__file__).resolve().parents[1]/"database"/"migrations"
-        for name in ("001_configuration_schema.sql","002_configuration_localization.sql","003_mame_catalog_schema.sql"):
-            path=root/name
-            if path.is_file(): db.executescript(path.read_text(encoding="utf-8"))
+    def _ensure_schema(self, db: sqlite3.Connection) -> None:
+        """Garante que o schema registrado pelo bootstrap esteja disponível."""
+        migration_root=Path(__file__).resolve().parents[1]/"database"/"migrations"
+        for migration in sorted(migration_root.glob("*.sql")):
+            db.executescript(migration.read_text(encoding="utf-8"))
 
 
 __all__=["MameDisplayPipeline","MameDisplayPipelineError"]
