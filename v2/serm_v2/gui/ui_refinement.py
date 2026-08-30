@@ -35,24 +35,14 @@ QProgressBar#xpProgress::chunk {
     margin: 1px;
     border-right: 1px solid #8de36a;
 }
-QProgressBar#xpProgress[busy="true"] {
-    color: #e8ffe0;
-}
+QProgressBar#xpProgress[busy="true"] { color: #e8ffe0; }
 """
 
 SPLITTER_STYLE = """
-QSplitter::handle {
-    background-color: #353535;
-}
-QSplitter::handle:hover {
-    background-color: #00aebc;
-}
-QSplitter::handle:horizontal {
-    width: 5px;
-}
-QSplitter::handle:vertical {
-    height: 5px;
-}
+QSplitter::handle { background-color: #353535; }
+QSplitter::handle:hover { background-color: #00aebc; }
+QSplitter::handle:horizontal { width: 5px; }
+QSplitter::handle:vertical { height: 5px; }
 """
 
 
@@ -76,7 +66,6 @@ def _replace_arcade_cards(home) -> bool:
     page = tabs.widget(0)
     if page is None or page.property("arcade_refined"):
         return False
-
     layout = page.layout()
     if layout is None:
         return False
@@ -99,12 +88,9 @@ def _replace_arcade_cards(home) -> bool:
     if len(cards) != 4:
         return False
 
-    # A grade original deixa de controlar os cards. O frame é substituído por
-    # um splitter horizontal com dois splitters verticais internos.
     frame = next((w for w in page.findChildren(QFrame) if w.layout() is not None), None)
     if frame is None:
         return False
-
     index = layout.indexOf(frame)
     if index < 0:
         return False
@@ -165,7 +151,7 @@ def _replace_arcade_cards(home) -> bool:
 
 
 def _refine_retroarch_splitter(home) -> bool:
-    """Cria uma divisória vertical ajustável entre catálogo e log do RetroArch."""
+    """Cria uma divisória horizontal ajustável entre catálogo e log do RetroArch."""
     tabs = getattr(home, "home_tabs", None)
     if tabs is None or tabs.count() < 2:
         return False
@@ -183,8 +169,6 @@ def _refine_retroarch_splitter(home) -> bool:
     if list_index < 0 or log_index < 0:
         return False
 
-    # O label do log fica imediatamente acima do console; mantemos ambos no
-    # painel inferior para que a divisória seja intuitiva.
     log_label = None
     if log_index > 0:
         candidate = layout.itemAt(log_index - 1).widget()
@@ -207,15 +191,19 @@ def _refine_retroarch_splitter(home) -> bool:
     _configure_splitter(splitter, "splitterRetroArchCatalogLog", [3, 2])
     layout.insertWidget(min(list_index, log_index), splitter, 1)
 
+    retro_progress = getattr(home, "retro_progress", None)
+    if retro_progress is not None:
+        retro_progress.setObjectName("xpProgress")
+        retro_progress.setStyleSheet(XP_PROGRESS_STYLE)
+        retro_progress.setMinimumHeight(18)
+        retro_progress.setMaximumHeight(18)
+
     page.setProperty("retro_splitter_refined", True)
     return True
 
 
 def apply_ui_refinement(window) -> dict[str, bool]:
-    """Aplica a segunda camada visual sem alterar os serviços ou a lógica funcional."""
-    app = window.windowHandle().screen().virtualSiblings()[0] if window.windowHandle() else None
-    del app  # Mantém a função independente do QApplication; o stylesheet é local.
-
+    """Aplica a segunda camada visual sem alterar serviços ou lógica funcional."""
     for widget in window.findChildren(QProgressBar):
         widget.setMaximumHeight(max(widget.maximumHeight(), 18))
 
@@ -226,8 +214,7 @@ def apply_ui_refinement(window) -> dict[str, bool]:
     arcade = _replace_arcade_cards(home)
     retroarch = _refine_retroarch_splitter(home)
 
-    # Os consoles usam fonte de terminal/pixel como preferência, com fallback
-    # seguro para instalações Windows que não possuem uma fonte pixel instalada.
+    # Consoles mantêm o stylesheet global do tema de fósforo/pixel.
     for console in window.findChildren(type(home.log_view)):
         console.setStyleSheet("")
         console.setObjectName("logConsole")
