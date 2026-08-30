@@ -1,9 +1,6 @@
 PRAGMA foreign_keys = ON;
 
--- MAME ListXML exposes ismechanical as a machine classification attribute.
--- It is optional because not every machine entry carries the attribute.
-ALTER TABLE mame_machine ADD COLUMN ismechanical TEXT;
-
+-- Compatibility marker only. ismechanical is defined in migration 003.
 CREATE INDEX IF NOT EXISTS ix_mame_machine_mechanical
     ON mame_machine(import_id, ismechanical);
 
