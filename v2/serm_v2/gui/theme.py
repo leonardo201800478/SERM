@@ -14,14 +14,9 @@ from PySide6.QtWidgets import (
 )
 
 PIXEL_THEME = """
-QWidget {
-    background-color: #1b1b1b;
-    color: #e6e6e6;
-    font-family: "Segoe UI";
-    font-size: 10pt;
-}
-QMainWindow, QWidget#centralWidget { background-color: #1b1b1b; }
-QLabel { color: #dddddd; }
+QWidget { background-color:#1b1b1b; color:#e6e6e6; font-family:"Segoe UI"; font-size:10pt; }
+QMainWindow, QWidget#centralWidget { background-color:#1b1b1b; }
+QLabel { color:#dddddd; }
 QLabel[role="title"] { color:#fff; font-size:20pt; font-weight:900; padding:2px 0 7px 0; }
 QLabel[role="section"] { color:#d13d78; font-size:11pt; font-weight:800; padding:3px 0; }
 QTabWidget::pane { background:#242424; border:1px solid #454545; border-top:2px solid #9c2f60; }
@@ -33,7 +28,7 @@ QGroupBox { background:#202020; border:1px solid #4b4b4b; margin-top:14px; paddi
 QGroupBox::title { subcontrol-origin:margin; left:11px; padding:0 7px; color:#ff4f96; background:#1b1b1b; font-weight:900; }
 QFrame#panel { background:#232323; border:1px solid #404040; }
 QPushButton { background:#303030; color:#f2f2f2; border:1px solid #666; padding:7px 14px; min-height:20px; min-width:118px; font-weight:800; }
-QPushButton:hover { background:#3b3b3b; border:1px solid #00d9e8; color:#fff; }
+QPushButton:hover { background:#3b3b3b; border-color:#00d9e8; color:#fff; }
 QPushButton:pressed { background:#54203a; border:2px solid #ff4f96; }
 QPushButton:disabled { color:#666; border-color:#363636; background:#252525; }
 QPushButton[role="primary"] { background:#5b2040; border:2px solid #d13d78; color:#fff; font-weight:900; }
@@ -75,53 +70,45 @@ def apply_theme(app: QApplication) -> None:
 
 
 def refine_dashboard(root) -> dict[str, int]:
-    """Refina a composição sem criar áreas gigantes de edição."""
+    """Refina a composição das telas, incluindo a guia de diretórios."""
     panels = titles = sections = 0
     root_layout = root.layout()
     if root_layout is not None:
         root_layout.setContentsMargins(10, 8, 10, 6)
         root_layout.setSpacing(6)
-
     for layout in root.findChildren(QLayout):
         layout.setSpacing(6)
-
     for frame in root.findChildren(QFrame):
-        if frame.styleSheet():
-            frame.setStyleSheet("")
-        frame.setObjectName("panel")
-        panels += 1
-
+        if frame.styleSheet(): frame.setStyleSheet("")
+        frame.setObjectName("panel"); panels += 1
     for label in root.findChildren(QLabel):
         text = label.text().strip()
         if text in {"SERM V2", "SERM V2 — Home"} or text.startswith("SERM V2 —"):
-            label.setStyleSheet("")
-            label.setProperty("role", "title")
-            label.style().unpolish(label); label.style().polish(label); titles += 1
+            label.setStyleSheet(""); label.setProperty("role", "title"); label.style().unpolish(label); label.style().polish(label); titles += 1
         elif text in {"Log RetroArch", "Log detalhado da instalação"}:
-            label.setStyleSheet("")
-            label.setProperty("role", "section")
-            label.style().unpolish(label); label.style().polish(label); sections += 1
-
+            label.setStyleSheet(""); label.setProperty("role", "section"); label.style().unpolish(label); label.style().polish(label); sections += 1
     for button in root.findChildren(QPushButton):
         button.setMinimumHeight(max(button.minimumHeight(), 30))
-
+        text = button.text().strip().casefold()
+        if any(token in text for token in ("selecionar pasta", "adicionar pasta", "selecionar diretório")):
+            button.setProperty("role", "folder")
+        elif "remover selecionada" in text:
+            button.setProperty("role", "danger")
+        elif "salvar diretórios" in text or "instalar selecionados" in text:
+            button.setProperty("role", "primary")
+        button.style().unpolish(button); button.style().polish(button)
     for widget in root.findChildren(QListWidget):
-        # PathListWidget lists must be compact; generic result lists can remain larger.
         parent_name = widget.parentWidget().__class__.__name__ if widget.parentWidget() else ""
         if parent_name == "PathListWidget":
-            widget.setMinimumHeight(82)
-            widget.setMaximumHeight(130)
+            widget.setMinimumHeight(82); widget.setMaximumHeight(130)
         else:
             widget.setMinimumHeight(max(widget.minimumHeight(), 140))
-
     for widget in root.findChildren(QPlainTextEdit):
         widget.setMinimumHeight(max(widget.minimumHeight(), 150))
     for widget in root.findChildren(QProgressBar):
         widget.setMaximumHeight(20)
     for widget in root.findChildren(QTabWidget):
-        widget.setDocumentMode(True)
-        widget.setUsesScrollButtons(False)
-
+        widget.setDocumentMode(True); widget.setUsesScrollButtons(False)
     return {"panels": panels, "titles": titles, "sections": sections}
 
 
@@ -129,10 +116,7 @@ def normalize_log_widgets(root) -> int:
     """Padroniza todos os consoles QPlainTextEdit para o monitor de fósforo."""
     widgets = root.findChildren(QPlainTextEdit)
     for widget in widgets:
-        widget.setStyleSheet("")
-        widget.setObjectName("logConsole")
-        widget.setReadOnly(True)
-        widget.setMaximumBlockCount(max(widget.maximumBlockCount(), 3000))
+        widget.setStyleSheet(""); widget.setObjectName("logConsole"); widget.setReadOnly(True); widget.setMaximumBlockCount(max(widget.maximumBlockCount(), 3000))
     return len(widgets)
 
 
