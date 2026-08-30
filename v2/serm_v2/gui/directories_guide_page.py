@@ -146,7 +146,7 @@ class ConfigFileEditor:
         return re.compile(
             rf"^(?P<prefix>\s*{key_expr}\s*(?:=\s*|\s+))"
             rf"(?P<value>.*?)"
-            rf"(?P<suffix>\s*(?:[;#].*)?)$"
+            rf"(?P<suffix>\s*(?:#.*)?)$"
         )
 
 
