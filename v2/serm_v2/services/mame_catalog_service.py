@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from time import perf_counter
 
 from ..runtime.paths import data_root, database_path
 from .mame_display_pipeline import MameDisplayPipeline, MameDisplayPipelineError
@@ -18,6 +19,7 @@ class MameCatalogService:
     PATHS_FILE = data_root() / "emulator_paths.json"
     DB_FILE = database_path()
     RAW_FILE = data_root() / "mame" / "metadata" / "listxml.xml"
+    RAW_ROOT = data_root() / "mame" / "listxml"
 
     def configured_executable(self) -> Path:
         """Retorna o mame.exe explicitamente escolhido na guia Diretórios."""
@@ -37,8 +39,17 @@ class MameCatalogService:
         return executable
 
     def ingest(self, *, timeout: float = 180.0, force: bool = False) -> dict[str, object]:
-        """Executa -listxml e persiste import_id, máquinas, XML lossless e displays."""
+        """Executa -listxml e persiste importação, XML lossless e perfis de display.
+
+        A identidade de uma captura é o SHA-256 do XML. Assim, executar novamente
+        a mesma versão/configuração sem alterações não duplica a importação; o
+        pipeline reaproveita o registro existente. ``force=True`` fica reservado
+        para uma nova execução explícita do pipeline.
+        """
         executable = self.configured_executable()
+        started = perf_counter()
+        self.RAW_ROOT.mkdir(parents=True, exist_ok=True)
+        previous_raw_files = set(self.RAW_ROOT.glob("listxml-*.xml"))
         try:
             result = MameDisplayPipeline(self.DB_FILE).run(
                 executable,
@@ -54,6 +65,8 @@ class MameCatalogService:
         if source.is_file() and source != self.RAW_FILE:
             self.RAW_FILE.write_bytes(source.read_bytes())
 
+        elapsed = perf_counter() - started
+        source_was_known = source in previous_raw_files
         return {
             "executable": executable,
             "machine_count": int(result["machine_count"]),
@@ -63,6 +76,10 @@ class MameCatalogService:
             "xml_path": source,
             "database": self.DB_FILE,
             "source_hash": result.get("source_hash"),
+            "elapsed_seconds": elapsed,
+            "source_was_known": source_was_known,
+            "deduplicated": source_was_known and not force,
+            "force": force,
         }
 
 
