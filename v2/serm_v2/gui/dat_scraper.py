@@ -24,6 +24,7 @@ from ..integrations.launchbox import LaunchBoxIntegration
 from ..integrations.launchbox_provider import LaunchBoxProvider
 from ..services.mame_catalog_service import MameCatalogError, MameCatalogService
 from ..services.mame_classification_service import MameClassificationError, MameClassificationService
+from ..services.mame_resolution_service import MameResolutionError, MameResolutionService
 from ..sources.acquisition.no_intro_archive import NoIntroArchiveProvider
 from ..sources.acquisition.redump import RedumpProvider
 
@@ -85,8 +86,8 @@ class _MameCatalogWorker(QThread):
             self.failed.emit(f"{type(exc).__name__}: {exc}")
 
 
-class _MameCatlistWorker(QThread):
-    """Importa o CATLIST em background para manter a interface responsiva."""
+class _MameIniWorker(QThread):
+    """Executa a fila de INIs MAME em ordem, sem bloquear a interface."""
     message = Signal(str)
     completed = Signal(object)
     failed = Signal(str)
@@ -96,13 +97,26 @@ class _MameCatlistWorker(QThread):
         self.database_path = database_path
         self.mame_root = mame_root
 
+    def _log(self, message: str) -> None:
+        """Publica uma mensagem de uma etapa da fila."""
+        self.message.emit(message)
+
     def run(self) -> None:
-        """Executa a Etapa 2 e encaminha cada evento para o log da GUI."""
+        """Importa CATLIST e Resolution sequencialmente, cada fonte em sua transação."""
+        results = []
         try:
-            service = MameClassificationService(self.database_path, self.mame_root)
-            result = service.ingest(logger=self.message.emit)
-            self.completed.emit(result)
-        except MameClassificationError as exc:
+            self._log("MAME | INIS | QUEUE | 1/2 | CATLIST")
+            classification = MameClassificationService(self.database_path, self.mame_root)
+            result = classification.ingest(logger=self._log)
+            results.append(("CATLIST", result))
+
+            self._log("MAME | INIS | QUEUE | 2/2 | RESOLUTION")
+            resolution = MameResolutionService(self.database_path, self.mame_root)
+            result = resolution.ingest(logger=self._log)
+            results.append(("RESOLUTION", result))
+
+            self.completed.emit(results)
+        except (MameClassificationError, MameResolutionError) as exc:
             self.failed.emit(str(exc))
         except Exception as exc:  # noqa: BLE001
             self.failed.emit(f"{type(exc).__name__}: {exc}")
@@ -271,16 +285,16 @@ class DatSourceTab(QWidget):
 
 
 class _MameTab(QWidget):
-    """Sessão MAME do Scraper de DATs; ListXML e CATLIST são etapas separadas."""
+    """Sessão MAME do Scraper de DATs com fila única de importação de INIs."""
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.service = MameCatalogService()
         self.worker: _MameCatalogWorker | None = None
-        self.catlist_worker: _MameCatlistWorker | None = None
+        self.ini_worker: _MameIniWorker | None = None
         self._build_ui()
 
     def _build_ui(self) -> None:
-        """Monta a sessão MAME com operações independentes e log operacional."""
+        """Monta a sessão MAME com ListXML e a fila de INIs."""
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("MAME — DAT / Catálogo"))
         self.executable = QLabel("Executável configurado: —")
@@ -292,10 +306,10 @@ class _MameTab(QWidget):
         self.run_button = QPushButton("OBTER LISTXML (-listxml)")
         self.run_button.clicked.connect(self.ingest)
         actions.addWidget(self.run_button)
-        self.catlist_button = QPushButton("IMPORTAR CATLIST")
-        self.catlist_button.setToolTip("Importa folders\\catlist.ini; usa cat32en\\catlist.ini somente como fallback.")
-        self.catlist_button.clicked.connect(self.ingest_catlist)
-        actions.addWidget(self.catlist_button)
+        self.ini_button = QPushButton("IMPORTAR INIs")
+        self.ini_button.setToolTip("Processa os INIs MAME conhecidos em fila: CATLIST e Resolution.")
+        self.ini_button.clicked.connect(self.ingest_inis)
+        actions.addWidget(self.ini_button)
         self.refresh_button = QPushButton("ATUALIZAR EXECUTÁVEL")
         self.refresh_button.clicked.connect(self.refresh)
         actions.addWidget(self.refresh_button)
@@ -326,13 +340,21 @@ class _MameTab(QWidget):
             executable = self.service.configured_executable()
             self.executable.setText(f"Executável configurado: {executable}")
             self.run_button.setEnabled(True)
+            self.ini_button.setEnabled(True)
             self._log("INFO", f"Executável validado: {executable}")
         except MameCatalogError as exc:
             self.executable.setText("Executável configurado: não definido")
             self.status.setText(str(exc))
             self.run_button.setEnabled(False)
-            self.catlist_button.setEnabled(False)
+            self.ini_button.setEnabled(False)
             self._log("WARN", str(exc))
+
+    def _set_mame_busy(self, busy: bool) -> None:
+        """Bloqueia operações MAME concorrentes enquanto uma thread está ativa."""
+        self.run_button.setEnabled(not busy)
+        self.ini_button.setEnabled(not busy)
+        self.refresh_button.setEnabled(not busy)
+        self.progress.setVisible(busy)
 
     def ingest(self) -> None:
         """Inicia a ingestão do ListXML usando o executável configurado."""
@@ -341,10 +363,7 @@ class _MameTab(QWidget):
         self.refresh()
         if not self.run_button.isEnabled():
             return
-        self.run_button.setEnabled(False)
-        self.catlist_button.setEnabled(False)
-        self.refresh_button.setEnabled(False)
-        self.progress.setVisible(True)
+        self._set_mame_busy(True)
         self.status.setText("Executando MAME -listxml…")
         self._log("START", "Iniciando captura do ListXML pelo executável configurado")
         self.worker = _MameCatalogWorker(self)
@@ -353,51 +372,50 @@ class _MameTab(QWidget):
         self.worker.finished.connect(self._finished)
         self.worker.start()
 
-    def ingest_catlist(self) -> None:
-        """Inicia a importação do CATLIST sem bloquear a interface."""
-        if self.catlist_worker and self.catlist_worker.isRunning():
+    def ingest_inis(self) -> None:
+        """Executa a fila de INIs MAME na ordem definida, uma fonte por vez."""
+        if self.ini_worker and self.ini_worker.isRunning():
             return
         try:
             executable = self.service.configured_executable()
         except MameCatalogError as exc:
             self._log("ERROR", str(exc))
             return
+
+        self._set_mame_busy(True)
+        self.status.setText("Importando INIs MAME…")
         database_path = self.service.DB_FILE
         mame_root = executable.parent
-        self.run_button.setEnabled(False)
-        self.catlist_button.setEnabled(False)
-        self.refresh_button.setEnabled(False)
-        self.progress.setVisible(True)
-        self.status.setText("Importando CATLIST…")
-        self._log("START", "Iniciando Etapa 2 — classificação CATLIST")
+        self._log("START", "Iniciando fila de INIs MAME")
         self._log("INFO", f"Raiz MAME para fontes: {mame_root}")
-        self.catlist_worker = _MameCatlistWorker(database_path, mame_root, self)
-        self.catlist_worker.message.connect(lambda msg: self._log("INFO", msg))
-        self.catlist_worker.completed.connect(self._catlist_completed)
-        self.catlist_worker.failed.connect(self._catlist_failed)
-        self.catlist_worker.finished.connect(self._catlist_finished)
-        self.catlist_worker.start()
+        self._log("QUEUE", "1/2 CATLIST → 2/2 RESOLUTION")
+        self.ini_worker = _MameIniWorker(database_path, mame_root, self)
+        self.ini_worker.message.connect(lambda msg: self._log("INFO", msg))
+        self.ini_worker.completed.connect(self._inis_completed)
+        self.ini_worker.failed.connect(self._inis_failed)
+        self.ini_worker.finished.connect(self._inis_finished)
+        self.ini_worker.start()
 
-    def _catlist_completed(self, result: object) -> None:
-        """Mostra o resumo da importação CATLIST."""
-        data = result
-        self.status.setText(f"CATLIST concluído | entradas={data['entries']:,} | resolvidas={data['resolved']:,} | não resolvidas={data['unresolved']:,}")
-        self._log("OK", f"CATLIST | entradas={data['entries']:,}")
-        self._log("OK", f"CATLIST | resolvidas={data['resolved']:,}")
-        self._log("OK", f"CATLIST | não resolvidas={data['unresolved']:,}")
-        self._log("OK", f"CATLIST | source_id={data['source_id']}")
-        self._log("DONE", "Etapa 2 — classificação CATLIST concluída")
+    def _inis_completed(self, results: object) -> None:
+        """Exibe o resumo agregado de todas as fontes processadas."""
+        self.status.setText("Importação dos INIs concluída")
+        for name, data in results:
+            self._log("OK", f"{name} | entradas={data['entries']:,}")
+            self._log("OK", f"{name} | resolvidas={data['resolved']:,}")
+            self._log("OK", f"{name} | não resolvidas={data['unresolved']:,}")
+            self._log("OK", f"{name} | source_id={data['source_id']}")
+            self._log("DONE", f"Fonte {name} concluída")
+        self._log("DONE", "Fila de INIs MAME concluída com sucesso")
 
-    def _catlist_failed(self, message: str) -> None:
-        """Exibe falha do CATLIST preservando a causa."""
-        self.status.setText("Falha na importação CATLIST")
+    def _inis_failed(self, message: str) -> None:
+        """Registra a falha da fila sem esconder qual etapa falhou."""
+        self.status.setText("Falha na fila de INIs")
         self._log("ERROR", message)
-        self._log("DONE", "Etapa 2 encerrada com erro; dados anteriores preservados")
+        self._log("DONE", "Fila encerrada; fontes concluídas anteriormente permanecem preservadas")
 
-    def _catlist_finished(self) -> None:
-        """Libera controles depois da thread CATLIST."""
-        self.progress.setVisible(False)
-        self.refresh_button.setEnabled(True)
+    def _inis_finished(self) -> None:
+        """Libera os controles após terminar a fila de INIs."""
+        self._set_mame_busy(False)
         self.refresh()
 
     def _completed(self, result: object) -> None:
@@ -429,8 +447,7 @@ class _MameTab(QWidget):
 
     def _finished(self) -> None:
         """Libera os controles após a thread terminar."""
-        self.progress.setVisible(False)
-        self.refresh_button.setEnabled(True)
+        self._set_mame_busy(False)
         self.refresh()
 
 
