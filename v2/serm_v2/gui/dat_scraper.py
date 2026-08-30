@@ -25,6 +25,7 @@ from ..integrations.launchbox_provider import LaunchBoxProvider
 from ..services.mame_catalog_service import MameCatalogError, MameCatalogService
 from ..services.mame_classification_service import MameClassificationError, MameClassificationService
 from ..services.mame_resolution_service import MameResolutionError, MameResolutionService
+from ..services.mame_vsync_service import MameVsyncError, MameVsyncService
 from ..sources.acquisition.no_intro_archive import NoIntroArchiveProvider
 from ..sources.acquisition.redump import RedumpProvider
 
@@ -102,21 +103,22 @@ class _MameIniWorker(QThread):
         self.message.emit(message)
 
     def run(self) -> None:
-        """Importa CATLIST e Resolution sequencialmente, cada fonte em sua transação."""
+        """Importa CATLIST, Resolution e Vsync como fontes independentes."""
         results = []
+        stages = (
+            ("CATLIST", MameClassificationService),
+            ("RESOLUTION", MameResolutionService),
+            ("VSYNC", MameVsyncService),
+        )
         try:
-            self._log("MAME | INIS | QUEUE | 1/2 | CATLIST")
-            classification = MameClassificationService(self.database_path, self.mame_root)
-            result = classification.ingest(logger=self._log)
-            results.append(("CATLIST", result))
-
-            self._log("MAME | INIS | QUEUE | 2/2 | RESOLUTION")
-            resolution = MameResolutionService(self.database_path, self.mame_root)
-            result = resolution.ingest(logger=self._log)
-            results.append(("RESOLUTION", result))
-
+            total = len(stages)
+            for index, (name, service_class) in enumerate(stages, 1):
+                self._log(f"MAME | INIS | QUEUE | {index}/{total} | {name}")
+                service = service_class(self.database_path, self.mame_root)
+                result = service.ingest(logger=self._log)
+                results.append((name, result))
             self.completed.emit(results)
-        except (MameClassificationError, MameResolutionError) as exc:
+        except (MameClassificationError, MameResolutionError, MameVsyncError) as exc:
             self.failed.emit(str(exc))
         except Exception as exc:  # noqa: BLE001
             self.failed.emit(f"{type(exc).__name__}: {exc}")
@@ -307,7 +309,7 @@ class _MameTab(QWidget):
         self.run_button.clicked.connect(self.ingest)
         actions.addWidget(self.run_button)
         self.ini_button = QPushButton("IMPORTAR INIs")
-        self.ini_button.setToolTip("Processa os INIs MAME conhecidos em fila: CATLIST e Resolution.")
+        self.ini_button.setToolTip("Processa CATLIST, Resolution e Vsync em fila independente.")
         self.ini_button.clicked.connect(self.ingest_inis)
         actions.addWidget(self.ini_button)
         self.refresh_button = QPushButton("ATUALIZAR EXECUTÁVEL")
@@ -388,7 +390,7 @@ class _MameTab(QWidget):
         mame_root = executable.parent
         self._log("START", "Iniciando fila de INIs MAME")
         self._log("INFO", f"Raiz MAME para fontes: {mame_root}")
-        self._log("QUEUE", "1/2 CATLIST → 2/2 RESOLUTION")
+        self._log("QUEUE", "1/3 CATLIST → 2/3 RESOLUTION → 3/3 VSYNC")
         self.ini_worker = _MameIniWorker(database_path, mame_root, self)
         self.ini_worker.message.connect(lambda msg: self._log("INFO", msg))
         self.ini_worker.completed.connect(self._inis_completed)
@@ -403,6 +405,8 @@ class _MameTab(QWidget):
             self._log("OK", f"{name} | entradas={data['entries']:,}")
             self._log("OK", f"{name} | resolvidas={data['resolved']:,}")
             self._log("OK", f"{name} | não resolvidas={data['unresolved']:,}")
+            if "duplicates" in data:
+                self._log("OK", f"{name} | duplicadas={data['duplicates']:,}")
             self._log("OK", f"{name} | source_id={data['source_id']}")
             self._log("DONE", f"Fonte {name} concluída")
         self._log("DONE", "Fila de INIs MAME concluída com sucesso")
