@@ -1,18 +1,21 @@
 """Configuração BGFX do MAME V2.
 
-A página trata ``bgfx_screen_chains`` como uma configuração de mapeamento
-janela/tela do MAME, e não como um caminho para um JSON. O valor global é
-persistido no mame.ini; arquivos CFG específicos continuam sendo uma camada
-separada para os ajustes salvos pelo próprio MAME.
+A página trata ``bgfx_screen_chains`` como configuração global do MAME e
+reconhece que arquivos CFG por sistema podem conter overrides BGFX. O editor
+permite manter esses overrides ou removê-los seletivamente para que o global
+passe a prevalecer.
 """
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 from typing import Any
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QFormLayout,
     QGroupBox,
@@ -21,22 +24,21 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QVBoxLayout,
+    QWidget,
 )
-
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QWidget
 
 from ..runtime.paths import data_root
 from .directories_guide_page import ConfigFileEditor
 
 
 class MameShadersPage(QWidget):
-    """Editor global de chains BGFX, respeitando o driver do MAME."""
+    """Editor global de chains BGFX, com diagnóstico de overrides CFG."""
 
     PATHS_FILE = data_root() / "emulator_paths.json"
     VIDEO_KEY = "video"
     CHAIN_KEY = "bgfx_screen_chains"
     BACKEND_KEY = "bgfx_backend"
+    CFG_DIRECTORY_KEY = "cfg_directory"
 
     BGFX_BACKENDS = ("auto", "d3d9", "d3d11", "d3d12", "opengl", "gles", "metal", "vulkan")
     VIDEO_DRIVERS = ("auto", "bgfx", "d3d", "opengl", "soft")
@@ -46,6 +48,7 @@ class MameShadersPage(QWidget):
         self.video_driver = QComboBox()
         self.chain = QComboBox()
         self.backend = QComboBox()
+        self.remove_overrides = QCheckBox("Remover overrides BGFX dos CFGs ao aplicar global")
         self.status = QLabel()
         self.info = QLabel()
         self.status.setWordWrap(True)
@@ -123,19 +126,40 @@ class MameShadersPage(QWidget):
         except OSError:
             return None
 
-    def _build_ui(self) -> None:
-        """Monta os seletores de driver, backend e chain BGFX."""
-        root = QVBoxLayout(self)
-        group = QGroupBox("MAME BGFX — configuração global")
-        form = QFormLayout(group)
+    def _cfg_directory(self, editor: ConfigFileEditor | None = None) -> Path | None:
+        """Resolve o diretório CFG usando cfg_directory e a raiz do MAME."""
+        editor = editor or self._editor()
+        root = self._mame_root()
+        raw = self._config_value(editor, self.CFG_DIRECTORY_KEY) if editor else ""
+        if raw:
+            path = Path(raw.strip().strip('"'))
+            if not path.is_absolute() and root:
+                path = root / path
+            return path
+        if root:
+            return root / "cfg"
+        return None
 
+    def _build_ui(self) -> None:
+        """Monta os seletores e controles de configuração BGFX."""
+        root = QVBoxLayout(self)
+        global_group = QGroupBox("MAME BGFX — configuração global")
+        form = QFormLayout(global_group)
         self.video_driver.addItems(self.VIDEO_DRIVERS)
         self.video_driver.setEnabled(False)
         self.backend.addItems(self.BGFX_BACKENDS)
         form.addRow("Driver de vídeo atual", self.video_driver)
         form.addRow("Backend BGFX", self.backend)
         form.addRow("Chain / mapa global", self.chain)
-        root.addWidget(group)
+        form.addRow("Aplicação global", self.remove_overrides)
+        root.addWidget(global_group)
+
+        override_group = QGroupBox("Overrides BGFX por sistema")
+        override_layout = QVBoxLayout(override_group)
+        self.override_summary = QLabel()
+        self.override_summary.setWordWrap(True)
+        override_layout.addWidget(self.override_summary)
+        root.addWidget(override_group)
         root.addWidget(self.status)
         root.addWidget(self.info)
 
@@ -155,8 +179,10 @@ class MameShadersPage(QWidget):
         root.addStretch(1)
 
     @staticmethod
-    def _config_value(editor: ConfigFileEditor, key: str) -> str:
+    def _config_value(editor: ConfigFileEditor | None, key: str) -> str:
         """Retorna o primeiro valor encontrado para uma chave do INI."""
+        if editor is None:
+            return ""
         values = editor.values(key)
         return values[0].strip() if values else ""
 
@@ -172,32 +198,63 @@ class MameShadersPage(QWidget):
 
     @classmethod
     def _normalize_chain_map(cls, value: str) -> str:
-        """Normaliza todos os chains de uma expressão BGFX, preservando , e :."""
+        """Normaliza chains sem destruir a sintaxe de múltiplas telas/janelas."""
         value = value.strip()
         if not value:
             return ""
-        parts: list[str] = []
+        out: list[str] = []
         token = ""
         for char in value:
             if char in ",:":
-                parts.append(cls._chain_name(token))
-                parts.append(char)
+                out.append(cls._chain_name(token))
+                out.append(char)
                 token = ""
             else:
                 token += char
-        parts.append(cls._chain_name(token))
-        return "".join(parts)
+        out.append(cls._chain_name(token))
+        return "".join(out)
 
     def _set_bgfx_enabled(self, enabled: bool) -> None:
         """Habilita os controles BGFX somente quando video=bgfx."""
         has_chain = bool(self.chain.currentData())
         self.chain.setEnabled(enabled and has_chain)
         self.backend.setEnabled(enabled)
+        self.remove_overrides.setEnabled(enabled)
         if self._apply_button is not None:
             self._apply_button.setEnabled(enabled and has_chain)
 
+    @staticmethod
+    def _cfg_override(path: Path) -> tuple[bool, list[str]]:
+        """Detecta overrides BGFX e retorna os chains encontrados no CFG."""
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return False, []
+        if "<bgfx>" not in text:
+            return False, []
+        chains = re.findall(r'<screen\b[^>]*\bchain=["\']([^"\']+)["\']', text, re.IGNORECASE)
+        return True, chains
+
+    def _scan_cfg_overrides(self) -> list[tuple[Path, list[str]]]:
+        """Lista somente CFGs que possuem configuração BGFX específica."""
+        directory = self._cfg_directory()
+        if directory is None or not directory.is_dir():
+            return []
+        found: list[tuple[Path, list[str]]] = []
+        for path in sorted(directory.glob("*.cfg")):
+            has_bgfx, chains = self._cfg_override(path)
+            if has_bgfx:
+                found.append((path, chains))
+        return found
+
+    @staticmethod
+    def _remove_bgfx_block(text: str) -> str:
+        """Remove somente o bloco <bgfx> de CFG, preservando mixer e demais dados."""
+        pattern = re.compile(r"\s*<bgfx>.*?</bgfx>\s*", re.IGNORECASE | re.DOTALL)
+        return pattern.sub("\n", text, count=1)
+
     def refresh(self) -> None:
-        """Lê mame.ini e atualiza os controles com a configuração efetiva salva."""
+        """Lê mame.ini, descobre chains e diagnostica overrides CFG."""
         editor = self._editor()
         root = self._mame_root()
         self.chain.clear()
@@ -209,6 +266,7 @@ class MameShadersPage(QWidget):
             self._set_bgfx_enabled(False)
             self.status.setText("mame.ini não localizado.")
             self.info.setText(f"Raiz MAME: {root or 'não localizada'}")
+            self.override_summary.setText("Overrides CFG: não foi possível verificar.")
             return
 
         driver = self._config_value(editor, self.VIDEO_KEY).lower() or "auto"
@@ -218,58 +276,51 @@ class MameShadersPage(QWidget):
 
         configured_map = self._normalize_chain_map(self._config_value(editor, self.CHAIN_KEY))
         current_backend = self._config_value(editor, self.BACKEND_KEY).lower() or "auto"
-        backend_index = self.backend.findText(current_backend)
-        if backend_index < 0:
+        if self.backend.findText(current_backend) < 0:
             self.backend.addItem(current_backend)
-            backend_index = self.backend.findText(current_backend)
-        self.backend.setCurrentIndex(backend_index)
+        self.backend.setCurrentText(current_backend)
 
         chains_dir = root / "bgfx" / "chains" if root else None
-        chains = sorted(
-            p for p in chains_dir.glob("*.json") if p.is_file()
-        ) if chains_dir and chains_dir.is_dir() else []
-
-        # Presets de uma tela e mapas documentados para múltiplas telas/janelas.
+        chains = sorted(p for p in chains_dir.glob("*.json") if p.is_file()) if chains_dir and chains_dir.is_dir() else []
         self.chain.addItem("default", "default")
         for path in chains:
             if self.chain.findData(path.stem) < 0:
                 self.chain.addItem(path.stem, path.stem)
-
-        # Se o valor global contém , ou :, ele é um mapa. Mantemos a expressão
-        # completa selecionável para não destruir uma configuração multicâmera.
         if configured_map and self.chain.findData(configured_map) < 0:
             self.chain.addItem(f"Mapa atual: {configured_map}", configured_map)
-
         index = self.chain.findData(configured_map)
         if index >= 0:
             self.chain.setCurrentIndex(index)
-        elif configured_map:
-            # Para um único chain, seleciona o preset correspondente.
-            single = self._chain_name(configured_map)
-            index = self.chain.findData(single)
+        elif configured_map and "," not in configured_map and ":" not in configured_map:
+            index = self.chain.findData(self._chain_name(configured_map))
             if index >= 0:
                 self.chain.setCurrentIndex(index)
 
+        overrides = self._scan_cfg_overrides()
+        if overrides:
+            preview = [f"{p.stem}: {', '.join(c) or 'BGFX sem chain explícito'}" for p, c in overrides[:12]]
+            extra = f"\n… e mais {len(overrides) - 12}." if len(overrides) > 12 else ""
+            self.override_summary.setText(f"{len(overrides)} CFG(s) possuem override BGFX:\n" + "\n".join(preview) + extra)
+        else:
+            self.override_summary.setText("Nenhum CFG com override BGFX foi encontrado.")
+
         is_bgfx = driver == "bgfx"
         self._set_bgfx_enabled(is_bgfx)
-        if is_bgfx:
-            self.status.setText(
-                f"BGFX ATIVO | backend={current_backend} | bgfx_screen_chains={configured_map or 'não definido'}"
-            )
-        else:
-            self.status.setText(
-                f"Driver atual: {driver}. BGFX bloqueado; selecione video=bgfx nas configurações do MAME."
-            )
-
+        self.status.setText(
+            f"BGFX ATIVO | backend={current_backend} | global={configured_map or 'não definido'}"
+            if is_bgfx else
+            f"Driver atual: {driver}. BGFX bloqueado; selecione video=bgfx nas configurações do MAME."
+        )
         self.info.setText(
             f"mame.ini: {self._mame_config()}\n"
             f"BGFX: {root / 'bgfx' if root else 'não localizado'}\n"
+            f"CFG: {self._cfg_directory(editor) or 'não localizado'}\n"
             f"Chains encontrados: {len(chains)}\n"
-            "Sintaxe MAME: vírgula = telas na mesma janela; dois-pontos = janelas físicas."
+            "Vírgula = telas na mesma janela; dois-pontos = janelas físicas."
         )
 
     def apply_global(self) -> None:
-        """Grava somente bgfx_screen_chains no mame.ini e preserva o backend atual."""
+        """Grava o chain global e opcionalmente remove somente overrides BGFX dos CFGs."""
         editor = self._editor()
         if editor is None:
             QMessageBox.warning(self, "MAME BGFX", "mame.ini não localizado.")
@@ -286,18 +337,35 @@ class MameShadersPage(QWidget):
             editor.set_value(self.CHAIN_KEY, chain_map)
             backup = editor.save()
         except (OSError, KeyError) as exc:
-            QMessageBox.critical(self, "MAME BGFX", f"Não foi possível aplicar:\n{exc}")
+            QMessageBox.critical(self, "MAME BGFX", f"Não foi possível aplicar ao mame.ini:\n{exc}")
             return
+
+        removed = 0
+        if self.remove_overrides.isChecked():
+            for path, _chains in self._scan_cfg_overrides():
+                try:
+                    original = path.read_text(encoding="utf-8", errors="replace")
+                    updated = self._remove_bgfx_block(original)
+                    if updated != original:
+                        backup_path = path.with_suffix(path.suffix + ".serm.bak")
+                        if not backup_path.exists():
+                            backup_path.write_text(original, encoding="utf-8")
+                        path.write_text(updated, encoding="utf-8", newline="")
+                        removed += 1
+                except OSError:
+                    continue
+
         self.refresh()
         QMessageBox.information(
             self,
             "MAME BGFX",
-            f"Configuração global aplicada:\n\n{self.CHAIN_KEY} = {chain_map}\n\n"
-            f"Backend preservado: {self._config_value(editor, self.BACKEND_KEY) or 'auto'}\n\nBackup:\n{backup}",
+            f"Global aplicado:\n{self.CHAIN_KEY} = {chain_map}\n\n"
+            f"Backend preservado: {self._config_value(editor, self.BACKEND_KEY) or 'auto'}\n"
+            f"CFGs com override removidos: {removed}\n\nBackup do mame.ini:\n{backup}",
         )
 
     def verify_effective_config(self) -> None:
-        """Consulta o próprio MAME com -showconfig para validar a configuração salva."""
+        """Consulta o próprio MAME com -showconfig e exibe a configuração global efetiva."""
         executable = self._mame_executable()
         if executable is None:
             QMessageBox.warning(self, "MAME BGFX", "mame.exe não localizado.")
@@ -316,20 +384,16 @@ class MameShadersPage(QWidget):
         except (OSError, subprocess.SubprocessError) as exc:
             QMessageBox.critical(self, "MAME BGFX", f"Falha ao consultar o MAME:\n{exc}")
             return
-
         output = completed.stdout + "\n" + completed.stderr
         wanted = ("video", "bgfx_backend", "bgfx_screen_chains")
-        lines = [
-            line.strip()
-            for line in output.splitlines()
-            if any(line.strip().startswith(key) for key in wanted)
-        ]
+        lines = [line.strip() for line in output.splitlines() if any(line.strip().startswith(key) for key in wanted)]
         if not lines:
             lines = ["O MAME não retornou as opções BGFX esperadas em -showconfig."]
+        overrides = self._scan_cfg_overrides()
         QMessageBox.information(
             self,
             "MAME BGFX — configuração efetiva",
-            "\n".join(lines),
+            "\n".join(lines) + f"\n\nCFGs com override BGFX detectados: {len(overrides)}",
         )
 
 
