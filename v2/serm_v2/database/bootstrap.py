@@ -16,31 +16,31 @@ def _table_columns(connection: sqlite3.Connection, table: str) -> set[str]:
     return {row[1] for row in connection.execute(f'PRAGMA table_info("{table}")')}
 
 
+def _table_exists(connection: sqlite3.Connection, table: str) -> bool:
+    """Verifica a existência de uma tabela SQLite."""
+    return connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone() is not None
+
+
 def _next_legacy_name(connection: sqlite3.Connection, table: str) -> str:
     """Gera nome livre para uma tabela incompatível antiga."""
     base = f"{table}_legacy"
     candidate = base
     suffix = 2
-    while connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (candidate,)).fetchone():
+    while _table_exists(connection, candidate):
         candidate = f"{base}_{suffix}"
         suffix += 1
     return candidate
 
 
 def _prepare_legacy_catalog(connection: sqlite3.Connection) -> list[str]:
-    """Isola tabelas MAME antigas que conflitem com o novo schema base.
-
-    O catálogo normalizado antigo não é apagado: é renomeado. A Etapa 1
-    utiliza apenas as tabelas lossless e pode então começar em estado limpo.
-    """
+    """Isola tabelas MAME antigas incompatíveis com o schema atual."""
     required = {
         "mame_listxml_import": {"id", "emulator_id", "source_hash", "machine_count", "parser_version"},
         "mame_listxml_document": {"id", "import_id", "source_hash", "xml_text", "byte_length"},
     }
     renamed: list[str] = []
     for table, columns_required in required.items():
-        row = connection.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone()
-        if not row:
+        if not _table_exists(connection, table):
             continue
         if columns_required.issubset(_table_columns(connection, table)):
             continue
@@ -62,7 +62,7 @@ def _remove_failed_new_database(target: Path, created_by_bootstrap: bool) -> Non
 
 
 def apply_migrations(db_path: Path | None = None) -> list[str]:
-    """Aplica migrations de forma idempotente e segura para a base V2."""
+    """Aplica migrations de forma idempotente para bases novas e antigas."""
     target = (db_path or database_path()).expanduser().resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
     migration_root = Path(__file__).resolve().parent / "migrations"
@@ -84,10 +84,14 @@ def apply_migrations(db_path: Path | None = None) -> list[str]:
                     continue
                 try:
                     if version == "003_mame_catalog_schema":
-                        renamed = _prepare_legacy_catalog(connection)
-                        if renamed:
-                            # Informação útil para diagnóstico sem depender de logging global.
-                            connection.execute("PRAGMA user_version = 3")
+                        _prepare_legacy_catalog(connection)
+                    # 009 pertence ao antigo catálogo de árvore XML. No V2
+                    # atual a fonte lossless é mame_listxml_document e o
+                    # catálogo relacional é criado pela migration 011.
+                    if version == "009_mame_xml_node_remove_path_unique" and not _table_exists(connection, "mame_xml_node"):
+                        connection.execute("INSERT INTO schema_migrations(version, applied_at) VALUES(?, datetime('now'))", (version,))
+                        applied.append(version)
+                        continue
                     connection.executescript(migration.read_text(encoding="utf-8"))
                 except sqlite3.DatabaseError as exc:
                     connection.rollback()
