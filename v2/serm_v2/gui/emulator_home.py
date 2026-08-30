@@ -388,6 +388,7 @@ class EmulatorHomePage(QWidget):
     def _worker_finished(self) -> None:
         """Libera o worker após terminar."""
         self.worker = None
+        self.retro_progress.hide()
         self.refresh()
 
     def open_emulator_directories(self) -> None:
@@ -428,37 +429,83 @@ class EmulatorHomePage(QWidget):
         )
 
     def refresh_cores(self) -> None:
-        """Busca o catálogo de cores do canal selecionado."""
+        """Atualiza o índice oficial e mostra cores instalados, novos e CRC."""
         try:
             cores = self.retroarch.list_cores(self._retro_channel)
+            _, _, destination = self.retroarch.discover()
+            installed = self.retroarch.installed_cores(destination) if destination else ()
+            comparisons = self.retroarch.compare_installed_cores(cores, destination) if destination and destination.is_dir() else []
+            state_map = {path.name.casefold(): state for path, _, state in comparisons}
+            self.core_list.blockSignals(True)
+            self.core_list.clear()
+            self.core_items.clear()
+            installed_count = 0
+            update_count = 0
+            for core in cores:
+                key = core.filename.removesuffix(".zip").casefold()
+                state = state_map.get(key, "new")
+                if key in {path.name.casefold() for path in installed}:
+                    installed_count += 1
+                if state == "update":
+                    update_count += 1
+                marker = "[ATUALIZADO]" if state == "current" else "[ATUALIZAÇÃO]" if state == "update" else "[NOVO]"
+                item = QListWidgetItem(f"{marker} {core.core_name} | {core.date} | CRC {core.crc32}")
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                item.setCheckState(Qt.CheckState.Unchecked)
+                item.setData(Qt.ItemDataRole.UserRole, core.filename)
+                item.setData(Qt.ItemDataRole.UserRole + 1, state)
+                self.core_list.addItem(item)
+                self.core_items[core.filename] = item
+            self.core_list.blockSignals(False)
+            new_count = len(cores) - installed_count
+            self.core_summary.setText(f"{len(cores)} publicados  •  {installed_count} instalados  •  {update_count} atualizações  •  {new_count} novos")
+            self._update_core_summary()
+            self._append_retro_log(f"CATÁLOGO | canal={self._retro_channel} | cores={len(cores)} | instalados={installed_count} | atualizações={update_count} | novos={new_count}")
         except Exception as exc:  # noqa: BLE001
-            self._append_retro_log(f"ERRO | catálogo de cores | {exc}")
+            self._append_retro_log(f"ERRO CORES | {type(exc).__name__}: {exc}")
             QMessageBox.warning(self, "RetroArch", str(exc))
-            return
-        _, _, destination = self.retroarch.discover()
-        installed = {path.name.casefold() for path in destination.glob("*_libretro.dll")} if destination and destination.is_dir() else set()
-        self.core_list.blockSignals(True)
-        self.core_list.clear()
-        self.core_items.clear()
-        for core in cores:
-            item = QListWidgetItem()
-            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            item.setCheckState(Qt.CheckState.Unchecked)
-            filename = core.filename.removesuffix(".zip")
-            state = "INSTALADO" if filename.casefold() in installed else "AUSENTE"
-            item.setText(f"[{state}] {core.core_name}")
-            item.setData(Qt.ItemDataRole.UserRole, core.filename)
-            item.setData(Qt.ItemDataRole.UserRole + 1, state)
-            self.core_list.addItem(item)
-            self.core_items[core.filename] = item
-        self.core_list.blockSignals(False)
-        self._update_core_summary()
-        self._append_retro_log(f"CATÁLOGO | canal={self._retro_channel} | cores={len(cores)} | instalados={len(installed)}")
 
     def verify_core_updates(self) -> None:
-        """Verifica o catálogo oficial do canal selecionado."""
-        self.refresh_cores()
-        self._append_retro_log("ATUALIZAÇÃO | comparação baseada no catálogo oficial do Buildbot.")
+        """Compara CRC dos cores instalados e seleciona somente os desatualizados."""
+        try:
+            _, _, destination = self.retroarch.discover()
+            if destination is None or not destination.is_dir():
+                self._append_retro_log("AVISO | diretório de cores do RetroArch não configurado ou inexistente.")
+                return
+            cores = self.retroarch.list_cores(self._retro_channel)
+            comparisons = self.retroarch.compare_installed_cores(cores, destination)
+            self.core_list.blockSignals(True)
+            self.core_list.clear()
+            self.core_items.clear()
+            updates = current = unknown = 0
+            for path, remote, state in comparisons:
+                if remote is None:
+                    unknown += 1
+                    continue
+                if state == "update":
+                    updates += 1
+                    text = f"[ATUALIZAÇÃO] {remote.core_name} | CRC local {self.retroarch.crc32(path)} → remoto {remote.crc32}"
+                    checked = True
+                else:
+                    current += 1
+                    text = f"[ATUALIZADO] {remote.core_name} | CRC {remote.crc32}"
+                    checked = False
+                item = QListWidgetItem(text)
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                item.setCheckState(Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
+                item.setData(Qt.ItemDataRole.UserRole, remote.filename)
+                item.setData(Qt.ItemDataRole.UserRole + 1, state)
+                self.core_list.addItem(item)
+                self.core_items[remote.filename] = item
+            self.core_list.blockSignals(False)
+            self.core_summary.setText(f"{updates} atualizações disponíveis  •  {current} atualizados  • {unknown} sem correspondência")
+            self._update_core_summary()
+            self._append_retro_log(f"ATUALIZAÇÕES | instalados={len(comparisons)} | atualizações={updates} | atualizados={current} | sem correspondência={unknown}")
+            if not updates:
+                self._append_retro_log("ATUALIZAÇÕES | nenhum core instalado necessita de atualização.")
+        except Exception as exc:  # noqa: BLE001
+            self._append_retro_log(f"ERRO ATUALIZAÇÕES | {type(exc).__name__}: {exc}")
+            QMessageBox.warning(self, "RetroArch", str(exc))
 
     def select_all_cores(self) -> None:
         """Seleciona todos os cores."""
