@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from ..emulation.mame_dat_scraper import MameDatError, scrape_mame_dat
-from ..runtime.paths import data_root
+from ..runtime.paths import data_root, database_path
 
 
 class MameCatalogError(RuntimeError):
@@ -15,10 +15,10 @@ class MameCatalogError(RuntimeError):
 
 
 class MameCatalogService:
-    """Conecta o executável MAME configurado à primeira camada de dados da V2."""
+    """Conecta o executável MAME configurado à base SQLite principal da V2."""
 
     PATHS_FILE = data_root() / "emulator_paths.json"
-    DB_FILE = data_root() / "mame_catalog.sqlite3"
+    DB_FILE = database_path()
     RAW_FILE = data_root() / "mame" / "metadata" / "listxml.xml"
 
     def configured_executable(self) -> Path:
@@ -39,12 +39,7 @@ class MameCatalogService:
         return executable
 
     def ingest(self, *, timeout: float = 120.0) -> dict[str, object]:
-        """Executa ``mame.exe -listxml`` e faz a primeira ingestão no SQLite.
-
-        O XML bruto é preservado separadamente. A tabela de máquinas contém
-        somente campos que podem ser extraídos sem alterar a semântica do XML;
-        dados de timing/geometria serão enriquecidos na próxima etapa.
-        """
+        """Executa ``mame.exe -listxml`` e faz a ingestão na base principal da V2."""
         executable = self.configured_executable()
         try:
             dat = scrape_mame_dat(executable, timeout=timeout)
@@ -58,23 +53,17 @@ class MameCatalogService:
         import xml.etree.ElementTree as ET
 
         root = ET.fromstring(dat.xml_text)
-        machines = []
+        machines: list[tuple[object, ...]] = []
         for machine in root.findall("machine"):
             name = machine.attrib.get("name", "").strip()
             if not name:
                 continue
-            machines.append(
-                (
-                    name,
-                    machine.attrib.get("sourcefile"),
-                    machine.attrib.get("isbios"),
-                    machine.attrib.get("isdevice"),
-                    machine.attrib.get("runnable"),
-                    machine.findtext("description"),
-                    machine.findtext("year"),
-                    machine.findtext("manufacturer"),
-                )
-            )
+            machines.append((
+                name, machine.attrib.get("sourcefile"), machine.attrib.get("isbios"),
+                machine.attrib.get("isdevice"), machine.attrib.get("runnable"),
+                machine.findtext("description"), machine.findtext("year"),
+                machine.findtext("manufacturer"),
+            ))
 
         now = datetime.now(timezone.utc).isoformat()
         with sqlite3.connect(self.DB_FILE) as connection:
@@ -93,39 +82,22 @@ class MameCatalogService:
             )
             connection.commit()
 
-        return {
-            "executable": executable,
-            "machine_count": len(machines),
-            "raw_xml": self.RAW_FILE,
-            "database": self.DB_FILE,
-        }
+        return {"executable": executable, "machine_count": len(machines), "raw_xml": self.RAW_FILE, "database": self.DB_FILE}
 
     def _initialize_database(self) -> None:
-        """Cria apenas as tabelas pertencentes à camada de catálogo MAME da V2."""
+        """Cria as tabelas pertencentes ao catálogo MAME sem alterar tabelas existentes."""
         self.DB_FILE.parent.mkdir(parents=True, exist_ok=True)
         with sqlite3.connect(self.DB_FILE) as connection:
-            connection.executescript(
-                """
+            connection.executescript("""
                 CREATE TABLE IF NOT EXISTS mame_catalog_run (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    executable TEXT NOT NULL,
-                    machine_count INTEGER NOT NULL,
-                    raw_xml TEXT NOT NULL,
-                    ingested_at TEXT NOT NULL
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, executable TEXT NOT NULL,
+                    machine_count INTEGER NOT NULL, raw_xml TEXT NOT NULL, ingested_at TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS mame_machine (
-                    name TEXT PRIMARY KEY,
-                    sourcefile TEXT,
-                    isbios TEXT,
-                    isdevice TEXT,
-                    runnable TEXT,
-                    description TEXT,
-                    year TEXT,
-                    manufacturer TEXT,
-                    ingested_at TEXT NOT NULL
+                    name TEXT PRIMARY KEY, sourcefile TEXT, isbios TEXT, isdevice TEXT,
+                    runnable TEXT, description TEXT, year TEXT, manufacturer TEXT, ingested_at TEXT NOT NULL
                 );
-                """
-            )
+            """)
             connection.commit()
 
 
