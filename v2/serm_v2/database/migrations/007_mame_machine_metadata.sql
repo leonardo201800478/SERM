@@ -1,9 +1,9 @@
 PRAGMA foreign_keys = ON;
 
 -- Complete the machine-level metadata exposed by MAME -listxml.
--- isbios/ismechanical are MAME facts; ingested_at is SERM provenance.
+-- isbios was added by migration 005 and ingested_at by migration 006.
+-- Migration 007 therefore adds only the remaining MAME fact.
 ALTER TABLE mame_machine ADD COLUMN ismechanical TEXT;
-ALTER TABLE mame_machine ADD COLUMN ingested_at TEXT;
 
 CREATE INDEX IF NOT EXISTS ix_mame_machine_flags
     ON mame_machine(import_id, isdevice, isbios, ismechanical, runnable);
