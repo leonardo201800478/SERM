@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
 
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (
@@ -23,7 +24,10 @@ from PySide6.QtWidgets import (
 from ..integrations.launchbox import LaunchBoxIntegration
 from ..integrations.launchbox_provider import LaunchBoxProvider
 from ..services.mame_catalog_service import MameCatalogError, MameCatalogService
-from ..services.mame_classification_service import MameClassificationError, MameClassificationService
+from ..services.mame_classification_service import (
+    MameClassificationError,
+    MameClassificationService,
+)
 from ..services.mame_resolution_service import MameResolutionError, MameResolutionService
 from ..services.mame_vsync_service import MameVsyncError, MameVsyncService
 from ..sources.acquisition.no_intro_archive import NoIntroArchiveProvider
@@ -135,6 +139,11 @@ class DatSourceTab(QWidget):
         self.rows: list[_Row] = []
         self.worker: _BatchWorker | None = None
         self._checks: list[QCheckBox] = []
+        self.search_button: QPushButton
+        self.install_button: QPushButton
+        self.update_button: QPushButton
+        self.select_button: QPushButton
+        self.clear_button: QPushButton
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -154,13 +163,13 @@ class DatSourceTab(QWidget):
         layout.addLayout(actions)
         self.progress = QProgressBar()
         layout.addWidget(self.progress)
-        self.scroll = QScrollArea()
-        self.scroll.setWidgetResizable(True)
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
         self.container = QWidget()
         self.rows_layout = QVBoxLayout(self.container)
         self.rows_layout.addStretch()
-        self.scroll.setWidget(self.container)
-        layout.addWidget(self.scroll, 1)
+        self.scroll_area.setWidget(self.container)
+        layout.addWidget(self.scroll_area, 1)
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
         self.log.setMaximumBlockCount(2000)
@@ -204,8 +213,9 @@ class DatSourceTab(QWidget):
         """Reconstrói a lista de sistemas com um check por sistema."""
         while self.rows_layout.count():
             item = self.rows_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+            widget = item.widget() if item is not None else None
+            if widget is not None:
+                widget.deleteLater()
         self._checks = []
         for row in self.rows:
             check = QCheckBox(f"{self._prefix(row.state)} {row.name}")
@@ -331,7 +341,7 @@ class _MameTab(QWidget):
 
     def _log(self, level: str, message: str) -> None:
         """Adiciona uma entrada operacional padronizada com timestamp UTC."""
-        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
         line = f"{timestamp} | {level:<7} | {message}"
         self.log.appendPlainText(line)
         logger.info("[MAME Scraper] %s", line)
@@ -398,7 +408,7 @@ class _MameTab(QWidget):
         self.ini_worker.finished.connect(self._inis_finished)
         self.ini_worker.start()
 
-    def _inis_completed(self, results: object) -> None:
+    def _inis_completed(self, results: list[tuple[str, dict[str, Any]]]) -> None:
         """Exibe o resumo agregado de todas as fontes processadas."""
         self.status.setText("Importação dos INIs concluída")
         for name, data in results:

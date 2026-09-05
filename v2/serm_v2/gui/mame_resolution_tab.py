@@ -1,11 +1,27 @@
 """Painel de teste da Etapa 3: ingestão do resolution.ini."""
 from __future__ import annotations
 
+from typing import TypedDict, cast
+
 from PySide6.QtCore import QThread, Signal
-from PySide6.QtWidgets import QLabel, QPlainTextEdit, QProgressBar, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QLabel,
+    QPlainTextEdit,
+    QProgressBar,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ..services.mame_catalog_service import MameCatalogError, MameCatalogService
 from ..services.mame_resolution_service import MameResolutionError, MameResolutionService
+
+
+class _ResolutionResult(TypedDict):
+    entries: int
+    resolved: int
+    unresolved: int
+    source_id: str
 
 
 class _ResolutionWorker(QThread):
@@ -84,6 +100,7 @@ class MameResolutionTab(QWidget):
 
     def _completed(self, result: object) -> None:
         """Exibe o resumo da ingestão."""
+        result = cast(_ResolutionResult, result)
         self.status.setText(f"Concluído | entradas={result['entries']:,} | resolvidas={result['resolved']:,} | não resolvidas={result['unresolved']:,}")
         self._log(f"OK | RESOLUTION | entradas={result['entries']:,}")
         self._log(f"OK | RESOLUTION | resolvidas={result['resolved']:,}")

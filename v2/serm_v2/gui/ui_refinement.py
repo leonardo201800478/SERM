@@ -17,7 +17,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-
 XP_PROGRESS_STYLE = """
 QProgressBar#xpProgress {
     background-color: #0b0b0b;

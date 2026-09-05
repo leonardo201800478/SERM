@@ -9,15 +9,14 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 import sqlite3
 import subprocess
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
-from ..runtime.paths import database_path, data_root
+from ..runtime.paths import data_root, database_path
 
 
 class MameDisplayCatalogError(RuntimeError):
@@ -121,7 +120,7 @@ class MameDisplayCatalog:
             raise MameDisplayCatalogError(f"Raiz inesperada no ListXML: {root.tag}")
 
         source_hash = hashlib.sha256(xml_text.encode("utf-8")).hexdigest()
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         xml_path = self.RAW_ROOT / f"listxml-{source_hash[:16]}.xml"
         self.RAW_ROOT.mkdir(parents=True, exist_ok=True)
         xml_path.write_text(xml_text, encoding="utf-8", newline="\n")

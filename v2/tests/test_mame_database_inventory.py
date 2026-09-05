@@ -12,7 +12,6 @@ import sqlite3
 from pathlib import Path
 
 import pytest
-
 from serm_v2.tools.audit_mame_database import build_report
 
 

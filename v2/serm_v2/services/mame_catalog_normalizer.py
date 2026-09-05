@@ -10,7 +10,6 @@ import sqlite3
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from time import perf_counter
-from typing import Any
 
 
 class MameCatalogNormalizationError(RuntimeError):

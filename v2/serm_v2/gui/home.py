@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QListWidgetItem,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -24,6 +25,7 @@ class HomePage(EmulatorHomePage):
         super().__init__(parent)
         self._core_current_filename: str | None = None
         self._core_destination: Path | None = None
+        self._core_queue_with_channels: list[tuple[str, str]] = []
         self._retro_continuation = None
         self._retro_operation_ok = False
         self._core_catalog_cache = None
@@ -32,7 +34,7 @@ class HomePage(EmulatorHomePage):
         """Adiciona filtros locais ao catálogo sem alterar o canal do RetroArch."""
         page = super()._retroarch_tab()
         layout = page.layout()
-        if layout is None:
+        if not isinstance(layout, QVBoxLayout):
             return page
         filters = QGroupBox("Filtro do catálogo de cores")
         row = QHBoxLayout(filters)
@@ -148,16 +150,18 @@ class HomePage(EmulatorHomePage):
             from PySide6.QtWidgets import QMessageBox
             QMessageBox.information(self, "RetroArch", "Nenhum core foi selecionado.")
             return
-        self._core_queue = selected
+        self._core_queue_with_channels = selected
         self._core_destination = Path(destination).resolve()
         self._core_current_filename = None
         self.core_list.setEnabled(False)
-        self._append_retro_log(f"FILA | {len(self._core_queue)} core(s) | processamento sequencial iniciado")
+        self._append_retro_log(
+            f"FILA | {len(self._core_queue_with_channels)} core(s) | processamento sequencial iniciado"
+        )
         self._install_next_core(self._core_destination)
 
     def _install_next_core(self, destination: Path) -> None:
         """Retira o próximo core da fila e inicia suas tentativas."""
-        if not self._core_queue:
+        if not self._core_queue_with_channels:
             self._core_current_filename = None
             self._core_destination = None
             self.core_list.setEnabled(True)
@@ -165,11 +169,11 @@ class HomePage(EmulatorHomePage):
             self._update_core_summary()
             self.refresh()
             return
-        filename, channel = self._core_queue.pop(0)
+        filename, channel = self._core_queue_with_channels.pop(0)
         self._core_current_filename = filename
         self._append_retro_log(
             f"FILA | iniciando {filename} | canal={channel} | "
-            f"restantes={len(self._core_queue)} | máximo={self.CORE_MAX_ATTEMPTS} tentativas"
+            f"restantes={len(self._core_queue_with_channels)} | máximo={self.CORE_MAX_ATTEMPTS} tentativas"
         )
         self._start_retro(
             lambda progress, log, f=filename, d=destination, c=channel: self._install_core_with_retries(
@@ -205,7 +209,7 @@ class HomePage(EmulatorHomePage):
             item.setCheckState(Qt.CheckState.Unchecked)
             item.setData(Qt.ItemDataRole.UserRole + 1, "processed")
         self._append_retro_log(
-            f"FILA | {filename} | processado | seleção removida | próximos={len(self._core_queue)}"
+            f"FILA | {filename} | processado | seleção removida | próximos={len(self._core_queue_with_channels)}"
         )
         self._update_core_summary()
         self._install_next_core(destination)
@@ -300,7 +304,7 @@ class HomePage(EmulatorHomePage):
             installation = Path(result.executable).parent
             paths[key] = installation
         paths[f"{key}_exe"] = Path(result.executable).resolve()
-        paths[f"{key}_version"] = str(result.version)
+        paths[f"{key}_version"] = Path(str(result.version))
         self._save_paths(paths)
         self._append_log(
             f"SUCESSO | {self.LABELS[key]} | versão={result.version} | "

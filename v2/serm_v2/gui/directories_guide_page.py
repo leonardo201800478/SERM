@@ -6,9 +6,9 @@ import os
 import re
 import shutil
 import tempfile
+from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable
 
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QMessageBox,
     QPushButton,

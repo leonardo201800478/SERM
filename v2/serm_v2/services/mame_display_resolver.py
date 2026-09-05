@@ -5,7 +5,7 @@ import hashlib
 import re
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from ..runtime.paths import database_path
@@ -46,7 +46,7 @@ class MameDisplayResolver:
         text = source_path.read_text(encoding="utf-8", errors="replace")
         source_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
         facts = self._parse_external(text, source_name)
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         with sqlite3.connect(self.db_path) as connection:
             connection.execute("PRAGMA foreign_keys = ON")
             row = connection.execute("SELECT id FROM emulator_definition WHERE slug='mame'").fetchone()
@@ -78,7 +78,7 @@ class MameDisplayResolver:
 
     def resolve_all(self, *, profile_version: str = "1.0") -> dict[str, int]:
         """Resolve todos os displays do último ListXML usando fallback por campo."""
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         stats = {"machines": 0, "profiles": 0, "fallbacks": 0, "missing": 0, "comparisons": 0}
         with sqlite3.connect(self.db_path) as connection:
             connection.execute("PRAGMA foreign_keys = ON")

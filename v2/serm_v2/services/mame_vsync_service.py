@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 
@@ -59,7 +59,7 @@ class MameVsyncService:
         """Importa Vsync.ini de forma idempotente, descartando nomes duplicados."""
         path = self.locate_vsync_ini()
         source_hash, byte_length = self._hash_file(path)
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         log = logger or (lambda message: None)
         log(f"MAME | VSYNC | START | arquivo={path}")
 

@@ -1,8 +1,17 @@
 """Interface para ingerir o DAT/ListXML do MAME configurado."""
 from __future__ import annotations
 
+from typing import cast
+
 from PySide6.QtCore import QThread, Signal
-from PySide6.QtWidgets import QLabel, QPlainTextEdit, QProgressBar, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QLabel,
+    QPlainTextEdit,
+    QProgressBar,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ..services.mame_catalog_service import MameCatalogError, MameCatalogService
 
@@ -77,7 +86,7 @@ class MameCatalogPage(QWidget):
 
     def _completed(self, result: object) -> None:
         """Exibe o resultado da ingestão concluída."""
-        data = result
+        data = cast(dict[str, object], result)
         self.status.setText(f"Ingestão concluída: {data['machine_count']} máquinas")
         self.log.appendPlainText(f"OK | executável={data['executable']}")
         self.log.appendPlainText(f"OK | máquinas={data['machine_count']}")

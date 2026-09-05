@@ -13,7 +13,6 @@ from pathlib import Path
 
 from ..runtime.paths import database_path
 
-
 SAMPLE_SIZE = 3
 
 

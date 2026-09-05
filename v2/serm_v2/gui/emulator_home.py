@@ -423,8 +423,8 @@ class EmulatorHomePage(QWidget):
             self._save_paths(paths)
         self.retroarch = RetroArchManager(destination)
         self._start_retro(
-            lambda progress, log: self.retroarch.install_retroarch(
-                destination, channel=self._retro_channel, progress=progress, log=log
+            lambda progress, log: self.retroarch.install_core(
+                "", destination, channel=self._retro_channel, progress=progress, log=log
             )
         )
 

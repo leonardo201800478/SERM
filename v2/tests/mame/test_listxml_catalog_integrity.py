@@ -17,7 +17,6 @@ import sqlite3
 import sys
 import time
 from pathlib import Path
-from typing import Iterable
 from xml.etree import ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[2]

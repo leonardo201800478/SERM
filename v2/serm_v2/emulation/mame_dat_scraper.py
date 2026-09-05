@@ -6,10 +6,10 @@ The MAME executable is the authoritative producer for this source. SERM invokes
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from pathlib import Path
 import subprocess
 import xml.etree.ElementTree as ET
+from dataclasses import dataclass
+from pathlib import Path
 
 
 class MameDatError(RuntimeError):

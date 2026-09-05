@@ -7,9 +7,10 @@ import re
 import sqlite3
 import subprocess
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
+from collections.abc import Callable, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable, Sequence
+from typing import Any
 
 from ..runtime.paths import data_root, database_path
 
@@ -121,7 +122,7 @@ class MameDisplayPipeline:
                     display_total = db.execute("SELECT COUNT(*) FROM mame_display d JOIN mame_machine m ON m.id=d.machine_id WHERE m.import_id=?", (existing[0],)).fetchone()[0]
                     self._log(f"MAME | INFO | ListXML já ingerido | import_id={existing[0]}")
                     return int(existing[0]), existing[1], int(existing[2]), int(display_total), Path(existing[3]) if existing[3] else xml_path, source_hash
-            now = datetime.now(timezone.utc).isoformat()
+            now = datetime.now(UTC).isoformat()
             cur = self._execute(db, "INSERT INTO mame_listxml_import (emulator_id,executable,mame_build,mame_config,debug,imported_at,source_hash,xml_path,machine_count,parser_version) VALUES(?,?,?,?,?,?,?,?,?,?)",
                 (emulator_id, str(executable), root.attrib.get("build"), root.attrib.get("mameconfig"), root.attrib.get("debug"), now, source_hash, str(xml_path), len(machines), self.PARSER_VERSION), operation="mame_listxml_import")
             import_id = int(cur.lastrowid)
@@ -238,7 +239,7 @@ class MameDisplayPipeline:
 
     def _resolve_profiles(self, import_id: int, fallback: dict[str, dict[str, dict[str, object]]]) -> dict[str, object]:
         """Gera perfis de display derivados do ListXML."""
-        now = datetime.now(timezone.utc).isoformat(); generated = 0
+        now = datetime.now(UTC).isoformat(); generated = 0
         with sqlite3.connect(self.db_path) as db:
             db.execute("PRAGMA foreign_keys=ON")
             rows = db.execute("SELECT d.id,d.machine_id,d.width,d.height,d.refresh_hz,d.rotate,d.xaspect,d.yaspect FROM mame_display d JOIN mame_machine m ON m.id=d.machine_id WHERE m.import_id=?", (import_id,)).fetchall()

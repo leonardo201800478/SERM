@@ -14,7 +14,7 @@ import re
 import sqlite3
 import subprocess
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from ..runtime.paths import data_root, database_path
@@ -116,7 +116,7 @@ class MameConfigurationCatalog:
         current = self._parse_config(showconfig)
         default_values = self._parse_config(defaults)
         options = self._parse_usage(usage, current, default_values)
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         digest = hashlib.sha256((showconfig + defaults + usage).encode("utf-8")).hexdigest()
 
         self._persist(executable, version, options, now, digest)

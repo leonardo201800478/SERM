@@ -1,8 +1,7 @@
-from pathlib import Path
 import subprocess
+from pathlib import Path
 
 import pytest
-
 from serm_v2.emulation.mame_dat_scraper import MameDatError, scrape_mame_dat
 
 

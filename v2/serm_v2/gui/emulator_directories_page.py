@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 
 from PySide6.QtWidgets import (
+    QBoxLayout,
     QFileDialog,
     QFormLayout,
     QGroupBox,
@@ -38,7 +39,7 @@ class DirectoriesPage(DirectoryGuidePage):
         """Add the MAME executable selector without replacing directory editing."""
         super()._build_mame_tab(page)
         layout = page.layout()
-        if layout is None:
+        if not isinstance(layout, QBoxLayout):
             return
 
         group = QGroupBox("Executável do MAME")

@@ -5,8 +5,8 @@ import argparse
 import json
 from pathlib import Path
 
-from .mame_display_pipeline import MameDisplayPipeline
 from ..runtime.paths import data_root
+from .mame_display_pipeline import MameDisplayPipeline
 
 
 def configured_mame_executable() -> Path:

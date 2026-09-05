@@ -153,7 +153,7 @@ class EmulatorSettingsPage(QWidget):
 
     def _editor(self, emulator: str) -> ConfigFileEditor | None:
         """Abre o arquivo configurado para um emulador."""
-        raw = self._load_paths().get(self.CONFIG_KEYS[emulator]);
+        raw = self._load_paths().get(self.CONFIG_KEYS[emulator])
         if not raw: return None
         path = Path(str(raw)).expanduser()
         if not path.is_file(): return None

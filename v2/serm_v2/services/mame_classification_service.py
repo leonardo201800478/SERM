@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 import re
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 
@@ -70,7 +70,7 @@ class MameClassificationService:
     def ingest(self, logger=None) -> dict[str, int | str]:
         """Importa CATLIST. Mesmo SHA já concluído é reutilizado sem novo source_id."""
         path = self.locate_catlist(); source_hash, byte_length = self._hash_file(path)
-        now = datetime.now(timezone.utc).isoformat(); log = logger or (lambda message: None)
+        now = datetime.now(UTC).isoformat(); log = logger or (lambda message: None)
         log(f"MAME | CATLIST | START | arquivo={path}")
         connection = sqlite3.connect(self.database_path, timeout=60.0); connection.execute("PRAGMA foreign_keys=ON")
         try:

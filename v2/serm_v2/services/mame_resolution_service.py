@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 import re
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 
@@ -67,7 +67,7 @@ class MameResolutionService:
         """Importa somente resolution.ini; VSYNC é responsabilidade da fila de INIs."""
         path = self.locate_resolution_ini()
         source_hash, byte_length = self._hash_file(path)
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         log = logger or (lambda message: None)
         log(f"MAME | RESOLUTION | START | arquivo={path}")
 

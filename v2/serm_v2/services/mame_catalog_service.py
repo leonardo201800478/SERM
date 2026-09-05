@@ -7,10 +7,10 @@ import logging
 import sqlite3
 import subprocess
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from time import perf_counter
-from typing import Callable
 
 from ..runtime.paths import data_root, database_path
 from .mame_catalog_normalizer import MameCatalogNormalizer
@@ -59,7 +59,7 @@ class MameCatalogService:
         """Captura o ListXML e, após sucesso, importa CATLIST, Resolution e Vsync."""
         executable = self.configured_executable()
         started = perf_counter()
-        run_id = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        run_id = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
         self._log(f"MAME | [{run_id}] | START | aquisição do catálogo ListXML")
         self._log(f"MAME | [{run_id}] | EXECUTÁVEL | {executable}")
         self._log(f"MAME | [{run_id}] | CAPTURE | comando=mame.exe -listxml")
@@ -108,7 +108,7 @@ class MameCatalogService:
                 result["ini_results"] = self._ingest_inis(executable.parent)
                 return result
 
-            now = datetime.now(timezone.utc).isoformat()
+            now = datetime.now(UTC).isoformat()
             self._log(f"MAME | [{run_id}] | DB | criando importação | tamanho={self._human_bytes(raw_bytes)}")
             cur = db.execute(
                 """INSERT INTO mame_listxml_import

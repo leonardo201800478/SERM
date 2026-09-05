@@ -1,7 +1,6 @@
 from pathlib import Path
 
 import pytest
-
 from serm_v2.services.mame_catalog_service import MameCatalogError, MameCatalogService
 
 

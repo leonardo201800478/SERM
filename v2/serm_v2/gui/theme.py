@@ -5,11 +5,11 @@ from PySide6.QtWidgets import (
     QApplication,
     QFrame,
     QLabel,
-    QListWidget,
     QLayout,
+    QListWidget,
     QPlainTextEdit,
-    QPushButton,
     QProgressBar,
+    QPushButton,
     QTabWidget,
 )
 
