@@ -7,6 +7,7 @@ import io
 import json
 import logging
 import re
+import time
 import unicodedata
 import urllib.request
 import zipfile
@@ -44,6 +45,10 @@ class DatStatus:
     local_sha256: str | None = None
 
 
+class _RedirectPolicy(urllib.request.HTTPRedirectHandler):
+    """Permite redirects HTTP/HTTPS sem alterar o comportamento do cliente."""
+
+
 class PublicDatCatalogProvider:
     """Acquire DATs from the public Git-backed DAT catalog."""
 
@@ -51,15 +56,18 @@ class PublicDatCatalogProvider:
         "https://raw.githubusercontent.com/videogame-archive/dat-catalog/"
         "main/root/basic/{category}/index.csv"
     )
-    USER_AGENT = "SERM/2.0"
+    USER_AGENT = "SERM/2.0 (DAT downloader)"
     STALE_REPOSITORY_HOST = "open-retrogaming-archive/dat-catalog"
     CANONICAL_REPOSITORY_HOST = "videogame-archive/dat-catalog"
+    RETRIES = 3
+    RETRY_DELAY_SECONDS = 0.75
 
     def __init__(self, *, root: Path | None = None, timeout: int = 30) -> None:
         """Initialize the provider and its local DAT/manifest directory."""
         self.root = Path(root).expanduser() if root else self._default_root()
         self.timeout = timeout
         self.manifest_path = self.root / "manifest.json"
+        self._opener = urllib.request.build_opener(_RedirectPolicy())
 
     @staticmethod
     def _default_root() -> Path:
@@ -75,9 +83,9 @@ class PublicDatCatalogProvider:
             raise ValueError(f"Categoria de catálogo inválida: {category!r}")
         url = self.INDEX_URL_TEMPLATE.format(category=quote(category, safe=""))
         logger.info("[DAT-CATALOG][HTTP] GET %s", url)
-        request = urllib.request.Request(url, headers={"User-Agent": self.USER_AGENT})
+        request = urllib.request.Request(url, headers={"User-Agent": self.USER_AGENT, "Accept": "text/csv,*/*;q=0.8"})
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            with self._opener.open(request, timeout=self.timeout) as response:
                 payload = response.read()
         except (HTTPError, URLError, OSError) as exc:
             raise DatCatalogError(f"Falha ao obter índice {category}: {exc}") from exc
@@ -157,30 +165,88 @@ class PublicDatCatalogProvider:
         destination.parent.mkdir(parents=True, exist_ok=True)
         url = self._normalize_url(entry.url)
         logger.info("[DAT-CATALOG][HTTP] GET %s", url)
-        data, content_type = self._get(url)
-        resolved_url = url
-        if self._is_pointer(data, content_type):
-            pointer = data.decode("utf-8-sig", errors="replace").strip()
-            from urllib.parse import urljoin
-            resolved_url = self._normalize_url(urljoin(url, pointer))
-            logger.info("[DAT-CATALOG][REDIRECT] %s -> %s", url, resolved_url)
-            data, content_type = self._get(resolved_url)
+        data, content_type, resolved_url = self._get_with_retry(url)
         dat_data = self._extract_dat(data, entry.name, content_type)
         partial = destination.with_suffix(destination.suffix + ".part")
         partial.write_bytes(dat_data)
         partial.replace(destination)
         sha256 = self._sha256(destination)
         self._write_manifest(entry, sha256, len(data), zlib.crc32(data) & 0xFFFFFFFF, resolved_url)
+        logger.info(
+            "[DAT-CATALOG][OK] name=%s bytes=%d resolved=%s sha256=%s",
+            entry.name,
+            len(dat_data),
+            resolved_url,
+            sha256[:16],
+        )
         return DatStatus(entry, destination, "current", sha256)
 
-    def _get(self, url: str) -> tuple[bytes, str]:
-        """Fetch bytes and content type from a public URL."""
-        request = urllib.request.Request(url, headers={"User-Agent": self.USER_AGENT})
-        try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                return response.read(), response.headers.get("Content-Type", "")
-        except (HTTPError, URLError, OSError) as exc:
-            raise DatCatalogError(f"Falha ao baixar URL: {url}") from exc
+    def _get_with_retry(self, url: str) -> tuple[bytes, str, str]:
+        """Fetch bytes with retries for transient transport failures and expose the final URL."""
+        last_error: Exception | None = None
+        current_url = url
+        for attempt in range(1, self.RETRIES + 1):
+            started = time.perf_counter()
+            request = urllib.request.Request(
+                current_url,
+                headers={
+                    "User-Agent": self.USER_AGENT,
+                    "Accept": "application/zip,application/octet-stream,application/x-zip-compressed,text/plain,*/*;q=0.5",
+                    "Accept-Encoding": "identity",
+                    "Connection": "keep-alive",
+                },
+            )
+            try:
+                with self._opener.open(request, timeout=self.timeout) as response:
+                    data = response.read()
+                    content_type = response.headers.get("Content-Type", "")
+                    resolved = response.geturl()
+                elapsed = time.perf_counter() - started
+                logger.info(
+                    "[DAT-CATALOG][HTTP] OK attempt=%d status=%s bytes=%d elapsed=%.3fs final=%s",
+                    attempt,
+                    getattr(response, "status", "?"),
+                    len(data),
+                    elapsed,
+                    resolved,
+                )
+                return data, content_type, resolved
+            except HTTPError as exc:
+                elapsed = time.perf_counter() - started
+                body_preview = b""
+                try:
+                    body_preview = exc.read(256)
+                except OSError:
+                    pass
+                logger.warning(
+                    "[DAT-CATALOG][HTTP] HTTPError attempt=%d status=%s reason=%s elapsed=%.3fs url=%s body=%r",
+                    attempt,
+                    exc.code,
+                    exc.reason,
+                    elapsed,
+                    current_url,
+                    body_preview[:120],
+                )
+                if exc.code in {403, 404}:
+                    raise DatCatalogError(
+                        f"HTTP {exc.code} {exc.reason} ao baixar URL: {current_url}"
+                    ) from exc
+                last_error = exc
+            except (URLError, OSError) as exc:
+                elapsed = time.perf_counter() - started
+                logger.warning(
+                    "[DAT-CATALOG][HTTP] transport-error attempt=%d elapsed=%.3fs url=%s error=%r",
+                    attempt,
+                    elapsed,
+                    current_url,
+                    exc,
+                )
+                last_error = exc
+            if attempt < self.RETRIES:
+                time.sleep(self.RETRY_DELAY_SECONDS * attempt)
+        if last_error is not None:
+            raise DatCatalogError(f"Falha ao baixar URL: {current_url} | {last_error}") from last_error
+        raise DatCatalogError(f"Falha ao baixar URL: {current_url}")
 
     @staticmethod
     def _is_pointer(data: bytes, content_type: str) -> bool:
@@ -322,10 +388,19 @@ class PublicDatCatalogProvider:
             "ps3": {"sony playstation 3"},
             "playstation portable": {"sony playstation portable"},
             "psp": {"sony playstation portable"},
-            "gamecube": {"nintendo gamecube"},
-            "game cube": {"nintendo gamecube"},
-            "wii": {"nintendo wii"},
-            "saturn": {"sega saturn"},
             "dreamcast": {"sega dreamcast"},
+            "saturn": {"sega saturn"},
+            "gamecube": {"nintendo gamecube"},
+            "3do": {"panasonic 3do interactive multiplayer"},
+            "cdi": {"philips cd i"},
+            "cd i": {"philips cd i"},
+            "xbox": {"microsoft xbox"},
+            "xbox 360": {"microsoft xbox 360"},
+            "naomi": {"sega naomi"},
+            "naomi 2": {"sega naomi 2"},
+            "neo geo cd": {"neo geo cd"},
         }
         return aliases.get(value, set())
+
+
+__all__ = ["DatCatalogEntry", "DatCatalogError", "DatStatus", "PublicDatCatalogProvider"]
