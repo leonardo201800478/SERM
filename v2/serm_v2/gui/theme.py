@@ -19,6 +19,65 @@ QMainWindow, QWidget#centralWidget { background-color:#1b1b1b; }
 QLabel { color:#dddddd; }
 QLabel[role="title"] { color:#fff; font-size:20pt; font-weight:900; padding:2px 0 7px 0; }
 QLabel[role="section"] { color:#d13d78; font-size:11pt; font-weight:800; padding:3px 0; }
+
+/* Navegação lateral principal */
+QFrame#navigationSidebar {
+    background:#151515;
+    border:1px solid #343434;
+    border-radius:10px;
+}
+QLabel#navigationBrand {
+    color:#ffffff;
+    font-size:24pt;
+    font-weight:950;
+    letter-spacing:2px;
+    padding:4px 0 0 0;
+}
+QLabel#navigationVersion {
+    color:#00c8d7;
+    font-size:7.5pt;
+    font-weight:800;
+    letter-spacing:1px;
+    padding-bottom:5px;
+}
+QListWidget#navigationList {
+    background:transparent;
+    border:0;
+    outline:none;
+    padding:2px;
+}
+QListWidget#navigationList::item {
+    color:#a8a8a8;
+    background:transparent;
+    border:1px solid transparent;
+    border-radius:7px;
+    padding:7px 10px;
+    min-height:30px;
+    font-size:10.5pt;
+    font-weight:700;
+}
+QListWidget#navigationList::item:hover {
+    color:#ffffff;
+    background:#242424;
+    border:1px solid #3e3e3e;
+}
+QListWidget#navigationList::item:selected {
+    color:#ffffff;
+    background:#3a1d2d;
+    border:1px solid #8d2857;
+    border-left:3px solid #00c8d7;
+}
+QLabel#navigationFooter {
+    color:#626262;
+    font-size:7.5pt;
+    line-height:1.3;
+    padding:8px 5px 3px 5px;
+}
+QStackedWidget#pageStack {
+    background:#1b1b1b;
+    border:0;
+}
+
 QTabWidget::pane { background:#242424; border:1px solid #454545; border-top:2px solid #9c2f60; }
 QTabBar { background:#171717; }
 QTabBar::tab { background:#202020; color:#a9a9a9; border:1px solid #383838; border-bottom:none; padding:8px 18px 9px 18px; min-width:82px; margin-right:2px; }
@@ -101,7 +160,7 @@ def refine_dashboard(root) -> dict[str, int]:
         parent_name = widget.parentWidget().__class__.__name__ if widget.parentWidget() else ""
         if parent_name == "PathListWidget":
             widget.setMinimumHeight(82); widget.setMaximumHeight(130)
-        else:
+        elif widget.objectName() != "navigationList":
             widget.setMinimumHeight(max(widget.minimumHeight(), 140))
     for widget in root.findChildren(QPlainTextEdit):
         widget.setMinimumHeight(max(widget.minimumHeight(), 150))
