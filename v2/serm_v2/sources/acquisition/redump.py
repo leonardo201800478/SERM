@@ -46,7 +46,11 @@ class RedumpProvider:
     reputation checks, Selenium and CAPTCHA handling.
     """
 
-    REDUMP_DAT_BASE_URL = "http://redump.org/datfile"
+    # Prefer HTTPS explicitly. The previous HTTP endpoint was consistently
+    # subject to long TCP connection timeouts on some direct ISP routes, while
+    # browser/VPN HTTPS access was responsive. HTTPS also avoids relying on a
+    # server-side HTTP -> HTTPS redirect before the actual DAT is transferred.
+    REDUMP_DAT_BASE_URL = "https://redump.org/datfile"
 
     # Redump's platform codes.  These are stable endpoint identifiers and are
     # intentionally kept separate from LaunchBox names and DAT filenames.
