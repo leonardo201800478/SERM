@@ -4,7 +4,19 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from PySide6.QtWidgets import QLabel, QMainWindow, QTabWidget, QVBoxLayout, QWidget
+from PySide6.QtCore import QSize
+from PySide6.QtGui import QIcon
+from PySide6.QtWidgets import (
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QMainWindow,
+    QStackedWidget,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ..config.settings import Settings
 from ..database.bootstrap import apply_migrations
@@ -19,7 +31,16 @@ from .mame_guides_page import MameGuidesPage
 
 
 class MainWindow(QMainWindow):
-    """Janela principal otimizada para telas 16:9."""
+    """Janela principal com navegação lateral persistente e conteúdo empilhado."""
+
+    NAV_ITEMS = (
+        ("Home", "Página inicial e estado dos emuladores", "SP_DirHomeIcon"),
+        ("Diretórios", "Gerenciar diretórios dos emuladores", "SP_DirIcon"),
+        ("Configurações", "Configurações dos emuladores", "SP_FileDialogDetailedView"),
+        ("Shaders / Bezels", "Aparência, shaders e bezels", "SP_ComputerIcon"),
+        ("MAME", "Guias e ferramentas do MAME", "SP_DriveHDIcon"),
+        ("Scraper de DATs", "Importação e processamento de DATs", "SP_FileIcon"),
+    )
 
     def __init__(self) -> None:
         super().__init__()
@@ -39,46 +60,122 @@ class MainWindow(QMainWindow):
         self._build_ui()
 
     def _build_ui(self) -> None:
-        """Monta a navegação principal sem duplicar funcionalidades."""
+        """Monta a navegação lateral e as páginas sem duplicar funcionalidades."""
         root = QWidget(self)
-        layout = QVBoxLayout(root)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.addWidget(QLabel("SERM V2"))
-        self.tab_widget = QTabWidget()
+        root.setObjectName("centralWidget")
+        root_layout = QHBoxLayout(root)
+        root_layout.setContentsMargins(10, 10, 10, 10)
+        root_layout.setSpacing(10)
+
+        sidebar = QFrame()
+        sidebar.setObjectName("navigationSidebar")
+        sidebar.setMinimumWidth(205)
+        sidebar.setMaximumWidth(235)
+        sidebar_layout = QVBoxLayout(sidebar)
+        sidebar_layout.setContentsMargins(10, 12, 10, 12)
+        sidebar_layout.setSpacing(6)
+
+        brand = QLabel("SERM")
+        brand.setObjectName("navigationBrand")
+        brand.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        sidebar_layout.addWidget(brand)
+
+        version = QLabel("V2 • EMULATION MANAGER")
+        version.setObjectName("navigationVersion")
+        version.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        sidebar_layout.addWidget(version)
+        sidebar_layout.addSpacing(10)
+
+        self.navigation = QListWidget()
+        self.navigation.setObjectName("navigationList")
+        self.navigation.setIconSize(QSize(20, 20))
+        self.navigation.setSpacing(3)
+        self.navigation.setFrameShape(QFrame.Shape.NoFrame)
+        self.navigation.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.navigation.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
+
+        for index, (label, description, style_icon) in enumerate(self.NAV_ITEMS):
+            item = QListWidgetItem(self.style().standardIcon(getattr(QStyle, style_icon)), label)
+            item.setToolTip(description)
+            item.setData(Qt.ItemDataRole.UserRole, description)
+            item.setSizeHint(QSize(0, 46))
+            self.navigation.addItem(item)
+
+        self.navigation.currentRowChanged.connect(self._on_navigation_changed)
+        sidebar_layout.addWidget(self.navigation, 1)
+
+        footer = QLabel("SERM V2\nSistema de Emulação e ROM Management")
+        footer.setObjectName("navigationFooter")
+        footer.setWordWrap(True)
+        sidebar_layout.addWidget(footer)
+
+        self.page_stack = QStackedWidget()
+        self.page_stack.setObjectName("pageStack")
+
         self.home_section = HomePage(self)
         self.directories_tab = DirectoriesPage(self)
         self.settings_tab = EmulatorSettingsPage(self)
         self.visuals_tab = EmulatorShadersBezelsPage(self)
         self.mame_guides_tab = MameGuidesPage(self)
         self.dat_scraper_tab = DatScraperPage(self)
-        self.tab_widget.addTab(self.home_section, "Home")
-        self.tab_widget.addTab(self.directories_tab, "Diretórios")
-        self.tab_widget.addTab(self.settings_tab, "Configurações")
-        self.tab_widget.addTab(self.visuals_tab, "Shaders / Bezels")
-        self.tab_widget.addTab(self.mame_guides_tab, "MAME")
-        self.tab_widget.addTab(self.dat_scraper_tab, "Scraper de DATs")
-        self.tab_widget.currentChanged.connect(self._on_tab_changed)
-        layout.addWidget(self.tab_widget, 1)
+
+        self.pages = (
+            self.home_section,
+            self.directories_tab,
+            self.settings_tab,
+            self.visuals_tab,
+            self.mame_guides_tab,
+            self.dat_scraper_tab,
+        )
+        for page in self.pages:
+            self.page_stack.addWidget(page)
+
+        root_layout.addWidget(sidebar)
+        root_layout.addWidget(self.page_stack, 1)
         self.setCentralWidget(root)
 
-    def _on_tab_changed(self, index: int) -> None:
-        """Atualiza somente o componente selecionado."""
-        widget = self.tab_widget.widget(index)
-        if widget is self.home_section:
+        self.navigation.setCurrentRow(0)
+
+    def _on_navigation_changed(self, index: int) -> None:
+        """Seleciona a página e atualiza somente o componente necessário."""
+        if index < 0 or index >= len(self.pages):
+            return
+        self.page_stack.setCurrentIndex(index)
+        self._refresh_page(index)
+        item = self.navigation.item(index)
+        if item is not None:
+            self.status_bar.showMessage(item.data(Qt.ItemDataRole.UserRole) or item.text())
+
+    def _refresh_page(self, index: int) -> None:
+        """Atualiza o conteúdo dinâmico da página selecionada."""
+        page = self.pages[index]
+        if page is self.home_section:
             self.home_section.refresh()
-        elif widget is self.directories_tab:
+        elif page is self.directories_tab:
             self.directories_tab.refresh()
-        elif widget is self.settings_tab:
+        elif page is self.settings_tab:
             self.settings_tab.refresh()
-        elif widget is self.visuals_tab:
+        elif page is self.visuals_tab:
             self.visuals_tab.refresh()
-        elif widget is self.mame_guides_tab:
+        elif page is self.mame_guides_tab:
             self.mame_guides_tab.refresh()
-        elif widget is self.dat_scraper_tab:
+        elif page is self.dat_scraper_tab:
             self.dat_scraper_tab.setFocus()
+
+    def _on_tab_changed(self, index: int) -> None:
+        """Mantém compatibilidade com chamadas antigas da navegação por abas."""
+        self._on_navigation_changed(index)
 
     def closeEvent(self, event) -> None:  # noqa: N802
         """Fecha os recursos locais da aplicação."""
         self.log_viewer.close()
         self.database.dispose()
         super().closeEvent(event)
+
+
+# Importações Qt mantidas no fim para evitar poluir a seção principal de widgets.
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QStyle
+
+
+__all__ = ["MainWindow"]
