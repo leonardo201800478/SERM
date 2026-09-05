@@ -109,6 +109,18 @@ class EmulatorHomePage(QWidget):
             encoding="utf-8",
         )
 
+    @staticmethod
+    def _persist_version_marker(executable: Path, version: str, archive: str) -> None:
+        """Persiste a versão e o pacote que originaram a instalação."""
+        marker = executable.parent / ".serm-version"
+        try:
+            marker.write_text(
+                f"version={version}\narchive={archive}\n",
+                encoding="utf-8",
+            )
+        except OSError as exc:
+            logger.warning("Não foi possível persistir marcador de versão em %s: %s", marker, exc)
+
     def _build_ui(self) -> None:
         """Constrói a Home em proporção visual 16:9."""
         layout = QVBoxLayout(self)
@@ -395,11 +407,19 @@ class EmulatorHomePage(QWidget):
     def _done(self, key: str, result) -> None:
         """Persiste diretório, executável e versão confirmada pelo release."""
         paths = self._load_paths()
-        paths[key] = Path(result.executable).parent
-        paths[f"{key}_exe"] = Path(result.executable).resolve()
-        paths[f"{key}_version"] = Path(str(result.version))
+        executable = Path(result.executable).resolve()
+        version = str(result.version).strip() or "unknown"
+        archive = str(result.archive).strip()
+        paths[key] = executable.parent
+        paths[f"{key}_exe"] = executable
+        paths[f"{key}_version"] = Path(version)
+        paths[f"{key}_archive"] = Path(archive)
         self._save_paths(paths)
-        self._append_log(f"SUCESSO | {self.LABELS[key]} | versão={result.version} | exe={result.executable}")
+        self._persist_version_marker(executable, version, archive)
+        self._append_log(
+            f"SUCESSO | {self.LABELS[key]} | versão={version} | "
+            f"pacote={archive} | exe={executable}"
+        )
         self.refresh()
 
     def _error(self, key: str, message: str) -> None:
