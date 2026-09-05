@@ -18,7 +18,7 @@ from .emulator_home import EmulatorHomePage, _Worker
 
 
 class HomePage(EmulatorHomePage):
-    """Expose a Home completa e preserva o contrato funcional da V1."""
+    """Expose uma Home completa e preserva o contrato funcional da V1."""
     CORE_MAX_ATTEMPTS = 3
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -169,14 +169,20 @@ class HomePage(EmulatorHomePage):
             self._update_core_summary()
             self.refresh()
             return
-        filename, channel = self._core_queue_with_channels.pop(0)
+        filename, catalog_channel = self._core_queue_with_channels.pop(0)
         self._core_current_filename = filename
+
+        # O catálogo Stable usa o índice de cores publicado pelo Nightly, pois o
+        # Buildbot não oferece ZIPs individuais no caminho Stable. Portanto,
+        # uma seleção marcada como Stable continua sendo exibida como Stable,
+        # mas o download individual é feito pelo endpoint Nightly.
+        download_channel = "nightly" if catalog_channel.casefold() == "stable" else catalog_channel
         self._append_retro_log(
-            f"FILA | iniciando {filename} | canal={channel} | "
+            f"FILA | iniciando {filename} | catálogo={catalog_channel} | download={download_channel} | "
             f"restantes={len(self._core_queue_with_channels)} | máximo={self.CORE_MAX_ATTEMPTS} tentativas"
         )
         self._start_retro(
-            lambda progress, log, f=filename, d=destination, c=channel: self._install_core_with_retries(
+            lambda progress, log, f=filename, d=destination, c=download_channel: self._install_core_with_retries(
                 f, d, c, progress, log
             ),
             continuation=lambda f=filename: self._finish_core_queue_item(f, destination),
