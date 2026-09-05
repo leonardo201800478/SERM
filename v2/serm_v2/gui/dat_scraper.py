@@ -196,6 +196,12 @@ class DatSourceTab(QWidget):
         self.rows: list[_Row] = []
         self.worker: _BatchWorker | None = None
         self._checks: list[QCheckBox] = []
+        # Declarados explicitamente para que Pylance conheça os atributos criados em _build_ui.
+        self.search_button: QPushButton
+        self.install_button: QPushButton
+        self.update_button: QPushButton
+        self.select_button: QPushButton
+        self.clear_button: QPushButton
         self._build_ui()
 
     def _build_ui(self) -> None:
