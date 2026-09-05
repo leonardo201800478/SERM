@@ -4,8 +4,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from PySide6.QtCore import QSize
-from PySide6.QtGui import QIcon
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -14,6 +13,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMainWindow,
     QStackedWidget,
+    QStyle,
     QVBoxLayout,
     QWidget,
 )
@@ -94,8 +94,9 @@ class MainWindow(QMainWindow):
         self.navigation.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.navigation.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
 
-        for index, (label, description, style_icon) in enumerate(self.NAV_ITEMS):
-            item = QListWidgetItem(self.style().standardIcon(getattr(QStyle, style_icon)), label)
+        for label, description, style_icon in self.NAV_ITEMS:
+            icon = self.style().standardIcon(getattr(QStyle, style_icon))
+            item = QListWidgetItem(icon, label)
             item.setToolTip(description)
             item.setData(Qt.ItemDataRole.UserRole, description)
             item.setSizeHint(QSize(0, 46))
@@ -171,11 +172,6 @@ class MainWindow(QMainWindow):
         self.log_viewer.close()
         self.database.dispose()
         super().closeEvent(event)
-
-
-# Importações Qt mantidas no fim para evitar poluir a seção principal de widgets.
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QStyle
 
 
 __all__ = ["MainWindow"]
