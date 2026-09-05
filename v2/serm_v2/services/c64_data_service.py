@@ -46,8 +46,10 @@ class C64DataService:
     RAW_PATH = data_root() / "sources" / "tosec" / "c64_games_source.html"
     MANIFEST_PATH = data_root() / "sources" / "tosec" / "c64_games_manifest.json"
 
-    _DAT_RE = re.compile(r"Commodore C64 - Games(?: - [^<\r\n]+)? \\(TOSEC-[^<\r\n]+\\)\\.dat")
-    _RELEASE_RE = re.compile(r"###\s*(\d{4}-\d{2}-\d{2})")
+    _DAT_RE = re.compile(
+        r"Commodore C64 - Games(?: - [^<\r\n]+)? \(TOSEC-[^<\r\n]+\)\.dat"
+    )
+    _RELEASE_RE = re.compile(r"(?<!\d)(20\d{2}-\d{2}-\d{2})(?!\d)")
 
     def __init__(self, timeout: int = 120) -> None:
         self.timeout = timeout
@@ -68,11 +70,7 @@ class C64DataService:
 
     @classmethod
     def _parse(cls, payload: bytes) -> tuple[str, list[str]]:
-        try:
-            text = payload.decode("utf-8", errors="replace")
-        except Exception as exc:  # noqa: BLE001
-            raise C64DataError(f"Falha ao decodificar índice TOSEC: {exc}") from exc
-
+        text = payload.decode("utf-8", errors="replace")
         release_match = cls._RELEASE_RE.search(text)
         release = release_match.group(1) if release_match else "desconhecida"
         names = sorted(set(cls._DAT_RE.findall(text)), key=str.casefold)
