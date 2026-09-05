@@ -17,6 +17,7 @@ from .dat_scraper import DatScraperPage
 from .emulator_directories_page import DirectoriesPage
 from .emulator_settings_page import EmulatorSettingsPage
 from .emulator_shaders_bezels_page import EmulatorShadersBezelsPage
+from .filter_profiles_page import FilterProfilesPage
 from .home import HomePage
 from .log_handler import LogViewer
 from .rom_scan_page import RomScanPage
@@ -30,7 +31,8 @@ class MainWindow(QMainWindow):
         ("Diretórios", "Gerenciar diretórios dos emuladores", "SP_DirIcon"),
         ("Configurações", "Configurações dos emuladores", "SP_FileDialogDetailedView"),
         ("Shaders / Bezels", "Aparência, shaders e bezels", "SP_ComputerIcon"),
-        ("Scan de ROMs", "Verificação física de ROMs e mídias", "SP_DriveHDIcon"),
+        ("Filtros", "Definir o set desejado antes do scan", "SP_FileDialogContentsView"),
+        ("Scan de ROMs", "Verificação física das fontes de ROMs", "SP_DriveHDIcon"),
         ("Scraper de DATs", "Importação e processamento de DATs", "SP_FileIcon"),
     )
 
@@ -168,11 +170,12 @@ class MainWindow(QMainWindow):
         self.directories_tab = DirectoriesPage(self)
         self.settings_tab = EmulatorSettingsPage(self)
         self.visuals_tab = EmulatorShadersBezelsPage(self)
+        self.filters_tab = FilterProfilesPage(self)
         self.rom_scan_tab = RomScanPage(self)
         self.dat_scraper_tab = DatScraperPage(self)
         self.pages = (
             self.home_section, self.directories_tab, self.settings_tab,
-            self.visuals_tab, self.rom_scan_tab, self.dat_scraper_tab,
+            self.visuals_tab, self.filters_tab, self.rom_scan_tab, self.dat_scraper_tab,
         )
         for page in self.pages:
             self.page_stack.addWidget(page)
@@ -200,6 +203,8 @@ class MainWindow(QMainWindow):
             self.settings_tab.refresh()
         elif page is self.visuals_tab:
             self.visuals_tab.refresh()
+        elif page is self.filters_tab:
+            self.filters_tab.refresh()
         elif page is self.rom_scan_tab:
             self.rom_scan_tab.refresh()
         elif page is self.dat_scraper_tab:
