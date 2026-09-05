@@ -574,6 +574,37 @@ class EmulatorHomePage(QWidget):
         self.core_list.blockSignals(False)
         self._update_core_summary()
 
+    def install_selected_cores(self) -> None:
+        """Instala somente os cores marcados no catálogo atual."""
+        if self.worker is not None:
+            self._append_retro_log("AVISO | já existe uma operação do RetroArch em execução.")
+            return
+
+        selected = []
+        for i in range(self.core_list.count()):
+            item = self.core_list.item(i)
+            if item.checkState() == Qt.CheckState.Checked:
+                filename = item.data(Qt.ItemDataRole.UserRole)
+                if filename:
+                    selected.append(str(filename))
+
+        if not selected:
+            self._append_retro_log("AVISO | nenhuma core selecionada para instalação.")
+            return
+
+        _, _, destination = self.retroarch.discover()
+        if destination is None or not destination.is_dir():
+            self._append_retro_log("AVISO | diretório de cores do RetroArch não configurado ou inexistente.")
+            return
+
+        def install_all(progress, log):
+            for filename in selected:
+                self.retroarch.install_core(filename, destination, channel=self._retro_channel, progress=progress, log=log)
+            return f"{len(selected)} cores instalados em {destination}"
+
+        self._append_retro_log(f"INSTALAÇÃO | iniciando {len(selected)} core(s) selecionado(s) no canal={self._retro_channel}")
+        self._start_retro(install_all)
+
     def _core_selection_changed(self, _item: QListWidgetItem) -> None:
         """Atualiza o contador de cores selecionados."""
         self._update_core_summary()
