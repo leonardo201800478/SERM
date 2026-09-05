@@ -1,10 +1,13 @@
 """Redump DAT acquisition through the official redump.info download endpoints."""
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 
 from .dat_catalog import DatCatalogEntry, DatCatalogError, DatStatus, PublicDatCatalogProvider
+
+logger = logging.getLogger(__name__)
 
 
 class RedumpError(DatCatalogError):
@@ -39,78 +42,126 @@ class RedumpEntry:
 class RedumpProvider:
     """Discover Redump systems and download DATs from the official new site.
 
-    The public DAT Catalog remains the machine-readable discovery source. The
-    DAT payload itself is acquired from the official redump.info download
-    endpoint used by the site's Downloads page (``/datfile/<SYSTEM>``).
+    The public DAT Catalog remains useful for metadata when available, but the
+    authoritative list of Redump systems comes from the official Downloads
+    page. This allows SERM to expose newly added Redump DATs even before the
+    third-party DAT Catalog is updated.
     """
 
-    # Official Redump site after the June 2026 migration from redump.org.
-    # The Downloads page exposes the same /datfile/<SYSTEM> endpoints.
     REDUMP_DOWNLOADS_URL = "https://redump.info/downloads"
     REDUMP_DAT_BASE_URL = "https://redump.info/datfile"
 
-    # Redump's platform codes. They are kept separate from LaunchBox names and
-    # DAT filenames because the public Downloads page uses these identifiers.
+    # Complete system list exposed by redump.info/downloads. The values are
+    # the identifiers used by the official /datfile/<SYSTEM> endpoints.
     SYSTEM_CODES: dict[str, str] = {
-        "Acorn Archimedes.dat": "arch",
-        "Apple Macintosh.dat": "mac",
-        "Atari Jaguar CD Interactive Multimedia System.dat": "ajcd",
-        "Bandai Pippin.dat": "pippin",
-        "Bandai Playdia Quick Interactive System.dat": "qis",
-        "Commodore Amiga CD.dat": "acd",
-        "Commodore Amiga CD32.dat": "cd32",
-        "Commodore Amiga CDTV.dat": "cdtv",
-        "funworld Photo Play.dat": "fpp",
-        "Fujitsu FM Towns series.dat": "fmt",
-        "IBM PC compatible.dat": "pc",
-        "Incredible Technologies Eagle.dat": "ite",
-        "Konami e-Amusement.dat": "kea",
-        "Konami FireBeat.dat": "kfb",
-        "Konami M2.dat": "km2",
-        "Konami System 573.dat": "ks573",
-        "Konami System GV.dat": "ksgv",
-        "Konami Twinkle.dat": "kt",
-        "Mattel Fisher-Price iXL.dat": "ixl",
-        "Mattel HyperScan.dat": "hs",
-        "Memorex Visual Information System.dat": "vis",
-        "Microsoft Xbox.dat": "xbox",
-        "Microsoft Xbox 360.dat": "xbox360",
-        "Namco · Sega · Nintendo Triforce.dat": "trf",
-        "Namco System 246.dat": "ns246",
-        "Namco System 12.dat": "ns12",
-        "NEC PC-88 series.dat": "pc-88",
-        "NEC PC-98 series.dat": "pc-98",
-        "NEC PC Engine CD & TurboGrafx CD.dat": "pce",
-        "NEC PC-FX & PC-FXGA.dat": "pc-fx",
-        "Neo Geo CD.dat": "ngcd",
-        "Nintendo GameCube.dat": "gc",
-        "Nintendo Wii.dat": "wii",
-        "Panasonic 3DO Interactive Multiplayer.dat": "3do",
-        "Palm OS.dat": "palm",
-        "Philips CD-i.dat": "cdi",
-        "Photo CD.dat": "photo-cd",
-        "Pocket PC.dat": "ppc",
-        "PlayStation GameShark Updates.dat": "psxgs",
-        "Sega Chihiro.dat": "chihiro",
-        "Sega Dreamcast.dat": "dc",
-        "Sega Lindbergh.dat": "lindbergh",
-        "Sega Mega CD & Sega CD.dat": "mcd",
-        "Sega Naomi.dat": "naomi",
-        "Sega Naomi 2.dat": "naomi2",
-        "Sega Prologue 21 Multimedia Karaoke System.dat": "sp21",
-        "Sega RingEdge.dat": "sre",
-        "Sega RingEdge 2.dat": "sre2",
-        "Sega Saturn.dat": "ss",
-        "Sharp X68000.dat": "x68k",
-        "Sony PlayStation.dat": "psx",
-        "Sony PlayStation 2.dat": "ps2",
-        "Sony PlayStation 3.dat": "ps3",
-        "Sony PlayStation Portable.dat": "psp",
-        "TAB-Austria Quizard.dat": "quizard",
-        "Tomy Kiss-Site.dat": "ksite",
-        "VTech V.Flash & V.Smile Pro.dat": "vflash",
-        "VM Labs NUON.dat": "nuon",
-        "ZAPiT Games Game Wave Family Entertainment System.dat": "gamewave",
+        "3DO Interactive Multiplayer.dat": "3DO",
+        "Acorn Archimedes & Risc PC.dat": "ARCH",
+        "American Laser Games 3DO-based Arcade.dat": "3DOARCADE",
+        "Apple Macintosh.dat": "MAC",
+        "Apple Newton.dat": "NEWTON",
+        "Apple Pippin.dat": "PIPPIN",
+        "Atari Jaguar CD Interactive Multimedia System.dat": "AJCD",
+        "Atari ST series.dat": "ATARIST",
+        "Audio CD.dat": "AUDIO-CD",
+        "Bandai Playdia Quick Interactive System.dat": "QIS",
+        "BD-Video.dat": "BD-VIDEO",
+        "Capcom Play System III.dat": "CPS3",
+        "Commodore Amiga CD.dat": "ACD",
+        "Commodore Amiga CD32.dat": "CD32",
+        "Commodore Amiga CDTV.dat": "CDTV",
+        "Cybiko.dat": "CYBIKO",
+        "Datel PlayStation Cheat Device Updates.dat": "PSXGS",
+        "DVD-Video.dat": "DVD-VIDEO",
+        "Enhanced CD.dat": "ENHANCED-CD",
+        "Fujitsu FM Towns series.dat": "FMT",
+        "Funworld Photo Play.dat": "FPP",
+        "FuRyu & Omron Purikura.dat": "FPURI",
+        "Hasbro iON Educational Gaming System.dat": "ION",
+        "Hasbro VideoNow.dat": "HVN",
+        "Hasbro VideoNow Color.dat": "HVNC",
+        "Hasbro VideoNow Jr..dat": "HVNJR",
+        "Hasbro VideoNow XP.dat": "HVNXP",
+        "HD DVD-Video.dat": "HDDVD-VIDEO",
+        "IBM PC compatible.dat": "PC",
+        "Incredible Technologies Eagle.dat": "ITE",
+        "Konami e-Amusement.dat": "KEA",
+        "Konami FireBeat.dat": "KFB",
+        "Konami M2.dat": "KM2",
+        "Konami Python 2.dat": "KP2",
+        "Konami System 573.dat": "KS573",
+        "Konami System GV.dat": "KSGV",
+        "Mattel Fisher-Price iXL.dat": "IXL",
+        "Mattel HyperScan.dat": "HS",
+        "Memorex Visual Information System.dat": "VIS",
+        "Merit Industries Megatouch ION.dat": "MION",
+        "Microsoft Pocket PC.dat": "PPC",
+        "Microsoft Xbox.dat": "XBOX",
+        "Microsoft Xbox 360.dat": "XBOX360",
+        "Microsoft Xbox One.dat": "XBOXONE",
+        "Microsoft Xbox Series X.dat": "XBOXSX",
+        "MP3 Audio Disc.dat": "MP3",
+        "Namco Purikura.dat": "NPURI",
+        "Namco System 22.dat": "NS22",
+        "Namco System 246.dat": "NS246",
+        "Namco System 256.dat": "NS256",
+        "Namco · Sega · Nintendo Triforce.dat": "TRF",
+        "Navisoft Naviken.dat": "NAVI",
+        "NEC PC Engine CD & TurboGrafx CD.dat": "PCE",
+        "NEC PC-88 series.dat": "PC-88",
+        "NEC PC-98 series.dat": "PC-98",
+        "NEC PC-FX & PC-FXGA.dat": "PC-FX",
+        "Neo Geo CD.dat": "NGCD",
+        "New Jatre CD-i based Arcade.dat": "NEWJATRE",
+        "Nintendo GameCube.dat": "GC",
+        "Nintendo Wii.dat": "WII",
+        "Nintendo Wii U.dat": "WIIU",
+        "Palm OS.dat": "PALM",
+        "Panasonic M2.dat": "M2",
+        "PC-based Arcade.dat": "PCARCADE",
+        "Philips CD-i.dat": "CDI",
+        "Photo CD.dat": "PHOTO-CD",
+        "Playmaji Polymega.dat": "POLYMEGA",
+        "Psion.dat": "PSION",
+        "Sega ALLS.dat": "ALLS",
+        "Sega Chihiro.dat": "CHIHIRO",
+        "Sega Chihiro Satellite Terminal PC.dat": "CHIHIROPC",
+        "Sega Dreamcast.dat": "DC",
+        "Sega Lindbergh.dat": "LINDBERGH",
+        "Sega Lindbergh Satellite Terminal PC.dat": "LINDPC",
+        "Sega Mega CD & Sega CD.dat": "MCD",
+        "Sega Naomi.dat": "NAOMI",
+        "Sega Naomi 2.dat": "NAOMI2",
+        "Sega Naomi Satellite Terminal PC.dat": "NAOMIPC",
+        "Sega Nu.dat": "NU",
+        "Sega Nu 1.1.dat": "NU11",
+        "Sega Nu 2.dat": "NU2",
+        "Sega Nu SX.dat": "NUSX",
+        "Sega Prologue 21 Multimedia Karaoke System.dat": "SP21",
+        "Sega RingEdge.dat": "SRE",
+        "Sega RingEdge 2.dat": "SRE2",
+        "Sega RingWide.dat": "SRW",
+        "Sega Saturn.dat": "SS",
+        "Seibu CATS E-Touch.dat": "CATS",
+        "SGI Indigo series.dat": "INDIGO",
+        "Sharp X68000.dat": "X68K",
+        "Sharp Zaurus.dat": "ZAURUS",
+        "SNK Neo Geo CD.dat": "NGCD",
+        "Sony Electronic Book.dat": "SEB",
+        "Sony PlayStation.dat": "PSX",
+        "Sony PlayStation 2.dat": "PS2",
+        "Sony PlayStation 3.dat": "PS3",
+        "Sony PlayStation 4.dat": "PS4",
+        "Sony PlayStation 5.dat": "PS5",
+        "Sony PlayStation Portable.dat": "PSP",
+        "Sun Microsystems Ultra.dat": "ULTRA",
+        "Symbian.dat": "SYMBIAN",
+        "TAB-Austria Quizard.dat": "QUIZARD",
+        "Texas Instruments TI series.dat": "TI",
+        "Tomy Kiss-Site.dat": "KSITE",
+        "Video CD.dat": "VCD",
+        "VM Labs Nuon.dat": "NUON",
+        "VTech V.Flash & V.Smile Pro.dat": "VFLASH",
+        "ZAPiT Games Game Wave Family Entertainment System.dat": "GAMEWAVE",
     }
 
     def __init__(self, *, root: Path | None = None, timeout: int = 60) -> None:
@@ -124,37 +175,54 @@ class RedumpProvider:
         code = cls.SYSTEM_CODES.get(name)
         if code is None:
             return None
-        # The new site's Downloads page uses uppercase system identifiers,
-        # e.g. /datfile/PSX and /datfile/PS2.
-        return f"{cls.REDUMP_DAT_BASE_URL}/{code.upper()}"
+        return f"{cls.REDUMP_DAT_BASE_URL}/{code}"
+
+    @classmethod
+    def _direct_entries(cls) -> tuple[RedumpEntry, ...]:
+        """Build entries for every DAT published on the official Downloads page."""
+        return tuple(
+            RedumpEntry(name, f"{cls.REDUMP_DAT_BASE_URL}/{code}", 0, 0, "Redump")
+            for name, code in cls.SYSTEM_CODES.items()
+        )
 
     def fetch_catalog(self) -> tuple[RedumpEntry, ...]:
-        """Fetch Redump metadata and convert entries to official Redump URLs."""
+        """Merge third-party metadata with the complete official Redump list."""
         try:
-            entries = self.catalog.fetch_catalog("Redump")
-            converted: list[RedumpEntry] = []
-            skipped = 0
-            for entry in entries:
-                try:
-                    converted.append(RedumpEntry.from_catalog(entry))
-                except RedumpError:
-                    skipped += 1
-            if skipped:
-                import logging
-
-                logging.getLogger(__name__).warning(
-                    "[REDUMP][CATALOG] entradas sem endpoint direto=%d", skipped
-                )
-            return tuple(converted)
+            catalog_entries = self.catalog.fetch_catalog("Redump")
         except DatCatalogError as exc:
-            raise RedumpError(str(exc)) from exc
+            logger.warning("[REDUMP][CATALOG] catálogo auxiliar indisponível: %s", exc)
+            catalog_entries = ()
+
+        by_name = {entry.name: entry for entry in catalog_entries}
+        merged: list[RedumpEntry] = []
+        for direct_entry in self._direct_entries():
+            metadata = by_name.get(direct_entry.name)
+            if metadata is None:
+                merged.append(direct_entry)
+                continue
+            merged.append(
+                RedumpEntry(
+                    metadata.name,
+                    direct_entry.url,
+                    metadata.crc32,
+                    metadata.size,
+                    "Redump",
+                )
+            )
+
+        logger.info(
+            "[REDUMP][CATALOG] sistemas oficiais=%d | com metadados auxiliares=%d",
+            len(merged),
+            sum(1 for entry in merged if entry.crc32 or entry.size),
+        )
+        return tuple(merged)
 
     def match(
         self,
         systems: tuple[str, ...],
         entries: tuple[RedumpEntry, ...] | None = None,
     ) -> tuple[RedumpEntry, ...]:
-        """Match LaunchBox platforms against the Redump catalog."""
+        """Match LaunchBox platforms against the complete Redump catalog."""
         source = entries if entries is not None else self.fetch_catalog()
         catalog_entries = tuple(entry.as_catalog_entry() for entry in source)
         matches = self.catalog.match(systems, catalog_entries)
@@ -169,7 +237,7 @@ class RedumpProvider:
         return self.catalog.destination(entry.as_catalog_entry())
 
     def download(self, entry: RedumpEntry) -> DatStatus:
-        """Download the ZIP from redump.info, extract its DAT and store it locally."""
+        """Download the DAT from redump.info and store it locally."""
         if not entry.url.startswith(f"{self.REDUMP_DAT_BASE_URL}/"):
             raise RedumpError(f"URL de aquisição Redump inválida: {entry.url}")
         try:
