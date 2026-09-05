@@ -28,6 +28,7 @@ from .emulator_shaders_bezels_page import EmulatorShadersBezelsPage
 from .home import HomePage
 from .log_handler import LogViewer
 from .mame_guides_page import MameGuidesPage
+from .whloader_page import WHLoaderPage
 
 
 class MainWindow(QMainWindow):
@@ -39,6 +40,7 @@ class MainWindow(QMainWindow):
         ("Configurações", "Configurações dos emuladores", "SP_FileDialogDetailedView"),
         ("Shaders / Bezels", "Aparência, shaders e bezels", "SP_ComputerIcon"),
         ("MAME", "Guias e ferramentas do MAME", "SP_DriveHDIcon"),
+        ("WHLoader", "Biblioteca e dados dos jogos WHDLoad", "SP_DialogOpenButton"),
         ("Scraper de DATs", "Importação e processamento de DATs", "SP_FileIcon"),
     )
 
@@ -118,6 +120,7 @@ class MainWindow(QMainWindow):
         self.settings_tab = EmulatorSettingsPage(self)
         self.visuals_tab = EmulatorShadersBezelsPage(self)
         self.mame_guides_tab = MameGuidesPage(self)
+        self.whloader_tab = WHLoaderPage(self)
         self.dat_scraper_tab = DatScraperPage(self)
 
         self.pages = (
@@ -126,6 +129,7 @@ class MainWindow(QMainWindow):
             self.settings_tab,
             self.visuals_tab,
             self.mame_guides_tab,
+            self.whloader_tab,
             self.dat_scraper_tab,
         )
         for page in self.pages:
@@ -160,6 +164,8 @@ class MainWindow(QMainWindow):
             self.visuals_tab.refresh()
         elif page is self.mame_guides_tab:
             self.mame_guides_tab.refresh()
+        elif page is self.whloader_tab:
+            self.whloader_tab.refresh()
         elif page is self.dat_scraper_tab:
             self.dat_scraper_tab.setFocus()
 
