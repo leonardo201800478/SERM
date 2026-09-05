@@ -12,22 +12,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-<<<<<<< HEAD
-from PySide6.QtWidgets import (
-    QCheckBox,
-    QComboBox,
-    QFormLayout,
-    QGroupBox,
-    QHBoxLayout,
-    QLabel,
-    QMessageBox,
-    QPushButton,
-    QVBoxLayout,
-    QWidget,
-)
-=======
 from PySide6.QtWidgets import QComboBox, QFormLayout, QGroupBox, QLabel, QPushButton, QVBoxLayout, QWidget
->>>>>>> 8c149209c7dcba2424505e63b435a52a0d9a0ba5
 
 from ..runtime.paths import data_root
 from .directories_guide_page import ConfigFileEditor
