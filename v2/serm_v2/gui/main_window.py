@@ -5,19 +5,7 @@ import logging
 from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QSettings, QSize, Qt
-from PySide6.QtWidgets import (
-    QApplication,
-    QFrame,
-    QHBoxLayout,
-    QLabel,
-    QListWidget,
-    QListWidgetItem,
-    QMainWindow,
-    QStackedWidget,
-    QStyle,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QApplication, QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMainWindow, QStackedWidget, QStyle, QVBoxLayout, QWidget
 
 from ..config.settings import Settings
 from ..database.bootstrap import apply_migrations
@@ -29,7 +17,6 @@ from .emulator_shaders_bezels_page import EmulatorShadersBezelsPage
 from .home import HomePage
 from .log_handler import LogViewer
 from .mame_guides_page import MameGuidesPage
-from .whloader_page import WHLoaderPage
 
 
 class MainWindow(QMainWindow):
@@ -41,7 +28,6 @@ class MainWindow(QMainWindow):
         ("Configurações", "Configurações dos emuladores", "SP_FileDialogDetailedView"),
         ("Shaders / Bezels", "Aparência, shaders e bezels", "SP_ComputerIcon"),
         ("MAME", "Guias e ferramentas do MAME", "SP_DriveHDIcon"),
-        ("WHLoader", "Biblioteca e dados dos jogos WHDLoad", "SP_DialogOpenButton"),
         ("Scraper de DATs", "Importação e processamento de DATs", "SP_FileIcon"),
     )
 
@@ -58,7 +44,6 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1152, 648)
         self.status_bar = self.statusBar()
         self.status_bar.showMessage("Pronto")
-
         settings = Settings()
         database_path = Path(settings.database)
         applied = apply_migrations(database_path)
@@ -71,45 +56,35 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _qt_settings() -> QSettings:
-        """Retorna armazenamento persistente próprio do SERM V2."""
         return QSettings("SERM", "SERM V2")
 
     @staticmethod
     def _screen_key(screen) -> str:
-        """Identifica um monitor por nome e geometria física reportada pelo Qt."""
         geometry = screen.geometry()
         return f"{screen.name().strip()}|{geometry.x()},{geometry.y()},{geometry.width()},{geometry.height()}"
 
     @staticmethod
     def _intersection_area(first, second) -> int:
-        """Calcula a área de interseção entre dois QRect sem depender de helpers extras."""
         intersection = first.intersected(second)
         return max(0, intersection.width()) * max(0, intersection.height())
 
     def _restore_window_layout(self) -> None:
-        """Restaura a última posição e corrige automaticamente monitor ausente."""
         settings = self._qt_settings()
         geometry = settings.value(self._GEOMETRY_KEY, QByteArray())
         state = settings.value(self._STATE_KEY, QByteArray())
         saved_screen = str(settings.value(self._SCREEN_KEY, ""))
-
         if isinstance(geometry, QByteArray) and not geometry.isEmpty():
             self.restoreGeometry(geometry)
         if isinstance(state, QByteArray) and not state.isEmpty():
             self.restoreState(state)
-
         screens = QApplication.screens()
         if not screens:
             return
-
         current = self.screen()
         target = next((screen for screen in screens if self._screen_key(screen) == saved_screen), None)
         if target is None and saved_screen:
             saved_name = saved_screen.split("|", 1)[0]
             target = next((screen for screen in screens if screen.name().strip() == saved_name), None)
-
-        # If the saved monitor no longer exists, prefer the monitor where the
-        # restored rectangle is visible. If it is completely off-screen, use primary.
         window_rect = self.frameGeometry()
         if target is None:
             best_area = 0
@@ -120,25 +95,18 @@ class MainWindow(QMainWindow):
                     target = screen
             if best_area == 0:
                 target = current or QApplication.primaryScreen() or screens[0]
-
         if target is None:
             return
-
         available = target.availableGeometry()
         width = min(max(window_rect.width(), self.minimumWidth()), available.width())
         height = min(max(window_rect.height(), self.minimumHeight()), available.height())
         x = min(max(window_rect.x(), available.left()), available.right() - width + 1)
         y = min(max(window_rect.y(), available.top()), available.bottom() - height + 1)
         self.setGeometry(x, y, width, height)
-
         if saved_screen and self._screen_key(target) != saved_screen:
-            logging.getLogger(__name__).info(
-                "[SERM][GUI] monitor salvo indisponível; fallback para '%s'",
-                target.name(),
-            )
+            logging.getLogger(__name__).info("[SERM][GUI] monitor salvo indisponível; fallback para '%s'", target.name())
 
     def _save_window_layout(self) -> None:
-        """Persiste tamanho, posição, estado e monitor atual antes do encerramento."""
         settings = self._qt_settings()
         screen = self.screen() or QApplication.primaryScreen()
         settings.setValue(self._GEOMETRY_KEY, self.saveGeometry())
@@ -146,20 +114,15 @@ class MainWindow(QMainWindow):
         if screen is not None:
             settings.setValue(self._SCREEN_KEY, self._screen_key(screen))
             geometry = screen.geometry()
-            settings.setValue(
-                self._SCREEN_GEOMETRY_KEY,
-                f"{geometry.x()},{geometry.y()},{geometry.width()},{geometry.height()}",
-            )
+            settings.setValue(self._SCREEN_GEOMETRY_KEY, f"{geometry.x()},{geometry.y()},{geometry.width()},{geometry.height()}")
         settings.sync()
 
     def _build_ui(self) -> None:
-        """Monta a navegação lateral e as páginas sem duplicar funcionalidades."""
         root = QWidget(self)
         root.setObjectName("centralWidget")
         root_layout = QHBoxLayout(root)
         root_layout.setContentsMargins(10, 10, 10, 10)
         root_layout.setSpacing(10)
-
         sidebar = QFrame()
         sidebar.setObjectName("navigationSidebar")
         sidebar.setMinimumWidth(205)
@@ -167,18 +130,15 @@ class MainWindow(QMainWindow):
         sidebar_layout = QVBoxLayout(sidebar)
         sidebar_layout.setContentsMargins(10, 12, 10, 12)
         sidebar_layout.setSpacing(6)
-
         brand = QLabel("SERM")
         brand.setObjectName("navigationBrand")
         brand.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sidebar_layout.addWidget(brand)
-
         version = QLabel("V2 • EMULATION MANAGER")
         version.setObjectName("navigationVersion")
         version.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sidebar_layout.addWidget(version)
         sidebar_layout.addSpacing(10)
-
         self.navigation = QListWidget()
         self.navigation.setObjectName("navigationList")
         self.navigation.setIconSize(QSize(20, 20))
@@ -186,7 +146,6 @@ class MainWindow(QMainWindow):
         self.navigation.setFrameShape(QFrame.Shape.NoFrame)
         self.navigation.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.navigation.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
-
         for label, description, style_icon in self.NAV_ITEMS:
             icon = self.style().standardIcon(getattr(QStyle, style_icon))
             item = QListWidgetItem(icon, label)
@@ -194,46 +153,29 @@ class MainWindow(QMainWindow):
             item.setData(Qt.ItemDataRole.UserRole, description)
             item.setSizeHint(QSize(0, 46))
             self.navigation.addItem(item)
-
         self.navigation.currentRowChanged.connect(self._on_navigation_changed)
         sidebar_layout.addWidget(self.navigation, 1)
-
         footer = QLabel("SERM V2\nSistema de Emulação e ROM Management")
         footer.setObjectName("navigationFooter")
         footer.setWordWrap(True)
         sidebar_layout.addWidget(footer)
-
         self.page_stack = QStackedWidget()
         self.page_stack.setObjectName("pageStack")
-
         self.home_section = HomePage(self)
         self.directories_tab = DirectoriesPage(self)
         self.settings_tab = EmulatorSettingsPage(self)
         self.visuals_tab = EmulatorShadersBezelsPage(self)
         self.mame_guides_tab = MameGuidesPage(self)
-        self.whloader_tab = WHLoaderPage(self)
         self.dat_scraper_tab = DatScraperPage(self)
-
-        self.pages = (
-            self.home_section,
-            self.directories_tab,
-            self.settings_tab,
-            self.visuals_tab,
-            self.mame_guides_tab,
-            self.whloader_tab,
-            self.dat_scraper_tab,
-        )
+        self.pages = (self.home_section, self.directories_tab, self.settings_tab, self.visuals_tab, self.mame_guides_tab, self.dat_scraper_tab)
         for page in self.pages:
             self.page_stack.addWidget(page)
-
         root_layout.addWidget(sidebar)
         root_layout.addWidget(self.page_stack, 1)
         self.setCentralWidget(root)
-
         self.navigation.setCurrentRow(0)
 
     def _on_navigation_changed(self, index: int) -> None:
-        """Seleciona a página e atualiza somente o componente necessário."""
         if index < 0 or index >= len(self.pages):
             return
         self.page_stack.setCurrentIndex(index)
@@ -243,7 +185,6 @@ class MainWindow(QMainWindow):
             self.status_bar.showMessage(item.data(Qt.ItemDataRole.UserRole) or item.text())
 
     def _refresh_page(self, index: int) -> None:
-        """Atualiza o conteúdo dinâmico da página selecionada."""
         page = self.pages[index]
         if page is self.home_section:
             self.home_section.refresh()
@@ -255,17 +196,13 @@ class MainWindow(QMainWindow):
             self.visuals_tab.refresh()
         elif page is self.mame_guides_tab:
             self.mame_guides_tab.refresh()
-        elif page is self.whloader_tab:
-            self.whloader_tab.refresh()
         elif page is self.dat_scraper_tab:
             self.dat_scraper_tab.setFocus()
 
     def _on_tab_changed(self, index: int) -> None:
-        """Mantém compatibilidade com chamadas antigas da navegação por abas."""
         self._on_navigation_changed(index)
 
     def closeEvent(self, event) -> None:  # noqa: N802
-        """Fecha os recursos locais da aplicação e salva a geometria da janela."""
         self._save_window_layout()
         self.log_viewer.close()
         self.database.dispose()
