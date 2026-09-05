@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 import sqlite3
+import time
 import urllib.request
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -67,7 +68,7 @@ class WHLoaderDataService:
             return None
 
     def _download(self) -> tuple[bytes, float]:
-        started = __import__("time").perf_counter()
+        started = time.perf_counter()
         request = urllib.request.Request(
             self.SOURCE_URL,
             headers={"User-Agent": "SERM/2.0 (WHLoader database)"},
@@ -79,7 +80,7 @@ class WHLoaderDataService:
             raise WHLoaderDataError(f"Falha ao baixar a base Amiberry: {exc}") from exc
         if not payload:
             raise WHLoaderDataError("A base Amiberry retornou conteúdo vazio.")
-        return payload, __import__("time").perf_counter() - started
+        return payload, time.perf_counter() - started
 
     def _parse(self, payload: bytes) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         try:
@@ -94,7 +95,60 @@ class WHLoaderDataService:
         valid = [game for game in games if isinstance(game, dict)]
         return document, valid
 
-    def _replace_database(self, document: dict[str, Any], games: list[dict[str, Any]], payload: bytes, source_hash: str, raw_path: Path) -> int:
+    def _deduplicate_games(self, games: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+        """Remove duplicatas da fonte sem perder slaves presentes em outra ocorrência.
+
+        A tabela local possui UNIQUE(filename, sha1). Algumas versões da base
+        Amiberry podem publicar o mesmo par mais de uma vez. Mantemos a primeira
+        ocorrência como registro principal e mesclamos os slaves das ocorrências
+        seguintes, evitando que um dado válido seja perdido.
+        """
+        unique: dict[tuple[str, str | None], dict[str, Any]] = {}
+        duplicates = 0
+
+        for game in games:
+            filename = self._text(game.get("filename"))
+            if not filename:
+                continue
+            key = (filename, self._text(game.get("sha1")))
+            existing = unique.get(key)
+            if existing is None:
+                unique[key] = game
+                continue
+
+            duplicates += 1
+            existing_slaves = existing.get("slaves")
+            if not isinstance(existing_slaves, list):
+                existing_slaves = []
+                existing["slaves"] = existing_slaves
+
+            incoming_slaves = game.get("slaves")
+            if not isinstance(incoming_slaves, list):
+                incoming_slaves = []
+
+            known_slaves = {
+                self._text(slave.get("filename"))
+                for slave in existing_slaves
+                if isinstance(slave, dict) and self._text(slave.get("filename"))
+            }
+            for slave in incoming_slaves:
+                if not isinstance(slave, dict):
+                    continue
+                slave_name = self._text(slave.get("filename"))
+                if slave_name and slave_name not in known_slaves:
+                    existing_slaves.append(slave)
+                    known_slaves.add(slave_name)
+
+        return list(unique.values()), duplicates
+
+    def _replace_database(
+        self,
+        document: dict[str, Any],
+        games: list[dict[str, Any]],
+        payload: bytes,
+        source_hash: str,
+        raw_path: Path,
+    ) -> int:
         raw_path.parent.mkdir(parents=True, exist_ok=True)
         raw_path.write_bytes(payload)
         now = datetime.now(UTC).isoformat()
@@ -111,6 +165,10 @@ class WHLoaderDataService:
                 name = self._text(game.get("name")) or filename or "Unknown"
                 if not filename:
                     continue
+                slaves = game.get("slaves")
+                if not isinstance(slaves, list):
+                    slaves = []
+
                 cursor = connection.execute(
                     """INSERT INTO whloader_game (
                         filename, sha1, name, subpath, slave_default, slave_count,
@@ -125,7 +183,7 @@ class WHLoaderDataService:
                         name,
                         self._text(game.get("subpath")),
                         self._text(game.get("slave_default")),
-                        self._int(game.get("slave_count")) or 0,
+                        len(slaves),
                         self._text(hardware.get("primary_control")),
                         self._text(hardware.get("port0")),
                         self._text(hardware.get("port1")),
@@ -147,9 +205,6 @@ class WHLoaderDataService:
                     ),
                 )
                 game_id = int(cursor.lastrowid)
-                slaves = game.get("slaves")
-                if not isinstance(slaves, list):
-                    slaves = []
                 for slave in slaves:
                     if not isinstance(slave, dict):
                         continue
@@ -191,18 +246,17 @@ class WHLoaderDataService:
 
     def scan(self) -> WHLoaderScanResult:
         """Baixa, valida, preserva e indexa a base WHDLoad atual."""
-        import time
-
         started = time.perf_counter()
         payload, download_seconds = self._download()
         document, games = self._parse(payload)
         source_hash = hashlib.sha256(payload).hexdigest()
+        games, duplicates = self._deduplicate_games(games)
         raw_path = self.RAW_PATH
         slaves = self._replace_database(document, games, payload, source_hash, raw_path)
         elapsed = time.perf_counter() - started
         logger.info(
-            "[WHLOADER][SCAN] jogos=%d | slaves=%d | sha256=%s | download=%.2fs | total=%.2fs",
-            len(games), slaves, source_hash, download_seconds, elapsed,
+            "[WHLOADER][SCAN] jogos=%d | duplicatas=%d | slaves=%d | sha256=%s | download=%.2fs | total=%.2fs",
+            len(games), duplicates, slaves, source_hash, download_seconds, elapsed,
         )
         return WHLoaderScanResult(
             games=len(games),
