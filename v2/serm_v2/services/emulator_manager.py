@@ -265,10 +265,6 @@ class RetroArchManager:
     def _core_catalog_url(cls, channel: str) -> str:
         """Retorna o índice de cores disponível para o catálogo."""
         if channel.casefold() == "nightly": return f"{cls.NIGHTLY_ROOT}.index-extended"
-        # O Buildbot Stable não publica .index-extended na raiz /stable/cores.
-        # O snapshot Stable é RetroArch_cores.7z dentro da pasta da versão.
-        # Para a tela de catálogo usamos o índice Nightly, que contém a lista atual
-        # de cores; a seleção Stable continua sendo identificada separadamente.
         if channel.casefold() == "stable": return f"{cls.NIGHTLY_ROOT}.index-extended"
         raise ValueError(f"Canal de cores inválido: {channel!r}")
 
@@ -348,13 +344,22 @@ class RetroArchManager:
 
     def install_core(self, filename: str, destination: Path, *, channel: str = "nightly", stable_version: str | None = None, progress=None, log=None) -> Path:
         """Baixa e instala um core individual do Buildbot Nightly."""
-        # Cores individuais com .index-extended são publicados no canal Nightly.
-        # Stable disponibiliza um snapshot RetroArch_cores.7z, não arquivos individuais.
         if channel.casefold() == "stable":
             raise RuntimeError("O Buildbot Stable não publica cores individuais; o snapshot Stable é RetroArch_cores.7z. Use Nightly para instalação individual.")
-        url = f"{self.NIGHTLY_ROOT}{filename}"; destination = Path(destination).expanduser().resolve(); destination.mkdir(parents=True, exist_ok=True)
-        with tempfile.TemporaryDirectory(prefix="serm-core-") as temp_name:
-            temp = Path(temp_name); archive = temp / Path(filename).name; self._download_file(url, archive, progress, log)
+        filename = Path(filename).name
+        if not filename or not filename.casefold().endswith("_libretro.dll.zip"):
+            raise ValueError(f"Nome de core inválido para download: {filename!r}")
+        url = f"{self.NIGHTLY_ROOT}{filename}"
+        destination = Path(destination).expanduser().resolve()
+        destination.mkdir(parents=True, exist_ok=True)
+        temp_dir = Path(tempfile.mkdtemp(prefix="serm-core-"))
+        archive: Path | None = None
+        try:
+            fd, temp_name = tempfile.mkstemp(prefix="core-", suffix=".zip", dir=temp_dir)
+            os.close(fd)
+            archive = Path(temp_name)
+            if log: log(f"DOWNLOAD | core={filename} | temporário={archive}")
+            self._download_file(url, archive, progress, log)
             with zipfile.ZipFile(archive) as package:
                 bad = package.testzip()
                 if bad: raise RuntimeError(f"ZIP corrompido do core: {bad}")
@@ -363,10 +368,20 @@ class RetroArchManager:
                 data = package.read(dll_names[0])
             target = (destination / Path(dll_names[0]).name).resolve()
             if destination not in target.parents: raise RuntimeError("Caminho inseguro no core.")
-            temp_dll = target.with_suffix(target.suffix + ".tmp"); temp_dll.write_bytes(data); actual_crc = self._crc32(temp_dll)
+            temp_dll = target.with_suffix(target.suffix + ".tmp")
+            temp_dll.write_bytes(data)
+            actual_crc = self._crc32(temp_dll)
             remote = next((core for core in self.list_cores("nightly", stable_version) if core.filename.casefold() == filename.casefold()), None)
-            if remote is None or remote.crc32 != actual_crc: temp_dll.unlink(missing_ok=True); raise RuntimeError(f"CRC32 inválido para {target.name}: recebido={actual_crc}, esperado={remote.crc32 if remote else 'desconhecido'}")
+            if remote is None or remote.crc32 != actual_crc:
+                temp_dll.unlink(missing_ok=True)
+                raise RuntimeError(f"CRC32 inválido para {target.name}: recebido={actual_crc}, esperado={remote.crc32 if remote else 'desconhecido'}")
             temp_dll.replace(target)
+        finally:
+            if archive is not None:
+                try: archive.unlink(missing_ok=True)
+                except OSError: pass
+            try: temp_dir.rmdir()
+            except OSError: pass
         if log: log(f"CORE INSTALADO | {target} | CRC32={actual_crc}")
         return target
 
@@ -384,9 +399,14 @@ class RetroArchManager:
     @classmethod
     def _download_file(cls, url: str, target: Path, progress=None, log=None) -> None:
         """Baixa um arquivo em blocos com retry."""
+        target = Path(target)
+        if target.exists() and target.is_dir():
+            raise IsADirectoryError(f"Destino do download é um diretório, não um arquivo: {target}")
+        target.parent.mkdir(parents=True, exist_ok=True)
         last: Exception | None = None
         for attempt in range(1, cls.RETRIES + 1):
             try:
+                if target.exists(): target.unlink()
                 request = Request(url, headers={"User-Agent": "SERM/2.0", "Accept-Encoding": "identity"})
                 with urlopen(request, timeout=cls.TIMEOUT) as response, target.open("wb") as output:
                     total = int(response.headers.get("Content-Length") or 0); received = 0
