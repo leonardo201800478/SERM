@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 
 from ..integrations.launchbox import LaunchBoxIntegration
 from ..integrations.launchbox_provider import LaunchBoxProvider
+from ..services.c64_data_service import C64DataError, C64DataService, C64ScanResult
 from ..services.mame_catalog_service import MameCatalogError, MameCatalogService
 from ..services.mame_classification_service import MameClassificationError, MameClassificationService
 from ..services.mame_resolution_service import MameResolutionError, MameResolutionService
@@ -82,7 +83,6 @@ class _BatchWorker(QThread):
         self.entries = entries
 
     def run(self) -> None:
-        """Processa os sistemas selecionados e publica progresso incremental."""
         ok = failed = 0
         try:
             total = len(self.entries)
@@ -102,7 +102,7 @@ class _BatchWorker(QThread):
 
 
 class _MameCatalogWorker(QThread):
-    """Executa a ingestão do ListXML pelo MAME configurado sem bloquear o Qt."""
+    """Executa a ingestão do ListXML sem bloquear o Qt."""
 
     completed = Signal(object)
     failed = Signal(str)
@@ -117,7 +117,7 @@ class _MameCatalogWorker(QThread):
 
 
 class _MameIniWorker(QThread):
-    """Executa a fila de INIs MAME em ordem, sem bloquear a interface."""
+    """Executa a fila de INIs MAME em ordem."""
 
     message = Signal(str)
     completed = Signal(object)
@@ -157,6 +157,21 @@ class _WHLoaderScanWorker(QThread):
         try:
             self.completed.emit(WHLoaderDataService().scan())
         except WHLoaderDataError as exc:
+            self.failed.emit(str(exc))
+        except Exception as exc:  # noqa: BLE001
+            self.failed.emit(f"{type(exc).__name__}: {exc}")
+
+
+class _C64ScanWorker(QThread):
+    """Atualiza o manifesto TOSEC de jogos C64 fora da thread da interface."""
+
+    completed = Signal(object)
+    failed = Signal(str)
+
+    def run(self) -> None:
+        try:
+            self.completed.emit(C64DataService().scan())
+        except C64DataError as exc:
             self.failed.emit(str(exc))
         except Exception as exc:  # noqa: BLE001
             self.failed.emit(f"{type(exc).__name__}: {exc}")
@@ -345,9 +360,6 @@ class _WHLoaderTab(QWidget):
         self.log.setMaximumBlockCount(1000)
         layout.addWidget(self.log, 1)
 
-    def refresh(self) -> None:
-        return
-
     def _append(self, message: str) -> None:
         self.log.appendPlainText(message)
         logger.info("[WHLoader] %s", message)
@@ -370,6 +382,81 @@ class _WHLoaderTab(QWidget):
         self._append(f"OK | jogos={result.games} | slaves={result.slaves}")
         self._append(f"SHA256 | {result.source_hash}")
         self._append(f"RAW | {Path(result.raw_path)}")
+        self._append(f"TEMPO | {result.elapsed_seconds:.2f}s")
+
+    def _failed(self, message: str) -> None:
+        self.status.setText(f"Erro: {message}")
+        self._append(f"ERRO | {message}")
+
+    def _finished(self) -> None:
+        self.progress.setVisible(False)
+        self.scan_button.setEnabled(True)
+
+
+class _C64Tab(QWidget):
+    """Scan Data do catálogo C64 focado exclusivamente em jogos."""
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.worker: _C64ScanWorker | None = None
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("Commodore C64 — GAMES / DAT"))
+        layout.addWidget(QLabel("Fonte: TOSEC | escopo exclusivo: Commodore C64 - Games"))
+        layout.addWidget(QLabel("Política: jogos em uma única mídia são priorizados; software não-jogo não entra no catálogo."))
+
+        actions = QHBoxLayout()
+        self.scan_button = QPushButton("SCAN DATA")
+        self.scan_button.setToolTip("Baixa o índice da release TOSEC e registra somente os DATs de jogos C64.")
+        self.scan_button.clicked.connect(self.scan_data)
+        actions.addWidget(self.scan_button)
+        actions.addStretch()
+        layout.addLayout(actions)
+
+        self.status = QLabel("Catálogo C64 ainda não sincronizado.")
+        layout.addWidget(self.status)
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 0)
+        self.progress.setVisible(False)
+        layout.addWidget(self.progress)
+
+        self.log = QPlainTextEdit()
+        self.log.setReadOnly(True)
+        self.log.setMaximumBlockCount(1500)
+        layout.addWidget(self.log, 1)
+
+    def _append(self, message: str) -> None:
+        self.log.appendPlainText(message)
+        logger.info("[C64 DAT] %s", message)
+
+    def scan_data(self) -> None:
+        if self.worker and self.worker.isRunning():
+            return
+        self.scan_button.setEnabled(False)
+        self.progress.setVisible(True)
+        self.status.setText("Consultando release TOSEC e indexando DATs de jogos C64…")
+        self._append("SCAN | iniciando catálogo C64")
+        self._append("ESCOPO | Commodore C64 - Games")
+        self._append("POLÍTICA | single-media priority")
+        self.worker = _C64ScanWorker(self)
+        self.worker.completed.connect(self._completed)
+        self.worker.failed.connect(self._failed)
+        self.worker.finished.connect(self._finished)
+        self.worker.start()
+
+    def _completed(self, result: C64ScanResult) -> None:
+        self.status.setText(
+            f"TOSEC {result.release} | {result.dat_count:,} DATs de jogos | "
+            f"{result.game_categories:,} categorias"
+        )
+        self._append(f"OK | release={result.release}")
+        self._append(f"OK | DATs de jogos={result.dat_count:,}")
+        self._append(f"OK | categorias={result.game_categories:,}")
+        self._append(f"SHA256 | {result.source_hash}")
+        self._append(f"RAW | {Path(result.raw_path)}")
+        self._append(f"MANIFEST | {Path(result.manifest_path)}")
         self._append(f"TEMPO | {result.elapsed_seconds:.2f}s")
 
     def _failed(self, message: str) -> None:
@@ -548,8 +635,7 @@ class DatScraperPage(QWidget):
         self.tabs.addTab(self._no_intro_tab(), "No-Intro")
         self.tabs.addTab(self._redump_tab(), "Redump")
         self.tabs.addTab(_WHLoaderTab(self), "WHLoader")
-        for name in ("ExoDOS", "C64"):
-            self.tabs.addTab(self._historical_tab(name), name)
+        self.tabs.addTab(_C64Tab(self), "C64")
         self.tabs.addTab(_MameTab(self), "MAME")
         layout.addWidget(self.tabs)
 
@@ -566,23 +652,6 @@ class DatScraperPage(QWidget):
             names = tuple(platform.name for platform in self.launchbox_provider.iter_platforms())
             return self.redump.match(names, entries)
         return DatSourceTab("Redump — DATs", load, self.redump.download, self.redump.status, self)
-
-    @staticmethod
-    def _historical_tab(name: str) -> QWidget:
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.addWidget(QLabel(name))
-        detail = QLabel("A sessão está reservada para o backend original. O código-fonte atual não contém uma implementação recuperável desta fonte; por isso nenhum download fictício será executado.")
-        detail.setWordWrap(True)
-        layout.addWidget(detail)
-        row = QHBoxLayout()
-        for text in ("BUSCAR DATS", "INSTALAR SELECIONADOS", "VERIFICAR ATUALIZAÇÕES", "SELECIONAR TODOS", "LIMPAR SELEÇÃO"):
-            button = QPushButton(text)
-            button.setEnabled(False)
-            row.addWidget(button)
-        layout.addLayout(row)
-        layout.addStretch()
-        return page
 
 
 __all__ = ["DatScraperPage", "DatSourceTab"]
