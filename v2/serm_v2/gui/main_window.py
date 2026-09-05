@@ -4,8 +4,9 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QByteArray, QSettings, QSize, Qt
 from PySide6.QtWidgets import (
+    QApplication,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -44,10 +45,16 @@ class MainWindow(QMainWindow):
         ("Scraper de DATs", "Importação e processamento de DATs", "SP_FileIcon"),
     )
 
+    _GEOMETRY_KEY = "main_window/geometry"
+    _STATE_KEY = "main_window/state"
+    _SCREEN_KEY = "main_window/screen_key"
+    _SCREEN_GEOMETRY_KEY = "main_window/screen_geometry"
+    _DEFAULT_SIZE = QSize(1280, 720)
+
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("SERM V2")
-        self.resize(1280, 720)
+        self.resize(self._DEFAULT_SIZE)
         self.setMinimumSize(1152, 648)
         self.status_bar = self.statusBar()
         self.status_bar.showMessage("Pronto")
@@ -60,6 +67,90 @@ class MainWindow(QMainWindow):
         self.database = create_sqlite_engine(database_path)
         self.log_viewer = LogViewer()
         self._build_ui()
+        self._restore_window_layout()
+
+    @staticmethod
+    def _qt_settings() -> QSettings:
+        """Retorna armazenamento persistente próprio do SERM V2."""
+        return QSettings("SERM", "SERM V2")
+
+    @staticmethod
+    def _screen_key(screen) -> str:
+        """Identifica um monitor por nome e geometria física reportada pelo Qt."""
+        geometry = screen.geometry()
+        return f"{screen.name().strip()}|{geometry.x()},{geometry.y()},{geometry.width()},{geometry.height()}"
+
+    @staticmethod
+    def _intersection_area(first, second) -> int:
+        """Calcula a área de interseção entre dois QRect sem depender de helpers extras."""
+        intersection = first.intersected(second)
+        return max(0, intersection.width()) * max(0, intersection.height())
+
+    def _restore_window_layout(self) -> None:
+        """Restaura a última posição e corrige automaticamente monitor ausente."""
+        settings = self._qt_settings()
+        geometry = settings.value(self._GEOMETRY_KEY, QByteArray())
+        state = settings.value(self._STATE_KEY, QByteArray())
+        saved_screen = str(settings.value(self._SCREEN_KEY, ""))
+
+        if isinstance(geometry, QByteArray) and not geometry.isEmpty():
+            self.restoreGeometry(geometry)
+        if isinstance(state, QByteArray) and not state.isEmpty():
+            self.restoreState(state)
+
+        screens = QApplication.screens()
+        if not screens:
+            return
+
+        current = self.screen()
+        target = next((screen for screen in screens if self._screen_key(screen) == saved_screen), None)
+        if target is None and saved_screen:
+            saved_name = saved_screen.split("|", 1)[0]
+            target = next((screen for screen in screens if screen.name().strip() == saved_name), None)
+
+        # If the saved monitor no longer exists, prefer the monitor where the
+        # restored rectangle is visible. If it is completely off-screen, use primary.
+        window_rect = self.frameGeometry()
+        if target is None:
+            best_area = 0
+            for screen in screens:
+                area = self._intersection_area(window_rect, screen.availableGeometry())
+                if area > best_area:
+                    best_area = area
+                    target = screen
+            if best_area == 0:
+                target = current or QApplication.primaryScreen() or screens[0]
+
+        if target is None:
+            return
+
+        available = target.availableGeometry()
+        width = min(max(window_rect.width(), self.minimumWidth()), available.width())
+        height = min(max(window_rect.height(), self.minimumHeight()), available.height())
+        x = min(max(window_rect.x(), available.left()), available.right() - width + 1)
+        y = min(max(window_rect.y(), available.top()), available.bottom() - height + 1)
+        self.setGeometry(x, y, width, height)
+
+        if saved_screen and self._screen_key(target) != saved_screen:
+            logging.getLogger(__name__).info(
+                "[SERM][GUI] monitor salvo indisponível; fallback para '%s'",
+                target.name(),
+            )
+
+    def _save_window_layout(self) -> None:
+        """Persiste tamanho, posição, estado e monitor atual antes do encerramento."""
+        settings = self._qt_settings()
+        screen = self.screen() or QApplication.primaryScreen()
+        settings.setValue(self._GEOMETRY_KEY, self.saveGeometry())
+        settings.setValue(self._STATE_KEY, self.saveState())
+        if screen is not None:
+            settings.setValue(self._SCREEN_KEY, self._screen_key(screen))
+            geometry = screen.geometry()
+            settings.setValue(
+                self._SCREEN_GEOMETRY_KEY,
+                f"{geometry.x()},{geometry.y()},{geometry.width()},{geometry.height()}",
+            )
+        settings.sync()
 
     def _build_ui(self) -> None:
         """Monta a navegação lateral e as páginas sem duplicar funcionalidades."""
@@ -174,7 +265,8 @@ class MainWindow(QMainWindow):
         self._on_navigation_changed(index)
 
     def closeEvent(self, event) -> None:  # noqa: N802
-        """Fecha os recursos locais da aplicação."""
+        """Fecha os recursos locais da aplicação e salva a geometria da janela."""
+        self._save_window_layout()
         self.log_viewer.close()
         self.database.dispose()
         super().closeEvent(event)
