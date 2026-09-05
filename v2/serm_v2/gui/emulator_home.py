@@ -290,6 +290,8 @@ class EmulatorHomePage(QWidget):
 
         for key, status in self.manager.discover().items():
             card = self.cards[key]
+            stored_version = self.manager.roots.get(f"{key}_version")
+            version = status.version or (str(stored_version) if stored_version else None)
             if status.state == "ready":
                 text, color = "● Pronto", "#55d66b"
             elif status.state == "configured":
@@ -298,7 +300,7 @@ class EmulatorHomePage(QWidget):
                 text, color = "● Não configurado", "#999"
             card[0].setText(text)
             card[0].setStyleSheet(f"color:{color};font-weight:bold;")
-            card[1].setText(f"Versão instalada: {status.version or 'não detectada'}")
+            card[1].setText(f"Versão instalada: {version or 'não detectada'}")
             card[2].setText(f"Instalação: {status.root or 'não configurada'}")
             card[4].setEnabled(self.worker is None)
 
@@ -341,7 +343,6 @@ class EmulatorHomePage(QWidget):
         if self.worker is not None:
             self._append_log("ATUALIZAR TODOS | já existe uma operação em execução")
             return
-
         self.manager.roots = self._load_paths()
         queue = list(self.EMULATORS)
 
@@ -350,24 +351,19 @@ class EmulatorHomePage(QWidget):
                 self._append_log("ATUALIZAR TODOS | operação concluída")
                 self.refresh()
                 return
-
             key = queue.pop(0)
             destination = self.manager.roots.get(key)
             if not destination:
                 self._append_log(f"IGNORADO | {self.LABELS[key]} | diretório não configurado")
                 next_one()
                 return
-
             destination = Path(destination).resolve()
             self._append_log(f"ATUALIZAR TODOS | iniciando {self.LABELS[key]} | destino={destination}")
             self._start(
-                lambda progress, log, k=key, d=destination: self.manager.install(
-                    k, d, progress=progress, log=log
-                ),
+                lambda progress, log, k=key, d=destination: self.manager.install(k, d, progress=progress, log=log),
                 key,
                 next_one,
             )
-
         next_one()
 
     def _start(self, operation, key: str, continuation=None) -> None:
@@ -405,7 +401,7 @@ class EmulatorHomePage(QWidget):
         logger.info("[RETROARCH][HOME] %s", message)
 
     def _done(self, key: str, result) -> None:
-        """Persiste diretório, executável e versão confirmada pelo release."""
+        """Persiste diretório, executável, versão e pacote confirmado pelo release."""
         paths = self._load_paths()
         executable = Path(result.executable).resolve()
         version = str(result.version).strip() or "unknown"
@@ -445,13 +441,11 @@ class EmulatorHomePage(QWidget):
         if navigation is None or directories is None or page_stack is None:
             self._append_log("ERRO | Não foi possível localizar a página central de Diretórios")
             return
-
         for index in range(navigation.count()):
             item = navigation.item(index)
             if item is not None and item.text().casefold() == "diretórios":
                 navigation.setCurrentRow(index)
                 return
-
         index = page_stack.indexOf(directories)
         if index >= 0:
             page_stack.setCurrentIndex(index)
