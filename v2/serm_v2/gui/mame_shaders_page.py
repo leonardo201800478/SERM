@@ -8,11 +8,18 @@ conflitos são apresentados antes da aplicação de configurações.
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtWidgets import QComboBox, QFormLayout, QGroupBox, QLabel, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QComboBox,
+    QFormLayout,
+    QGroupBox,
+    QLabel,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ..runtime.paths import data_root
 from .directories_guide_page import ConfigFileEditor
@@ -172,7 +179,8 @@ class MameShadersPage(QWidget):
         self.chain.clear()
         self.video.addItems(("auto", "bgfx", "d3d", "opengl", "soft"))
         self.backend.addItems(self.BGFX_BACKENDS)
-        editor = ConfigFileEditor(self._ini()) if self._ini() else None
+        ini_path = self._ini()
+        editor = ConfigFileEditor(ini_path) if ini_path is not None else None
         if editor is None:
             self.status.setText("mame.ini não localizado.")
             self.scan.setText("Não foi possível analisar o inipath.")
