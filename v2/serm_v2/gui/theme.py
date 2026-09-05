@@ -70,13 +70,9 @@ QListWidget#navigationList::item:selected {
 QLabel#navigationFooter {
     color:#626262;
     font-size:7.5pt;
-    line-height:1.3;
     padding:8px 5px 3px 5px;
 }
-QStackedWidget#pageStack {
-    background:#1b1b1b;
-    border:0;
-}
+QStackedWidget#pageStack { background:#1b1b1b; border:0; }
 
 QTabWidget::pane { background:#242424; border:1px solid #454545; border-top:2px solid #9c2f60; }
 QTabBar { background:#171717; }
@@ -138,6 +134,8 @@ def refine_dashboard(root) -> dict[str, int]:
     for layout in root.findChildren(QLayout):
         layout.setSpacing(6)
     for frame in root.findChildren(QFrame):
+        if frame.objectName() == "navigationSidebar":
+            continue
         if frame.styleSheet(): frame.setStyleSheet("")
         frame.setObjectName("panel"); panels += 1
     for label in root.findChildren(QLabel):
@@ -158,9 +156,11 @@ def refine_dashboard(root) -> dict[str, int]:
         button.style().unpolish(button); button.style().polish(button)
     for widget in root.findChildren(QListWidget):
         parent_name = widget.parentWidget().__class__.__name__ if widget.parentWidget() else ""
+        if widget.objectName() == "navigationList":
+            continue
         if parent_name == "PathListWidget":
             widget.setMinimumHeight(82); widget.setMaximumHeight(130)
-        elif widget.objectName() != "navigationList":
+        else:
             widget.setMinimumHeight(max(widget.minimumHeight(), 140))
     for widget in root.findChildren(QPlainTextEdit):
         widget.setMinimumHeight(max(widget.minimumHeight(), 150))
