@@ -58,10 +58,16 @@ class ReconstructionPage(QWidget):
         """Recebe o perfil salvo; scan_result será ligado ao motor físico depois."""
         self._profile = profile
         self._scan_result = scan_result
-        profile_name = getattr(profile, "name", None) or str(profile.get("name", "Perfil")) if isinstance(profile, dict) else getattr(profile, "name", "Perfil")
-        profile_id = getattr(profile, "profile_id", None) or (str(profile.get("profile_id", "")) if isinstance(profile, dict) else "")
-        source = getattr(profile, "source", None) or (str(profile.get("source", "")) if isinstance(profile, dict) else "")
-        system = getattr(profile, "system", None) or (str(profile.get("system", "")) if isinstance(profile, dict) else "")
+        if isinstance(profile, dict):
+            profile_name = str(profile.get("name", "Perfil"))
+            profile_id = str(profile.get("profile_id", ""))
+            source = str(profile.get("source", ""))
+            system = str(profile.get("system", ""))
+        else:
+            profile_name = str(getattr(profile, "name", "Perfil"))
+            profile_id = str(getattr(profile, "profile_id", ""))
+            source = str(getattr(profile, "source", ""))
+            system = str(getattr(profile, "system", ""))
         self.profile_label.setText(f"Perfil: {profile_name}\nID: {profile_id}")
         self.source_label.setText(f"Fonte: {source} › {system}")
         if scan_result is None:
@@ -69,7 +75,6 @@ class ReconstructionPage(QWidget):
             self.plan_button.setEnabled(False)
             self.execute_button.setEnabled(False)
         else:
-            self._scan_result = scan_result
             self.scan_label.setText(f"Scan: resultado recebido — {scan_result}")
             self.plan_button.setEnabled(True)
             self.execute_button.setEnabled(False)
