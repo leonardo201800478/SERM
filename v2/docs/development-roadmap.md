@@ -2,41 +2,24 @@
 
 ## Milestone 0 — Clean Home
 
-- V2 package exists;
-- application entry point exists;
-- Home uses only V2 modules;
-- proven Home layout migrated conceptually from the legacy application;
-- no V1 imports;
-- isolated V2 tests start here;
-- LaunchBox executable discovery/configuration/launch is available from Home;
-- LaunchBox metadata database and `Platforms.xml` locations are discoverable.
-
 ### Status
 
 **Consolidated / functionally validated in September 2026.**
 
-The Home now provides the central emulator-management surface, including emulator discovery/configuration, installation/update operations, executable/version persistence, window/monitor persistence, RetroArch core catalog/filtering, sequential core installation with retry/CRC validation, WHDLoad/Amiberry data acquisition, and C64/TOSEC catalog acquisition.
+The Home provides the central emulator-management surface, including emulator discovery/configuration, installation/update operations, executable/version persistence, window/monitor persistence, RetroArch core catalog/filtering, sequential core installation with retry/CRC validation, WHDLoad/Amiberry data acquisition, and C64/TOSEC catalog acquisition.
 
-The Home is now considered a stable functional surface for the current review cycle. Further work should avoid unnecessary redesign of the Home while the ROM scanning subsystem is built.
-
-### Milestone 0 boundary
-
-The emulator installation/update backend from V1 is **not imported** into V2. The Home keeps the visual organization and operational intent of the proven legacy screen, while runtime/emulator services are implemented against V2 contracts.
+Further work should avoid unnecessary redesign of the Home while the ROM scanning subsystem is built.
 
 ## Milestone 1 — Data Foundation
 
 - path resolver;
-- SQLite engine;
-- SQLAlchemy declarative base;
-- session management;
+- SQLite engine/session;
+- SQLAlchemy persistence layer;
 - migration runner;
-- first schema;
 - database health check;
 - configuration schema bootstrap.
 
-### Status
-
-**Implemented.** Subsequent migrations continue to extend the foundation as new domains are introduced.
+**Status: implemented and extended progressively.**
 
 ## Milestone 2 — Canonical data model
 
@@ -47,9 +30,7 @@ The emulator installation/update backend from V1 is **not imported** into V2. Th
 - provenance and mappings;
 - files and hashes.
 
-### Status
-
-**Implemented progressively.** The model is now the basis for the MAME, Redump, WHLoader and C64/TOSEC integrations.
+**Status: implemented progressively.**
 
 ## Milestone 3 — Runtime model
 
@@ -62,9 +43,7 @@ The emulator installation/update backend from V1 is **not imported** into V2. Th
 - filesystem paths;
 - emulator configuration catalog.
 
-### Status
-
-**Implemented progressively.** Emulator management and MAME configuration/catalog work are active V2 consumers of this model.
+**Status: implemented progressively.**
 
 ## Milestone 4 — Metadata providers
 
@@ -73,151 +52,179 @@ The emulator installation/update backend from V1 is **not imported** into V2. Th
 - RetroArch RDB;
 - provider validation and conflict handling.
 
-### Status
-
-**In progress / progressive integration.**
+**Status: progressive integration.**
 
 ## Milestone 5 — Preservation providers
 
 - No-Intro;
 - Redump;
-- MAME/listxml;
+- MAME/ListXML;
 - FBNeo;
-- Softlists.
+- MAME Softlists;
+- trusted BIOS sources.
 
-### MAME foundation increment
+### MAME foundation
 
-The first MAME integration is implemented in `serm_v2.emulation.mame_dat_scraper`.
+The MAME catalog is obtained from the configured executable with `mame.exe -listxml`. The V2 environment has already produced a catalog of 50,368 machines. The relational catalog contains ROM, disk, display, BIOS, device, software-list and related machine definitions.
 
-It obtains the authoritative machine catalog from the installed executable with:
+### MAME configuration
 
-```text
-mame.exe -listxml
-```
+MAME configuration extraction uses the configured executable and records native options, defaults, current observations, UI types, choices, scope/precedence, dependencies, hardware constraints, SERM profiles and configuration bindings.
 
-The V2 environment has already produced a catalog of 50,368 machines from the configured MAME executable.
+### Provider foundations
 
-### MAME configuration increment
+Redump, WHLoader/Amiberry and C64/TOSEC acquisition foundations are implemented progressively. eXoDOS is excluded from the active scope.
 
-The V2 contains a relational configuration schema and a catalog service in `serm_v2.services.mame_configuration_catalog`.
+## Milestone 6 — ROM Scan subsystem — NEXT
 
-The service uses the configured MAME executable as the source of truth and queries:
+ROM scanning is a first-class cross-system subsystem. The GUI surface is now established in `serm_v2.gui.rom_scan_page` with two dedicated areas:
 
-```text
-mame.exe -version
-mame.exe -showconfig
-mame.exe -noreadconfig -showconfig
-mame.exe -showusage
-```
+1. **MAME** — first and most complete scanner implementation;
+2. **Outros Scans** — shared surface for No-Intro, Redump, WHLoader and C64.
 
-The database records native options, observed defaults, current configuration observations, option types, recommended UI controls, discrete choices, configuration surface, scope/precedence, dependencies, hardware capability constraints, SERM profiles and configuration file bindings.
+The GUI must consume a generic scan engine. Filesystem traversal, hashing, archive inspection, matching and result persistence must not be implemented inside the Qt widgets.
 
-### MAME scan preparation
-
-The MAME catalog is now the authoritative catalog layer for the first ROM scan implementation. The next work is to connect the physical filesystem to this catalog without coupling scan logic to the GUI.
-
-## Milestone 6 — Convenience providers
-
-- WHDLoad/Retroplay;
-- eXoDOS;
-- C64 and other specialized sources.
-
-### Current scope adjustment
-
-WHDLoad/Amiberry and C64/TOSEC foundations are implemented progressively. **eXoDOS is currently excluded from the active implementation scope** and should not be reintroduced without a new project decision.
-
-## Milestone 7 — ROM Scan, Matching and Reconstruction
-
-This milestone is expanded to make ROM scanning a first-class cross-system subsystem.
-
-### 7.1 Generic ROM Scan Engine — NEXT
-
-Build a system-independent scan engine responsible for physical filesystem inspection and matching against canonical catalog definitions.
+### 6.1 Generic physical scan engine
 
 Responsibilities:
 
 - scan configured filesystem roots;
-- discover files and archives;
-- inspect ZIP contents without unnecessary extraction;
-- collect file size and archive/member metadata;
-- calculate required hashes efficiently;
-- reuse previously calculated hashes when the file identity is unchanged;
-- match physical files against canonical ROM/disk definitions;
-- classify exact, current, wrong, missing and fixable content;
-- preserve scan provenance and timestamps;
+- recursively discover supported physical files;
+- inspect ZIP archives without unnecessary extraction;
+- inspect WHDLoad `.lha` packages through an adapter/service;
+- inspect optical-media representations;
+- collect size, timestamps and physical location;
+- calculate and cache hashes;
+- match against canonical catalog definitions;
+- classify current, wrong, missing, duplicate and fixable content;
+- preserve scan provenance and run identity;
 - support incremental re-scan;
-- provide deterministic results independent of the GUI;
-- expose progress, cancellation and operational diagnostics;
-- allow safe parallelism for filesystem and hashing workloads.
+- provide deterministic results independent of GUI;
+- support progress, cancellation and safe parallelism.
 
-### 7.2 MAME ROM Scanner — FIRST CONSUMER
+### 6.2 MAME scan — first consumer
 
-The first concrete implementation will target MAME and reuse the proven behavior of the V1 scanner as a reference.
+The MAME scanner is the reference implementation for the generic engine and must preserve the functional behavior already proven in V1 while adapting persistence to V2.
 
-The MAME adapter must understand:
+The MAME scan works from the canonical ListXML-derived catalog and must understand:
 
-- machine definitions from ListXML;
+- machines;
 - parent/clone relationships;
 - ROM regions and ROM entries;
-- ROM filenames;
-- expected sizes;
-- CRC32;
-- SHA-1;
-- disk/CHD definitions where applicable;
-- BIOS relationships where applicable.
+- expected filename, size, CRC32 and SHA-1;
+- merge semantics;
+- BIOS dependencies;
+- optional ROMs;
+- disks/CHDs;
+- software lists where applicable.
 
-The GUI should present at minimum:
+The scan UI is expected to expose at least:
 
-- scan root selection;
-- scan progress;
-- total files discovered;
+- ROM root selection;
+- configured MAME executable/catalog;
+- scan options;
+- progress;
 - machines/sets analyzed;
-- exact/current content;
-- missing content;
-- wrong content;
-- potentially fixable content;
+- files discovered;
+- current/OK;
+- wrong;
+- missing;
+- fixable/reconstructable;
 - parent/clone context;
-- detailed diagnostics for a selected machine/set.
+- detailed per-set/per-file diagnostics;
+- last scan reuse;
+- cancellation.
 
-### 7.3 MAME-compatible systems
+### 6.3 MAME-compatible scan family
 
-The scan engine must not be designed around MAME-specific assumptions when those assumptions can be generalized.
+The engine must be generalized from MAME semantics so systems using the MAME-style machine/ROM/archive/hash model can reuse the same implementation.
 
-After the MAME implementation is stable, adapters can support **other systems based on the MAME ROM/catalog model**, reusing the same physical scanner, hashing layer, matching engine and result model.
+They are consumers of the generic engine, not separate scanners.
 
-MAME-compatible systems are therefore consumers of the same engine, not independent scanner implementations.
+### 6.4 No-Intro and C64
 
-### 7.4 Matching / DE-PARA
+No-Intro and C64 game content will primarily be handled as ZIP-based ROM collections. The external catalog adapter supplies canonical expected identities and hashes; the physical scanner supplies archive/member evidence.
+
+### 6.5 WHLoader
+
+WHLoader scans operate on `.lha` WHDLoad packages. The scan must identify the physical package, its expected catalog identity and its internal/metadata evidence without treating the package as a normal MAME ZIP.
+
+The Amiberry Game DB already exists as the WHLoader catalog foundation.
+
+### 6.6 Redump
+
+Redump is the optical-media branch of the scan subsystem.
+
+Priority order:
+
+```text
+CHD
+ ↓
+CUE/BIN
+```
+
+CHD is the preferred representation for scanned optical media. When CUE/BIN is found, the UI will offer conversion to CHD.
+
+The conversion must use **only the command line of `chdman.exe`**, obtained from the MAME `exe` directory. SERM must not implement its own CHD encoder.
+
+The CUE/BIN source should remain untouched by default. Conversion is a separate transformation operation, not part of the read-only physical scan itself.
+
+After conversion, the generated CHD must be validated and then made available to the matching pipeline.
+
+### 6.7 Scan result model
+
+The canonical result state must distinguish at least:
+
+```text
+CURRENT / OK
+WRONG
+MISSING
+FIXABLE
+DUPLICATE
+UNRESOLVED
+```
+
+A result must retain provenance sufficient to answer:
+
+- which scan run produced it;
+- which physical path was inspected;
+- which archive/member was matched;
+- which catalog/source version was used;
+- which hash/size evidence produced the match;
+- which parent/clone or canonical identity was resolved.
+
+### 6.8 Matching and DE-PARA
 
 - canonical hash identity;
 - source-specific identity mapping;
-- filename as supporting evidence rather than authoritative identity;
+- filename as supporting evidence, never sole authoritative identity;
 - parent/clone resolution;
 - duplicate physical files;
-- one physical file satisfying multiple catalog references when semantically valid;
-- provenance of every match;
-- conflict and ambiguity handling.
+- valid shared physical evidence;
+- conflict/ambiguity handling;
+- provenance for every match.
 
-### 7.5 Reconstruction planner
+### 6.9 Reconstruction planner
 
-After scanning and matching are stable:
+Only after scan/matching is stable:
 
 - identify incomplete sets;
-- determine whether missing content can be reconstructed from known physical files;
-- plan safe archive transformations;
+- determine reconstructable content;
 - generate deterministic reconstruction plans;
-- keep transformation separate from scanning;
-- never modify source files during the scan phase.
+- preserve source files;
+- execute transformations in isolated temporary workspaces;
+- validate before publication.
 
-### 7.6 ArchiveService / CHD / publication
+### 6.10 ArchiveService / CHD / atomic publication
 
-Later increments:
+Later work:
 
 - ArchiveService;
-- CHD service;
-- atomic temporary workspace;
-- validation before publication;
-- atomic replacement/publication;
+- CHD service wrappers;
+- `chdman.exe` integration;
+- temporary workspaces;
+- validation;
+- atomic publication;
 - rollback/error preservation.
 
 ## Cross-cutting MAME Display/Timing Track
@@ -240,8 +247,4 @@ See `v2/docs/timing-and-display-planning.md`, `v2/docs/mame-dat-scraper.md`, `v2
 
 ## Development rule
 
-Do not implement later milestones by importing V1 services. If a V1 behavior is valuable, reimplement it against the V2 contracts.
-
-For ROM scanning specifically, V1 is a **behavioral and algorithmic reference**. Its data structures, database schema and service contracts are not V2 contracts.
-
-The generic scan engine must remain independent of GUI and source-specific adapters. Source adapters convert external catalogs into canonical V2 definitions; the scan engine consumes those canonical definitions.
+Do not implement later milestones by importing V1 services. V1 is a behavioral and algorithmic reference only. Reimplement proven behavior against V2 contracts and the current relational data model.
