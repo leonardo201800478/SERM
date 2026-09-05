@@ -1,4 +1,4 @@
-"""Redump DAT acquisition through Redump's direct datfile endpoints."""
+"""Redump DAT acquisition through the official redump.info download endpoints."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -13,7 +13,7 @@ class RedumpError(DatCatalogError):
 
 @dataclass(frozen=True, slots=True)
 class RedumpEntry:
-    """Describe one Redump DAT and its direct Redump download endpoint."""
+    """Describe one Redump DAT and its direct redump.info download endpoint."""
 
     name: str
     url: str
@@ -23,7 +23,7 @@ class RedumpEntry:
 
     @classmethod
     def from_catalog(cls, entry: DatCatalogEntry) -> RedumpEntry:
-        """Convert a catalog entry and replace its mirror URL with Redump's direct endpoint."""
+        """Convert a catalog entry to the official redump.info DAT endpoint."""
         direct_url = RedumpProvider.direct_url_for_name(entry.name)
         if direct_url is None:
             raise RedumpError(
@@ -37,23 +37,20 @@ class RedumpEntry:
 
 
 class RedumpProvider:
-    """Discover Redump systems from the public catalog and download DATs directly.
+    """Discover Redump systems and download DATs from the official new site.
 
-    The public DAT Catalog remains the machine-readable discovery source, but it
-    is never used to acquire the Redump payload. Downloads go to Redump's
-    ``/datfile/<system>/`` endpoint, which returns the ZIP containing the DAT.
-    This avoids the GitHub normalized/basic mirror and avoids browser download
-    reputation checks, Selenium and CAPTCHA handling.
+    The public DAT Catalog remains the machine-readable discovery source. The
+    DAT payload itself is acquired from the official redump.info download
+    endpoint used by the site's Downloads page (``/datfile/<SYSTEM>``).
     """
 
-    # Prefer HTTPS explicitly. The previous HTTP endpoint was consistently
-    # subject to long TCP connection timeouts on some direct ISP routes, while
-    # browser/VPN HTTPS access was responsive. HTTPS also avoids relying on a
-    # server-side HTTP -> HTTPS redirect before the actual DAT is transferred.
-    REDUMP_DAT_BASE_URL = "https://redump.org/datfile"
+    # Official Redump site after the June 2026 migration from redump.org.
+    # The Downloads page exposes the same /datfile/<SYSTEM> endpoints.
+    REDUMP_DOWNLOADS_URL = "https://redump.info/downloads"
+    REDUMP_DAT_BASE_URL = "https://redump.info/datfile"
 
-    # Redump's platform codes.  These are stable endpoint identifiers and are
-    # intentionally kept separate from LaunchBox names and DAT filenames.
+    # Redump's platform codes. They are kept separate from LaunchBox names and
+    # DAT filenames because the public Downloads page uses these identifiers.
     SYSTEM_CODES: dict[str, str] = {
         "Acorn Archimedes.dat": "arch",
         "Apple Macintosh.dat": "mac",
@@ -123,14 +120,16 @@ class RedumpProvider:
 
     @classmethod
     def direct_url_for_name(cls, name: str) -> str | None:
-        """Build Redump's direct DAT endpoint for a catalog filename."""
+        """Build the official redump.info DAT endpoint for a catalog filename."""
         code = cls.SYSTEM_CODES.get(name)
         if code is None:
             return None
-        return f"{cls.REDUMP_DAT_BASE_URL}/{code}/"
+        # The new site's Downloads page uses uppercase system identifiers,
+        # e.g. /datfile/PSX and /datfile/PS2.
+        return f"{cls.REDUMP_DAT_BASE_URL}/{code.upper()}"
 
     def fetch_catalog(self) -> tuple[RedumpEntry, ...]:
-        """Fetch Redump metadata and convert entries to direct Redump URLs."""
+        """Fetch Redump metadata and convert entries to official Redump URLs."""
         try:
             entries = self.catalog.fetch_catalog("Redump")
             converted: list[RedumpEntry] = []
@@ -170,7 +169,7 @@ class RedumpProvider:
         return self.catalog.destination(entry.as_catalog_entry())
 
     def download(self, entry: RedumpEntry) -> DatStatus:
-        """Download the ZIP from Redump, extract its DAT and store it locally."""
+        """Download the ZIP from redump.info, extract its DAT and store it locally."""
         if not entry.url.startswith(f"{self.REDUMP_DAT_BASE_URL}/"):
             raise RedumpError(f"URL de aquisição Redump inválida: {entry.url}")
         try:
