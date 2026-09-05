@@ -27,10 +27,17 @@ from ..integrations.launchbox import LaunchBoxIntegration
 from ..integrations.launchbox_provider import LaunchBoxProvider
 from ..services.c64_data_service import C64DataError, C64DataService, C64ScanResult
 from ..services.mame_catalog_service import MameCatalogError, MameCatalogService
-from ..services.mame_classification_service import MameClassificationError, MameClassificationService
+from ..services.mame_classification_service import (
+    MameClassificationError,
+    MameClassificationService,
+)
 from ..services.mame_resolution_service import MameResolutionError, MameResolutionService
 from ..services.mame_vsync_service import MameVsyncError, MameVsyncService
-from ..services.whloader_data_service import WHLoaderDataError, WHLoaderDataService, WHLoaderScanResult
+from ..services.whloader_data_service import (
+    WHLoaderDataError,
+    WHLoaderDataService,
+    WHLoaderScanResult,
+)
 from ..sources.acquisition.no_intro_archive import NoIntroArchiveProvider
 from ..sources.acquisition.redump import RedumpProvider
 

@@ -5,9 +5,21 @@ import logging
 from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QPlainTextEdit, QProgressBar, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QLabel,
+    QPlainTextEdit,
+    QProgressBar,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 
-from ..services.whloader_data_service import WHLoaderDataError, WHLoaderDataService, WHLoaderScanResult
+from ..services.whloader_data_service import (
+    WHLoaderDataError,
+    WHLoaderDataService,
+    WHLoaderScanResult,
+)
 
 logger = logging.getLogger(__name__)
 
