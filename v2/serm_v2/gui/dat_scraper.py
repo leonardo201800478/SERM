@@ -1,4 +1,5 @@
 """Scraper unificado de DATs do SERM V2."""
+
 from __future__ import annotations
 
 import logging
@@ -39,6 +40,7 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True, slots=True)
 class _Row:
     """Representa um sistema exibido e seu objeto de aquisição."""
+
     name: str
     entry: object
     state: str
@@ -46,6 +48,7 @@ class _Row:
 
 class _BatchWorker(QThread):
     """Executa downloads em lote fora da thread da interface."""
+
     progress = Signal(int, int, str)
     message = Signal(str)
     done = Signal(int, int)
@@ -78,6 +81,7 @@ class _BatchWorker(QThread):
 
 class _MameCatalogWorker(QThread):
     """Executa a ingestão do ListXML pelo MAME configurado sem bloquear o Qt."""
+
     completed = Signal(object)
     failed = Signal(str)
 
@@ -93,6 +97,7 @@ class _MameCatalogWorker(QThread):
 
 class _MameIniWorker(QThread):
     """Executa a fila de INIs MAME em ordem, sem bloquear a interface."""
+
     message = Signal(str)
     completed = Signal(object)
     failed = Signal(str)
@@ -130,6 +135,7 @@ class _MameIniWorker(QThread):
 
 class DatSourceTab(QWidget):
     """Aba genérica com seleção individual de sistemas e operações em lote."""
+
     def __init__(self, title: str, loader, installer, status_checker, parent=None) -> None:
         super().__init__(parent)
         self.title = title
@@ -153,7 +159,13 @@ class DatSourceTab(QWidget):
         self.summary = QLabel("Nenhum sistema carregado")
         layout.addWidget(self.summary)
         actions = QHBoxLayout()
-        actions_config = (("BUSCAR DATS", self.search, "search_button"), ("INSTALAR SELECIONADOS", self.install_selected, "install_button"), ("VERIFICAR ATUALIZAÇÕES", self.check_updates, "update_button"), ("SELECIONAR TODOS", self.select_all, "select_button"), ("LIMPAR SELEÇÃO", self.clear_selection, "clear_button"))
+        actions_config = (
+            ("BUSCAR DATS", self.search, "search_button"),
+            ("INSTALAR SELECIONADOS", self.install_selected, "install_button"),
+            ("VERIFICAR ATUALIZAÇÕES", self.check_updates, "update_button"),
+            ("SELECIONAR TODOS", self.select_all, "select_button"),
+            ("LIMPAR SELEÇÃO", self.clear_selection, "clear_button"),
+        )
         for text, slot, attr in actions_config:
             button = QPushButton(text)
             button.clicked.connect(slot)
@@ -197,7 +209,9 @@ class DatSourceTab(QWidget):
         self._set_busy(True)
         try:
             entries = tuple(self.loader())
-            self.rows = [_Row(self._entry_name(entry), entry, self._entry_state(entry)) for entry in entries]
+            self.rows = [
+                _Row(self._entry_name(entry), entry, self._entry_state(entry)) for entry in entries
+            ]
             self._rebuild_rows()
             self.summary.setText(f"{len(self.rows)} sistemas encontrados")
             self._append(f"BUSCAR | sistemas={len(self.rows)}")
@@ -227,7 +241,12 @@ class DatSourceTab(QWidget):
     @staticmethod
     def _prefix(state: str) -> str:
         """Formata o estado do DAT na lista."""
-        return {"current": "[OK]", "missing": "[AUSENTE]", "outdated": "[ATUALIZAR]", "unknown": "[?]"}.get(state, "[?]")
+        return {
+            "current": "[OK]",
+            "missing": "[AUSENTE]",
+            "outdated": "[ATUALIZAR]",
+            "unknown": "[?]",
+        }.get(state, "[?]")
 
     def _selected(self) -> list[_Row]:
         """Retorna somente os sistemas marcados."""
@@ -263,7 +282,9 @@ class DatSourceTab(QWidget):
         for check, row in zip(self._checks, self.rows, strict=True):
             check.setChecked(row.state in {"missing", "outdated", "unknown"})
         pending = sum(row.state in {"missing", "outdated", "unknown"} for row in self.rows)
-        self.summary.setText(f"{len(self.rows)} sistemas | {pending} precisam de instalação/atualização")
+        self.summary.setText(
+            f"{len(self.rows)} sistemas | {pending} precisam de instalação/atualização"
+        )
         self._append(f"ATUALIZAÇÕES | candidatos={pending}")
 
     def _start_worker(self, selected, operation) -> None:
@@ -292,12 +313,19 @@ class DatSourceTab(QWidget):
 
     def _set_busy(self, busy: bool) -> None:
         """Bloqueia ações conflitantes durante uma operação."""
-        for button in (self.search_button, self.install_button, self.update_button, self.select_button, self.clear_button):
+        for button in (
+            self.search_button,
+            self.install_button,
+            self.update_button,
+            self.select_button,
+            self.clear_button,
+        ):
             button.setEnabled(not busy)
 
 
 class _MameTab(QWidget):
     """Sessão MAME do Scraper de DATs com fila única de importação de INIs."""
+
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.service = MameCatalogService()
@@ -441,7 +469,9 @@ class _MameTab(QWidget):
         mode = "REUTILIZADA (mesmo SHA-256)" if data.get("deduplicated") else "NOVA IMPORTAÇÃO"
         if data.get("force"):
             mode = "FORÇADA"
-        self.status.setText(f"Concluído | MAME {build} | {data['machine_count']:,} máquinas | {data['display_count']:,} displays | {elapsed:.2f}s")
+        self.status.setText(
+            f"Concluído | MAME {build} | {data['machine_count']:,} máquinas | {data['display_count']:,} displays | {elapsed:.2f}s"
+        )
         self._log("OK", f"Versão/build: {build}")
         self._log("OK", f"Máquinas: {data['machine_count']:,}")
         self._log("OK", f"Displays normalizados: {data['display_count']:,}")
@@ -467,6 +497,7 @@ class _MameTab(QWidget):
 
 class DatScraperPage(QWidget):
     """Agrupa todas as sessões de DAT solicitadas pelo usuário."""
+
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.launchbox = LaunchBoxIntegration()
@@ -488,18 +519,24 @@ class DatScraperPage(QWidget):
 
     def _no_intro_tab(self) -> DatSourceTab:
         """Liga No-Intro ao arquivo bulk e ao matching LaunchBox."""
+
         def load():
             entries = self.no_intro.fetch_catalog()
             names = tuple(platform.name for platform in self.launchbox_provider.iter_platforms())
             return self.no_intro.match(names, entries)
-        return DatSourceTab("No-Intro — DATs", load, self.no_intro.download, self.no_intro.status, self)
+
+        return DatSourceTab(
+            "No-Intro — DATs", load, self.no_intro.download, self.no_intro.status, self
+        )
 
     def _redump_tab(self) -> DatSourceTab:
         """Liga Redump ao catálogo público e aos endpoints diretos."""
+
         def load():
             entries = self.redump.fetch_catalog()
             names = tuple(platform.name for platform in self.launchbox_provider.iter_platforms())
             return self.redump.match(names, entries)
+
         return DatSourceTab("Redump — DATs", load, self.redump.download, self.redump.status, self)
 
     @staticmethod
@@ -508,11 +545,19 @@ class DatScraperPage(QWidget):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.addWidget(QLabel(name))
-        detail = QLabel("A sessão está reservada para o backend original. O código-fonte atual não contém uma implementação recuperável desta fonte; por isso nenhum download fictício será executado.")
+        detail = QLabel(
+            "A sessão está reservada para o backend original. O código-fonte atual não contém uma implementação recuperável desta fonte; por isso nenhum download fictício será executado."
+        )
         detail.setWordWrap(True)
         layout.addWidget(detail)
         row = QHBoxLayout()
-        for text in ("BUSCAR DATS", "INSTALAR SELECIONADOS", "VERIFICAR ATUALIZAÇÕES", "SELECIONAR TODOS", "LIMPAR SELEÇÃO"):
+        for text in (
+            "BUSCAR DATS",
+            "INSTALAR SELECIONADOS",
+            "VERIFICAR ATUALIZAÇÕES",
+            "SELECIONAR TODOS",
+            "LIMPAR SELEÇÃO",
+        ):
             button = QPushButton(text)
             button.setEnabled(False)
             row.addWidget(button)
