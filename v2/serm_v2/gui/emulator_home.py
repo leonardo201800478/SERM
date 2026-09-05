@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 
 class _Worker(QThread):
     """Executa uma operação bloqueante fora da thread da interface."""
+
     progress = Signal(int, int)
     log = Signal(str)
     done = Signal(object)
@@ -45,10 +46,12 @@ class _Worker(QThread):
     def run(self) -> None:
         """Executa a operação e publica resultado/erro."""
         try:
-            self.done.emit(self.operation(
-                progress=lambda received, total: self.progress.emit(received, total),
-                log=lambda message: self.log.emit(str(message)),
-            ))
+            self.done.emit(
+                self.operation(
+                    progress=lambda received, total: self.progress.emit(received, total),
+                    log=lambda message: self.log.emit(str(message)),
+                )
+            )
         except Exception as exc:  # noqa: BLE001
             logger.exception("Operação Home falhou")
             self.error.emit(f"{type(exc).__name__}: {exc}")
@@ -71,6 +74,7 @@ class EmulatorHomePage(QWidget):
         self.manager = EmulatorManager(self._load_paths())
         self.retroarch = RetroArchManager(self.manager.roots.get("retroarch"))
         self.worker: _Worker | None = None
+        self._pending_continuation = None
         self.cards: dict[str, tuple[QLabel, QLabel, QLabel, QProgressBar, QPushButton]] = {}
         self.core_items: dict[str, QListWidgetItem] = {}
         self._core_queue: list[str] = []
@@ -97,7 +101,11 @@ class EmulatorHomePage(QWidget):
         """Persiste o registro central sem apagar chaves existentes."""
         self.paths_file.parent.mkdir(parents=True, exist_ok=True)
         self.paths_file.write_text(
-            json.dumps({k: str(v) if v is not None else None for k, v in paths.items()}, indent=2, ensure_ascii=False),
+            json.dumps(
+                {k: str(v) if v is not None else None for k, v in paths.items()},
+                indent=2,
+                ensure_ascii=False,
+            ),
             encoding="utf-8",
         )
 
@@ -110,6 +118,7 @@ class EmulatorHomePage(QWidget):
         title.setStyleSheet("font-size:25px;font-weight:700;")
         layout.addWidget(title)
         from PySide6.QtWidgets import QTabWidget
+
         self.home_tabs = QTabWidget()
         self.home_tabs.addTab(self._arcade_tab(), "Emuladores")
         self.home_tabs.addTab(self._retroarch_tab(), "RetroArch")
@@ -316,33 +325,49 @@ class EmulatorHomePage(QWidget):
         self._start(lambda progress, log: self.manager.install(key, destination, progress=progress, log=log), key)
 
     def update_all(self) -> None:
-        """Atualiza os quatro emuladores em sequência."""
+        """Atualiza os quatro emuladores em sequência, inclusive após falhas."""
+        if self.worker is not None:
+            self._append_log("ATUALIZAR TODOS | já existe uma operação em execução")
+            return
+
+        self.manager.roots = self._load_paths()
         queue = list(self.EMULATORS)
+
         def next_one() -> None:
             if not queue:
+                self._append_log("ATUALIZAR TODOS | operação concluída")
                 self.refresh()
                 return
+
             key = queue.pop(0)
             destination = self.manager.roots.get(key)
             if not destination:
                 self._append_log(f"IGNORADO | {self.LABELS[key]} | diretório não configurado")
                 next_one()
                 return
+
+            destination = Path(destination).resolve()
+            self._append_log(f"ATUALIZAR TODOS | iniciando {self.LABELS[key]} | destino={destination}")
             self._start(
-                lambda progress, log, k=key, d=destination: self.manager.install(k, d, progress=progress, log=log),
-                key, next_one,
+                lambda progress, log, k=key, d=destination: self.manager.install(
+                    k, d, progress=progress, log=log
+                ),
+                key,
+                next_one,
             )
+
         next_one()
 
     def _start(self, operation, key: str, continuation=None) -> None:
-        """Executa operação standalone em worker."""
+        """Executa operação standalone em worker e posterga a continuação."""
         if self.worker:
             return
+        self._pending_continuation = continuation
         self.worker = _Worker(operation, self)
         self.worker.progress.connect(lambda received, total, k=key: self._progress(k, received, total))
         self.worker.log.connect(self._append_log)
-        self.worker.done.connect(lambda result, k=key, c=continuation: self._done(k, result, c))
-        self.worker.error.connect(lambda message, k=key, c=continuation: self._error(k, message, c))
+        self.worker.done.connect(lambda result, k=key: self._done(k, result))
+        self.worker.error.connect(lambda message, k=key: self._error(k, message))
         self.worker.finished.connect(self._worker_finished)
         self.worker.start()
 
@@ -367,7 +392,7 @@ class EmulatorHomePage(QWidget):
         self.retro_log.appendPlainText(str(message))
         logger.info("[RETROARCH][HOME] %s", message)
 
-    def _done(self, key: str, result, continuation=None) -> None:
+    def _done(self, key: str, result) -> None:
         """Persiste diretório, executável e versão confirmada pelo release."""
         paths = self._load_paths()
         paths[key] = Path(result.executable).parent
@@ -376,28 +401,40 @@ class EmulatorHomePage(QWidget):
         self._save_paths(paths)
         self._append_log(f"SUCESSO | {self.LABELS[key]} | versão={result.version} | exe={result.executable}")
         self.refresh()
-        if continuation:
-            continuation()
 
-    def _error(self, key: str, message: str, continuation=None) -> None:
-        """Registra erro sem derrubar a interface."""
+    def _error(self, key: str, message: str) -> None:
+        """Registra erro sem interromper uma atualização em lote."""
         self._append_log(f"ERRO | {self.LABELS[key]} | {message}")
-        if continuation:
-            continuation()
 
     def _worker_finished(self) -> None:
-        """Libera o worker após terminar."""
+        """Libera o worker e só então inicia a próxima operação da fila."""
+        continuation = self._pending_continuation
+        self._pending_continuation = None
         self.worker = None
         self.retro_progress.hide()
         self.refresh()
+        if continuation is not None:
+            continuation()
 
     def open_emulator_directories(self) -> None:
-        """Abre a guia central de Diretórios."""
+        """Abre a página central de Diretórios pela navegação lateral."""
         window = self.window()
+        navigation = getattr(window, "navigation", None)
         directories = getattr(window, "directories_tab", None)
-        tabs = getattr(window, "tab_widget", None)
-        if directories is not None and tabs is not None:
-            tabs.setCurrentWidget(directories)
+        page_stack = getattr(window, "page_stack", None)
+        if navigation is None or directories is None or page_stack is None:
+            self._append_log("ERRO | Não foi possível localizar a página central de Diretórios")
+            return
+
+        for index in range(navigation.count()):
+            item = navigation.item(index)
+            if item is not None and item.text().casefold() == "diretórios":
+                navigation.setCurrentRow(index)
+                return
+
+        index = page_stack.indexOf(directories)
+        if index >= 0:
+            page_stack.setCurrentIndex(index)
             directories.refresh()
 
     def configure_retroarch(self) -> None:
@@ -524,101 +561,51 @@ class EmulatorHomePage(QWidget):
         self._update_core_summary()
 
     def _core_selection_changed(self, _item: QListWidgetItem) -> None:
-        """Atualiza o contador de seleção."""
+        """Atualiza o contador de cores selecionados."""
         self._update_core_summary()
 
     def _update_core_summary(self) -> None:
-        """Atualiza o contador de cores selecionados."""
-        selected = sum(self.core_list.item(i).checkState() == Qt.CheckState.Checked for i in range(self.core_list.count()))
-        self.core_summary.setText(f"{selected} selecionado(s)")
-
-    def install_selected_cores(self) -> None:
-        """Instala os cores marcados em sequência."""
-        _, _, destination = self.retroarch.discover()
-        if destination is None:
-            QMessageBox.information(self, "RetroArch", "Configure o diretório do RetroArch primeiro.")
-            return
-        selected = [
-            self.core_list.item(i).data(Qt.ItemDataRole.UserRole)
+        """Atualiza o resumo de seleção do catálogo."""
+        selected = sum(
+            self.core_list.item(i).checkState() == Qt.CheckState.Checked
             for i in range(self.core_list.count())
-            if self.core_list.item(i).checkState() == Qt.CheckState.Checked
-        ]
-        if not selected:
-            QMessageBox.information(self, "RetroArch", "Nenhum core foi selecionado.")
-            return
-        self._core_queue = list(selected)
-        self._install_next_core(destination)
-
-    def _install_next_core(self, destination: Path) -> None:
-        """Instala o próximo core da fila."""
-        if not self._core_queue:
-            self._append_retro_log("RETROARCH | instalação dos cores concluída")
-            self.refresh_cores()
-            return
-        filename = self._core_queue.pop(0)
-        self._append_retro_log(f"INSTALANDO | {filename} | restantes={len(self._core_queue)}")
-        self._start_retro(
-            lambda progress, log, f=filename, d=destination: self.retroarch.install_core(
-                f, d, channel=self._retro_channel, progress=progress, log=log
-            ),
-            continuation=lambda: self._install_next_core(destination),
         )
+        if self.core_list.count() == 0:
+            self.core_summary.setText("0 selecionado(s)")
+            return
+        self.core_summary.setText(f"{selected} selecionado(s) de {self.core_list.count()}")
 
-    def install_core(self) -> None:
-        """Mantém a ação de compatibilidade para o core selecionado."""
-        item = self.core_list.currentItem()
-        if item:
-            item.setCheckState(Qt.CheckState.Checked)
-            self.install_selected_cores()
-
-    def _start_retro(self, operation, continuation=None) -> None:
-        """Executa uma operação RetroArch em background."""
+    def _start_retro(self, operation) -> None:
+        """Executa uma operação RetroArch em worker."""
         if self.worker:
             return
         self.retro_progress.show()
         self.worker = _Worker(operation, self)
         self.worker.progress.connect(self._retro_progress)
         self.worker.log.connect(self._append_retro_log)
-        self.worker.done.connect(lambda result, c=continuation: self._retro_done(result, c))
-        self.worker.error.connect(lambda message, c=continuation: self._retro_error(message, c))
-        self.worker.finished.connect(self._worker_finished)
+        self.worker.done.connect(self._retro_done)
+        self.worker.error.connect(self._retro_error)
+        self.worker.finished.connect(self._retro_worker_finished)
         self.worker.start()
 
-    def _retro_done(self, result, continuation=None) -> None:
-        """Registra sucesso RetroArch e continua filas."""
-        self._append_retro_log(f"OK | {result}")
-        self.refresh()
-        if continuation:
-            continuation()
-
-    def _retro_error(self, message: str, continuation=None) -> None:
-        """Registra falha RetroArch e continua filas."""
-        self._append_retro_log(f"ERRO | {message}")
-        if continuation:
-            continuation()
-
     def _retro_progress(self, received: int, total: int) -> None:
-        """Atualiza o progresso RetroArch."""
+        """Atualiza a barra de progresso do RetroArch."""
         self.retro_progress.setRange(0, 100 if total else 0)
         self.retro_progress.setValue(min(100, int(received * 100 / total)) if total else 0)
 
-    def refresh_status(self) -> None:
-        """Compatibilidade com a Home V1."""
+    def _retro_done(self, result) -> None:
+        """Registra sucesso da operação RetroArch."""
+        self._append_retro_log(f"OK | {result}")
+
+    def _retro_error(self, message: str) -> None:
+        """Registra a falha final da operação RetroArch."""
+        self._append_retro_log(f"ERRO | {message}")
+
+    def _retro_worker_finished(self) -> None:
+        """Libera o worker RetroArch após terminar."""
+        self.worker = None
+        self.retro_progress.hide()
         self.refresh()
-
-    def update_all_emulators(self) -> None:
-        """Compatibilidade com a Home V1."""
-        self.update_all()
-
-    def install_emulator(self, emulator: str) -> None:
-        """Compatibilidade com a Home V1."""
-        self.install(emulator)
-
-    def open_official_site(self, key: str) -> None:
-        """Abre o repositório oficial."""
-        url = self.SITES.get(key)
-        if url:
-            webbrowser.open(url)
 
 
 __all__ = ["EmulatorHomePage"]
