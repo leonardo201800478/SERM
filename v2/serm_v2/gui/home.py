@@ -29,6 +29,11 @@ class HomePage(EmulatorHomePage):
         self._retro_continuation = None
         self._retro_operation_ok = False
         self._core_catalog_cache = None
+        self._core_filter_state = {
+            "include_beta": False,
+            "current_only": True,
+            "hide_games": True,
+        }
 
     def _retroarch_tab(self) -> QWidget:
         """Adiciona filtros locais ao catálogo sem alterar o canal do RetroArch."""
@@ -41,8 +46,13 @@ class HomePage(EmulatorHomePage):
         self.core_include_beta = QCheckBox("Incluir Beta / Nightly")
         self.core_current_only = QCheckBox("Somente cores atuais")
         self.core_hide_games = QCheckBox("Ocultar jogos / game engines")
-        self.core_current_only.setChecked(True)
-        self.core_hide_games.setChecked(True)
+
+        # Restaura as últimas seleções feitas nesta sessão antes de conectar os
+        # sinais, evitando que a restauração seja tratada como uma alteração.
+        self.core_include_beta.setChecked(self._core_filter_state["include_beta"])
+        self.core_current_only.setChecked(self._core_filter_state["current_only"])
+        self.core_hide_games.setChecked(self._core_filter_state["hide_games"])
+
         for widget in (self.core_include_beta, self.core_current_only, self.core_hide_games):
             row.addWidget(widget)
             widget.stateChanged.connect(self._core_filters_changed)
@@ -50,8 +60,17 @@ class HomePage(EmulatorHomePage):
         layout.insertWidget(7, filters)
         return page
 
+    def _save_core_filter_state(self) -> None:
+        """Grava as últimas seleções dos filtros enquanto a sessão estiver ativa."""
+        self._core_filter_state = {
+            "include_beta": self.core_include_beta.isChecked(),
+            "current_only": self.core_current_only.isChecked(),
+            "hide_games": self.core_hide_games.isChecked(),
+        }
+
     def _core_filters_changed(self, _state: int) -> None:
-        """Aplica filtros somente ao catálogo já carregado; não faz requisição HTTP."""
+        """Grava a seleção e aplica os filtros sem nova requisição HTTP."""
+        self._save_core_filter_state()
         if self.worker is not None:
             return
         if self._core_catalog_cache is None:
@@ -74,6 +93,7 @@ class HomePage(EmulatorHomePage):
         if self.worker is not None:
             self._append_retro_log("CATÁLOGO | operação RetroArch já em execução.")
             return
+        self._save_core_filter_state()
         try:
             # O canal do frontend (Stable/Nightly) NÃO é alterado pelos filtros.
             # Stable e Beta/Nightly são tratados como fontes independentes pelo serviço.
