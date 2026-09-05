@@ -164,6 +164,32 @@ class RedumpProvider:
         "ZAPiT Games Game Wave Family Entertainment System.dat": "GAMEWAVE",
     }
 
+    # LaunchBox names are not identical to Redump's official names. Keep
+    # explicit aliases here for systems where vendor prefixes or naming differ.
+    # Keys and values are normalized through PublicDatCatalogProvider._normalize.
+    LAUNCHBOX_ALIASES: dict[str, str] = {
+        "sony psp": "sony playstation portable",
+        "psp": "sony playstation portable",
+        "playstation portable": "sony playstation portable",
+        "ps portable": "sony playstation portable",
+        "commodore amiga cdtv": "commodore amiga cdtv",
+        "amiga cdtv": "commodore amiga cdtv",
+        "cdtv": "commodore amiga cdtv",
+        "nec pc engine cd": "nec pc engine cd and turbografx cd",
+        "pc engine cd": "nec pc engine cd and turbografx cd",
+        "turbo grafx cd": "nec pc engine cd and turbografx cd",
+        "turbografx cd": "nec pc engine cd and turbografx cd",
+        "nec turbografx cd": "nec pc engine cd and turbografx cd",
+        "sega mega cd": "sega mega cd and sega cd",
+        "sega cd": "sega mega cd and sega cd",
+        "mega cd": "sega mega cd and sega cd",
+        "pc fx": "nec pc fx and pc fxga",
+        "nec pc fx": "nec pc fx and pc fxga",
+        "pc fxga": "nec pc fx and pc fxga",
+        "atari jaguar cd": "atari jaguar cd interactive multimedia system",
+        "jaguar cd": "atari jaguar cd interactive multimedia system",
+    }
+
     def __init__(self, *, root: Path | None = None, timeout: int = 60) -> None:
         """Initialize the provider and its local DAT directory."""
         default_root = Path(__file__).resolve().parents[3] / "data" / "sources" / "redump" / "dats"
@@ -224,9 +250,37 @@ class RedumpProvider:
     ) -> tuple[RedumpEntry, ...]:
         """Match LaunchBox platforms against the complete Redump catalog."""
         source = entries if entries is not None else self.fetch_catalog()
+
+        # First use the generic catalog matcher for established aliases.
         catalog_entries = tuple(entry.as_catalog_entry() for entry in source)
-        matches = self.catalog.match(systems, catalog_entries)
-        return tuple(RedumpEntry.from_catalog(entry) for entry in matches)
+        generic_matches = self.catalog.match(systems, catalog_entries)
+        matched_names = {entry.name for entry in generic_matches}
+
+        # Then apply explicit LaunchBox -> Redump mappings for names that differ
+        # structurally, such as "Sony PSP" versus "Sony PlayStation Portable".
+        normalized_targets = {
+            self.catalog._normalize(target) for target in self.LAUNCHBOX_ALIASES.values()
+        }
+        requested_targets: set[str] = set()
+        for system in systems:
+            normalized = self.catalog._normalize(system)
+            target = self.LAUNCHBOX_ALIASES.get(normalized)
+            if target is not None:
+                requested_targets.add(self.catalog._normalize(target))
+
+        for entry in source:
+            normalized_name = self.catalog._normalize(Path(entry.name).stem)
+            if normalized_name in requested_targets and normalized_name in normalized_targets:
+                matched_names.add(entry.name)
+
+        result = tuple(entry for entry in source if entry.name in matched_names)
+        logger.info(
+            "[REDUMP][MATCH] LaunchBox=%d | DATs=%d | matches=%d",
+            len(systems),
+            len(source),
+            len(result),
+        )
+        return result
 
     def status(self, entry: RedumpEntry) -> DatStatus:
         """Return the validated local state of one Redump DAT."""
