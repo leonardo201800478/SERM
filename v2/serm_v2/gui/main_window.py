@@ -28,7 +28,6 @@ from .emulator_settings_page import EmulatorSettingsPage
 from .emulator_shaders_bezels_page import EmulatorShadersBezelsPage
 from .home import HomePage
 from .log_handler import LogViewer
-from .mame_guides_page import MameGuidesPage
 
 
 class MainWindow(QMainWindow):
@@ -39,7 +38,6 @@ class MainWindow(QMainWindow):
         ("Diretórios", "Gerenciar diretórios dos emuladores", "SP_DirIcon"),
         ("Configurações", "Configurações dos emuladores", "SP_FileDialogDetailedView"),
         ("Shaders / Bezels", "Aparência, shaders e bezels", "SP_ComputerIcon"),
-        ("MAME", "Guias e ferramentas do MAME", "SP_DriveHDIcon"),
         ("Scraper de DATs", "Importação e processamento de DATs", "SP_FileIcon"),
     )
 
@@ -177,9 +175,8 @@ class MainWindow(QMainWindow):
         self.directories_tab = DirectoriesPage(self)
         self.settings_tab = EmulatorSettingsPage(self)
         self.visuals_tab = EmulatorShadersBezelsPage(self)
-        self.mame_guides_tab = MameGuidesPage(self)
         self.dat_scraper_tab = DatScraperPage(self)
-        self.pages = (self.home_section, self.directories_tab, self.settings_tab, self.visuals_tab, self.mame_guides_tab, self.dat_scraper_tab)
+        self.pages = (self.home_section, self.directories_tab, self.settings_tab, self.visuals_tab, self.dat_scraper_tab)
         for page in self.pages:
             self.page_stack.addWidget(page)
         root_layout.addWidget(sidebar)
@@ -206,8 +203,6 @@ class MainWindow(QMainWindow):
             self.settings_tab.refresh()
         elif page is self.visuals_tab:
             self.visuals_tab.refresh()
-        elif page is self.mame_guides_tab:
-            self.mame_guides_tab.refresh()
         elif page is self.dat_scraper_tab:
             self.dat_scraper_tab.setFocus()
 
