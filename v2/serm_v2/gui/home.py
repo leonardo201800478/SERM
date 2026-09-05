@@ -22,18 +22,21 @@ class HomePage(EmulatorHomePage):
     CORE_MAX_ATTEMPTS = 3
 
     def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
+        # EmulatorHomePage.__init__() chama self._build_ui(), que por sua vez
+        # chama o método sobrescrito _retroarch_tab(). Portanto, todo estado
+        # consumido por _retroarch_tab() precisa existir antes do super().
+        self._core_filter_state = {
+            "include_beta": False,
+            "current_only": True,
+            "hide_games": True,
+        }
         self._core_current_filename: str | None = None
         self._core_destination: Path | None = None
         self._core_queue_with_channels: list[tuple[str, str]] = []
         self._retro_continuation = None
         self._retro_operation_ok = False
         self._core_catalog_cache = None
-        self._core_filter_state = {
-            "include_beta": False,
-            "current_only": True,
-            "hide_games": True,
-        }
+        super().__init__(parent)
 
     def _retroarch_tab(self) -> QWidget:
         """Adiciona filtros locais ao catálogo sem alterar o canal do RetroArch."""
