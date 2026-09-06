@@ -6,14 +6,11 @@ import json
 import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
-from uuid import uuid4
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QCheckBox, QComboBox, QGroupBox, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QVBoxLayout, QWidget
 
 from ..runtime.paths import data_root, database_path
 from ..services.no_intro_filter_service import DEFAULT_REGION_PRIORITY, NoIntroFilterService
-from ..services.scan_file_repository import ScanFileRepository
 
 
 class NoIntroFilterPage(QWidget):
@@ -45,30 +42,41 @@ class NoIntroFilterPage(QWidget):
         sv.addWidget(self.scan_info)
         layout.addWidget(scan_box)
 
-        content_box = QGroupBox("2. Conteúdo")
+        content_box = QGroupBox("2. Conteúdo — marque o que DEVE SER INCLUÍDO")
         cv = QVBoxLayout(content_box)
         self.checks: dict[str, QCheckBox] = {}
         options = (
-            ("include_bios", "BIOS"), ("include_programs", "Programs"),
-            ("include_betas", "Betas"), ("include_prototypes", "Prototypes"),
-            ("include_demos", "Demos"), ("include_np", "NP / Nintendo Power"),
-            ("include_samples", "Samples"), ("include_aftermarket", "Aftermarket"),
-            ("include_unlicensed", "Unlicensed"), ("include_clones", "Clones"),
+            ("include_bios", "BIOS"),
+            ("include_programs", "Program"),
+            ("include_betas", "Beta"),
+            ("include_prototypes", "Proto / Prototype"),
+            ("include_demos", "Demo"),
+            ("include_tech_demos", "Tech Demo"),
+            ("include_np", "NP / Nintendo Power"),
+            ("include_samples", "Sample"),
+            ("include_aftermarket", "Aftermarket"),
+            ("include_unlicensed", "Unlicensed"),
+            ("include_pirates", "Pirate"),
+            ("include_enhancement_chips", "Enhancement Chip"),
+            ("include_bad_dumps", "Bad Dump [b]"),
+            ("include_clones", "Clones"),
         )
         for key, label in options:
             box = QCheckBox(label)
             box.stateChanged.connect(self._preview)
-            box.setChecked(False if key != "include_clones" else True)
+            box.setChecked(key == "include_clones")
             self.checks[key] = box
             cv.addWidget(box)
-        self.include_translations = QCheckBox("Traduções / Translated")
+
+        self.include_translations = QCheckBox("Traduções / Translated (inclui PT-BR, BR, Brazil, Brasil, T-PT-BR, Trad PT-BR etc.)")
         self.include_hacks = QCheckBox("Hacks / ROM hacks")
         self.keep_unverified = QCheckBox("Manter variantes sem hash como UNVERIFIED_VARIANT")
         self.include_translations.stateChanged.connect(self._preview)
         self.include_hacks.stateChanged.connect(self._preview)
         self.keep_unverified.stateChanged.connect(self._preview)
         self.keep_unverified.setChecked(True)
-        for box in (self.include_translations, self.include_hacks, self.keep_unverified): cv.addWidget(box)
+        for box in (self.include_translations, self.include_hacks, self.keep_unverified):
+            cv.addWidget(box)
         layout.addWidget(content_box)
 
         region_box = QGroupBox("3. Regiões e 1G1R")
@@ -96,7 +104,9 @@ class NoIntroFilterPage(QWidget):
         self.apply = QPushButton("APLICAR FILTROS E GERAR ARQUIVO")
         self.save.clicked.connect(self._save_settings)
         self.apply.clicked.connect(self._apply)
-        actions.addWidget(self.save); actions.addWidget(self.apply); actions.addStretch()
+        actions.addWidget(self.save)
+        actions.addWidget(self.apply)
+        actions.addStretch()
         layout.addLayout(actions)
         self.result = QLabel("Nenhum arquivo filtrado gerado.")
         self.result.setWordWrap(True)
@@ -109,7 +119,8 @@ class NoIntroFilterPage(QWidget):
         self._preview()
 
     def _refresh_scans(self) -> None:
-        self.scan_combo.blockSignals(True); self.scan_combo.clear()
+        self.scan_combo.blockSignals(True)
+        self.scan_combo.clear()
         try:
             with sqlite3.connect(database_path()) as connection:
                 connection.row_factory = sqlite3.Row
@@ -126,7 +137,8 @@ class NoIntroFilterPage(QWidget):
         data = self.scan_combo.currentData()
         if not isinstance(data, dict):
             self.scan_info.setText("Nenhum scan No-Intro concluído.")
-            self.apply.setEnabled(False); return
+            self.apply.setEnabled(False)
+            return
         path = Path(str(data.get("scan_file_path") or ""))
         self.apply.setEnabled(path.is_file())
         self.scan_info.setText(f"Entrada: {path}\nItens={int(data.get('items_examined') or 0):,} | {data.get('status_counts_json','{}')}")
@@ -138,18 +150,21 @@ class NoIntroFilterPage(QWidget):
 
     def _preview(self, *_args) -> None:
         data = self.scan_combo.currentData()
-        if not isinstance(data, dict): return
+        if not isinstance(data, dict):
+            return
         path = Path(str(data.get("scan_file_path") or ""))
-        if not path.is_file(): return
+        if not path.is_file():
+            return
         try:
             result = NoIntroFilterService.preview(path, self._config())
-            self.preview.setText(f"Preview: entrada={result['input_count']:,} | saída={result['output_count']:,} | excluídas={result['filtered_count']:,}\n" + " | ".join(f"{k}={v:,}" for k,v in result['filter_counts'].items()))
+            self.preview.setText(f"Preview: entrada={result['input_count']:,} | saída={result['output_count']:,} | excluídas={result['filtered_count']:,}\n" + " | ".join(f"{k}={v:,}" for k, v in result['filter_counts'].items()))
         except Exception as exc:
             self.preview.setText(f"Preview indisponível: {exc}")
 
     def _apply(self) -> None:
         data = self.scan_combo.currentData()
-        if not isinstance(data, dict): return
+        if not isinstance(data, dict):
+            return
         path = Path(str(data.get("scan_file_path") or ""))
         try:
             result = NoIntroFilterService.apply(path, self._config())
@@ -166,12 +181,15 @@ class NoIntroFilterPage(QWidget):
 
     def _load_settings(self) -> None:
         priority = list(DEFAULT_REGION_PRIORITY)
+        raw = {}
         try:
             raw = json.loads(self.SETTINGS_PATH.read_text(encoding="utf-8"))
-            if isinstance(raw, dict) and isinstance(raw.get("region_priority"), list): priority = [str(x) for x in raw["region_priority"]]
-            for key, box in self.checks.items():
-                if key in raw: box.setChecked(bool(raw[key]))
+            if isinstance(raw, dict) and isinstance(raw.get("region_priority"), list):
+                priority = [str(x) for x in raw["region_priority"]]
             if isinstance(raw, dict):
+                for key, box in self.checks.items():
+                    if key in raw:
+                        box.setChecked(bool(raw[key]))
                 self.one_g1r.setChecked(bool(raw.get("one_game_one_region", True)))
                 self.include_translations.setChecked(bool(raw.get("include_translations", False)))
                 self.include_hacks.setChecked(bool(raw.get("include_hacks", False)))
@@ -179,11 +197,13 @@ class NoIntroFilterPage(QWidget):
         except (OSError, ValueError, TypeError):
             pass
         self.region_list.clear()
-        for value in priority: self.region_list.addItem(QListWidgetItem(value))
+        for value in priority:
+            self.region_list.addItem(QListWidgetItem(value))
 
     def _reset_regions(self) -> None:
         self.region_list.clear()
-        for value in DEFAULT_REGION_PRIORITY: self.region_list.addItem(QListWidgetItem(value))
+        for value in DEFAULT_REGION_PRIORITY:
+            self.region_list.addItem(QListWidgetItem(value))
         self._preview()
 
 
