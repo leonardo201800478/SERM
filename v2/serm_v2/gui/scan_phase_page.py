@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,6 +33,7 @@ from ..services.rom_scan_service import RomScanService
 from ..services.scan_repository import ScanRepository
 
 DIRECTORIES_DIALOG_TITLE = "Diretórios"
+SCAN_SETTINGS_PATH = data_root() / "scan_settings.json"
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,6 +112,7 @@ class _SystemScanTab(QWidget):
         super().__init__(parent)
         self.source = source
         self.worker: _PhaseScanWorker | None = None
+        self._restoring_settings = False
         self._build_ui()
         self.refresh()
 
@@ -200,6 +203,76 @@ class _SystemScanTab(QWidget):
         self.dat_combo.currentIndexChanged.connect(self._dat_changed)
         self.scan_type.currentIndexChanged.connect(self._scan_type_changed)
 
+    @property
+    def settings_key(self) -> str:
+        system = self.system_combo.currentText().strip() or self.source
+        return f"{self.source}:{system}"
+
+    def _read_settings(self) -> dict[str, Any]:
+        try:
+            raw = json.loads(SCAN_SETTINGS_PATH.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            return {}
+        return raw if isinstance(raw, dict) else {}
+
+    def _write_settings(self, data: dict[str, Any]) -> None:
+        try:
+            SCAN_SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+            SCAN_SETTINGS_PATH.write_text(
+                json.dumps(data, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+        except OSError as exc:
+            self.log_message(f"AVISO | não foi possível salvar configurações do scan: {exc}")
+
+    def _persist_settings(self) -> None:
+        if self._restoring_settings:
+            return
+        data = self._read_settings()
+        state = data.setdefault(self.settings_key, {})
+        state["source_directories"] = [
+            self.source_list.item(i).text() for i in range(self.source_list.count())
+        ]
+        state["system"] = self.system_combo.currentText().strip()
+        if self.source == "No-Intro":
+            state["dat_path"] = str(self.dat_combo.currentData() or "")
+        if self.source == "MAME":
+            state["scan_type"] = str(self.scan_type.currentData() or "arcade")
+        self._write_settings(data)
+
+    def _restore_saved_settings(self) -> None:
+        data = self._read_settings()
+        state = data.get(self.settings_key)
+        if not isinstance(state, dict):
+            return
+
+        self._restoring_settings = True
+        try:
+            self.source_list.clear()
+            for value in state.get("source_directories", []):
+                if not isinstance(value, str) or not value.strip():
+                    continue
+                path = Path(value).expanduser()
+                if path.exists() and path.is_dir():
+                    self.source_list.addItem(str(path.resolve()))
+
+            if self.source == "MAME":
+                scan_type = str(state.get("scan_type") or "arcade")
+                index = self.scan_type.findData(scan_type)
+                if index < 0:
+                    index = self.scan_type.findData("arcade")
+                self.scan_type.setCurrentIndex(max(index, 0))
+            elif self.source == "No-Intro":
+                dat_path = str(state.get("dat_path") or "")
+                if dat_path:
+                    index = self.dat_combo.findData(dat_path)
+                    if index >= 0:
+                        self.dat_combo.setCurrentIndex(index)
+                        self._dat_changed()
+        finally:
+            self._restoring_settings = False
+        self._update_source_controls()
+
     def refresh(self) -> None:
         if self.source == "No-Intro":
             self._refresh_no_intro()
@@ -214,6 +287,7 @@ class _SystemScanTab(QWidget):
             self.system_combo.clear()
             self.system_combo.addItem(self.source)
             self.system_combo.blockSignals(False)
+        self._restore_saved_settings()
         self._update_source_controls()
         self._update_action_controls()
 
@@ -260,12 +334,14 @@ class _SystemScanTab(QWidget):
 
     def _selection_changed(self, *_args) -> None:
         self._update_source_controls()
+        self._persist_settings()
 
     def _scan_type_changed(self, *_args) -> None:
         if self.source == "MAME":
             value = str(self.scan_type.currentData() or "arcade")
             MameScanSettingsService.save(self._settings_profile_id(), value)
             self.status.setText(f"Tipo de scan MAME selecionado: {self.scan_type.currentText()}.")
+            self._persist_settings()
 
     def _settings_profile_id(self) -> str:
         return "scan-mame-mame"
@@ -324,6 +400,7 @@ class _SystemScanTab(QWidget):
                 return
         self.source_list.addItem(path)
         self._update_source_controls()
+        self._persist_settings()
 
     def _remove_source(self) -> None:
         row = self.source_list.currentRow()
@@ -336,10 +413,12 @@ class _SystemScanTab(QWidget):
             return
         self.source_list.takeItem(row)
         self._update_source_controls()
+        self._persist_settings()
 
     def _clear_sources(self) -> None:
         self.source_list.clear()
         self._update_source_controls()
+        self._persist_settings()
 
     def _profile(self) -> Any:
         target = ScanTarget(
@@ -376,27 +455,17 @@ class _SystemScanTab(QWidget):
         if self.worker and self.worker.isRunning():
             return
         if self.source_list.count() == 0:
-            QMessageBox.information(
-                self,
-                "Scan",
-                "Adicione pelo menos um diretório de origem.",
-            )
+            QMessageBox.information(self, "Scan", "Adicione pelo menos um diretório de origem.")
             return
         if self.source == "No-Intro" and self.dat_combo.currentData() is None:
             QMessageBox.information(self, "Scan", "Selecione um DAT No-Intro.")
             return
 
         profile = self._profile()
-        self.worker = _PhaseScanWorker(
-            ScanTarget(
-                self.source,
-                profile.system,
-                profile.dat_path,
-                profile.scan_type,
-            ),
-            profile,
-            self,
-        )
+        scan_type = str(self.scan_type.currentData() or "full") if self.source == "MAME" else "full"
+        target = ScanTarget(self.source, profile.system, profile.dat_path, scan_type)
+        self._persist_settings()
+        self.worker = _PhaseScanWorker(target, profile, self)
         self.scan_button.setEnabled(False)
         self.cancel_button.setEnabled(True)
         self.pause_button.setEnabled(self.source == "MAME")
@@ -404,7 +473,9 @@ class _SystemScanTab(QWidget):
         self.progress.setMaximum(0)
         self.progress.setValue(0)
         self.log.clear()
-        self.log.addItem("SCAN COMPLETO iniciado — filtros desativados")
+        self.log.addItem(
+            f"SCAN COMPLETO iniciado | fonte={target.source} | sistema={target.system} | tipo={target.scan_type}"
+        )
         self._update_source_controls()
         self.worker.progress.connect(self._progress)
         self.worker.message.connect(self.log_message)
@@ -456,7 +527,9 @@ class _SystemScanTab(QWidget):
         self.cancel_button.setEnabled(False)
         self.pause_button.setEnabled(False)
         self.resume_button.setEnabled(False)
+        self.worker = None
         self._update_source_controls()
+        self._update_action_controls()
 
     def pause_scan(self) -> None:
         if self.worker and self.worker.isRunning():
