@@ -10,7 +10,7 @@ from .scan_file_repository import ScanFileRepository
 
 
 class ScanRepository:
-    """Persiste o scan bruto como histórico imutável e consultável."""
+    """Persiste o scan bruto como histórico imutável e os resultados filtrados separadamente."""
 
     def __init__(self, database_path: Path) -> None:
         self.database_path = Path(database_path).expanduser().resolve()
@@ -35,12 +35,8 @@ class ScanRepository:
                 status_counts_json TEXT NOT NULL DEFAULT '{}')""")
             columns = {row[1] for row in connection.execute("PRAGMA table_info(scan_runs)")}
             additions = {
-                "profile_schema_version": "INTEGER NOT NULL DEFAULT 1",
-                "dat_path": "TEXT",
-                "catalog_hash": "TEXT",
-                "catalog_label": "TEXT",
-                "scan_type": "TEXT NOT NULL DEFAULT 'full'",
-                "scan_file_path": "TEXT",
+                "profile_schema_version": "INTEGER NOT NULL DEFAULT 1", "dat_path": "TEXT", "catalog_hash": "TEXT",
+                "catalog_label": "TEXT", "scan_type": "TEXT NOT NULL DEFAULT 'full'", "scan_file_path": "TEXT",
             }
             for name, definition in additions.items():
                 if name not in columns:
@@ -53,6 +49,13 @@ class ScanRepository:
                 path TEXT, archive_path TEXT, archive_member TEXT, merge_name TEXT, optional INTEGER NOT NULL DEFAULT 0,
                 message TEXT, error TEXT)""")
             connection.execute("CREATE INDEX IF NOT EXISTS ix_scan_items_scan_status ON scan_items(scan_id,status)")
+            connection.execute("""CREATE TABLE IF NOT EXISTS filter_runs (
+                filter_run_id TEXT PRIMARY KEY, scan_id TEXT NOT NULL REFERENCES scan_runs(scan_id) ON DELETE CASCADE,
+                profile_id TEXT NOT NULL, created_at REAL NOT NULL, filtered_file_path TEXT NOT NULL,
+                input_count INTEGER NOT NULL DEFAULT 0, output_count INTEGER NOT NULL DEFAULT 0,
+                status_counts_json TEXT NOT NULL DEFAULT '{}', filters_json TEXT NOT NULL DEFAULT '{}')""")
+            connection.execute("CREATE INDEX IF NOT EXISTS ix_filter_runs_scan ON filter_runs(scan_id,created_at DESC)")
+            connection.execute("CREATE INDEX IF NOT EXISTS ix_filter_runs_profile ON filter_runs(profile_id,created_at DESC)")
 
     def save(self, result: ScanResult, *, status: str = "completed", dat_path: str | None = None,
              profile_schema_version: int = 1) -> None:
@@ -79,6 +82,19 @@ class ScanRepository:
                   e.expected_crc, e.actual_crc, e.expected_sha1, e.actual_sha1, e.expected_md5, e.actual_md5,
                   e.path, e.archive_path, e.archive_member, e.merge_name, int(e.optional), e.message, e.error)
                  for e in result.evidence],
+            )
+
+    def save_filter_result(self, result: dict) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """INSERT OR REPLACE INTO filter_runs (
+                    filter_run_id, scan_id, profile_id, created_at, filtered_file_path,
+                    input_count, output_count, status_counts_json, filters_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (result["filter_run_id"], result["scan_id"], result["profile_id"], result["created_at"],
+                 result["filtered_file_path"], result["input_count"], result["output_count"],
+                 json.dumps(result.get("filter_counts", {}), ensure_ascii=False),
+                 json.dumps(result.get("filters", {}), ensure_ascii=False)),
             )
 
     def latest_for_profile(self, profile_id: str) -> dict | None:
