@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout,
     QLabel, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QScrollArea,
@@ -76,7 +76,7 @@ class _ScanWorker(QThread):
     def run(self) -> None:
         try:
             self.service = RomScanService(log_callback=self.log.emit, progress_callback=self.progress.emit)
-            result = self.service.scan(self.profile)
+            result = self.service.scan(self.profile, database=self.database_path)
             ScanRepository(self.database_path).save(result)
             self.completed.emit(result)
         except Exception as exc:  # noqa: BLE001
@@ -101,7 +101,12 @@ class FilterProfilesPage(QWidget):
         self._scan_worker: _ScanWorker | None = None
         self._last_scan_result: ScanResult | None = None
         self._building = False
+        self._estimate_timer = QTimer(self)
+        self._estimate_timer.setSingleShot(True)
+        self._estimate_timer.setInterval(80)
+        self._estimate_timer.timeout.connect(self._update_catalog_estimate)
         self._build_ui()
+        self._connect_filter_estimate_signals()
         self.refresh()
 
     def _build_ui(self) -> None:
@@ -109,7 +114,10 @@ class FilterProfilesPage(QWidget):
         title = QLabel("SERM V2 — Filtros e Scan")
         title.setProperty("role", "title")
         root.addWidget(title)
-        intro = QLabel("Selecione o catálogo, configure o perfil, salve e execute o scan. O mesmo profile_id acompanha o resultado até a reconstrução.")
+        intro = QLabel(
+            "Selecione o catálogo, configure o perfil, salve e execute o scan. "
+            "O mesmo profile_id acompanha o resultado até a reconstrução."
+        )
         intro.setWordWrap(True)
         root.addWidget(intro)
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -138,208 +146,535 @@ class FilterProfilesPage(QWidget):
         return box
 
     def _editor_panel(self) -> QWidget:
-        page = QWidget(); layout = QVBoxLayout(page)
-        self.selected_label = QLabel("Selecione um catálogo"); layout.addWidget(self.selected_label)
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        self.selected_label = QLabel("Selecione um catálogo")
+        layout.addWidget(self.selected_label)
         source_box = QGroupBox("Fontes temporárias do scan — máximo 3")
         source_layout = QVBoxLayout(source_box)
-        self.source_list = QListWidget(); source_layout.addWidget(self.source_list)
-        actions = QHBoxLayout(); add = QPushButton("+ ADICIONAR"); remove = QPushButton("REMOVER")
-        add.clicked.connect(self._add_source_directory); remove.clicked.connect(self._remove_source_directory)
-        actions.addWidget(add); actions.addWidget(remove); actions.addStretch(); source_layout.addLayout(actions)
-        self.recursive = QCheckBox("Incluir subdiretórios"); self.recursive.setChecked(True); source_layout.addWidget(self.recursive)
+        self.source_list = QListWidget()
+        source_layout.addWidget(self.source_list)
+        actions = QHBoxLayout()
+        add = QPushButton("+ ADICIONAR")
+        remove = QPushButton("REMOVER")
+        add.clicked.connect(self._add_source_directory)
+        remove.clicked.connect(self._remove_source_directory)
+        actions.addWidget(add)
+        actions.addWidget(remove)
+        actions.addStretch()
+        source_layout.addLayout(actions)
+        self.recursive = QCheckBox("Incluir subdiretórios")
+        self.recursive.setChecked(True)
+        source_layout.addWidget(self.recursive)
         layout.addWidget(source_box)
-        scroll = QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QScrollArea.Shape.NoFrame)
-        body = QWidget(); self.filter_layout = QVBoxLayout(body)
-        self._build_generic_controls(); self._build_mame_controls(); self.filter_layout.addStretch(); scroll.setWidget(body); layout.addWidget(scroll, 1)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        body = QWidget()
+        self.filter_layout = QVBoxLayout(body)
+        self._build_generic_controls()
+        self._build_mame_controls()
+        self.filter_layout.addStretch()
+        scroll.setWidget(body)
+        layout.addWidget(scroll, 1)
+        estimate_box = QGroupBox("Estimativa do catálogo — filtros em tempo real")
+        estimate_layout = QVBoxLayout(estimate_box)
+        self.catalog_estimate = QLabel("Selecione um catálogo para calcular.")
+        self.catalog_estimate.setWordWrap(True)
+        self.catalog_estimate.setProperty("role", "subtitle")
+        estimate_layout.addWidget(self.catalog_estimate)
+        self.catalog_estimate_detail = QLabel("Nenhuma consulta executada.")
+        self.catalog_estimate_detail.setWordWrap(True)
+        estimate_layout.addWidget(self.catalog_estimate_detail)
+        layout.addWidget(estimate_box)
         scan_box = QGroupBox("Execução do Scan")
         scan_layout = QVBoxLayout(scan_box)
-        self.scan_progress = QLabel("Nenhum scan executado."); self.scan_progress.setWordWrap(True); scan_layout.addWidget(self.scan_progress)
+        self.scan_progress = QLabel("Nenhum scan executado.")
+        self.scan_progress.setWordWrap(True)
+        scan_layout.addWidget(self.scan_progress)
         buttons = QHBoxLayout()
-        self.save_button = QPushButton("SALVAR PERFIL"); self.save_button.clicked.connect(self._save_profile)
-        self.scan_button = QPushButton("SALVAR E INICIAR SCAN"); self.scan_button.clicked.connect(self._save_and_scan)
-        self.cancel_button = QPushButton("CANCELAR"); self.cancel_button.setEnabled(False); self.cancel_button.clicked.connect(self._cancel_scan)
-        self.reconstruction_button = QPushButton("ABRIR RECONSTRUÇÃO"); self.reconstruction_button.setEnabled(False); self.reconstruction_button.clicked.connect(self._open_reconstruction)
-        for button in (self.save_button, self.scan_button, self.cancel_button, self.reconstruction_button): buttons.addWidget(button)
-        buttons.addStretch(); scan_layout.addLayout(buttons)
-        self.log_view = QListWidget(); self.log_view.setMinimumHeight(130); scan_layout.addWidget(self.log_view)
+        self.save_button = QPushButton("SALVAR PERFIL")
+        self.save_button.clicked.connect(self._save_profile)
+        self.scan_button = QPushButton("SALVAR E INICIAR SCAN")
+        self.scan_button.clicked.connect(self._save_and_scan)
+        self.cancel_button = QPushButton("CANCELAR")
+        self.cancel_button.setEnabled(False)
+        self.cancel_button.clicked.connect(self._cancel_scan)
+        self.reconstruction_button = QPushButton("ABRIR RECONSTRUÇÃO")
+        self.reconstruction_button.setEnabled(False)
+        self.reconstruction_button.clicked.connect(self._open_reconstruction)
+        for button in (self.save_button, self.scan_button, self.cancel_button, self.reconstruction_button):
+            buttons.addWidget(button)
+        buttons.addStretch()
+        scan_layout.addLayout(buttons)
+        self.log_view = QListWidget()
+        self.log_view.setMinimumHeight(130)
+        scan_layout.addWidget(self.log_view)
         layout.addWidget(scan_box)
         return page
 
     def _build_generic_controls(self) -> None:
-        self.content_box = QGroupBox("Conteúdo"); content = QFormLayout(self.content_box)
-        self.games_only = QCheckBox("Somente Games"); self.games_only.setChecked(True); content.addRow(self.games_only)
+        self.content_box = QGroupBox("Conteúdo")
+        content = QFormLayout(self.content_box)
+        self.games_only = QCheckBox("Somente Games")
+        self.games_only.setChecked(True)
+        content.addRow(self.games_only)
         self.content_checks: dict[str, QCheckBox] = {}
-        for key, text in (("bios","BIOS"),("educational","Educational"),("manuals","Manuais"),("magazines","Revistas"),("software","Software / Applications"),("demos","Demos"),("prototypes","Prototypes / Betas"),("unlicensed","Unlicensed")):
-            check = QCheckBox(text); self.content_checks[key] = check; content.addRow(check)
+        for key, text in (("bios", "BIOS"), ("educational", "Educational"), ("manuals", "Manuais"),
+                          ("magazines", "Revistas"), ("software", "Software / Applications"),
+                          ("demos", "Demos"), ("prototypes", "Prototypes / Betas"), ("unlicensed", "Unlicensed")):
+            check = QCheckBox(text)
+            self.content_checks[key] = check
+            content.addRow(check)
         self.filter_layout.addWidget(self.content_box)
-        self.region_box = QGroupBox("Clones / 1G1R"); region = QFormLayout(self.region_box)
-        self.one_game_one_region = QCheckBox("Aplicar 1G1R — uma ROM por jogo/região"); self.one_game_one_region.setChecked(True); region.addRow(self.one_game_one_region)
-        self.region_list = QListWidget(); self.region_list.setDragDropMode(QListWidget.DragDropMode.InternalMove); self.region_list.setMaximumHeight(120); region.addRow("Prioridade regional:", self.region_list); self.filter_layout.addWidget(self.region_box)
-        self.version_box = QGroupBox("Versões / revisões"); version = QFormLayout(self.version_box); self.remove_previous = QCheckBox("Remover versões/revisões anteriores"); self.remove_previous.setChecked(True); version.addRow(self.remove_previous); self.filter_layout.addWidget(self.version_box)
-        self.translation_box = QGroupBox("Traduções / DE-PARA"); trans = QFormLayout(self.translation_box); self.include_translations = QCheckBox("Permitir traduções catalogadas / DE-PARA"); trans.addRow(self.include_translations); self.translation_policy = QComboBox(); self.translation_policy.addItem("Original primeiro; tradução somente se necessário", "original_then_translation"); self.translation_policy.addItem("Priorizar tradução", "translation_first"); self.translation_policy.addItem("Somente tradução", "translation_only"); trans.addRow("Política:", self.translation_policy); self.filter_layout.addWidget(self.translation_box)
-        self.redump_box = QGroupBox("Redump — mídia óptica"); redump = QFormLayout(self.redump_box)
-        self.include_chd = QCheckBox("Aceitar CHD"); self.include_chd.setChecked(True); self.prefer_chd = QCheckBox("Priorizar CHD"); self.prefer_chd.setChecked(True); self.allow_cue_bin = QCheckBox("CUE/BIN como fallback"); self.allow_cue_bin.setChecked(True); self.convert_cue_bin = QCheckBox("Converter CUE/BIN para CHD via chdman.exe"); self.convert_cue_bin.setChecked(True); self.keep_cue_bin = QCheckBox("Manter CUE/BIN original"); self.keep_cue_bin.setChecked(True)
-        for widget in (self.include_chd,self.prefer_chd,self.allow_cue_bin,self.convert_cue_bin,self.keep_cue_bin): redump.addRow(widget)
+        self.region_box = QGroupBox("Clones / 1G1R")
+        region = QFormLayout(self.region_box)
+        self.one_game_one_region = QCheckBox("Aplicar 1G1R — uma ROM por jogo/região")
+        self.one_game_one_region.setChecked(True)
+        region.addRow(self.one_game_one_region)
+        self.region_list = QListWidget()
+        self.region_list.setDragDropMode(QListWidget.DragDropMode.InternalMove)
+        self.region_list.setMaximumHeight(120)
+        region.addRow("Prioridade regional:", self.region_list)
+        self.filter_layout.addWidget(self.region_box)
+        self.version_box = QGroupBox("Versões / revisões")
+        version = QFormLayout(self.version_box)
+        self.remove_previous = QCheckBox("Remover versões/revisões anteriores")
+        self.remove_previous.setChecked(True)
+        version.addRow(self.remove_previous)
+        self.filter_layout.addWidget(self.version_box)
+        self.translation_box = QGroupBox("Traduções / DE-PARA")
+        trans = QFormLayout(self.translation_box)
+        self.include_translations = QCheckBox("Permitir traduções catalogadas / DE-PARA")
+        trans.addRow(self.include_translations)
+        self.translation_policy = QComboBox()
+        self.translation_policy.addItem("Original primeiro; tradução somente se necessário", "original_then_translation")
+        self.translation_policy.addItem("Priorizar tradução", "translation_first")
+        self.translation_policy.addItem("Somente tradução", "translation_only")
+        trans.addRow("Política:", self.translation_policy)
+        self.filter_layout.addWidget(self.translation_box)
+        self.redump_box = QGroupBox("Redump — mídia óptica")
+        redump = QFormLayout(self.redump_box)
+        self.include_chd = QCheckBox("Aceitar CHD")
+        self.include_chd.setChecked(True)
+        self.prefer_chd = QCheckBox("Priorizar CHD")
+        self.prefer_chd.setChecked(True)
+        self.allow_cue_bin = QCheckBox("CUE/BIN como fallback")
+        self.allow_cue_bin.setChecked(True)
+        self.convert_cue_bin = QCheckBox("Converter CUE/BIN para CHD via chdman.exe")
+        self.convert_cue_bin.setChecked(True)
+        self.keep_cue_bin = QCheckBox("Manter CUE/BIN original")
+        self.keep_cue_bin.setChecked(True)
+        for widget in (self.include_chd, self.prefer_chd, self.allow_cue_bin, self.convert_cue_bin, self.keep_cue_bin):
+            redump.addRow(widget)
         self.filter_layout.addWidget(self.redump_box)
-        self.wh_box = QGroupBox("WHLoader"); wh = QFormLayout(self.wh_box); self.wh_games_only = QCheckBox("Somente Games (.lha)"); self.wh_games_only.setChecked(True); wh.addRow(self.wh_games_only); self.filter_layout.addWidget(self.wh_box)
+        self.wh_box = QGroupBox("WHLoader")
+        wh = QFormLayout(self.wh_box)
+        self.wh_games_only = QCheckBox("Somente Games (.lha)")
+        self.wh_games_only.setChecked(True)
+        wh.addRow(self.wh_games_only)
+        self.filter_layout.addWidget(self.wh_box)
 
     def _build_mame_controls(self) -> None:
-        self.mame_box = QGroupBox("MAME — filtro específico baseado na V1"); layout = QFormLayout(self.mame_box)
-        self.mame_set_type = QComboBox(); self.mame_set_type.addItem("Split — padrão", "split"); self.mame_set_type.addItem("Non-Merged", "non_merged"); self.mame_set_type.addItem("Full-Merged", "full_merged"); layout.addRow("Tipo de SET:", self.mame_set_type)
-        self.mame_clone_policy = QComboBox(); self.mame_clone_policy.addItem("Com clones", "with_clones"); self.mame_clone_policy.addItem("Somente parents", "parents_only"); layout.addRow("Clones:", self.mame_clone_policy)
-        self.mame_bios = QCheckBox("Incluir BIOS / sets de BIOS"); self.mame_devices = QCheckBox("Incluir Devices"); self.mame_chd = QCheckBox("Incluir CHDs / disks"); self.mame_chd.setChecked(True); self.mame_optional = QCheckBox("Incluir ROMs opcionais"); self.mame_optional.setChecked(True); self.mame_working = QCheckBox("Somente máquinas marcadas como working")
-        for widget in (self.mame_bios,self.mame_devices,self.mame_chd,self.mame_optional,self.mame_working): layout.addRow(widget)
-        self.mame_classification = QComboBox(); self.mame_classification.addItem("catlist.ini — prioridade", "catlist"); self.mame_classification.addItem("ListXML — fallback", "listxml"); layout.addRow("Classificação:", self.mame_classification); self.filter_layout.addWidget(self.mame_box)
+        self.mame_box = QGroupBox("MAME — filtro específico baseado na V1")
+        layout = QFormLayout(self.mame_box)
+        self.mame_set_type = QComboBox()
+        self.mame_set_type.addItem("Split — padrão", "split")
+        self.mame_set_type.addItem("Non-Merged", "non_merged")
+        self.mame_set_type.addItem("Full-Merged", "full_merged")
+        layout.addRow("Tipo de SET:", self.mame_set_type)
+        self.mame_clone_policy = QComboBox()
+        self.mame_clone_policy.addItem("Com clones", "with_clones")
+        self.mame_clone_policy.addItem("Somente parents", "parents_only")
+        layout.addRow("Clones:", self.mame_clone_policy)
+        self.mame_bios = QCheckBox("Incluir BIOS / sets de BIOS")
+        self.mame_devices = QCheckBox("Incluir Devices")
+        self.mame_chd = QCheckBox("Incluir CHDs / disks")
+        self.mame_chd.setChecked(True)
+        self.mame_optional = QCheckBox("Incluir ROMs opcionais")
+        self.mame_optional.setChecked(True)
+        self.mame_working = QCheckBox("Somente máquinas marcadas como working")
+        for widget in (self.mame_bios, self.mame_devices, self.mame_chd, self.mame_optional, self.mame_working):
+            layout.addRow(widget)
+        self.mame_classification = QComboBox()
+        self.mame_classification.addItem("catlist.ini — prioridade", "catlist")
+        self.mame_classification.addItem("ListXML — fallback", "listxml")
+        layout.addRow("Classificação:", self.mame_classification)
+        self.filter_layout.addWidget(self.mame_box)
+
+    def _connect_filter_estimate_signals(self) -> None:
+        widgets = [self.games_only, self.recursive, self.one_game_one_region, self.remove_previous,
+                    self.include_translations, self.include_chd, self.prefer_chd, self.allow_cue_bin,
+                    self.convert_cue_bin, self.keep_cue_bin, self.wh_games_only, self.mame_bios,
+                    self.mame_devices, self.mame_chd, self.mame_optional, self.mame_working]
+        widgets.extend(self.content_checks.values())
+        for widget in widgets:
+            widget.toggled.connect(self._schedule_catalog_estimate)
+        for combo in (self.translation_policy, self.mame_set_type, self.mame_clone_policy, self.mame_classification):
+            combo.currentIndexChanged.connect(self._schedule_catalog_estimate)
+        self.region_list.model().rowsMoved.connect(self._schedule_catalog_estimate)
+        self.region_list.model().rowsInserted.connect(self._schedule_catalog_estimate)
+        self.region_list.model().rowsRemoved.connect(self._schedule_catalog_estimate)
+
+    def _schedule_catalog_estimate(self, *_args) -> None:
+        if self._building:
+            return
+        self._estimate_timer.start()
+
+    def _update_catalog_estimate(self) -> None:
+        selected = self._selected_item_data()
+        if selected is None:
+            self.catalog_estimate.setText("Selecione um catálogo para calcular.")
+            self.catalog_estimate_detail.setText("Nenhuma consulta executada.")
+            return
+        source, system, dat_path = selected
+        if source != "MAME":
+            if dat_path and Path(dat_path).is_file():
+                try:
+                    raw = Path(dat_path).read_text(encoding="utf-8", errors="ignore")
+                    games = raw.lower().count("<game ")
+                    self.catalog_estimate.setText(f"CATÁLOGO: {games:,} entradas")
+                    self.catalog_estimate_detail.setText("Estimativa instantânea do DAT. Filtros específicos serão aplicados pelo scanner do sistema.")
+                except OSError as exc:
+                    self.catalog_estimate.setText("CATÁLOGO: indisponível")
+                    self.catalog_estimate_detail.setText(f"Não foi possível ler o DAT: {exc}")
+            else:
+                self.catalog_estimate.setText("CATÁLOGO: aguardando DAT")
+                self.catalog_estimate_detail.setText("Baixe/importе o catálogo para habilitar a estimativa.")
+            return
+        profile = self._current_profile()
+        if profile is None:
+            return
+        estimate = RomScanService().estimate_mame(profile, database=self._database_path())
+        error = estimate.get("error")
+        if error:
+            self.catalog_estimate.setText("CATÁLOGO MAME: indisponível")
+            self.catalog_estimate_detail.setText(f"Erro ao calcular: {error}")
+            return
+        self.catalog_estimate.setText(f"ROMs selecionadas: {int(estimate['roms']):,}  •  máquinas: {int(estimate['machines']):,}")
+        details = (
+            f"Opcionais: {int(estimate['optional_roms']):,}  •  CHDs/disks: {int(estimate['disks']):,}  •  "
+            f"SET: {estimate.get('set_type', 'split')}  •  catálogo total: {int(estimate['catalog_roms']):,} ROMs"
+        )
+        self.catalog_estimate_detail.setText(details)
 
     def _selected_item_data(self):
         item = self.source_tree.currentItem()
-        if item is None: return None
+        if item is None:
+            return None
         data = item.data(0, Qt.ItemDataRole.UserRole)
-        return tuple(data) if isinstance(data, (tuple,list)) and len(data) == 3 else None
+        return tuple(data) if isinstance(data, (tuple, list)) and len(data) == 3 else None
 
     def _selection_changed(self) -> None:
         selected = self._selected_item_data()
-        if selected is None: return
-        source, system, dat_path = selected; self.selected_label.setText(f"{source} › {system}"); self._selected_dat = Path(dat_path) if dat_path else None
-        profile = self._load_saved_profile(source, system, dat_path); self._current_saved_profile = profile; self._load_profile(profile or self._new_default_profile(source, system, dat_path)); self._configure_source_controls(source); self._refresh_profile_list()
+        if selected is None:
+            return
+        source, system, dat_path = selected
+        self.selected_label.setText(f"{source} › {system}")
+        self._selected_dat = Path(dat_path) if dat_path else None
+        profile = self._load_saved_profile(source, system, dat_path)
+        self._current_saved_profile = profile
+        self._load_profile(profile or self._new_default_profile(source, system, dat_path))
+        self._configure_source_controls(source)
+        self._refresh_profile_list()
         latest = ScanRepository(self._database_path()).latest_for_profile(self._current_saved_profile.profile_id) if self._current_saved_profile else None
-        if latest: self.scan_progress.setText(f"Último scan: {latest['scan_id']} | status={latest['status']} | arquivos={latest['files_examined']} | itens={latest['items_examined']}")
+        if latest:
+            self.scan_progress.setText(f"Último scan: {latest['scan_id']} | status={latest['status']} | arquivos={latest['files_examined']} | itens={latest['items_examined']}")
+        self._schedule_catalog_estimate()
 
     def _configure_source_controls(self, source: str) -> None:
-        is_mame = source == "MAME"; is_wh = source == "WHLoader"; is_redump = source == "Redump"
-        self.mame_box.setVisible(is_mame); self.region_box.setVisible(not is_mame and not is_wh); self.translation_box.setVisible(not is_mame and not is_wh); self.version_box.setVisible(not is_mame); self.redump_box.setVisible(is_redump); self.wh_box.setVisible(is_wh); self.content_box.setVisible(not is_mame)
+        is_mame = source == "MAME"
+        is_wh = source == "WHLoader"
+        is_redump = source == "Redump"
+        self.mame_box.setVisible(is_mame)
+        self.region_box.setVisible(not is_mame and not is_wh)
+        self.translation_box.setVisible(not is_mame and not is_wh)
+        self.version_box.setVisible(not is_mame)
+        self.redump_box.setVisible(is_redump)
+        self.wh_box.setVisible(is_wh)
+        self.content_box.setVisible(not is_mame)
 
     def _new_default_profile(self, source, system, dat_path):
-        now = datetime.now(timezone.utc).isoformat(); profile = FilterProfileData(source=source,system=system,dat_path=dat_path,profile_id=str(uuid4()),name=f"{source} — {system}",created_at=now,updated_at=now)
-        if source == "MAME": profile.one_game_one_region = False
-        if source == "WHLoader": profile.one_game_one_region = False; profile.remove_previous_versions = False
+        now = datetime.now(timezone.utc).isoformat()
+        profile = FilterProfileData(source=source, system=system, dat_path=dat_path, profile_id=str(uuid4()), name=f"{source} — {system}", created_at=now, updated_at=now)
+        if source == "MAME":
+            profile.one_game_one_region = False
+        if source == "WHLoader":
+            profile.one_game_one_region = False
+            profile.remove_previous_versions = False
         return profile
 
     def _load_profile(self, profile: FilterProfileData) -> None:
         self._building = True
         try:
-            self.source_list.clear(); self.source_list.addItems(profile.source_directories[:3]); self.recursive.setChecked(profile.recursive); self.games_only.setChecked(profile.games_only)
-            for key, check in self.content_checks.items(): check.setChecked(bool(getattr(profile, f"include_{key}")))
-            self.one_game_one_region.setChecked(profile.one_game_one_region); self.region_list.clear(); self.region_list.addItems(profile.region_priority or list(self.REGION_DEFAULT)); self.remove_previous.setChecked(profile.remove_previous_versions); self.include_translations.setChecked(profile.include_translations); self.translation_policy.setCurrentIndex(max(0,self.translation_policy.findData(profile.translation_policy))); self.include_chd.setChecked(profile.include_chd); self.prefer_chd.setChecked(profile.prefer_chd); self.allow_cue_bin.setChecked(profile.allow_cue_bin); self.convert_cue_bin.setChecked(profile.convert_cue_bin_to_chd); self.keep_cue_bin.setChecked(profile.keep_cue_bin); self.wh_games_only.setChecked(profile.whloader_games_only); self.mame_set_type.setCurrentIndex(max(0,self.mame_set_type.findData(profile.mame_set_type))); self.mame_clone_policy.setCurrentIndex(max(0,self.mame_clone_policy.findData(profile.mame_clone_policy))); self.mame_bios.setChecked(profile.mame_include_bios); self.mame_devices.setChecked(profile.mame_include_devices); self.mame_chd.setChecked(profile.mame_include_chd); self.mame_optional.setChecked(profile.mame_include_optional); self.mame_working.setChecked(profile.mame_working_only); self.mame_classification.setCurrentIndex(max(0,self.mame_classification.findData(profile.mame_classification_source))); self.scan_progress.setText(f"Perfil: {profile.name} | ID={profile.profile_id}")
-        finally: self._building = False
+            self.source_list.clear()
+            self.source_list.addItems(profile.source_directories[:3])
+            self.recursive.setChecked(profile.recursive)
+            self.games_only.setChecked(profile.games_only)
+            for key, check in self.content_checks.items():
+                check.setChecked(bool(getattr(profile, f"include_{key}")))
+            self.one_game_one_region.setChecked(profile.one_game_one_region)
+            self.region_list.clear()
+            self.region_list.addItems(profile.region_priority or list(self.REGION_DEFAULT))
+            self.remove_previous.setChecked(profile.remove_previous_versions)
+            self.include_translations.setChecked(profile.include_translations)
+            self.translation_policy.setCurrentIndex(max(0, self.translation_policy.findData(profile.translation_policy)))
+            self.include_chd.setChecked(profile.include_chd)
+            self.prefer_chd.setChecked(profile.prefer_chd)
+            self.allow_cue_bin.setChecked(profile.allow_cue_bin)
+            self.convert_cue_bin.setChecked(profile.convert_cue_bin_to_chd)
+            self.keep_cue_bin.setChecked(profile.keep_cue_bin)
+            self.wh_games_only.setChecked(profile.whloader_games_only)
+            self.mame_set_type.setCurrentIndex(max(0, self.mame_set_type.findData(profile.mame_set_type)))
+            self.mame_clone_policy.setCurrentIndex(max(0, self.mame_clone_policy.findData(profile.mame_clone_policy)))
+            self.mame_bios.setChecked(profile.mame_include_bios)
+            self.mame_devices.setChecked(profile.mame_include_devices)
+            self.mame_chd.setChecked(profile.mame_include_chd)
+            self.mame_optional.setChecked(profile.mame_include_optional)
+            self.mame_working.setChecked(profile.mame_working_only)
+            self.mame_classification.setCurrentIndex(max(0, self.mame_classification.findData(profile.mame_classification_source)))
+            self.scan_progress.setText(f"Perfil: {profile.name} | ID={profile.profile_id}")
+        finally:
+            self._building = False
 
     def _current_profile(self):
         selected = self._selected_item_data()
-        if selected is None: return None
-        source, system, dat_path = selected; previous = self._current_saved_profile; now = datetime.now(timezone.utc).isoformat()
-        return FilterProfileData(source=source,system=system,dat_path=dat_path,profile_id=previous.profile_id if previous else str(uuid4()),name=previous.name if previous else f"{source} — {system}",created_at=previous.created_at if previous else now,updated_at=now,source_directories=[self.source_list.item(i).text() for i in range(self.source_list.count())],recursive=self.recursive.isChecked(),games_only=self.games_only.isChecked(),include_bios=self.content_checks["bios"].isChecked(),include_educational=self.content_checks["educational"].isChecked(),include_manuals=self.content_checks["manuals"].isChecked(),include_magazines=self.content_checks["magazines"].isChecked(),include_software=self.content_checks["software"].isChecked(),include_demos=self.content_checks["demos"].isChecked(),include_prototypes=self.content_checks["prototypes"].isChecked(),include_unlicensed=self.content_checks["unlicensed"].isChecked(),one_game_one_region=self.one_game_one_region.isChecked(),region_priority=[self.region_list.item(i).text() for i in range(self.region_list.count())],remove_previous_versions=self.remove_previous.isChecked(),include_translations=self.include_translations.isChecked(),translation_policy=str(self.translation_policy.currentData()),include_chd=self.include_chd.isChecked(),prefer_chd=self.prefer_chd.isChecked(),allow_cue_bin=self.allow_cue_bin.isChecked(),convert_cue_bin_to_chd=self.convert_cue_bin.isChecked(),keep_cue_bin=self.keep_cue_bin.isChecked(),whloader_games_only=self.wh_games_only.isChecked(),mame_set_type=str(self.mame_set_type.currentData()),mame_clone_policy=str(self.mame_clone_policy.currentData()),mame_include_bios=self.mame_bios.isChecked(),mame_include_devices=self.mame_devices.isChecked(),mame_include_chd=self.mame_chd.isChecked(),mame_include_optional=self.mame_optional.isChecked(),mame_working_only=self.mame_working.isChecked(),mame_classification_source=str(self.mame_classification.currentData()))
+        if selected is None:
+            return None
+        source, system, dat_path = selected
+        previous = self._current_saved_profile
+        now = datetime.now(timezone.utc).isoformat()
+        return FilterProfileData(
+            source=source, system=system, dat_path=dat_path,
+            profile_id=previous.profile_id if previous else str(uuid4()),
+            name=previous.name if previous else f"{source} — {system}",
+            created_at=previous.created_at if previous else now, updated_at=now,
+            source_directories=[self.source_list.item(i).text() for i in range(self.source_list.count())],
+            recursive=self.recursive.isChecked(), games_only=self.games_only.isChecked(),
+            include_bios=self.content_checks["bios"].isChecked(), include_educational=self.content_checks["educational"].isChecked(),
+            include_manuals=self.content_checks["manuals"].isChecked(), include_magazines=self.content_checks["magazines"].isChecked(),
+            include_software=self.content_checks["software"].isChecked(), include_demos=self.content_checks["demos"].isChecked(),
+            include_prototypes=self.content_checks["prototypes"].isChecked(), include_unlicensed=self.content_checks["unlicensed"].isChecked(),
+            one_game_one_region=self.one_game_one_region.isChecked(),
+            region_priority=[self.region_list.item(i).text() for i in range(self.region_list.count())],
+            remove_previous_versions=self.remove_previous.isChecked(), include_translations=self.include_translations.isChecked(),
+            translation_policy=str(self.translation_policy.currentData()), include_chd=self.include_chd.isChecked(),
+            prefer_chd=self.prefer_chd.isChecked(), allow_cue_bin=self.allow_cue_bin.isChecked(),
+            convert_cue_bin_to_chd=self.convert_cue_bin.isChecked(), keep_cue_bin=self.keep_cue_bin.isChecked(),
+            whloader_games_only=self.wh_games_only.isChecked(), mame_set_type=str(self.mame_set_type.currentData()),
+            mame_clone_policy=str(self.mame_clone_policy.currentData()), mame_include_bios=self.mame_bios.isChecked(),
+            mame_include_devices=self.mame_devices.isChecked(), mame_include_chd=self.mame_chd.isChecked(),
+            mame_include_optional=self.mame_optional.isChecked(), mame_working_only=self.mame_working.isChecked(),
+            mame_classification_source=str(self.mame_classification.currentData()),
+        )
 
     @staticmethod
     def _from_dict(raw):
-        try: profile = FilterProfileData(**{key:value for key,value in raw.items() if key in FilterProfileData.__dataclass_fields__})
-        except (TypeError,ValueError): return None
-        if not profile.profile_id: profile.profile_id=str(uuid4())
-        if not profile.name: profile.name=f"{profile.source} — {profile.system}"
-        if not profile.created_at: profile.created_at=profile.updated_at or datetime.now(timezone.utc).isoformat()
-        if not profile.updated_at: profile.updated_at=profile.created_at
+        try:
+            profile = FilterProfileData(**{key: value for key, value in raw.items() if key in FilterProfileData.__dataclass_fields__})
+        except (TypeError, ValueError):
+            return None
+        if not profile.profile_id:
+            profile.profile_id = str(uuid4())
+        if not profile.name:
+            profile.name = f"{profile.source} — {profile.system}"
+        if not profile.created_at:
+            profile.created_at = profile.updated_at or datetime.now(timezone.utc).isoformat()
+        if not profile.updated_at:
+            profile.updated_at = profile.created_at
         return profile
 
     def _read_profiles(self):
-        try: raw=json.loads(self._profiles_path.read_text(encoding="utf-8"))
-        except (OSError,ValueError,TypeError): return []
-        return [profile for item in raw if isinstance(item,dict) and (profile:=self._from_dict(item)) is not None] if isinstance(raw,list) else []
+        try:
+            raw = json.loads(self._profiles_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            return []
+        return [profile for item in raw if isinstance(item, dict) and (profile := self._from_dict(item)) is not None] if isinstance(raw, list) else []
 
     def _write_profiles(self, profiles):
-        self._profiles_path.parent.mkdir(parents=True,exist_ok=True); self._profiles_path.write_text(json.dumps([asdict(p) for p in profiles],indent=2,ensure_ascii=False),encoding="utf-8")
+        self._profiles_path.parent.mkdir(parents=True, exist_ok=True)
+        self._profiles_path.write_text(json.dumps([asdict(p) for p in profiles], indent=2, ensure_ascii=False), encoding="utf-8")
 
-    def _load_saved_profile(self, source, system, dat_path): return next((p for p in self._read_profiles() if p.source==source and p.system==system and p.dat_path==dat_path),None)
+    def _load_saved_profile(self, source, system, dat_path):
+        return next((p for p in self._read_profiles() if p.source == source and p.system == system and p.dat_path == dat_path), None)
 
-    def _refresh_profile_list(self,*_):
-        profiles=self._read_profiles(); self.profile_list.blockSignals(True); self.profile_list.clear()
+    def _refresh_profile_list(self, *_):
+        profiles = self._read_profiles()
+        self.profile_list.blockSignals(True)
+        self.profile_list.clear()
         for profile in profiles:
-            item=QListWidgetItem(f"{profile.name}\n{profile.source} › {profile.system}"); item.setData(Qt.ItemDataRole.UserRole,profile.profile_id); item.setToolTip(f"ID={profile.profile_id}\nAtualizado={profile.updated_at}"); self.profile_list.addItem(item)
+            item = QListWidgetItem(f"{profile.name}\n{profile.source} › {profile.system}")
+            item.setData(Qt.ItemDataRole.UserRole, profile.profile_id)
+            item.setToolTip(f"ID={profile.profile_id}\nAtualizado={profile.updated_at}")
+            self.profile_list.addItem(item)
         self.profile_list.blockSignals(False)
 
-    def _saved_profile_selected(self,current,_previous):
-        if current is None:return
-        profile_id=current.data(Qt.ItemDataRole.UserRole); profile=next((p for p in self._read_profiles() if p.profile_id==profile_id),None)
-        if profile is None:return
+    def _saved_profile_selected(self, current, _previous):
+        if current is None:
+            return
+        profile_id = current.data(Qt.ItemDataRole.UserRole)
+        profile = next((p for p in self._read_profiles() if p.profile_id == profile_id), None)
+        if profile is None:
+            return
         for i in range(self.source_tree.topLevelItemCount()):
-            root=self.source_tree.topLevelItem(i)
-            candidates=[root]+[root.child(n) for n in range(root.childCount())]
+            root = self.source_tree.topLevelItem(i)
+            candidates = [root] + [root.child(n) for n in range(root.childCount())]
             for item in candidates:
-                data=item.data(0,Qt.ItemDataRole.UserRole)
-                if isinstance(data,(tuple,list)) and tuple(data)==(profile.source,profile.system,profile.dat_path):
-                    self.source_tree.setCurrentItem(item); self._current_saved_profile=profile; self._load_profile(profile); self._configure_source_controls(profile.source); return
+                data = item.data(0, Qt.ItemDataRole.UserRole)
+                if isinstance(data, (tuple, list)) and tuple(data) == (profile.source, profile.system, profile.dat_path):
+                    self.source_tree.setCurrentItem(item)
+                    self._current_saved_profile = profile
+                    self._load_profile(profile)
+                    self._configure_source_controls(profile.source)
+                    self._schedule_catalog_estimate()
+                    return
 
     def _save_profile(self):
-        profile=self._current_profile()
-        if profile is None: QMessageBox.information(self,"Filtros","Selecione um catálogo antes de salvar."); return None
-        profiles=self._read_profiles(); replaced=False
-        for index,existing in enumerate(profiles):
-            if existing.profile_id==profile.profile_id: profiles[index]=profile; replaced=True; break
-        if not replaced: profiles.append(profile)
-        self._write_profiles(profiles); self._current_saved_profile=profile; self._refresh_profile_list(); self.scan_progress.setText(f"Perfil salvo: {profile.name} | ID={profile.profile_id}"); self.reconstruction_button.setEnabled(self._last_scan_result is not None); return profile
+        profile = self._current_profile()
+        if profile is None:
+            QMessageBox.information(self, "Filtros", "Selecione um catálogo antes de salvar.")
+            return None
+        profiles = self._read_profiles()
+        replaced = False
+        for index, existing in enumerate(profiles):
+            if existing.profile_id == profile.profile_id:
+                profiles[index] = profile
+                replaced = True
+                break
+        if not replaced:
+            profiles.append(profile)
+        self._write_profiles(profiles)
+        self._current_saved_profile = profile
+        self._refresh_profile_list()
+        self.scan_progress.setText(f"Perfil salvo: {profile.name} | ID={profile.profile_id}")
+        self.reconstruction_button.setEnabled(self._last_scan_result is not None)
+        return profile
 
     def _save_and_scan(self):
-        profile=self._save_profile()
-        if profile is None:return
+        profile = self._save_profile()
+        if profile is None:
+            return
+        self.scan_requested.emit(profile)
         self._start_scan(profile)
 
-    def _start_scan(self,profile):
+    def _start_scan(self, profile):
         if self._scan_worker is not None and self._scan_worker.isRunning():
-            self._append_log("WARNING","SCAN | já existe um scan em execução"); return
+            self._append_log("WARNING", "SCAN | já existe um scan em execução")
+            return
         if not profile.source_directories:
-            QMessageBox.information(self,"Scan","Adicione ao menos um diretório de origem."); return
-        self.log_view.clear(); self.scan_button.setEnabled(False); self.save_button.setEnabled(False); self.cancel_button.setEnabled(True); self.reconstruction_button.setEnabled(False); self.scan_progress.setText(f"SCAN | iniciando | profile_id={profile.profile_id}")
-        self._scan_worker=_ScanWorker(profile,self._database_path(),self); self._scan_worker.progress.connect(self._scan_progress); self._scan_worker.log.connect(self._append_log); self._scan_worker.completed.connect(self._scan_completed); self._scan_worker.failed.connect(self._scan_failed); self._scan_worker.finished.connect(self._scan_finished); self._scan_worker.start()
+            QMessageBox.information(self, "Scan", "Adicione ao menos um diretório de origem.")
+            return
+        self.log_view.clear()
+        self.scan_button.setEnabled(False)
+        self.save_button.setEnabled(False)
+        self.cancel_button.setEnabled(True)
+        self.reconstruction_button.setEnabled(False)
+        self.scan_progress.setText(f"SCAN | iniciando | profile_id={profile.profile_id}")
+        self._scan_worker = _ScanWorker(profile, self._database_path(), self)
+        self._scan_worker.progress.connect(self._scan_progress)
+        self._scan_worker.log.connect(self._append_log)
+        self._scan_worker.completed.connect(self._scan_completed)
+        self._scan_worker.failed.connect(self._scan_failed)
+        self._scan_worker.finished.connect(self._scan_finished)
+        self._scan_worker.start()
 
-    def _scan_progress(self,current,total): self.scan_progress.setText(f"SCAN | progresso={current}/{total} | {current/total*100:.1f}%" if total else f"SCAN | arquivos={current}")
+    def _scan_progress(self, current, total):
+        self.scan_progress.setText(f"SCAN | progresso={current}/{total} | {current / total * 100:.1f}%" if total else f"SCAN | arquivos={current}")
 
-    def _append_log(self,level,message): self.log_view.addItem(f"{level} | {message}"); self.log_view.scrollToBottom()
+    def _append_log(self, level, message):
+        self.log_view.addItem(f"{level} | {message}")
+        self.log_view.scrollToBottom()
 
-    def _scan_completed(self,result):
-        self._last_scan_result=result; self.reconstruction_button.setEnabled(True); self.scan_progress.setText(f"SCAN | concluído | scan_id={result.scan_id} | duração={result.elapsed_seconds:.2f}s | arquivos={result.files_examined} | itens={result.items_examined}"); self.reconstruction_requested.emit({"profile":self._current_saved_profile,"scan_result":result})
+    def _scan_completed(self, result):
+        self._last_scan_result = result
+        self.reconstruction_button.setEnabled(True)
+        self.scan_progress.setText(f"SCAN | concluído | scan_id={result.scan_id} | duração={result.elapsed_seconds:.2f}s | arquivos={result.files_examined} | itens={result.items_examined}")
+        self.reconstruction_requested.emit({"profile": self._current_saved_profile, "scan_result": result})
 
-    def _scan_failed(self,message): self._append_log("ERROR",f"SCAN | falha final | {message}"); self.scan_progress.setText("SCAN | falhou; consulte o log")
+    def _scan_failed(self, message):
+        self._append_log("ERROR", f"SCAN | falha final | {message}")
+        self.scan_progress.setText("SCAN | falhou; consulte o log")
 
     def _scan_finished(self):
-        self.scan_button.setEnabled(True); self.save_button.setEnabled(True); self.cancel_button.setEnabled(False); self._scan_worker=None
+        self.scan_button.setEnabled(True)
+        self.save_button.setEnabled(True)
+        self.cancel_button.setEnabled(False)
+        self._scan_worker = None
 
     def _cancel_scan(self):
-        if self._scan_worker is not None:self._scan_worker.cancel(); self._append_log("WARNING","SCAN | cancelamento solicitado")
+        if self._scan_worker is not None:
+            self._scan_worker.cancel()
+            self._append_log("WARNING", "SCAN | cancelamento solicitado")
 
     def _open_reconstruction(self):
-        if self._current_saved_profile is not None:self.reconstruction_requested.emit({"profile":self._current_saved_profile,"scan_result":self._last_scan_result})
+        if self._current_saved_profile is not None:
+            self.reconstruction_requested.emit({"profile": self._current_saved_profile, "scan_result": self._last_scan_result})
 
     def _database_path(self):
         return data_root() / "database" / "serm.db"
 
     def _reset_defaults(self):
-        selected=self._selected_item_data()
-        if selected:self._current_saved_profile=None; self._load_profile(self._new_default_profile(*selected))
+        selected = self._selected_item_data()
+        if selected:
+            self._current_saved_profile = None
+            self._load_profile(self._new_default_profile(*selected))
+            self._schedule_catalog_estimate()
 
     def _add_source_directory(self):
-        if self.source_list.count()>=3:QMessageBox.information(self,"Fontes","Máximo de 3 diretórios por perfil."); return
-        directory=QFileDialog.getExistingDirectory(self,"Diretório de origem",str(Path.home()))
-        if directory:self.source_list.addItem(str(Path(directory).resolve()))
+        if self.source_list.count() >= 3:
+            QMessageBox.information(self, "Fontes", "Máximo de 3 diretórios por perfil.")
+            return
+        directory = QFileDialog.getExistingDirectory(self, "Diretório de origem", str(Path.home()))
+        if directory:
+            self.source_list.addItem(str(Path(directory).resolve()))
 
     def _remove_source_directory(self):
-        row=self.source_list.currentRow()
-        if row>=0:self.source_list.takeItem(row)
+        row = self.source_list.currentRow()
+        if row >= 0:
+            self.source_list.takeItem(row)
 
     def refresh(self):
-        self.source_tree.clear(); self._add_source_item("MAME","MAME",None); self._add_dat_entries("No-Intro",data_root()/"sources"/"no_intro"/"dats"); self._add_dat_entries("Redump",data_root()/"sources"/"redump"/"dats"); self._add_source_item("WHLoader","WHLoader",None); self._add_source_item("C64","Commodore C64 - Games",None); self._refresh_profile_list()
-        if self.source_tree.topLevelItemCount():self.source_tree.setCurrentItem(self.source_tree.topLevelItem(0))
+        self.source_tree.clear()
+        self._add_source_item("MAME", "MAME", None)
+        self._add_dat_entries("No-Intro", data_root() / "sources" / "no_intro" / "dats")
+        self._add_dat_entries("Redump", data_root() / "sources" / "redump" / "dats")
+        self._add_source_item("WHLoader", "WHLoader", None)
+        self._add_source_item("C64", "Commodore C64 - Games", None)
+        self._refresh_profile_list()
+        if self.source_tree.topLevelItemCount():
+            self.source_tree.setCurrentItem(self.source_tree.topLevelItem(0))
+        self._schedule_catalog_estimate()
 
-    def _add_source_item(self,source,system,dat_path):
-        parent=next((self.source_tree.topLevelItem(i) for i in range(self.source_tree.topLevelItemCount()) if self.source_tree.topLevelItem(i).text(0)==source),None)
-        if parent is None:parent=QTreeWidgetItem([source]); parent.setData(0,Qt.ItemDataRole.UserRole,(source,system,dat_path)); self.source_tree.addTopLevelItem(parent)
-        else:child=QTreeWidgetItem([system]); child.setData(0,Qt.ItemDataRole.UserRole,(source,system,dat_path)); parent.addChild(child); parent.setExpanded(True)
-
-    def _add_dat_entries(self,source,directory):
-        parent=QTreeWidgetItem([source]); parent.setData(0,Qt.ItemDataRole.UserRole,(source,source,None)); self.source_tree.addTopLevelItem(parent)
-        paths=sorted(directory.glob("*.dat"),key=lambda p:p.name.casefold()) if directory.is_dir() else []
-        if not paths:child=QTreeWidgetItem(["Nenhum DAT baixado"]); child.setData(0,Qt.ItemDataRole.UserRole,(source,"Nenhum DAT baixado",None)); parent.addChild(child)
+    def _add_source_item(self, source, system, dat_path):
+        parent = next((self.source_tree.topLevelItem(i) for i in range(self.source_tree.topLevelItemCount()) if self.source_tree.topLevelItem(i).text(0) == source), None)
+        if parent is None:
+            parent = QTreeWidgetItem([source])
+            parent.setData(0, Qt.ItemDataRole.UserRole, (source, system, dat_path))
+            self.source_tree.addTopLevelItem(parent)
         else:
-            for path in paths:child=QTreeWidgetItem([path.stem]); child.setData(0,Qt.ItemDataRole.UserRole,(source,path.stem,str(path))); parent.addChild(child)
+            child = QTreeWidgetItem([system])
+            child.setData(0, Qt.ItemDataRole.UserRole, (source, system, dat_path))
+            parent.addChild(child)
+            parent.setExpanded(True)
+
+    def _add_dat_entries(self, source, directory):
+        parent = QTreeWidgetItem([source])
+        parent.setData(0, Qt.ItemDataRole.UserRole, (source, source, None))
+        self.source_tree.addTopLevelItem(parent)
+        paths = sorted(directory.glob("*.dat"), key=lambda p: p.name.casefold()) if directory.is_dir() else []
+        if not paths:
+            child = QTreeWidgetItem(["Nenhum DAT baixado"])
+            child.setData(0, Qt.ItemDataRole.UserRole, (source, "Nenhum DAT baixado", None))
+            parent.addChild(child)
+        else:
+            for path in paths:
+                child = QTreeWidgetItem([path.stem])
+                child.setData(0, Qt.ItemDataRole.UserRole, (source, path.stem, str(path)))
+                parent.addChild(child)
         parent.setExpanded(True)
 
-    def selected_profile(self): return self._current_saved_profile or self._current_profile()
+    def selected_profile(self):
+        return self._current_saved_profile or self._current_profile()
 
-__all__=["FilterProfileData","FilterProfilesPage"]
+
+__all__ = ["FilterProfileData", "FilterProfilesPage"]
