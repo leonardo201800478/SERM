@@ -14,6 +14,7 @@ from .mame_scan_settings_service import MameScanSettingsService
 from .rom_scan_service import RomScanService, ScanResult, ScanEvidence, _MachineResult
 
 _ORIGINAL_SCAN = RomScanService.scan
+_ORIGINAL_SCAN_MACHINE = RomScanService._scan_machine
 
 
 class StableRomScanService(RomScanService):
@@ -77,7 +78,9 @@ class StableRomScanService(RomScanService):
     def _scan_machine_with_heartbeat(self, machine, *args, **kwargs):
         self._heartbeat_machine = machine
         self._heartbeat_rom = ""
-        return super()._scan_machine(machine, *args, **kwargs)
+        # Não usar super() aqui: RomScanService é monkey-patched no final deste
+        # módulo e o objeto criado pelo worker continua sendo RomScanService.
+        return _ORIGINAL_SCAN_MACHINE(self, machine, *args, **kwargs)
 
     def _machine_error(self, machine, exc):
         return _MachineResult(machine=machine, records=[ScanEvidence(machine_name=machine, rom_name="", status="ERROR", message="Falha inesperada durante a machine; será reprocessada na retomada", error=f"{type(exc).__name__}: {exc}")], errors=1)
@@ -122,7 +125,7 @@ class StableRomScanService(RomScanService):
                     self.progress_callback(done, len(machines))
                 self._log("INFO", self._progress_message(result, machine, done, len(machines)))
             if not self._cancelled:
-                self._write_jsonl(stream, {"record_type":"scan_end", "status":"completed", "finished_at":time.time(), "status_counts":dict(result.status_counts), "files_examined":result.files_examined, "archives_examined":result.archives_examined, "items_examined":result.items_examined, "errors":result.errors})
+                self._write_jsonl(stream, {"record_type":"scan_end","status":"completed","finished_at":time.time(),"status_counts":dict(result.status_counts),"files_examined":result.files_examined,"archives_examined":result.archives_examined,"items_examined":result.items_examined,"errors":result.errors})
                 stream.flush()
         result.finished_at = time.time()
         self._log_summary(result)
@@ -134,7 +137,7 @@ class StableRomScanService(RomScanService):
         path = root / f"{result.scan_id}.jsonl"
         wanted = [str(p) for p in sources]
         with path.open("w", encoding="utf-8", newline="\n") as s:
-            self._write_jsonl(s, {"record_type":"header", "format":"SERM-SCAN-V2", "scan_id":result.scan_id, "profile_id":result.profile_id, "source":result.source, "system":result.system, "scan_type":result.scan_type, "catalog_label":result.catalog_label, "catalog_hash":result.catalog_hash, "started_at":result.started_at, "source_paths":wanted, "machine_count_expected":len(machines), "metadata":{"validation":"expected_driven", "persist_mode":"streaming", "filters_applied":False, "resumable":True}})
+            self._write_jsonl(s, {"record_type":"header","format":"SERM-SCAN-V2","scan_id":result.scan_id,"profile_id":result.profile_id,"source":result.source,"system":result.system,"scan_type":result.scan_type,"catalog_label":result.catalog_label,"catalog_hash":result.catalog_hash,"started_at":result.started_at,"source_paths":wanted,"machine_count_expected":len(machines),"metadata":{"validation":"expected_driven","persist_mode":"streaming","filters_applied":False,"resumable":True}})
         return path, set()
 
     def _find_resume_stream(self, result, profile, sources, machines, db_path):
@@ -200,7 +203,6 @@ class StableRomScanService(RomScanService):
 
 
 # Compatibilidade com o worker atual: ele instancia RomScanService diretamente.
-# Todos os métodos necessários para a retomada ficam disponíveis nessa classe.
 _base = RomScanService
 _base.scan = StableRomScanService.scan
 _base.scan_new = StableRomScanService.scan_new
