@@ -499,8 +499,9 @@ class FilteringPhasePage(QWidget):
 
     def refresh(self) -> None:
         for page in self.pages:
-            if hasattr(page, "refresh"):
-                page.refresh()
+            refresh = getattr(page, "refresh", None)
+            if callable(refresh):
+                refresh()
 
 
 __all__ = ["FilteringPhasePage"]

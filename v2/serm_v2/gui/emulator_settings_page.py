@@ -508,8 +508,8 @@ class EmulatorSettingsPage(QWidget):
             spin.valueChanged.connect(slider.setValue)
             box.addWidget(slider, 1)
             box.addWidget(spin)
-            widget._serm_slider = slider
-            widget._serm_spin = spin  # type: ignore[attr-defined]
+            setattr(widget, "_serm_slider", slider)
+            setattr(widget, "_serm_spin", spin)
             return widget
         return QLineEdit()
 
@@ -565,8 +565,11 @@ class EmulatorSettingsPage(QWidget):
             except ValueError:
                 number = spec.minimum
             number = max(spec.minimum, min(spec.maximum, number))
-            control._serm_slider.setValue(number)
-            control._serm_spin.setValue(number)  # type: ignore[attr-defined]
+            slider = getattr(control, "_serm_slider", None)
+            spin = getattr(control, "_serm_spin", None)
+            if isinstance(slider, QSlider) and isinstance(spin, QSpinBox):
+                slider.setValue(number)
+                spin.setValue(number)
         else:
             control.setText(raw)  # type: ignore[attr-defined]
 
@@ -577,7 +580,8 @@ class EmulatorSettingsPage(QWidget):
         if spec.kind == "combo":
             return str(control.currentData())  # type: ignore[attr-defined]
         if spec.kind == "slider":
-            return str(control._serm_spin.value())  # type: ignore[attr-defined]
+            spin = getattr(control, "_serm_spin", None)
+            return str(spin.value()) if isinstance(spin, QSpinBox) else "0"
         return control.text().strip()  # type: ignore[attr-defined]
 
     def refresh(self) -> None:

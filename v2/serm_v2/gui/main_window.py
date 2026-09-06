@@ -218,8 +218,9 @@ class MainWindow(QMainWindow):
 
     def _refresh_page(self, index: int) -> None:
         page = self.pages[index]
-        if hasattr(page, "refresh"):
-            page.refresh()
+        refresh = getattr(page, "refresh", None)
+        if callable(refresh):
+            refresh()
 
     def closeEvent(self, event) -> None:
         self._save_window_layout()

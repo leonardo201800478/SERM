@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (
@@ -442,7 +442,8 @@ class _SystemScanTab(QWidget):
             f"MISSING={counts.get('MISSING', 0):,} | "
             f"WRONG={counts.get('WRONG', 0):,}"
         )
-        path = ScanRepository(database_path()).raw_file(result.scan_id)
+        completed_result = cast(Any, result)
+        path = ScanRepository(database_path()).raw_file(completed_result.scan_id)
         self.log_message(f"ARQUIVO DE SCAN | {path or 'não localizado'}")
 
     def _failed(self, message: str) -> None:
@@ -498,8 +499,9 @@ class ScanPhasePage(QWidget):
     def refresh(self) -> None:
         for index in range(self.tabs.count()):
             widget = self.tabs.widget(index)
-            if hasattr(widget, "refresh"):
-                widget.refresh()
+            refresh = getattr(widget, "refresh", None) if widget is not None else None
+            if callable(refresh):
+                refresh()
 
 
 __all__ = ["ScanPhasePage", "ScanTarget"]

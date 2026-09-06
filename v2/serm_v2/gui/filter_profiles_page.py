@@ -6,6 +6,7 @@ import json
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
@@ -464,12 +465,20 @@ class FilterProfilesPage(QWidget):
             self.catalog_estimate.setText("CATÁLOGO MAME: indisponível")
             self.catalog_estimate_detail.setText(f"Erro ao calcular: {error}")
             return
+        def as_int(value: object) -> int:
+            if value is None:
+                return 0
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return 0
+
         self.catalog_estimate.setText(
-            f"ROMs selecionadas: {int(estimate['roms']):,}  •  máquinas: {int(estimate['machines']):,}"
+            f"ROMs selecionadas: {as_int(estimate.get('roms')):,}  •  máquinas: {as_int(estimate.get('machines')):,}"
         )
         details = (
-            f"Opcionais: {int(estimate['optional_roms']):,}  •  CHDs/disks: {int(estimate['disks']):,}  •  "
-            f"SET: {estimate.get('set_type', 'split')}  •  catálogo total: {int(estimate['catalog_roms']):,} ROMs"
+            f"Opcionais: {as_int(estimate.get('optional_roms')):,}  •  CHDs/disks: {as_int(estimate.get('disks')):,}  •  "
+            f"SET: {estimate.get('set_type', 'split')}  •  catálogo total: {as_int(estimate.get('catalog_roms')):,} ROMs"
         )
         self.catalog_estimate_detail.setText(details)
 
@@ -651,7 +660,13 @@ class FilterProfilesPage(QWidget):
             return
         for i in range(self.source_tree.topLevelItemCount()):
             root = self.source_tree.topLevelItem(i)
-            candidates = [root] + [root.child(n) for n in range(root.childCount())]
+            if root is None:
+                continue
+            candidates = [root]
+            for n in range(root.childCount()):
+                child = root.child(n)
+                if child is not None:
+                    candidates.append(child)
             for item in candidates:
                 data = item.data(0, Qt.ItemDataRole.UserRole)
                 if isinstance(data, (tuple, list)) and tuple(data) == (
@@ -897,18 +912,18 @@ class FilterProfilesPage(QWidget):
         self._add_source_item("C64", "Commodore C64 - Games", None)
         self._refresh_profile_list()
         if self.source_tree.topLevelItemCount():
-            self.source_tree.setCurrentItem(self.source_tree.topLevelItem(0))
+            first_item = self.source_tree.topLevelItem(0)
+            if first_item is not None:
+                self.source_tree.setCurrentItem(first_item)
         self._schedule_catalog_estimate()
 
     def _add_source_item(self, source, system, dat_path):
-        parent = next(
-            (
-                self.source_tree.topLevelItem(i)
-                for i in range(self.source_tree.topLevelItemCount())
-                if self.source_tree.topLevelItem(i).text(0) == source
-            ),
-            None,
-        )
+        parent = None
+        for i in range(self.source_tree.topLevelItemCount()):
+            candidate = self.source_tree.topLevelItem(i)
+            if candidate is not None and candidate.text(0) == source:
+                parent = candidate
+                break
         if parent is None:
             parent = QTreeWidgetItem([source])
             parent.setData(0, Qt.ItemDataRole.UserRole, (source, system, dat_path))

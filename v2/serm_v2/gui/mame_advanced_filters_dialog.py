@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
@@ -126,7 +128,7 @@ class MameAdvancedFiltersDialog(QDialog):
 
     def _item_changed(self, item: QTreeWidgetItem, _column: int) -> None:
         data = item.data(0, Qt.ItemDataRole.UserRole)
-        if not data:
+        if not isinstance(data, tuple) or len(data) != 2:
             return
         kind, value = data
         checked = item.checkState(0) == Qt.CheckState.Checked
@@ -142,10 +144,14 @@ class MameAdvancedFiltersDialog(QDialog):
         needle = text.casefold().strip()
         for i in range(self.tree.topLevelItemCount()):
             parent = self.tree.topLevelItem(i)
+            if parent is None:
+                continue
             parent_match = needle in parent.text(0).casefold()
             visible_child = False
             for j in range(parent.childCount()):
                 child = parent.child(j)
+                if child is None:
+                    continue
                 match = parent_match or needle in child.text(0).casefold()
                 child.setHidden(not match)
                 visible_child |= match
@@ -155,12 +161,16 @@ class MameAdvancedFiltersDialog(QDialog):
         self.tree.blockSignals(True)
         for i in range(self.tree.topLevelItemCount()):
             parent = self.tree.topLevelItem(i)
+            if parent is None:
+                continue
             if not parent.isHidden():
                 if self.search.text().casefold() in parent.text(0).casefold():
                     parent.setCheckState(0, Qt.CheckState.Checked)
                     self._categories.add(str(parent.data(0, Qt.ItemDataRole.UserRole)[1]))
                 for j in range(parent.childCount()):
                     child = parent.child(j)
+                    if child is None:
+                        continue
                     if not child.isHidden():
                         child.setCheckState(0, Qt.CheckState.Checked)
                         self._subcategories.add(str(child.data(0, Qt.ItemDataRole.UserRole)[1]))
@@ -174,9 +184,13 @@ class MameAdvancedFiltersDialog(QDialog):
         self.tree.blockSignals(True)
         for i in range(self.tree.topLevelItemCount()):
             parent = self.tree.topLevelItem(i)
+            if parent is None:
+                continue
             parent.setCheckState(0, Qt.CheckState.Unchecked)
             for j in range(parent.childCount()):
-                parent.child(j).setCheckState(0, Qt.CheckState.Unchecked)
+                child = parent.child(j)
+                if child is not None:
+                    child.setCheckState(0, Qt.CheckState.Unchecked)
         self.tree.blockSignals(False)
         self._refresh_selected_list()
         self._refresh_summary()
