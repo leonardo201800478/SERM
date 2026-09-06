@@ -64,6 +64,11 @@ class ScanFileRepository:
                     "message": item.message,
                     "error": item.error,
                     "categories": list(getattr(item, "categories", ())),
+                    "cloneof": getattr(item, "cloneof", None),
+                    "isbios": getattr(item, "isbios", None),
+                    "isdevice": getattr(item, "isdevice", None),
+                    "ismechanical": getattr(item, "ismechanical", None),
+                    "runnable": getattr(item, "runnable", None),
                 }
                 for item in result.evidence
             ],
