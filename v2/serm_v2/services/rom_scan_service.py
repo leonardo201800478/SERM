@@ -627,13 +627,12 @@ class RomScanService:
             runnable=item.runnable,
         )
 
-    @staticmethod
-    def _hash_stream(stream) -> tuple[int, str, str]:
+    def _hash_stream(self, stream) -> tuple[int, str, str]:
         crc = 0
         digest = hashlib.sha1()
         total = 0
         while True:
-            chunk = stream.read(RomScanService.CHUNK_SIZE)
+            chunk = stream.read(self.CHUNK_SIZE)
             if not chunk:
                 break
             total += len(chunk)
@@ -641,23 +640,21 @@ class RomScanService:
             digest.update(chunk)
         return total, f"{crc & 0xFFFFFFFF:08x}", digest.hexdigest()
 
-    @staticmethod
-    def _crc32(path: Path) -> str:
+    def _crc32(self, path: Path) -> str:
         crc = 0
         with path.open("rb") as stream:
             while True:
-                chunk = stream.read(RomScanService.CHUNK_SIZE)
+                chunk = stream.read(self.CHUNK_SIZE)
                 if not chunk:
                     break
                 crc = zlib.crc32(chunk, crc)
         return f"{crc & 0xFFFFFFFF:08x}"
 
-    @staticmethod
-    def _sha1(path: Path) -> str:
+    def _sha1(self, path: Path) -> str:
         digest = hashlib.sha1()
         with path.open("rb") as stream:
             while True:
-                chunk = stream.read(RomScanService.CHUNK_SIZE)
+                chunk = stream.read(self.CHUNK_SIZE)
                 if not chunk:
                     break
                 digest.update(chunk)

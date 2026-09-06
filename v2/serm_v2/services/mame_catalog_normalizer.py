@@ -7,6 +7,8 @@ sets, evitando a tabela genérica de milhões de nós XML.
 
 from __future__ import annotations
 
+from .sqlite_utils import require_lastrowid
+
 import sqlite3
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
@@ -42,7 +44,7 @@ class MameCatalogNormalizer:
         started = perf_counter()
         self._clear_import(db, import_id)
         machine_ids: dict[str, int] = {}
-        totals = {
+        totals: dict[str, int | float] = {
             "machines": 0,
             "roms": 0,
             "disks": 0,
@@ -129,7 +131,7 @@ class MameCatalogNormalizer:
                 machine.findtext("manufacturer"),
             ),
         )
-        machine_id = int(cur.lastrowid)
+        machine_id = require_lastrowid(cur.lastrowid)
         driver = machine.find("driver")
         d = driver.attrib if driver is not None else {}
         db.execute(
@@ -281,7 +283,7 @@ class MameCatalogNormalizer:
                 self._int(a.get("tilt")),
             ),
         )
-        input_id = int(cur.lastrowid)
+        input_id = require_lastrowid(cur.lastrowid)
         totals["inputs"] += 1
         for control in element.findall("control"):
             c = control.attrib
@@ -325,7 +327,7 @@ class MameCatalogNormalizer:
                     a.get("default"),
                 ),
             )
-            did = int(cur.lastrowid)
+            did = require_lastrowid(cur.lastrowid)
             totals["dipswitches"] += 1
             for value in element.findall("dipvalue"):
                 v = value.attrib
@@ -347,7 +349,7 @@ class MameCatalogNormalizer:
                     a.get("default"),
                 ),
             )
-            cid = int(cur.lastrowid)
+            cid = require_lastrowid(cur.lastrowid)
             totals["configurations"] += 1
             for value in element.findall("confsetting"):
                 v = value.attrib
@@ -420,7 +422,7 @@ class MameCatalogNormalizer:
                 "INSERT INTO mame_slot(machine_id,name) VALUES(?,?)",
                 (machine_id, a.get("name", "")),
             )
-            sid = int(cur.lastrowid)
+            sid = require_lastrowid(cur.lastrowid)
             totals["slots"] += 1
             for option in element.findall("slotoption"):
                 o = option.attrib

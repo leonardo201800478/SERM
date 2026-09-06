@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .sqlite_utils import require_lastrowid
+
 import hashlib
 import re
 import sqlite3
@@ -367,9 +369,11 @@ class MameDisplayResolver:
             orientation = str(payload.get("orientation")) if payload.get("orientation") else None
             aspect = str(payload.get("pixel_aspect")) if payload.get("pixel_aspect") else None
             ax, ay = cls._aspect(aspect)
+            line_value = payload.get("line")
+            line_number = line_value if isinstance(line_value, int) else None
             result.append(
                 ExternalDisplayFact(
-                    machine, width, height, refresh, orientation, ax, ay, raw, payload.get("line")
+                    machine, width, height, refresh, orientation, ax, ay, raw, line_number
                 )
             )
         return result

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .sqlite_utils import require_lastrowid
+
 import hashlib
 import sqlite3
 from datetime import UTC, datetime
@@ -97,7 +99,7 @@ class MameVsyncService:
                    VALUES (?, ?, ?, ?, ?, ?, 'captured')""",
                 (self.SOURCE_TYPE, path.name, str(path), source_hash, byte_length, now),
             )
-            source_id = int(cursor.lastrowid)
+            source_id = require_lastrowid(cursor.lastrowid)
             machines = {
                 row[1]: row[0] for row in connection.execute("SELECT id, name FROM mame_machine")
             }

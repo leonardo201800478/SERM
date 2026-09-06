@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .sqlite_utils import require_lastrowid
+
 import hashlib
 import json
 import logging
@@ -161,7 +163,8 @@ class WHLoaderDataService:
             connection.execute("DELETE FROM whloader_game")
             slave_total = 0
             for game in games:
-                hardware = game.get("hardware") if isinstance(game.get("hardware"), dict) else {}
+                hardware_value = game.get("hardware")
+                hardware: dict[str, Any] = hardware_value if isinstance(hardware_value, dict) else {}
                 filename = self._text(game.get("filename")) or ""
                 name = self._text(game.get("name")) or filename or "Unknown"
                 if not filename:
@@ -205,7 +208,7 @@ class WHLoaderDataService:
                         now,
                     ),
                 )
-                game_id = int(cursor.lastrowid)
+                game_id = require_lastrowid(cursor.lastrowid)
                 for slave in slaves:
                     if not isinstance(slave, dict):
                         continue

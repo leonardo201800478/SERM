@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .sqlite_utils import require_lastrowid
+
 import hashlib
 import re
 import sqlite3
@@ -121,7 +123,7 @@ class MameResolutionService:
                     now,
                 ),
             )
-            source_id = int(cursor.lastrowid)
+            source_id = require_lastrowid(cursor.lastrowid)
             machines = {
                 row[1]: row[0] for row in connection.execute("SELECT id, name FROM mame_machine")
             }

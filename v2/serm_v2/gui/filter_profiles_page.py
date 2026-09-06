@@ -468,10 +468,16 @@ class FilterProfilesPage(QWidget):
         def as_int(value: object) -> int:
             if value is None:
                 return 0
-            try:
+            if isinstance(value, bool):
                 return int(value)
-            except (TypeError, ValueError):
-                return 0
+            if isinstance(value, (int, float)):
+                return int(value)
+            if isinstance(value, str):
+                try:
+                    return int(value)
+                except ValueError:
+                    return 0
+            return 0
 
         self.catalog_estimate.setText(
             f"ROMs selecionadas: {as_int(estimate.get('roms')):,}  •  máquinas: {as_int(estimate.get('machines')):,}"

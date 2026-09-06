@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .sqlite_utils import require_lastrowid
+
 import hashlib
 import json
 import re
@@ -199,7 +201,7 @@ class MameDisplayPipeline:
                 ),
                 operation="mame_listxml_import",
             )
-            import_id = int(cur.lastrowid)
+            import_id = require_lastrowid(cur.lastrowid)
             root_id, root_nodes = self._insert_node(db, import_id, None, None, root, "/mame")
             totals = [root_nodes, 0, 0, 0, 0]
             self._log(f"MAME | INFO | import_id={import_id} | iniciando persistência")
@@ -270,7 +272,7 @@ class MameDisplayPipeline:
             operation="mame_machine",
             context=context,
         )
-        return int(cur.lastrowid)
+        return require_lastrowid(cur.lastrowid)
 
     def _insert_node(
         self,
@@ -298,7 +300,7 @@ class MameDisplayPipeline:
             operation="mame_xml_node",
             context=path,
         )
-        node_id = int(cur.lastrowid)
+        node_id = require_lastrowid(cur.lastrowid)
         count = 1
         counters: dict[str, int] = {}
         for child in element:
@@ -487,7 +489,8 @@ class MameDisplayPipeline:
                 continue
             parts = line.split("=", 1) if "=" in line else line.split(None, 1)
             if len(parts) == 2:
-                result.setdefault(section or "__global__", {})[parts[0].strip()] = parts[1].strip()
+                key: str = section if section is not None else "__global__"
+                result.setdefault(key, {})[parts[0].strip()] = parts[1].strip()
         return result
 
     def _resolve_profiles(

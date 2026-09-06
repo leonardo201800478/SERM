@@ -25,7 +25,9 @@ def _integration(tmp_path: Path) -> LaunchBoxIntegration:
 
 def test_provider_reads_database_and_xml_without_writing(tmp_path: Path) -> None:
     integration = _integration(tmp_path)
-    metadata = integration.executable.parent / "Metadata"
+    executable = integration.executable
+    assert executable is not None
+    metadata = executable.parent / "Metadata"
     database = metadata / "LaunchBox.Metadata.db"
     with sqlite3.connect(database) as connection:
         connection.execute(
@@ -84,10 +86,12 @@ def test_provider_reads_database_and_xml_without_writing(tmp_path: Path) -> None
 
 def test_provider_rejects_invalid_table_name(tmp_path: Path) -> None:
     integration = _integration(tmp_path)
-    database = integration.executable.parent / "Metadata" / "LaunchBox.Metadata.db"
+    executable = integration.executable
+    assert executable is not None
+    database = executable.parent / "Metadata" / "LaunchBox.Metadata.db"
     with sqlite3.connect(database) as connection:
         connection.execute("CREATE TABLE Games (DatabaseID INTEGER)")
-    platforms = integration.executable.parent / "Metadata" / "Platforms.xml"
+    platforms = executable.parent / "Metadata" / "Platforms.xml"
     platforms.write_text("<LaunchBox />", encoding="utf-8")
 
     provider = LaunchBoxProvider(integration)

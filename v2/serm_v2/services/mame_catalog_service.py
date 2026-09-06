@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .sqlite_utils import require_lastrowid
+
 import hashlib
 import json
 import logging
@@ -146,7 +148,7 @@ class MameCatalogService:
                     self.PARSER_VERSION,
                 ),
             )
-            import_id = int(cur.lastrowid)
+            import_id = require_lastrowid(cur.lastrowid)
             self._log(
                 f"MAME | [{run_id}] | DB | import_id={import_id} | salvando documento lossless"
             )
@@ -199,7 +201,7 @@ class MameCatalogService:
         for index, (name, service_class) in enumerate(stages, 1):
             self._log(f"MAME | INIS | QUEUE | {index}/{total} | {name}")
             service = service_class(self.DB_FILE, mame_root)
-            results.append((name, service.ingest(logger=self._log)))
+            results.append((name, dict(service.ingest(logger=self._log))))
         self._log("MAME | INIS | DONE | todas as fontes concluídas")
         return results
 

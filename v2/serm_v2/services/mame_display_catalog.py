@@ -8,6 +8,8 @@ permitindo suportar novos campos do MAME sem perda de informação.
 
 from __future__ import annotations
 
+from .sqlite_utils import require_lastrowid
+
 import hashlib
 import json
 import sqlite3
@@ -173,7 +175,7 @@ class MameDisplayCatalog:
                     self.PARSER_VERSION,
                 ),
             )
-            import_id = int(import_row.lastrowid)
+            import_id = require_lastrowid(import_row.lastrowid)
 
             # Root node is persisted as well, so no XML-level information is lost.
             self._insert_tree(
@@ -238,7 +240,7 @@ class MameDisplayCatalog:
                 manufacturer,
             ),
         )
-        return int(row.lastrowid)
+        return require_lastrowid(row.lastrowid)
 
     def _insert_tree(
         self,
@@ -431,7 +433,7 @@ class MameDisplayCatalog:
                         child.attrib.get("mask"),
                     ),
                 )
-                dip_id = int(row.lastrowid)
+                dip_id = require_lastrowid(row.lastrowid)
                 for value in child.findall("dipvalue"):
                     connection.execute(
                         "INSERT INTO mame_dipvalue(dipswitch_id,name,value,default_value) VALUES(?,?,?,?)",
@@ -452,7 +454,7 @@ class MameDisplayCatalog:
                         child.attrib.get("mask"),
                     ),
                 )
-                config_id = int(row.lastrowid)
+                config_id = require_lastrowid(row.lastrowid)
                 for value in (
                     child.findall("conflocation")
                     + child.findall("confsetting")
@@ -548,7 +550,7 @@ class MameDisplayCatalog:
                         child.attrib.get("fixed"),
                     ),
                 )
-                slot_id = int(row.lastrowid)
+                slot_id = require_lastrowid(row.lastrowid)
                 for option in child.findall("slotoption"):
                     connection.execute(
                         "INSERT INTO mame_slotoption(slot_id,name,devname,default_value,selectable) VALUES(?,?,?,?,?)",

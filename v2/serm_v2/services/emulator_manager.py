@@ -217,7 +217,8 @@ class EmulatorManager:
             while chunk := response.read(1024 * 1024):
                 output.write(chunk)
                 received += len(chunk)
-                progress and progress(received, total)
+                if progress:
+                    progress(received, total)
         if received <= 0:
             raise RuntimeError("Download retornou zero bytes.")
         if log:
