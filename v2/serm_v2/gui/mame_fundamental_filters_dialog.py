@@ -1,7 +1,6 @@
 """Janela popup dos filtros fundamentais do MAME."""
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
