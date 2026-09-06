@@ -6,7 +6,7 @@
       "type": "debugpy",
       "request": "launch",
       "module": "serm_v2.main",
-      "cwd": "${workspaceFolder}\\v2",
+      "cwd": "${workspaceFolder}",
       "console": "integratedTerminal",
       "justMyCode": true,
       "env": {
@@ -14,7 +14,7 @@
       }
     },
     {
-      "name": "Pytest: current file (V2)",
+      "name": "Pytest: current file",
       "type": "debugpy",
       "request": "launch",
       "module": "pytest",
@@ -22,7 +22,7 @@
         "${file}",
         "-ra"
       ],
-      "cwd": "${workspaceFolder}\\v2",
+      "cwd": "${workspaceFolder}",
       "console": "integratedTerminal",
       "justMyCode": true,
       "env": {

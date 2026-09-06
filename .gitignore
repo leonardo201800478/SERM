@@ -1,90 +1,26 @@
 # ============================================================
-# SERM repository-wide Git ignore
+# SERM V2 local-only files
 # ============================================================
 
-# ------------------------------------------------------------
-# Python
-# ------------------------------------------------------------
-__pycache__/
-*.py[cod]
-*.pyd
-.Python
+# Local application data when running V2 in portable/development mode
+.data/
+data/
+runtime-data/
 
-# Virtual environments
-.venv/
-.venv-*/
-venv/
-venv-*/
-env/
-ENV/
-virtualenv/
-virtualenvs/
-.virtualenvs/
+# Local logs and diagnostics
+logs/
+*.log
 
-# Packaging / build
-build/
-dist/
-*.egg-info/
-.eggs/
-*.egg
-wheels/
-*.whl
-pip-wheel-metadata/
-.installed.cfg
-MANIFEST
+# Local databases (also protected by repository-wide rules)
+database/*.db
+database/*.sqlite*
 
-# ------------------------------------------------------------
-# Tests / quality caches
-# ------------------------------------------------------------
-.pytest_cache/
-.coverage
-.coverage.*
-coverage.xml
-htmlcov/
-.hypothesis/
-.tox/
-.nox/
-.mypy_cache/
-.dmypy.json
-dmypy.json
-.pyre/
-.pytype/
-.ruff_cache/
+# Local exports/cache/staging
+cache/
+staging/
+exports/
 
-# ------------------------------------------------------------
-# VS Code / IDE
-# ------------------------------------------------------------
-# Repository-level VS Code files are intentional and versioned.
-.vscode/*
-!.vscode/settings.json
-!.vscode/extensions.json
-!.vscode/launch.json
-!.vscode/tasks.json
-
-# V2 also has project-level VS Code configuration when opened directly.
-!v2/.vscode/
-!v2/.vscode/settings.json
-!v2/.vscode/extensions.json
-!v2/.vscode/launch.json
-!v2/.vscode/tasks.json
-
-.idea/
-*.iml
-*.iws
-*.ipr
-.idea_modules/
-*.sublime-project
-*.sublime-workspace
-*.swp
-*.swo
-*~
-*.un~
-Session.vim
-.vim/
-
-# ------------------------------------------------------------
-# Environment / secrets
-# ------------------------------------------------------------
+# Local configuration and secrets
 .env
 .env.*
 !.env.example
@@ -92,103 +28,14 @@ Session.vim
 config.local.*
 secrets.*
 
-# ------------------------------------------------------------
-# OS
-# ------------------------------------------------------------
-.DS_Store
-.AppleDouble
-.LSOverride
-._*
-.Spotlight-V100
-.Trashes
-Thumbs.db
-Thumbs.db:encryptable
-ehthumbs.db
-ehthumbs_vista.db
-[Dd]esktop.ini
-$RECYCLE.BIN/
-*.stackdump
+# Python tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
 
-# ------------------------------------------------------------
-# Generic temporary files
-# ------------------------------------------------------------
-*.tmp
-*.temp
-*.bak
-*.backup
-*.old
-*.orig
-*.rej
-
-# ------------------------------------------------------------
-# Databases and local runtime state
-# ------------------------------------------------------------
-*.db
-*.sqlite
-*.sqlite3
-*.db-journal
-*.db-wal
-*.db-shm
-
-# ------------------------------------------------------------
-# ROM / emulator artifacts
-# ------------------------------------------------------------
-*.zip
-*.7z
-*.rar
-*.chd
-*.rom
-*.bin
-*.iso
-*.img
-*.mds
-*.mdf
-*.nrg
-*.exe
-*.msi
-*.msix
-
-# ------------------------------------------------------------
-# Logs
-# ------------------------------------------------------------
-*.log
-
-# ============================================================
-# V1 / legacy generated data
-# ============================================================
-# These paths are historical application output and are not part of
-# the active SERM V2 source tree.
-data/input/
-data/cache/
-data/output/
-data/reports/
-data/txt/
-data/xml/
-data/database/
-scanner_cache/
-rom_scanner_cache/
-chd_scanner_cache/
-reports/
-scan_reports/
-exports/
-profiles/
-filter_profiles/
-*.filtered.xml
-*.report
-*.summary
-mame_executable.log
-mame-set-builder.log
-
-# Legacy package/environment artifacts
-Pipfile.lock
-poetry.lock
-environment.yml
-environment.yaml
-conda.recipe/
-conda-env.yml
-
-# Generated documentation
-site/
-apidocs/
-docs/_build/
-docs/api/
+# Build artifacts
+build/
+dist/
+*.egg-info/

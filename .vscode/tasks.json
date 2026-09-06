@@ -2,39 +2,39 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "SERM V2: test",
+      "label": "V2: install dev dependencies",
+      "type": "shell",
+      "command": "python -m pip install -e \".[dev]\"",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "V2: test",
       "type": "shell",
       "command": "python -m pytest",
       "options": {
-        "cwd": "${workspaceFolder}\\v2"
+        "cwd": "${workspaceFolder}"
       },
       "group": "test",
       "problemMatcher": []
     },
     {
-      "label": "SERM V2: lint",
+      "label": "V2: lint",
       "type": "shell",
       "command": "ruff check .",
       "options": {
-        "cwd": "${workspaceFolder}\\v2"
+        "cwd": "${workspaceFolder}"
       },
       "problemMatcher": []
     },
     {
-      "label": "SERM V2: format check",
+      "label": "V2: format",
       "type": "shell",
-      "command": "ruff format --check .",
+      "command": "ruff format .",
       "options": {
-        "cwd": "${workspaceFolder}\\v2"
-      },
-      "problemMatcher": []
-    },
-    {
-      "label": "SERM V2: run",
-      "type": "shell",
-      "command": "python -m serm_v2",
-      "options": {
-        "cwd": "${workspaceFolder}\\v2"
+        "cwd": "${workspaceFolder}"
       },
       "problemMatcher": []
     }
