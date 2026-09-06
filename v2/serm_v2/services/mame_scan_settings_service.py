@@ -15,7 +15,7 @@ SETTINGS_FILE: Final[Path] = data_root() / "mame_scan_settings.json"
 SCAN_TYPES: Final[dict[str, str]] = {
     "arcade": "Arcade",
     "software": "Software",
-    "both": "Ambos",
+    "both": "Completa",
 }
 
 
