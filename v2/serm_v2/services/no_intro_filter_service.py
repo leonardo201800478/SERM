@@ -1,9 +1,4 @@
-"""Filtros específicos para snapshots No-Intro.
-
-A regra de seleção usa somente metadados coletados no scan. O DAT continua
-sendo a autoridade para hashes; variantes externas (translation/hack) podem
-ser mantidas por nome, mas nunca são tratadas como dumps verificados.
-"""
+"""Filtros específicos para snapshots No-Intro."""
 
 from __future__ import annotations
 
@@ -64,13 +59,51 @@ class NoIntroFilterService:
             if reason: reasons[reason]+=1
             else: candidates.append(item)
         if not getattr(profile,"one_game_one_region",False): return candidates,reasons
-        selected=[]; groups={}
-        for item in candidates: groups.setdefault(cls._family_key(item),[]).append(item)
-        for group in groups.values():
-            chosen=cls._choose_1g1r(group,profile)
-            if chosen is not None:
-                selected.append(chosen); reasons["1g1r"] += max(0,len(group)-1)
+
+        # Uma decisão 1G1R é feita por RELEASE, nunca por ROM individual.
+        # Um jogo pode ter vários membros dentro do mesmo ZIP; todos devem
+        # sobreviver se aquela release for a escolhida.
+        releases={}
+        for item in candidates:
+            key=cls._release_key(item)
+            releases.setdefault(key,[]).append(item)
+        families={}
+        for release_key, members in releases.items():
+            representative=members[0]
+            families.setdefault(cls._family_key(representative),[]).append((release_key,members))
+
+        selected=[]
+        for family in families.values():
+            chosen=cls._choose_release(family,profile)
+            if chosen is None: continue
+            chosen_key, members=chosen
+            selected.extend(members)
+            reasons["1g1r"] += sum(len(group_members) for release_key,group_members in family if release_key != chosen_key)
         return selected,reasons
+
+    @staticmethod
+    def _release_key(item):
+        machine=str(item.get("machine_name") or item.get("merge_name") or "").strip().casefold()
+        archive=str(item.get("archive_path") or "").strip().casefold()
+        path=str(item.get("path") or "").strip().casefold()
+        # Archive é incluído para que uma ocorrência duplicada não seja fundida
+        # acidentalmente com uma release diferente de mesmo nome.
+        return machine, archive, path
+
+    @classmethod
+    def _choose_release(cls, releases, profile):
+        best=None
+        for release_key,members in releases:
+            representative=next((m for m in members if str(m.get("status")).upper() != "DUPLICATE"),members[0])
+            score=cls._release_score(representative,profile)
+            if best is None or score < best[0]: best=(score,release_key,members)
+        return (best[1],best[2]) if best else None
+
+    @classmethod
+    def _release_score(cls,item,profile):
+        priority=list(getattr(profile,"region_priority",()) or DEFAULT_REGION_PRIORITY); ranks={str(name).casefold():i for i,name in enumerate(priority)}
+        regions=[v.casefold() for v in _values(item,"region:")]; tags=_tags(item)
+        return (cls._region_rank(regions,ranks),1 if str(item.get("status")).upper()=="UNVERIFIED_VARIANT" else 0,int(any(t in tags for t in ("type:beta","type:proto","type:demo","type:sample"))),0 if "language:en" in tags else 1,1 if any(t.startswith("version:") for t in tags) else 0,str(item.get("machine_name") or "").casefold())
 
     @classmethod
     def _reject_reason(cls,item,profile):
@@ -92,20 +125,9 @@ class NoIntroFilterService:
     def _family_key(item):
         cloneof=str(item.get("cloneof") or "").strip()
         if cloneof:
-            cloneof=re.sub(r"\([^)]*\)"," ",cloneof)
-            cloneof=re.sub(r"\s+"," ",cloneof).strip()
-            return cloneof.casefold()
+            cloneof=re.sub(r"\([^)]*\)"," ",cloneof); cloneof=re.sub(r"\s+"," ",cloneof).strip(); return cloneof.casefold()
         base=str(item.get("merge_name") or item.get("machine_name") or "").strip()
         return re.sub(r"\s+"," ",base).casefold()
-
-    @classmethod
-    def _choose_1g1r(cls,group,profile):
-        priority=list(getattr(profile,"region_priority",()) or DEFAULT_REGION_PRIORITY); ranks={str(name).casefold():i for i,name in enumerate(priority)}; best=None
-        for item in group:
-            regions=[v.casefold() for v in _values(item,"region:")]; region_rank=cls._region_rank(regions,ranks); tags=_tags(item)
-            score=(region_rank,1 if str(item.get("status")).upper()=="UNVERIFIED_VARIANT" else 0,int(any(t in tags for t in ("type:beta","type:proto","type:demo","type:sample"))),0 if "language:en" in tags else 1,1 if any(t.startswith("version:") for t in tags) else 0,str(item.get("machine_name") or "").casefold())
-            if best is None or score<best[0]: best=(score,item)
-        return best[1] if best else None
 
     @staticmethod
     def _region_rank(regions,ranks):
