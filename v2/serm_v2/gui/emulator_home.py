@@ -229,7 +229,8 @@ class EmulatorHomePage(QWidget):
 
         actions = QHBoxLayout()
         for text, slot in (
-            ("⬇ Instalar / atualizar", self.install_retroarch),
+            ("⬇ Baixar / atualizar Stable", lambda: self.install_retroarch("stable")),
+            ("⬇ Baixar / atualizar Nightly", lambda: self.install_retroarch("nightly")),
             ("📁 Diretório", self.configure_retroarch),
             ("🔄 Buscar cores", self.refresh_cores),
             ("🔎 Verificar atualizações", self.verify_core_updates),
@@ -487,25 +488,29 @@ class EmulatorHomePage(QWidget):
         self._save_paths(paths)
         self.refresh()
 
-    def install_retroarch(self) -> None:
-        """Instala/atualiza RetroArch no canal Stable ou Nightly selecionado."""
+    def install_retroarch(self, channel: str | None = None) -> None:
+        """Instala/atualiza o frontend RetroArch Stable ou Nightly."""
+        channel = (channel or self._retro_channel).casefold()
+        if channel not in {"stable", "nightly"}:
+            raise ValueError(f"Canal RetroArch inválido: {channel!r}")
+        if self.worker is not None:
+            self._append_retro_log("AVISO | já existe uma operação do RetroArch em execução.")
+            return
         destination = self.manager.roots.get("retroarch")
         if not destination:
-            selected = QFileDialog.getExistingDirectory(
-                self, "Instalar RetroArch em", str(Path.home())
-            )
+            selected = QFileDialog.getExistingDirectory(self, f"Instalar RetroArch {channel.title()} em", str(Path.home()))
             if not selected:
                 return
             destination = Path(selected).resolve()
-            paths = self._load_paths()
-            paths["retroarch"] = destination
-            self._save_paths(paths)
-        self.retroarch = RetroArchManager(destination)
-        self._start_retro(
-            lambda progress, log: self.retroarch.install_core(
-                "", destination, channel=self._retro_channel, progress=progress, log=log
-            )
-        )
+        paths = self._load_paths()
+        paths["retroarch"] = Path(destination).resolve()
+        paths["retroarch_channel"] = Path(channel)
+        self._save_paths(paths)
+        self.manager.roots = paths
+        self.retroarch = RetroArchManager(Path(destination))
+        self._retro_channel = channel
+        self._append_retro_log(f"DOWNLOAD | RetroArch | canal={channel} | destino={Path(destination).resolve()}")
+        self._start_retro(lambda progress, log, c=channel, d=Path(destination): self.retroarch.install_frontend(d, channel=c, progress=progress, log=log))
 
     def refresh_cores(self) -> None:
         """Atualiza o índice oficial e mostra cores instalados, novos e CRC."""
@@ -697,7 +702,20 @@ class EmulatorHomePage(QWidget):
         self.retro_progress.setValue(min(100, int(received * 100 / total)) if total else 0)
 
     def _retro_done(self, result) -> None:
-        """Registra sucesso da operação RetroArch."""
+        """Registra sucesso da operação RetroArch e persiste a instalação."""
+        executable = getattr(result, "executable", None)
+        version = getattr(result, "version", None)
+        archive = getattr(result, "archive", None)
+        if executable and version:
+            executable_path = Path(executable).resolve()
+            paths = self._load_paths()
+            paths["retroarch"] = executable_path.parent
+            paths["retroarch_exe"] = executable_path
+            paths["retroarch_version"] = Path(str(version))
+            if archive:
+                paths["retroarch_archive"] = Path(str(archive))
+            self._save_paths(paths)
+            self._persist_version_marker(executable_path, str(version), str(archive or ""))
         self._append_retro_log(f"OK | {result}")
 
     def _retro_error(self, message: str) -> None:

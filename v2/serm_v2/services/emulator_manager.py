@@ -701,6 +701,40 @@ class RetroArchManager:
             log(f"CORE INSTALADO | {target} | CRC32={actual_crc}")
         return target
 
+    def install_frontend(self, destination: Path, *, channel: str = "stable", progress=None, log=None) -> DownloadResult:
+        """Baixa e instala o frontend RetroArch x64 Stable ou Nightly."""
+        channel = channel.casefold().strip()
+        if channel not in {"stable", "nightly"}:
+            raise ValueError(f"Canal RetroArch inválido: {channel!r}")
+        destination = Path(destination).expanduser().resolve()
+        destination.mkdir(parents=True, exist_ok=True)
+        if channel == "stable":
+            version = self.latest_stable_version()
+            root, _ = self.buildroot("stable", version)
+            archive_name = self.RETROARCH_ARCHIVE
+            url = f"{root}{archive_name}"
+            version_label = version
+        else:
+            archive_name, url = self.discover_nightly_archive()
+            version_label = f"nightly-{archive_name[:10]}"
+        temp_dir = Path(tempfile.mkdtemp(prefix="serm-retroarch-"))
+        archive = temp_dir / archive_name
+        extracted = temp_dir / "extracted"
+        extracted.mkdir()
+        try:
+            if log:
+                log(f"RETROARCH | canal={channel} | versão={version_label} | arquivo={archive_name}")
+                log(f"DOWNLOAD | {url}")
+            self._download_file(url, archive, progress, log)
+            self._extract(archive, extracted, log)
+            self._merge(extracted, destination)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        executable = next((x.resolve() for x in destination.rglob("retroarch.exe") if x.is_file()), None)
+        if executable is None:
+            raise RuntimeError(f"Download concluído, mas retroarch.exe não foi encontrado em {destination}.")
+        return DownloadResult("retroarch", version_label, executable, archive_name)
+
     @classmethod
     def detect_7zip(cls) -> Path | None:
         """Localiza 7-Zip."""
