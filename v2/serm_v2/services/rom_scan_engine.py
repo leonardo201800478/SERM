@@ -1,4 +1,4 @@
-"""Camada estável do scanner MAME: retomada, novo scan e heartbeat."""
+"""Camada estável do scanner MAME: retomada, novo scan e checkpoints."""
 from __future__ import annotations
 
 import hashlib
@@ -16,10 +16,11 @@ from .scan_resilience import HEARTBEAT_SECONDS
 
 _ORIGINAL_SCAN = RomScanService.scan
 _ORIGINAL_SCAN_MACHINE = RomScanService._scan_machine
+CHECKPOINT_INTERVAL = 500
 
 
 class StableRomScanService(RomScanService):
-    """Camada resiliente aplicada ao worker atual sem alterar a API pública."""
+    """Camada resiliente aplicada ao worker atual sem degradar o caminho crítico."""
 
     HEARTBEAT_SECONDS = HEARTBEAT_SECONDS
 
@@ -103,6 +104,41 @@ class StableRomScanService(RomScanService):
             errors=1,
         )
 
+    @staticmethod
+    def _checkpoint_path(stream_path: Path) -> Path:
+        return stream_path.with_suffix(".checkpoint.json")
+
+    @staticmethod
+    def _write_checkpoint(path: Path, header: dict[str, object], completed: set[str], *, cancelled: bool = False) -> None:
+        """Grava o checkpoint em arquivo separado e atômico.
+
+        O checkpoint não disputa o handle do JSONL principal com os workers. Isso
+        permite que a persistência ocorra em paralelo sem corromper o stream.
+        """
+        target = path.with_suffix(path.suffix + ".tmp")
+        payload = {
+            "format": "SERM-SCAN-CHECKPOINT-V2",
+            "scan_id": header.get("scan_id"),
+            "profile_id": header.get("profile_id"),
+            "source": header.get("source"),
+            "system": header.get("system"),
+            "scan_type": header.get("scan_type"),
+            "catalog_label": header.get("catalog_label"),
+            "catalog_hash": header.get("catalog_hash"),
+            "source_paths": header.get("source_paths", []),
+            "machine_count_expected": header.get("machine_count_expected", 0),
+            "completed_count": len(completed),
+            "completed_machines": sorted(completed),
+            "cancelled": cancelled,
+            "updated_at": time.time(),
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with target.open("w", encoding="utf-8", newline="\n") as stream:
+            json.dump(payload, stream, ensure_ascii=False, separators=(",", ":"))
+            stream.write("\n")
+            stream.flush()
+        target.replace(path)
+
     def _scan_mame_resumable(self, profile, db_path, resume=True):
         with sqlite3.connect(db_path) as c:
             latest = c.execute(
@@ -149,12 +185,30 @@ class StableRomScanService(RomScanService):
         self._log(
             "INFO",
             f"SCAN | MAME | modo={'retomada' if resume else 'novo'} | "
-            f"concluídas={len(completed):,}/{len(machines):,} | pendentes={len(pending):,}",
+            f"concluídas={len(completed):,}/{len(machines):,} | pendentes={len(pending):,} | workers=6 | checkpoint={CHECKPOINT_INTERVAL}",
         )
-        workers = min(self.DEFAULT_WORKERS, max(1, len(pending)))
+
+        workers = min(6, max(1, len(pending)))
+        checkpoint_path = self._checkpoint_path(path)
+        header = {
+            "scan_id": result.scan_id,
+            "profile_id": result.profile_id,
+            "source": result.source,
+            "system": result.system,
+            "scan_type": result.scan_type,
+            "catalog_label": result.catalog_label,
+            "catalog_hash": result.catalog_hash,
+            "source_paths": [str(p) for p in sources],
+            "machine_count_expected": len(machines),
+        }
+        completed_for_checkpoint = set(completed)
+        last_checkpoint_done = len(completed)
+
+        # Um único writer de checkpoint mantém as gravações fora do caminho crítico
+        # e evita concorrência de escrita no mesmo arquivo.
         with path.open("a", encoding="utf-8", newline="\n") as stream, ThreadPoolExecutor(
             max_workers=workers, thread_name_prefix="mame-scan"
-        ) as executor:
+        ) as executor, ThreadPoolExecutor(max_workers=1, thread_name_prefix="mame-checkpoint") as checkpoint_executor:
             futures = {
                 executor.submit(
                     self._scan_machine_with_heartbeat,
@@ -167,9 +221,8 @@ class StableRomScanService(RomScanService):
                 for machine in pending
             }
             done = len(completed)
+            checkpoint_future = None
             for future in as_completed(futures):
-                if self._cancelled:
-                    break
                 machine = futures[future]
                 try:
                     unit = future.result()
@@ -181,20 +234,47 @@ class StableRomScanService(RomScanService):
                     )
                 self._write_machine(stream, unit)
                 if unit.errors == 0:
-                    self._write_jsonl(
-                        stream,
-                        {
-                            "record_type": "machine_complete",
-                            "machine": unit.machine,
-                            "completed_at": time.time(),
-                        },
-                    )
-                stream.flush()
+                    completed_for_checkpoint.add(unit.machine)
                 done += 1
                 self._merge_unit_stats(result, unit)
                 if self.progress_callback:
                     self.progress_callback(done, len(machines))
-                self._log("INFO", self._progress_message(result, machine, done, len(machines)))
+                if done == 1 or done % 100 == 0 or done == len(machines):
+                    self._log("INFO", self._progress_message(result, machine, done, len(machines)))
+
+                # Checkpoint lógico a cada 500 machines. A gravação do sidecar ocorre
+                # em paralelo; o stream principal só é sincronizado no checkpoint.
+                if done - last_checkpoint_done >= CHECKPOINT_INTERVAL:
+                    stream.flush()
+                    snapshot = set(completed_for_checkpoint)
+                    if checkpoint_future is not None:
+                        checkpoint_future.result()
+                    checkpoint_future = checkpoint_executor.submit(
+                        self._write_checkpoint, checkpoint_path, header, snapshot
+                    )
+                    last_checkpoint_done = done
+
+                if self._cancelled:
+                    break
+
+            # Cancelamento tem prioridade: sincroniza tudo que já foi processado e
+            # gera um checkpoint imediato, sem esperar o próximo bloco de 500.
+            stream.flush()
+            if self._cancelled:
+                snapshot = set(completed_for_checkpoint)
+                if checkpoint_future is not None:
+                    checkpoint_future.result()
+                checkpoint_future = checkpoint_executor.submit(
+                    self._write_checkpoint, checkpoint_path, header, snapshot, cancelled=True
+                )
+            elif done == len(machines):
+                if checkpoint_future is not None:
+                    checkpoint_future.result()
+                checkpoint_future = checkpoint_executor.submit(
+                    self._write_checkpoint, checkpoint_path, header, completed_for_checkpoint
+                )
+            if checkpoint_future is not None:
+                checkpoint_future.result()
 
             self._write_jsonl(
                 stream,
@@ -241,6 +321,8 @@ class StableRomScanService(RomScanService):
                         "persist_mode": "streaming",
                         "filters_applied": False,
                         "resumable": True,
+                        "checkpoint_interval": CHECKPOINT_INTERVAL,
+                        "checkpoint_storage": "sidecar",
                     },
                 },
             )
@@ -271,9 +353,11 @@ class StableRomScanService(RomScanService):
                 or header.get("source_paths") != wanted
             ):
                 continue
-            completed = self._completed_machines(path, machines, db_path)
+            completed = self._read_checkpoint(path, machines)
             if not completed:
-                self._log("WARNING", f"RESUME | ignorando stream legado/incompleto sem machine_complete: {path.name}")
+                completed = self._completed_machines(path, machines, db_path)
+            if not completed:
+                self._log("WARNING", f"RESUME | ignorando stream sem checkpoint válido: {path.name}")
                 continue
             result.scan_id = str(header.get("scan_id") or result.scan_id)
             self._log(
@@ -284,9 +368,23 @@ class StableRomScanService(RomScanService):
             return path, completed
         return self._create_new_stream(result, profile, sources, machines)
 
+    @classmethod
+    def _read_checkpoint(cls, path: Path, machines) -> set[str]:
+        checkpoint = cls._checkpoint_path(path)
+        valid = set(machines)
+        if not checkpoint.is_file() or not valid:
+            return set()
+        try:
+            payload = json.loads(checkpoint.read_text(encoding="utf-8"))
+            if payload.get("format") != "SERM-SCAN-CHECKPOINT-V2":
+                return set()
+            return {str(name) for name in payload.get("completed_machines", []) if str(name) in valid}
+        except (OSError, ValueError, TypeError):
+            return set()
+
     @staticmethod
     def _completed_machines(path, machines, db_path=None):
-        """Lê apenas checkpoints explícitos; db_path permanece por compatibilidade."""
+        """Lê checkpoints legados explícitos; db_path permanece por compatibilidade."""
         valid = set(machines)
         if not valid:
             return set()
@@ -316,7 +414,6 @@ class StableRomScanService(RomScanService):
         return None
 
 
-# Compatibilidade com o worker atual: ele instancia RomScanService diretamente.
 _base = RomScanService
 _base.HEARTBEAT_SECONDS = HEARTBEAT_SECONDS
 _base.scan = StableRomScanService.scan
@@ -330,10 +427,10 @@ _base._machine_error = StableRomScanService._machine_error
 _base._scan_mame_resumable = StableRomScanService._scan_mame_resumable
 _base._create_new_stream = StableRomScanService._create_new_stream
 _base._find_resume_stream = StableRomScanService._find_resume_stream
-# Preservar o descritor staticmethod ao aplicar o monkey-patch na classe base.
-# Sem isso, a função recebe self implicitamente e a retomada falha com
-# "takes 3 positional arguments but 4 were given".
+_base._read_checkpoint = classmethod(StableRomScanService._read_checkpoint.__func__)
+_base._checkpoint_path = staticmethod(StableRomScanService._checkpoint_path)
+_base._write_checkpoint = staticmethod(StableRomScanService._write_checkpoint)
 _base._completed_machines = staticmethod(StableRomScanService._completed_machines)
 _base._last_completed = staticmethod(StableRomScanService._last_completed)
 
-__all__ = ["StableRomScanService"]
+__all__ = ["StableRomScanService", "CHECKPOINT_INTERVAL"]
