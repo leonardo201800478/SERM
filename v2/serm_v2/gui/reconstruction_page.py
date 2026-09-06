@@ -27,6 +27,12 @@ from ..services.reconstruction_service import (
 )
 
 _RECONSTRUCTION_TITLE = "Reconstrução"
+_MAME_SET_LABELS = {
+    "split": "Split",
+    "non_merged": "Non-Merged",
+    "full_merged": "Full-Merged",
+    "standard": "Padrão",
+}
 
 
 class _ReconstructionWorker(QThread):
@@ -132,8 +138,6 @@ class ReconstructionPage(QWidget):
         layout.addWidget(self.status)
 
     def refresh(self) -> None:
-        # A lista é deliberadamente limitada aos arquivos FILTER gerados pela fase 2.
-        # Não há descoberta de ROMs nem execução de scan nesta fase.
         self._refresh_latest_filter_hint()
 
     def _refresh_latest_filter_hint(self) -> None:
@@ -163,9 +167,15 @@ class ReconstructionPage(QWidget):
         self.source_label.setText(
             f"Fonte: {payload.get('source', '—')} › {payload.get('system', '—')}"
         )
+        set_type = "standard"
+        filters = payload.get("filters")
+        if isinstance(filters, dict):
+            set_type = str(filters.get("mame_set_type") or "standard").casefold()
+        set_label = _MAME_SET_LABELS.get(set_type, set_type)
         self.summary.setText(
             f"Filtro {payload.get('filter_run_id', '—')} | scan {payload.get('scan_id', '—')} | "
-            f"catálogo {payload.get('catalog_label', '—')} | itens selecionados: {len(payload.get('evidence', [])):,}"
+            f"catálogo {payload.get('catalog_label', '—')} | tipo de set: {set_label} | "
+            f"itens selecionados: {len(payload.get('evidence', [])):,}"
         )
         self._plan = None
         self.execute_button.setEnabled(False)
@@ -203,9 +213,11 @@ class ReconstructionPage(QWidget):
             self.plan_list.addItem(f"{item.kind.upper()} | {item.output_path}{member}")
         if len(self._plan.items) > 500:
             self.plan_list.addItem(f"… e mais {len(self._plan.items) - 500:,} itens")
+        set_label = _MAME_SET_LABELS.get(self._plan.set_type, self._plan.set_type)
         self.summary.setText(
-            f"Plano pronto | itens={self._plan.item_count:,} | arquivos de origem={self._plan.archive_count:,} | "
-            f"soltos={self._plan.loose_count:,} | CHD={self._plan.chd_count:,} | destino={self._plan.destination}"
+            f"Plano pronto | set={set_label} | itens={self._plan.item_count:,} | "
+            f"arquivos de saída={self._plan.archive_count:,} | soltos={self._plan.loose_count:,} | "
+            f"CHD={self._plan.chd_count:,} | destino={self._plan.destination}"
         )
         self.execute_button.setEnabled(True)
         self.status.setText("Plano validado. A execução somente escreverá no destino escolhido.")
@@ -242,9 +254,10 @@ class ReconstructionPage(QWidget):
     def _completed(self, result: object) -> None:
         self.progress.setValue(self.progress.maximum())
         if isinstance(result, dict):
+            set_label = _MAME_SET_LABELS.get(str(result.get("set_type", "standard")), str(result.get("set_type", "standard")))
             self.status.setText(
-                f"RECONSTRUÇÃO CONCLUÍDA | arquivos criados={int(result.get('created_count', 0)):,} | "
-                f"destino={result.get('destination', '—')}"
+                f"RECONSTRUÇÃO CONCLUÍDA | set={set_label} | arquivos criados="
+                f"{int(result.get('created_count', 0)):,} | destino={result.get('destination', '—')}"
             )
         else:
             self.status.setText("RECONSTRUÇÃO CONCLUÍDA")
