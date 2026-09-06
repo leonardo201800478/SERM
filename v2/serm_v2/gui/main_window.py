@@ -17,7 +17,7 @@ from .emulator_shaders_bezels_page import EmulatorShadersBezelsPage
 from .filter_phase_page import FilteringPhasePage
 from .home import HomePage
 from .log_handler import LogViewer
-from .process_pipeline_page import ReconstructionPhasePage
+from .reconstruction_phase_page import ReconstructionPhasePage
 from .scan_phase_page import ScanPhasePage
 
 
@@ -183,22 +183,8 @@ class MainWindow(QMainWindow):
 
     def _refresh_page(self, index: int) -> None:
         page = self.pages[index]
-        if page is self.home_section:
-            self.home_section.refresh()
-        elif page is self.directories_tab:
-            self.directories_tab.refresh()
-        elif page is self.settings_tab:
-            self.settings_tab.refresh()
-        elif page is self.visuals_tab:
-            self.visuals_tab.refresh()
-        elif page is self.scan_tab:
-            self.scan_tab.refresh()
-        elif page is self.filter_tab:
-            self.filter_tab.refresh()
-        elif page is self.reconstruction_tab:
-            self.reconstruction_tab.refresh()
-        elif page is self.dat_scraper_tab:
-            self.dat_scraper_tab.setFocus()
+        if hasattr(page, "refresh"):
+            page.refresh()
 
     def closeEvent(self, event) -> None:
         self._save_window_layout()
