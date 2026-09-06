@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -17,9 +18,10 @@ from .rom_scan_service import ScanEvidence, _MachineResult
 
 
 class RomScanCacheService:
-    """Cache persistente por machine/ZIP com SQLite."""
+    """Cache persistente por machine/ZIP com writer assíncrono único."""
 
     FORMAT = "SERM-ROM-CACHE-V2"
+    _writer = ThreadPoolExecutor(max_workers=1, thread_name_prefix="mame-cache")
 
     @staticmethod
     def _database() -> Path:
@@ -68,18 +70,16 @@ class RomScanCacheService:
         try:
             with cls._connect() as connection:
                 row = connection.execute(
-                    "SELECT path,size,mtime_ns,payload FROM rom_cache "
+                    "SELECT size,mtime_ns,payload FROM rom_cache "
                     "WHERE catalog_hash=? AND machine=? AND path=?",
                     (catalog_hash, machine, signature["path"]),
                 ).fetchone()
         except sqlite3.Error:
             return None
-        if row is None:
-            return None
-        if int(row[1]) != signature["size"] or int(row[2]) != signature["mtime_ns"]:
+        if row is None or int(row[0]) != signature["size"] or int(row[1]) != signature["mtime_ns"]:
             return None
         try:
-            payload = json.loads(str(row[3]))
+            payload = json.loads(str(row[2]))
             if payload.get("format") != cls.FORMAT:
                 return None
             records = [ScanEvidence(**item) for item in payload.get("records", [])]
@@ -97,7 +97,7 @@ class RomScanCacheService:
 
     @classmethod
     def save(cls, machine: str, catalog_hash: str, zip_path: Path, result: _MachineResult) -> None:
-        """Persiste apenas resultados sem erro; falhas nunca entram no cache."""
+        """Agenda a persistência; nunca bloqueia o worker de leitura do HDD."""
         if result.errors or not zip_path.is_file():
             return
         signature = cls._file_signature(zip_path)
@@ -112,6 +112,10 @@ class RomScanCacheService:
             "items_examined": result.items_examined,
             "records": [asdict(record) for record in result.records],
         }
+        cls._writer.submit(cls._save_sync, catalog_hash, machine, signature, payload)
+
+    @classmethod
+    def _save_sync(cls, catalog_hash: str, machine: str, signature: dict[str, Any], payload: dict[str, Any]) -> None:
         try:
             with cls._connect() as connection:
                 connection.execute(
