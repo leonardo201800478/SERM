@@ -172,7 +172,9 @@ class RomScanService:
             raise RuntimeError(f"Banco do catálogo MAME não encontrado: {db_path}")
         query = """
             SELECT m.name AS machine_name, m.cloneof, r.name AS rom_name, r.size,
-                   lower(coalesce(r.crc,'')), lower(coalesce(r.sha1,'')), lower(coalesce(r.md5,'')),
+                   lower(coalesce(r.crc,'')) AS expected_crc,
+                   lower(coalesce(r.sha1,'')) AS expected_sha1,
+                   lower(coalesce(r.md5,'')) AS expected_md5,
                    r.merge, r.optional, m.isbios, m.isdevice, m.runnable
             FROM mame_machine m JOIN mame_rom r ON r.machine_id=m.id
             JOIN mame_listxml_import i ON i.id=m.import_id
@@ -189,8 +191,6 @@ class RomScanService:
     @staticmethod
     def _filter_mame_rows(rows: list[dict], profile) -> list[dict]:
         filtered = []
-        set_type = str(getattr(profile, "mame_set_type", "split"))
-        clone_policy = str(getattr(profile, "mame_clone_policy", "with_clones"))
         for row in rows:
             if not getattr(profile, "mame_include_bios", False) and str(row.get("isbios") or "").casefold() == "yes":
                 continue
@@ -198,49 +198,63 @@ class RomScanService:
                 continue
             if getattr(profile, "mame_working_only", False) and str(row.get("runnable") or "").casefold() not in {"yes", "true"}:
                 continue
-            if clone_policy == "parents_only" and row.get("cloneof"):
+            if getattr(profile, "mame_clone_policy", "with_clones") == "parents_only" and row.get("cloneof"):
                 continue
             if not getattr(profile, "mame_include_optional", True) and str(row.get("optional") or "").casefold() in {"yes", "true", "1"}:
                 continue
-            # set_type permanece explícito no perfil; a resolução física usa os
-            # campos merge/clone do catálogo e não renomeia arquivos.
-            row["set_type"] = set_type
             filtered.append(row)
         return filtered
 
     def _match_mame(self, catalog: list[dict], physical: dict[tuple[str, int, str], list[_PhysicalEntry]], result: ScanResult) -> None:
+        by_name_size: dict[tuple[str, int], list[_PhysicalEntry]] = defaultdict(list)
+        by_name: dict[str, list[_PhysicalEntry]] = defaultdict(list)
+        for (name, size, _crc), entries in physical.items():
+            by_name_size[(name, size)].extend(entries)
+            by_name[name].extend(entries)
         self._log("INFO", f"MATCH | MAME | catálogo filtrado={len(catalog):,} ROMs")
-        duplicate_keys = {key for key, entries in physical.items() if len(entries) > 1}
         matched = 0
         for index, row in enumerate(catalog, 1):
             if self._cancelled:
                 result.status_counts["CANCELLED"] += 1
                 break
             name = str(row.get("rom_name") or "")
-            size = row.get("size")
-            crc = str(row.get("lower(coalesce(r.crc,''))") or "").lower()
-            sha1 = str(row.get("lower(coalesce(r.sha1,''))") or "").lower()
-            md5 = str(row.get("lower(coalesce(r.md5,''))") or "").lower()
-            key = (Path(name).name.casefold(), int(size or 0), crc)
+            size = int(row.get("size") or 0)
+            crc = str(row.get("expected_crc") or "").lower()
+            sha1 = str(row.get("expected_sha1") or "").lower()
+            md5 = str(row.get("expected_md5") or "").lower()
+            key = (Path(name).name.casefold(), size, crc)
             entries = physical.get(key, [])
+            same_size = by_name_size.get((Path(name).name.casefold(), size), [])
+            same_name = by_name.get(Path(name).name.casefold(), [])
             optional = str(row.get("optional") or "").casefold() in {"yes", "true", "1"}
             if entries:
-                status = "DUPLICATE" if key in duplicate_keys else "CURRENT"
+                status = "DUPLICATE" if len(entries) > 1 else "CURRENT"
                 entry = entries[0]
                 matched += 1
-                evidence = ScanEvidence(str(row["machine_name"]), name, status, int(size or 0), entry.size,
-                    crc, entry.crc32, sha1, "", md5, "", str(entry.path), str(entry.path) if entry.member else None,
-                    entry.member, row.get("merge"), optional, "hash/tamanho correspondentes")
+                message = "hash/tamanho correspondentes"
+            elif same_size:
+                status = "WRONG"
+                entry = same_size[0]
+                message = "nome e tamanho correspondem, mas CRC diverge"
+            elif same_name:
+                status = "WRONG"
+                entry = same_name[0]
+                message = "nome corresponde, mas tamanho/CRC divergem"
             else:
                 status = "MISSING"
-                evidence = ScanEvidence(str(row["machine_name"]), name, status, int(size or 0), None,
-                    crc, "", sha1, "", md5, "", None, None, None, row.get("merge"), optional,
-                    "ROM não localizada nas fontes")
-            result.evidence.append(evidence)
+                entry = None
+                message = "ROM não localizada nas fontes"
+            result.evidence.append(ScanEvidence(
+                str(row["machine_name"]), name, status, size, entry.size if entry else None,
+                crc, entry.crc32 if entry else "", sha1, "", md5, "",
+                str(entry.path) if entry else None,
+                str(entry.path) if entry and entry.member else None,
+                entry.member if entry else None, row.get("merge"), optional, message,
+            ))
             result.status_counts[status] += 1
             if index == 1 or index % 5000 == 0 or index == len(catalog):
-                self._log("INFO", f"MATCH | progresso={index:,}/{len(catalog):,} | CURRENT={result.status_counts['CURRENT']:,} | MISSING={result.status_counts['MISSING']:,} | DUPLICATE={result.status_counts['DUPLICATE']:,}")
-        self._log("INFO", f"MATCH | MAME | concluído | correspondentes={matched:,} | faltantes={result.status_counts['MISSING']:,}")
+                self._log("INFO", f"MATCH | progresso={index:,}/{len(catalog):,} | CURRENT={result.status_counts['CURRENT']:,} | WRONG={result.status_counts['WRONG']:,} | MISSING={result.status_counts['MISSING']:,} | DUPLICATE={result.status_counts['DUPLICATE']:,}")
+        self._log("INFO", f"MATCH | MAME | concluído | correspondentes={matched:,} | faltantes={result.status_counts['MISSING']:,} | erradas={result.status_counts['WRONG']:,}")
 
     @staticmethod
     def _crc32(path: Path) -> str:
