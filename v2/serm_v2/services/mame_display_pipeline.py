@@ -485,7 +485,8 @@ class MameDisplayPipeline:
             match = re.match(r"^\[([^]]+)\]$", line)
             if match:
                 section = match.group(1).strip()
-                result.setdefault(section, {})
+                section_key: str = str(section)
+                result.setdefault(section_key, {})
                 continue
             parts = line.split("=", 1) if "=" in line else line.split(None, 1)
             if len(parts) == 2:
