@@ -70,14 +70,18 @@ class ReconstructionService:
     def plan(cls, filter_path: str | Path, destination: str | Path) -> ReconstructionPlan:
         payload = cls.load_filter(filter_path)
         dest = Path(destination).expanduser().resolve()
+        is_mame = str(payload.get("source", "")).casefold() == "mame"
         set_type = cls._mame_set_type(payload)
-        if str(payload.get("source", "")).casefold() == "mame":
+
+        if is_mame:
             grouped, loose = cls._group_mame_evidence(payload["evidence"], set_type)
         else:
             grouped, loose = cls._group_evidence(payload["evidence"])
 
         items, archive_count, seen_outputs = cls._plan_archive_items(grouped, dest)
-        loose_items, loose_count, chd_count = cls._plan_loose_items(loose, dest, seen_outputs)
+        loose_items, loose_count, chd_count = cls._plan_loose_items(
+            loose, dest, seen_outputs, set_type if is_mame else "standard"
+        )
         items.extend(loose_items)
         return ReconstructionPlan(
             filter_run_id=str(payload.get("filter_run_id") or ""),
@@ -128,7 +132,11 @@ class ReconstructionService:
     def _group_mame_evidence(
         cls, evidence: list, set_type: str
     ) -> tuple[OrderedDict[str, list[dict]], list[dict]]:
-        """Agrupa evidências MAME para Split, Non-Merged e Full-Merged."""
+        """Agrupa ROMs MAME segundo Split, Non-Merged e Full-Merged.
+
+        CHDs permanecem fora dos ZIPs: o MAME procura esses discos no diretório
+        da machine. Eles são tratados depois, preservando essa estrutura.
+        """
         machine_entries: dict[str, list[dict]] = {}
         machine_parent: dict[str, str] = {}
         loose: list[dict] = []
@@ -140,6 +148,7 @@ class ReconstructionService:
             member = str(entry.get("archive_member") or "").strip()
             path = str(entry.get("path") or "").strip()
             machine = str(entry.get("machine_name") or "").strip()
+
             if archive and member:
                 machine_entries.setdefault(machine, []).append(entry)
                 cloneof = str(entry.get("cloneof") or "").strip()
@@ -167,7 +176,6 @@ class ReconstructionService:
         grouped: OrderedDict[str, list[dict]] = OrderedDict()
         for machine, entries in machine_entries.items():
             if not machine:
-                # Não inventa um nome de set quando o snapshot não possui machine_name.
                 for entry in entries:
                     grouped.setdefault(str(entry.get("archive_path")), []).append(entry)
                 continue
@@ -175,19 +183,14 @@ class ReconstructionService:
             if set_type == "split":
                 target = machine
                 grouped.setdefault(cls.MAME_TARGET_PREFIX + target, []).extend(entries)
-                continue
-
-            if set_type == "full_merged":
+            elif set_type == "full_merged":
                 target = root_parent(machine)
                 grouped.setdefault(cls.MAME_TARGET_PREFIX + target, []).extend(entries)
-                continue
-
-            # Non-Merged: cada máquina recebe os próprios membros e todos os
-            # membros necessários dos parents acima dela.
-            target = machine
-            output_entries = grouped.setdefault(cls.MAME_TARGET_PREFIX + target, [])
-            for chain_machine in chain_to_parent(machine):
-                output_entries.extend(machine_entries.get(chain_machine, []))
+            else:
+                target = machine
+                output_entries = grouped.setdefault(cls.MAME_TARGET_PREFIX + target, [])
+                for chain_machine in chain_to_parent(machine):
+                    output_entries.extend(machine_entries.get(chain_machine, []))
 
         return grouped, loose
 
@@ -222,8 +225,12 @@ class ReconstructionService:
 
     @staticmethod
     def _plan_loose_items(
-        loose: list[dict], dest: Path, used_outputs: set[str]
+        loose: list[dict],
+        dest: Path,
+        used_outputs: set[str],
+        set_type: str,
     ) -> tuple[list[ReconstructionItem], int, int]:
+        """Planeja CHDs mantendo o layout <machine>\\<disk>.chd do MAME."""
         items: list[ReconstructionItem] = []
         loose_count = 0
         chd_count = 0
@@ -232,13 +239,22 @@ class ReconstructionService:
             if not src_text:
                 continue
             src = Path(src_text).expanduser()
-            output = dest / src.name
+            is_chd = src.suffix.casefold() == ".chd"
+            machine = str(entry.get("machine_name") or "").strip()
+
+            if is_chd and machine and set_type in {"split", "non_merged", "full_merged"}:
+                # Para Full-Merged, o CHD continua associado à machine de origem.
+                # Para Split/Non-Merged, a machine também é o diretório do set.
+                output = dest / machine / src.name
+            else:
+                output = dest / src.name
+
             key = str(output).casefold()
             if key in used_outputs:
                 continue
             used_outputs.add(key)
-            kind = "chd" if src.suffix.casefold() == ".chd" else "loose"
-            if kind == "chd":
+            kind = "chd" if is_chd else "loose"
+            if is_chd:
                 chd_count += 1
             else:
                 loose_count += 1
