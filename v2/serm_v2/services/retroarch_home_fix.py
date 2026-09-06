@@ -1,7 +1,9 @@
 """Correções de compatibilidade para a Home do RetroArch.
 
 O Buildbot informa no ``.index-extended`` o CRC do pacote ZIP do core.
-Esse CRC não corresponde ao CRC da DLL depois de descompactada.
+O índice pode ficar temporariamente divergente do artefato publicado; por isso
+validamos a integridade real do ZIP antes da instalação e tratamos o CRC do
+índice como aviso quando houver divergência.
 """
 
 from __future__ import annotations
@@ -24,7 +26,7 @@ def _install_core(
     progress=None,
     log=None,
 ) -> Path:
-    """Baixa um core e valida o CRC do ZIP publicado pelo Buildbot."""
+    """Baixa e instala um core Nightly com validação estrutural do ZIP."""
     if channel.casefold() != "nightly":
         raise RuntimeError(
             "O Buildbot Stable não publica cores individuais. "
@@ -57,11 +59,13 @@ def _install_core(
         actual_crc = self._crc32(archive)
         if remote is None:
             raise RuntimeError(f"Core não encontrado no índice Nightly: {filename}")
-        if remote.crc32 != actual_crc:
-            raise RuntimeError(
-                f"CRC32 do pacote inválido para {filename}: "
-                f"recebido={actual_crc}, esperado={remote.crc32}"
-            )
+        if remote.crc32 and remote.crc32 != actual_crc:
+            if log:
+                log(
+                    f"AVISO | CRC32 do índice divergente para {filename}: "
+                    f"recebido={actual_crc}, índice={remote.crc32}; "
+                    "prosseguindo com validação estrutural do ZIP"
+                )
 
         with zipfile.ZipFile(archive) as package:
             bad = package.testzip()
@@ -134,7 +138,6 @@ def _install_frontend(
             log(f"DOWNLOAD | {url}")
         self._download_file(url, archive, progress, log)
 
-        # Reutiliza a rotina comum que suporta ZIP e 7z e procura o 7-Zip instalado.
         EmulatorManager._extract(archive, extracted, log)
         if not any(path.is_file() for path in extracted.rglob("retroarch.exe")):
             raise RuntimeError(
@@ -156,7 +159,7 @@ def _install_frontend(
 
 
 def _patch_gui() -> None:
-    """Remove o seletor visual de canal da Home e deixa Stable/Nightly nos botões."""
+    """Oculta o seletor visual de canal sem destruir os widgets Qt."""
     from PySide6.QtWidgets import QGroupBox
 
     from ..gui.emulator_home import EmulatorHomePage
@@ -169,8 +172,8 @@ def _patch_gui() -> None:
         page = original_tab(self)
         for child in page.findChildren(QGroupBox):
             if child.title() == "Canal de distribuição":
-                child.setParent(None)
-                child.deleteLater()
+                child.setVisible(False)
+                child.setEnabled(False)
         return page
 
     retroarch_tab_without_channel._serm_distribution_channel_removed = True
