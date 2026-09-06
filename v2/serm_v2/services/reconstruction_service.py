@@ -1,21 +1,15 @@
-"""Planejamento e execução da fase 3 do pipeline SERM.
-
-A reconstrução consome exclusivamente um arquivo SERM-FILTER-V1. Nenhum DAT,
-catálogo ou novo scan é consultado. Evidências arquivadas são reconstruídas em
-arquivos ZIP quando possível; arquivos soltos e imagens como CHD são copiados.
-"""
+"""Planejamento e execução da fase 3 do pipeline SERM."""
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import tempfile
 import zipfile
 from collections import OrderedDict
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable
-
-from .reconstruction_archive_service import ReconstructionArchiveError, ReconstructionArchiveService
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,8 +45,6 @@ class ReconstructionError(RuntimeError):
 
 
 class ReconstructionService:
-    """Converte um filtered snapshot em um conjunto físico no destino."""
-
     FILTER_FORMAT = "SERM-FILTER-V1"
 
     @classmethod
@@ -77,6 +69,8 @@ class ReconstructionService:
         grouped: OrderedDict[str, list[dict]] = OrderedDict()
         loose: list[dict] = []
         for evidence in payload["evidence"]:
+            if not isinstance(evidence, dict):
+                continue
             archive = str(evidence.get("archive_path") or "").strip()
             path = str(evidence.get("path") or "").strip()
             member = str(evidence.get("archive_member") or "").strip() or None
@@ -89,26 +83,29 @@ class ReconstructionService:
                 loose.append(evidence)
 
         items: list[ReconstructionItem] = []
+        seen_archive_outputs: set[str] = set()
         archive_count = 0
-        chd_count = 0
         for source, entries in grouped.items():
             src = Path(source)
             output = dest / src.name
+            output_key = str(output).casefold()
+            if output_key in seen_archive_outputs:
+                continue
+            seen_archive_outputs.add(output_key)
             archive_count += 1
             for entry in entries:
                 member = str(entry.get("archive_member") or "").replace("\\", "/")
                 items.append(ReconstructionItem(str(src), member, str(output), "archive"))
 
         loose_count = 0
-        used_outputs: set[str] = set()
+        chd_count = 0
+        used_outputs = set(seen_archive_outputs)
         for entry in loose:
-            src = Path(str(entry.get("path") or "")).expanduser()
-            if not src:
+            src_text = str(entry.get("path") or "").strip()
+            if not src_text:
                 continue
-            name = src.name
-            output = dest / name
-            # Duplicate physical entries are represented in the scan but only
-            # one copy is necessary in a reconstructed set.
+            src = Path(src_text).expanduser()
+            output = dest / src.name
             key = str(output).casefold()
             if key in used_outputs:
                 continue
@@ -124,23 +121,16 @@ class ReconstructionService:
             filter_run_id=str(payload.get("filter_run_id") or ""),
             scan_id=str(payload.get("scan_id") or ""),
             source_filter_file=str(Path(filter_path).expanduser().resolve()),
-            destination=str(dest),
-            source=str(payload.get("source") or ""),
-            system=str(payload.get("system") or ""),
-            catalog_label=str(payload.get("catalog_label") or ""),
-            scan_type=str(payload.get("scan_type") or "full"),
-            item_count=len(items),
-            archive_count=archive_count,
-            loose_count=loose_count,
-            chd_count=chd_count,
+            destination=str(dest), source=str(payload.get("source") or ""),
+            system=str(payload.get("system") or ""), catalog_label=str(payload.get("catalog_label") or ""),
+            scan_type=str(payload.get("scan_type") or "full"), item_count=len(items),
+            archive_count=archive_count, loose_count=loose_count, chd_count=chd_count,
             items=tuple(items),
         )
 
     @classmethod
     def execute(
-        cls,
-        plan: ReconstructionPlan,
-        *,
+        cls, plan: ReconstructionPlan, *,
         progress_callback: Callable[[int, int], None] | None = None,
         cancel_callback: Callable[[], bool] | None = None,
     ) -> dict:
@@ -148,7 +138,6 @@ class ReconstructionService:
         destination.mkdir(parents=True, exist_ok=True)
         if not plan.items:
             raise ReconstructionError("O plano não contém arquivos físicos para reconstruir.")
-
         archive_groups: OrderedDict[tuple[str, str], list[str]] = OrderedDict()
         loose_items: list[ReconstructionItem] = []
         for item in plan.items:
@@ -156,52 +145,40 @@ class ReconstructionService:
                 archive_groups.setdefault((item.source_path, item.output_path), []).append(item.archive_member or "")
             else:
                 loose_items.append(item)
-
         total = len(archive_groups) + len(loose_items)
         done = 0
         created: list[str] = []
         errors: list[str] = []
-
         for (source_text, output_text), members in archive_groups.items():
             if cancel_callback and cancel_callback():
                 raise ReconstructionError("Reconstrução cancelada pelo usuário.")
-            source = Path(source_text)
-            output = Path(output_text)
             try:
-                cls._rebuild_archive(source, output, members)
-                created.append(str(output))
+                cls._rebuild_archive(Path(source_text), Path(output_text), members)
+                created.append(output_text)
             except Exception as exc:  # noqa: BLE001
-                errors.append(f"{source}: {type(exc).__name__}: {exc}")
+                errors.append(f"{source_text}: {type(exc).__name__}: {exc}")
             done += 1
             if progress_callback:
                 progress_callback(done, total)
-
         for item in loose_items:
             if cancel_callback and cancel_callback():
                 raise ReconstructionError("Reconstrução cancelada pelo usuário.")
-            source = Path(item.source_path)
-            output = Path(item.output_path)
             try:
+                source = Path(item.source_path)
+                output = Path(item.output_path)
                 if not source.is_file():
                     raise FileNotFoundError(source)
                 output.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source, output)
                 created.append(str(output))
             except Exception as exc:  # noqa: BLE001
-                errors.append(f"{source}: {type(exc).__name__}: {exc}")
+                errors.append(f"{item.source_path}: {type(exc).__name__}: {exc}")
             done += 1
             if progress_callback:
                 progress_callback(done, total)
-
         if errors:
             raise ReconstructionError("Reconstrução concluída com erros:\n" + "\n".join(errors[:20]))
-        return {
-            "destination": str(destination),
-            "filter_run_id": plan.filter_run_id,
-            "scan_id": plan.scan_id,
-            "created_count": len(created),
-            "created": created,
-        }
+        return {"destination": str(destination), "filter_run_id": plan.filter_run_id, "scan_id": plan.scan_id, "created_count": len(created), "created": created}
 
     @staticmethod
     def _rebuild_archive(source: Path, output: Path, members: list[str]) -> None:
@@ -210,12 +187,12 @@ class ReconstructionService:
         output.parent.mkdir(parents=True, exist_ok=True)
         unique_members = list(dict.fromkeys(members))
         if source.suffix.casefold() != ".zip":
-            # LHA and other containers are not safely rewritten without knowing
-            # their exact archive semantics. Preserve the source container.
             shutil.copy2(source, output)
             return
-        temp = Path(tempfile.mkstemp(prefix="serm-rebuild-", suffix=".zip", dir=output.parent)[1])
-        temp.unlink(missing_ok=True)
+        fd, temp_name = tempfile.mkstemp(prefix="serm-rebuild-", suffix=".zip", dir=output.parent)
+        os.close(fd)
+        Path(temp_name).unlink(missing_ok=True)
+        temp = Path(temp_name)
         try:
             with zipfile.ZipFile(source, "r") as zin, zipfile.ZipFile(temp, "w", compression=zipfile.ZIP_STORED) as zout:
                 names = set(zin.namelist())
