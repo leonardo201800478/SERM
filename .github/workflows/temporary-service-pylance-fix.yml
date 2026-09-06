@@ -24,8 +24,6 @@ jobs:
                   raise SystemExit(f"pattern not found: {path}: {old!r}")
               p.write_text(text.replace(old, new), encoding="utf-8")
 
-          # Scan GUI: use the concrete tab type returned by this page instead
-          # of relying on QWidget dynamic attribute lookup.
           replace("v2/serm_v2/gui/scan_phase_page.py",
               '    def _completed(self, result: object) -> None:\n',
               '    def _completed(self, result: Any) -> None:\n')
@@ -37,8 +35,6 @@ jobs:
               '        for index in range(self.tabs.count()):\n            widget = self.tabs.widget(index)\n            if isinstance(widget, _SystemScanTab):\n                widget.refresh()\n')
           replace("v2/serm_v2/gui/scan_phase_page.py", 'from typing import Any, cast\n', 'from typing import Any\n')
 
-          # SQLite cursor.lastrowid is Optional[int] in typeshed. A successful
-          # INSERT must produce a row id; fail explicitly otherwise.
           def fix_lastrowid(path, variables):
               p = Path(path)
               text = p.read_text(encoding="utf-8")
@@ -75,25 +71,19 @@ jobs:
           replace("v2/serm_v2/services/mame_catalog_normalizer.py",
               '        totals = {\n',
               '        totals: dict[str, int | float] = {\n')
-
           replace("v2/serm_v2/services/mame_catalog_service.py",
               '            results.append((name, service.ingest(logger=self._log)))\n',
               '            results.append((name, dict(service.ingest(logger=self._log))))\n')
-
           replace("v2/serm_v2/services/whloader_data_service.py",
               '                hardware = game.get("hardware") if isinstance(game.get("hardware"), dict) else {}\n',
               '                hardware_value = game.get("hardware")\n                hardware: dict[str, Any] = (\n                    hardware_value if isinstance(hardware_value, dict) else {}\n                )\n')
-
           replace("v2/serm_v2/services/mame_display_resolver.py",
               '            result.append(\n                ExternalDisplayFact(\n                    machine, width, height, refresh, orientation, ax, ay, raw, payload.get("line")\n                )\n            )\n',
               '            line_value = payload.get("line")\n            line_number = line_value if isinstance(line_value, int) else None\n            result.append(\n                ExternalDisplayFact(\n                    machine, width, height, refresh, orientation, ax, ay, raw, line_number\n                )\n            )\n')
-
           replace("v2/serm_v2/services/emulator_manager.py",
               '                progress and progress(received, total)\n',
               '                if progress:\n                    progress(received, total)\n')
 
-          # The resilient scanner intentionally extends the base hashing hooks
-          # because those hooks need instance state for cooperative checkpoints.
           replace("v2/serm_v2/services/rom_scan_service.py",
               '    @staticmethod\n    def _hash_stream(stream) -> tuple[int, str, str]:\n',
               '    def _hash_stream(self, stream) -> tuple[int, str, str]:\n')
@@ -106,16 +96,11 @@ jobs:
           replace("v2/serm_v2/services/rom_scan_service.py",
               '    @staticmethod\n    def _sha1(path: Path) -> str:\n',
               '    def _sha1(self, path: Path) -> str:\n')
-          replace("v2/serm_v2/services/rom_scan_service.py",
-              '                chunk = stream.read(RomScanService.CHUNK_SIZE)\n',
-              '                chunk = stream.read(self.CHUNK_SIZE)\n')
 
           replace("v2/serm_v2/services/mame_display_pipeline.py",
               '                result.setdefault(section or "__global__", {})[parts[0].strip()] = parts[1].strip()\n',
               '                key = section or "__global__"\n                result.setdefault(key, {})[parts[0].strip()] = parts[1].strip()\n')
 
-          # Filter profile editor: the splitter is optional only before UI
-          # construction; use a local concrete instance while building it.
           replace("v2/serm_v2/gui/filter_profiles_page.py",
               '        self._editor_splitter = QSplitter(Qt.Orientation.Vertical)\n        source_box = self._source_box()\n',
               '        editor_splitter = QSplitter(Qt.Orientation.Vertical)\n        self._editor_splitter = editor_splitter\n        source_box = self._source_box()\n')
@@ -126,7 +111,6 @@ jobs:
               '            try:\n                return int(value)\n            except (TypeError, ValueError):\n                return 0\n',
               '            if isinstance(value, bool):\n                return int(value)\n            if isinstance(value, (int, float)):\n                return int(value)\n            if isinstance(value, str):\n                try:\n                    return int(value)\n                except ValueError:\n                    return 0\n            return 0\n')
 
-          # LaunchBox tests: narrow the optional executable at each use site.
           replace("v2/tests/test_launchbox_provider.py",
               '    metadata = integration.executable.parent / "Metadata"\n',
               '    executable = integration.executable\n    assert executable is not None\n    metadata = executable.parent / "Metadata"\n')
