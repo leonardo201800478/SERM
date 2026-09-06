@@ -1,18 +1,17 @@
 """Correções de compatibilidade para a Home do RetroArch.
 
-Mantém a lógica de download isolada do layout legado enquanto a Home V2 é
-simplificada. O Buildbot informa o CRC do arquivo ZIP no ``.index-extended``;
-não é o CRC da DLL descompactada.
+O Buildbot informa no ``.index-extended`` o CRC do pacote ZIP do core.
+Esse CRC não corresponde ao CRC da DLL depois de descompactada.
 """
 
 from __future__ import annotations
 
 import shutil
-import subprocess
 import tempfile
+import zipfile
 from pathlib import Path
 
-from ..services.emulator_manager import DownloadResult, EmulatorManager, RetroArchManager
+from .emulator_manager import DownloadResult, EmulatorManager, RetroArchManager
 
 
 def _install_core(
@@ -40,8 +39,6 @@ def _install_core(
     destination.mkdir(parents=True, exist_ok=True)
     temp_dir = Path(tempfile.mkdtemp(prefix="serm-core-"))
     archive = temp_dir / filename
-    target: Path | None = None
-    actual_crc = ""
 
     try:
         url = f"{self.NIGHTLY_ROOT}{filename}"
@@ -66,14 +63,13 @@ def _install_core(
                 f"recebido={actual_crc}, esperado={remote.crc32}"
             )
 
-        import zipfile
-
         with zipfile.ZipFile(archive) as package:
             bad = package.testzip()
             if bad:
                 raise RuntimeError(f"ZIP corrompido do core: {bad}")
             dll_names = [
-                name for name in package.namelist()
+                name
+                for name in package.namelist()
                 if name.casefold().endswith("_libretro.dll")
             ]
             if not dll_names:
@@ -87,8 +83,6 @@ def _install_core(
         temp_dll = target.with_suffix(target.suffix + ".tmp")
         temp_dll.write_bytes(data)
         try:
-            if self._crc32(temp_dll) == "":
-                raise RuntimeError("Falha ao validar DLL extraída.")
             temp_dll.replace(target)
         finally:
             temp_dll.unlink(missing_ok=True)
@@ -133,13 +127,19 @@ def _install_frontend(
 
     try:
         if log:
-            log(f"RETROARCH | canal={channel} | versão={version_label} | arquivo={archive_name}")
+            log(
+                f"RETROARCH | canal={channel} | versão={version_label} | "
+                f"arquivo={archive_name}"
+            )
             log(f"DOWNLOAD | {url}")
         self._download_file(url, archive, progress, log)
 
-        # A rotina comum do EmulatorManager já trata ZIP e 7z e encontra 7-Zip.
+        # Reutiliza a rotina comum que suporta ZIP e 7z e procura o 7-Zip instalado.
         EmulatorManager._extract(archive, extracted, log)
-        self._validate_frontend_tree(extracted)
+        if not any(path.is_file() for path in extracted.rglob("retroarch.exe")):
+            raise RuntimeError(
+                "O pacote RetroArch foi baixado, mas a descompactação não produziu retroarch.exe."
+            )
         EmulatorManager._merge(extracted, destination)
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
@@ -155,29 +155,19 @@ def _install_frontend(
     return DownloadResult("retroarch", version_label, executable, archive_name)
 
 
-def _validate_frontend_tree(self: RetroArchManager, extracted: Path) -> None:
-    """Garante que a extração realmente produziu um pacote RetroArch utilizável."""
-    if not any(path.is_file() for path in extracted.rglob("retroarch.exe")):
-        raise RuntimeError(
-            "O pacote RetroArch foi baixado, mas a descompactação não produziu retroarch.exe."
-        )
-
-
-_original_load_paths = None
-
-
 def _patch_gui() -> None:
     """Remove o seletor visual de canal da Home e deixa Stable/Nightly nos botões."""
+    from PySide6.QtWidgets import QGroupBox
+
     from ..gui.emulator_home import EmulatorHomePage
 
     original_tab = EmulatorHomePage._retroarch_tab
-
     if getattr(original_tab, "_serm_distribution_channel_removed", False):
         return
 
     def retroarch_tab_without_channel(self):
         page = original_tab(self)
-        for child in page.findChildren(__import__("PySide6.QtWidgets", fromlist=["QGroupBox"]).QGroupBox):
+        for child in page.findChildren(QGroupBox):
             if child.title() == "Canal de distribuição":
                 child.setParent(None)
                 child.deleteLater()
