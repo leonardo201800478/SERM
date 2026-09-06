@@ -1,0 +1,137 @@
+name: Temporary Service Pylance Fix
+
+on:
+  push:
+    paths:
+      - .github/workflows/temporary-service-pylance-fix.yml
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply typed service fixes
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding="utf-8")
+              if old not in text:
+                  raise SystemExit(f"pattern not found: {path}: {old!r}")
+              p.write_text(text.replace(old, new), encoding="utf-8")
+
+          # GUI: make the QThread result and tab types explicit instead of
+          # relying on QWidget/object narrowing that Pylance cannot prove.
+          replace("v2/serm_v2/gui/scan_phase_page.py",
+              '    def _completed(self, result: object) -> None:\n',
+              '    def _completed(self, result: Any) -> None:\n')
+          replace("v2/serm_v2/gui/scan_phase_page.py",
+              '        completed_result = cast(Any, result)\n        path = ScanRepository(database_path()).raw_file(completed_result.scan_id)\n',
+              '        path = ScanRepository(database_path()).raw_file(result.scan_id)\n')
+          replace("v2/serm_v2/gui/scan_phase_page.py",
+              '        for index in range(self.tabs.count()):\n            widget = self.tabs.widget(index)\n            refresh = getattr(widget, "refresh", None) if widget is not None else None\n            if callable(refresh):\n                refresh()\n',
+              '        for index in range(self.tabs.count()):\n            widget = self.tabs.widget(index)\n            if isinstance(widget, _SystemScanTab):\n                widget.refresh()\n')
+          replace("v2/serm_v2/gui/scan_phase_page.py", 'from typing import Any, cast\n', 'from typing import Any\n')
+
+          # SQLite cursor.lastrowid is Optional[int] in typeshed. A successful
+          # INSERT must produce a row id; fail explicitly if the driver does not.
+          def fix_lastrowid(path, variables):
+              p = Path(path)
+              text = p.read_text(encoding="utf-8")
+              for variable in variables:
+                  old = f'int({variable}.lastrowid)'
+                  new = f'_require_rowid({variable}.lastrowid)'
+                  text = text.replace(old, new)
+              p.write_text(text, encoding="utf-8")
+
+          for path in [
+              "v2/serm_v2/services/mame_catalog_normalizer.py",
+              "v2/serm_v2/services/mame_catalog_service.py",
+              "v2/serm_v2/services/mame_classification_service.py",
+              "v2/serm_v2/services/mame_display_pipeline.py",
+              "v2/serm_v2/services/mame_display_catalog.py",
+              "v2/serm_v2/services/mame_display_resolver.py",
+              "v2/serm_v2/services/mame_resolution_service.py",
+              "v2/serm_v2/services/mame_vsync_service.py",
+              "v2/serm_v2/services/whloader_data_service.py",
+          ]:
+              fix_lastrowid(path, ["cur", "cursor", "row", "import_row"])
+
+          # Add one small, typed helper to each module that uses lastrowid.
+          helper = '''\n\ndef _require_rowid(value: int | None) -> int:\n    """Retorna um rowid garantidamente válido após um INSERT."""\n    if value is None:\n        raise RuntimeError("SQLite não retornou lastrowid após INSERT.")\n    return value\n'''
+          files = [
+              "v2/serm_v2/services/mame_catalog_normalizer.py",
+              "v2/serm_v2/services/mame_catalog_service.py",
+              "v2/serm_v2/services/mame_classification_service.py",
+              "v2/serm_v2/services/mame_display_pipeline.py",
+              "v2/serm_v2/services/mame_display_catalog.py",
+              "v2/serm_v2/services/mame_display_resolver.py",
+              "v2/serm_v2/services/mame_resolution_service.py",
+              "v2/serm_v2/services/mame_vsync_service.py",
+              "v2/serm_v2/services/whloader_data_service.py",
+          ]
+          for path in files:
+              p = Path(path)
+              text = p.read_text(encoding="utf-8")
+              if "def _require_rowid(" not in text:
+                  marker = "\n\n__all__ ="
+                  if marker in text:
+                      text = text.replace(marker, helper + marker, 1)
+                  else:
+                      text += helper
+              p.write_text(text, encoding="utf-8")
+
+          # Normalizer: make the heterogeneous numeric totals explicit.
+          replace("v2/serm_v2/services/mame_catalog_normalizer.py",
+              '        totals = {\n',
+              '        totals: dict[str, int | float] = {\n')
+
+          # Catalog service: normalize heterogeneous result dictionaries before
+          # appending to a dict[str, object] collection.
+          replace("v2/serm_v2/services/mame_catalog_service.py",
+              '            results.append((name, service.ingest(logger=self._log)))\n',
+              '            results.append((name, dict(service.ingest(logger=self._log))))\n')
+
+          # WHDLoad: force hardware to a known dictionary after runtime validation.
+          replace("v2/serm_v2/services/whloader_data_service.py",
+              '                hardware = game.get("hardware") if isinstance(game.get("hardware"), dict) else {}\n',
+              '                hardware_value = game.get("hardware")\n                hardware: dict[str, Any] = (\n                    hardware_value if isinstance(hardware_value, dict) else {}\n                )\n')
+
+          # Display resolver: payload line metadata is dynamically typed JSON.
+          replace("v2/serm_v2/services/mame_display_resolver.py",
+              '            result.append(\n                ExternalDisplayFact(\n                    machine, width, height, refresh, orientation, ax, ay, raw, payload.get("line")\n                )\n            )\n',
+              '            line_value = payload.get("line")\n            line_number = line_value if isinstance(line_value, int) else None\n            result.append(\n                ExternalDisplayFact(\n                    machine, width, height, refresh, orientation, ax, ay, raw, line_number\n                )\n            )\n')
+
+          # Emulator manager: do not leave a boolean callback expression as a
+          # standalone statement; it is control flow, not a value.
+          replace("v2/serm_v2/services/emulator_manager.py",
+              '                progress and progress(received, total)\n',
+              '                if progress:\n                    progress(received, total)\n')
+
+          # LaunchBox tests: prove the optional executable exists before using parent.
+          p = Path("v2/tests/test_launchbox_provider.py")
+          text = p.read_text(encoding="utf-8")
+          text = text.replace(
+              '    integration._save()\n    return integration\n',
+              '    integration._save()\n    assert integration.executable is not None\n    return integration\n')
+          p.write_text(text, encoding="utf-8")
+
+      - name: Validate syntax
+        run: python -m compileall -q v2/serm_v2 v2/tests
+      - name: Install pyright
+        run: python -m pip install pyright
+      - name: Validate Pylance-compatible types
+        run: pyright v2/serm_v2 v2/tests
+      - name: Commit changes
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add v2/serm_v2 v2/tests
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "fix(v2): corrigir tipagem dos services e scan [skip ci]"
+          git push
