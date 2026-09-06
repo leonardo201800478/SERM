@@ -5,17 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from PySide6.QtWidgets import (
-    QFileDialog,
-    QFormLayout,
-    QGroupBox,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QPushButton,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QVBoxLayout, QWidget
 
 from ..integrations.launchbox import LaunchBoxIntegration
 from ..runtime.paths import integrations_root
@@ -43,9 +33,12 @@ class ToolsDirectoriesPage(QWidget):
         self.launchbox_edit.setReadOnly(True)
         browse = QPushButton("Selecionar LaunchBox.exe")
         browse.clicked.connect(self.select_launchbox)
+        launch = QPushButton("Abrir LaunchBox")
+        launch.clicked.connect(self.launch_launchbox)
         row = QHBoxLayout()
         row.addWidget(self.launchbox_edit, 1)
         row.addWidget(browse)
+        row.addWidget(launch)
         form.addRow("Executável:", row)
         self.launchbox_status = QLabel()
         form.addRow("Status:", self.launchbox_status)
@@ -81,12 +74,13 @@ class ToolsDirectoriesPage(QWidget):
         if not self.CONFIG_PATH.is_file():
             return {}
         try:
-            return json.loads(self.CONFIG_PATH.read_text(encoding="utf-8"))
+            data = json.loads(self.CONFIG_PATH.read_text(encoding="utf-8"))
         except (OSError, ValueError, TypeError):
             return {}
+        return data if isinstance(data, dict) else {}
 
     def refresh(self) -> None:
-        """Atualiza descoberta local sem alterar configurações do usuário."""
+        """Atualiza descoberta local sem apagar uma configuração válida."""
         configured = self._load_tools()
         launchbox = self.launchbox.discover()
         launchbox_path = str(launchbox or configured.get("launchbox") or "")
@@ -95,25 +89,45 @@ class ToolsDirectoriesPage(QWidget):
         self.launchbox_status.setText("● Encontrado" if launchbox_found else "● Não encontrado")
 
         sevenzip = configured.get("sevenzip")
-        detected = (
-            Path(sevenzip) if sevenzip and Path(sevenzip).is_file() else EmulatorManager.find_7zip()
-        )
+        detected = Path(sevenzip) if sevenzip and Path(sevenzip).is_file() else EmulatorManager.find_7zip()
         self.sevenzip_edit.setText(str(detected or ""))
-        self.sevenzip_status.setText(
-            "● Encontrado" if detected and Path(detected).is_file() else "● Não encontrado"
-        )
+        self.sevenzip_status.setText("● Encontrado" if detected and Path(detected).is_file() else "● Não encontrado")
 
     def select_launchbox(self) -> None:
-        """Seleciona manualmente o executável do LaunchBox e persiste a integração."""
+        """Seleciona manualmente o executável e grava a escolha imediatamente."""
         path, _ = QFileDialog.getOpenFileName(
             self,
             "Selecionar LaunchBox.exe",
-            str(Path.home()),
+            self._initial_launchbox_directory(),
             "LaunchBox (LaunchBox.exe);;Executáveis (*.exe)",
         )
-        if path:
+        if not path:
+            return
+        try:
             self.launchbox.set_executable(Path(path))
-            self.refresh()
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, "LaunchBox", str(exc))
+            return
+        self.refresh()
+
+    def _initial_launchbox_directory(self) -> str:
+        """Escolhe um diretório inicial útil para o diálogo de seleção."""
+        executable = self.launchbox.executable
+        if executable is not None and executable.parent.is_dir():
+            return str(executable.parent)
+        configured = self._load_tools().get("launchbox")
+        if configured:
+            candidate = Path(str(configured))
+            if candidate.parent.is_dir():
+                return str(candidate.parent)
+        return str(Path.home())
+
+    def launch_launchbox(self) -> None:
+        """Abre o LaunchBox configurado e reporta falhas sem encerrar o SERM."""
+        try:
+            self.launchbox.launch()
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, "LaunchBox", str(exc))
 
     def select_7zip(self) -> None:
         """Seleciona manualmente o executável de linha de comando do 7-Zip."""
@@ -133,10 +147,7 @@ class ToolsDirectoriesPage(QWidget):
         payload["launchbox"] = self.launchbox_edit.text().strip() or None
         payload["sevenzip"] = self.sevenzip_edit.text().strip() or None
         self.CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        self.CONFIG_PATH.write_text(
-            json.dumps(payload, indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
+        self.CONFIG_PATH.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
         self.refresh()
 
 
