@@ -1,4 +1,5 @@
 """Filtros e scan do SERM V2."""
+
 from __future__ import annotations
 
 import json
@@ -56,7 +57,9 @@ class FilterProfileData:
     include_prototypes: bool = False
     include_unlicensed: bool = False
     one_game_one_region: bool = True
-    region_priority: list[str] = field(default_factory=lambda: ["Brazil", "America", "Europe", "Japan", "World", "Restante"])
+    region_priority: list[str] = field(
+        default_factory=lambda: ["Brazil", "America", "Europe", "Japan", "World", "Restante"]
+    )
     remove_previous_versions: bool = True
     include_translations: bool = False
     translation_policy: str = "original_then_translation"
@@ -82,7 +85,9 @@ class _ScanWorker(QThread):
     completed = Signal(object)
     failed = Signal(str)
 
-    def __init__(self, profile: FilterProfileData, database_path: Path, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, profile: FilterProfileData, database_path: Path, parent: QWidget | None = None
+    ) -> None:
         super().__init__(parent)
         self.profile = profile
         self.database_path = database_path
@@ -90,7 +95,9 @@ class _ScanWorker(QThread):
 
     def run(self) -> None:
         try:
-            self.service = RomScanService(log_callback=self.log.emit, progress_callback=self.progress.emit)
+            self.service = RomScanService(
+                log_callback=self.log.emit, progress_callback=self.progress.emit
+            )
             result = self.service.scan(self.profile, database=self.database_path)
             ScanRepository(self.database_path).save(result)
             self.completed.emit(result)
@@ -104,6 +111,7 @@ class _ScanWorker(QThread):
 
 class FilterProfilesPage(QWidget):
     """Perfil de filtro/scan; o resultado segue para a reconstrução."""
+
     scan_requested = Signal(object)
     reconstruction_requested = Signal(object)
     REGION_DEFAULT = ("Brazil", "America", "Europe", "Japan", "World", "Restante")
@@ -230,7 +238,12 @@ class FilterProfilesPage(QWidget):
         self.reconstruction_button = QPushButton("ABRIR RECONSTRUÇÃO")
         self.reconstruction_button.setEnabled(False)
         self.reconstruction_button.clicked.connect(self._open_reconstruction)
-        for button in (self.save_button, self.scan_button, self.cancel_button, self.reconstruction_button):
+        for button in (
+            self.save_button,
+            self.scan_button,
+            self.cancel_button,
+            self.reconstruction_button,
+        ):
             buttons.addWidget(button)
         buttons.addStretch()
         scan_layout.addLayout(buttons)
@@ -276,9 +289,16 @@ class FilterProfilesPage(QWidget):
         self.games_only.setChecked(True)
         content.addRow(self.games_only)
         self.content_checks: dict[str, QCheckBox] = {}
-        for key, text in (("bios", "BIOS"), ("educational", "Educational"), ("manuals", "Manuais"),
-                          ("magazines", "Revistas"), ("software", "Software / Applications"),
-                          ("demos", "Demos"), ("prototypes", "Prototypes / Betas"), ("unlicensed", "Unlicensed")):
+        for key, text in (
+            ("bios", "BIOS"),
+            ("educational", "Educational"),
+            ("manuals", "Manuais"),
+            ("magazines", "Revistas"),
+            ("software", "Software / Applications"),
+            ("demos", "Demos"),
+            ("prototypes", "Prototypes / Betas"),
+            ("unlicensed", "Unlicensed"),
+        ):
             check = QCheckBox(text)
             self.content_checks[key] = check
             content.addRow(check)
@@ -304,7 +324,9 @@ class FilterProfilesPage(QWidget):
         self.include_translations = QCheckBox("Permitir traduções catalogadas / DE-PARA")
         trans.addRow(self.include_translations)
         self.translation_policy = QComboBox()
-        self.translation_policy.addItem("Original primeiro; tradução somente se necessário", "original_then_translation")
+        self.translation_policy.addItem(
+            "Original primeiro; tradução somente se necessário", "original_then_translation"
+        )
         self.translation_policy.addItem("Priorizar tradução", "translation_first")
         self.translation_policy.addItem("Somente tradução", "translation_only")
         trans.addRow("Política:", self.translation_policy)
@@ -321,7 +343,13 @@ class FilterProfilesPage(QWidget):
         self.convert_cue_bin.setChecked(True)
         self.keep_cue_bin = QCheckBox("Manter CUE/BIN original")
         self.keep_cue_bin.setChecked(True)
-        for widget in (self.include_chd, self.prefer_chd, self.allow_cue_bin, self.convert_cue_bin, self.keep_cue_bin):
+        for widget in (
+            self.include_chd,
+            self.prefer_chd,
+            self.allow_cue_bin,
+            self.convert_cue_bin,
+            self.keep_cue_bin,
+        ):
             redump.addRow(widget)
         self.filter_layout.addWidget(self.redump_box)
         self.wh_box = QGroupBox("WHLoader")
@@ -350,7 +378,13 @@ class FilterProfilesPage(QWidget):
         self.mame_optional = QCheckBox("Incluir ROMs opcionais")
         self.mame_optional.setChecked(True)
         self.mame_working = QCheckBox("Somente máquinas marcadas como working")
-        for widget in (self.mame_bios, self.mame_devices, self.mame_chd, self.mame_optional, self.mame_working):
+        for widget in (
+            self.mame_bios,
+            self.mame_devices,
+            self.mame_chd,
+            self.mame_optional,
+            self.mame_working,
+        ):
             layout.addRow(widget)
         self.mame_classification = QComboBox()
         self.mame_classification.addItem("catlist.ini — prioridade", "catlist")
@@ -359,14 +393,33 @@ class FilterProfilesPage(QWidget):
         self.filter_layout.addWidget(self.mame_box)
 
     def _connect_filter_estimate_signals(self) -> None:
-        widgets = [self.games_only, self.recursive, self.one_game_one_region, self.remove_previous,
-                    self.include_translations, self.include_chd, self.prefer_chd, self.allow_cue_bin,
-                    self.convert_cue_bin, self.keep_cue_bin, self.wh_games_only, self.mame_bios,
-                    self.mame_devices, self.mame_chd, self.mame_optional, self.mame_working]
+        widgets = [
+            self.games_only,
+            self.recursive,
+            self.one_game_one_region,
+            self.remove_previous,
+            self.include_translations,
+            self.include_chd,
+            self.prefer_chd,
+            self.allow_cue_bin,
+            self.convert_cue_bin,
+            self.keep_cue_bin,
+            self.wh_games_only,
+            self.mame_bios,
+            self.mame_devices,
+            self.mame_chd,
+            self.mame_optional,
+            self.mame_working,
+        ]
         widgets.extend(self.content_checks.values())
         for widget in widgets:
             widget.toggled.connect(self._schedule_catalog_estimate)
-        for combo in (self.translation_policy, self.mame_set_type, self.mame_clone_policy, self.mame_classification):
+        for combo in (
+            self.translation_policy,
+            self.mame_set_type,
+            self.mame_clone_policy,
+            self.mame_classification,
+        ):
             combo.currentIndexChanged.connect(self._schedule_catalog_estimate)
         self.region_list.model().rowsMoved.connect(self._schedule_catalog_estimate)
         self.region_list.model().rowsInserted.connect(self._schedule_catalog_estimate)
@@ -390,13 +443,17 @@ class FilterProfilesPage(QWidget):
                     raw = Path(dat_path).read_text(encoding="utf-8", errors="ignore")
                     games = raw.lower().count("<game ")
                     self.catalog_estimate.setText(f"CATÁLOGO: {games:,} entradas")
-                    self.catalog_estimate_detail.setText("Estimativa instantânea do DAT. Filtros específicos serão aplicados pelo scanner do sistema.")
+                    self.catalog_estimate_detail.setText(
+                        "Estimativa instantânea do DAT. Filtros específicos serão aplicados pelo scanner do sistema."
+                    )
                 except OSError as exc:
                     self.catalog_estimate.setText("CATÁLOGO: indisponível")
                     self.catalog_estimate_detail.setText(f"Não foi possível ler o DAT: {exc}")
             else:
                 self.catalog_estimate.setText("CATÁLOGO: aguardando DAT")
-                self.catalog_estimate_detail.setText("Baixe/importе o catálogo para habilitar a estimativa.")
+                self.catalog_estimate_detail.setText(
+                    "Baixe/importе o catálogo para habilitar a estimativa."
+                )
             return
         profile = self._current_profile()
         if profile is None:
@@ -407,7 +464,9 @@ class FilterProfilesPage(QWidget):
             self.catalog_estimate.setText("CATÁLOGO MAME: indisponível")
             self.catalog_estimate_detail.setText(f"Erro ao calcular: {error}")
             return
-        self.catalog_estimate.setText(f"ROMs selecionadas: {int(estimate['roms']):,}  •  máquinas: {int(estimate['machines']):,}")
+        self.catalog_estimate.setText(
+            f"ROMs selecionadas: {int(estimate['roms']):,}  •  máquinas: {int(estimate['machines']):,}"
+        )
         details = (
             f"Opcionais: {int(estimate['optional_roms']):,}  •  CHDs/disks: {int(estimate['disks']):,}  •  "
             f"SET: {estimate.get('set_type', 'split')}  •  catálogo total: {int(estimate['catalog_roms']):,} ROMs"
@@ -434,7 +493,9 @@ class FilterProfilesPage(QWidget):
         self._configure_source_controls(source)
         self._refresh_profile_list()
         if self._current_saved_profile:
-            latest = ScanRepository(self._database_path()).latest_for_profile(self._current_saved_profile.profile_id)
+            latest = ScanRepository(self._database_path()).latest_for_profile(
+                self._current_saved_profile.profile_id
+            )
             if latest:
                 self.scan_progress.setText(
                     f"Último scan: {latest['scan_id']} | status={latest['status']} | "
@@ -456,7 +517,15 @@ class FilterProfilesPage(QWidget):
 
     def _new_default_profile(self, source, system, dat_path):
         now = datetime.now(UTC).isoformat()
-        profile = FilterProfileData(source=source, system=system, dat_path=dat_path, profile_id=str(uuid4()), name=f"{source} — {system}", created_at=now, updated_at=now)
+        profile = FilterProfileData(
+            source=source,
+            system=system,
+            dat_path=dat_path,
+            profile_id=str(uuid4()),
+            name=f"{source} — {system}",
+            created_at=now,
+            updated_at=now,
+        )
         if source == "MAME":
             profile.one_game_one_region = False
         if source == "WHLoader":
@@ -479,21 +548,29 @@ class FilterProfilesPage(QWidget):
             self.region_list.addItems(profile.region_priority or list(self.REGION_DEFAULT))
             self.remove_previous.setChecked(profile.remove_previous_versions)
             self.include_translations.setChecked(profile.include_translations)
-            self.translation_policy.setCurrentIndex(max(0, self.translation_policy.findData(profile.translation_policy)))
+            self.translation_policy.setCurrentIndex(
+                max(0, self.translation_policy.findData(profile.translation_policy))
+            )
             self.include_chd.setChecked(profile.include_chd)
             self.prefer_chd.setChecked(profile.prefer_chd)
             self.allow_cue_bin.setChecked(profile.allow_cue_bin)
             self.convert_cue_bin.setChecked(profile.convert_cue_bin_to_chd)
             self.keep_cue_bin.setChecked(profile.keep_cue_bin)
             self.wh_games_only.setChecked(profile.whloader_games_only)
-            self.mame_set_type.setCurrentIndex(max(0, self.mame_set_type.findData(profile.mame_set_type)))
-            self.mame_clone_policy.setCurrentIndex(max(0, self.mame_clone_policy.findData(profile.mame_clone_policy)))
+            self.mame_set_type.setCurrentIndex(
+                max(0, self.mame_set_type.findData(profile.mame_set_type))
+            )
+            self.mame_clone_policy.setCurrentIndex(
+                max(0, self.mame_clone_policy.findData(profile.mame_clone_policy))
+            )
             self.mame_bios.setChecked(profile.mame_include_bios)
             self.mame_devices.setChecked(profile.mame_include_devices)
             self.mame_chd.setChecked(profile.mame_include_chd)
             self.mame_optional.setChecked(profile.mame_include_optional)
             self.mame_working.setChecked(profile.mame_working_only)
-            self.mame_classification.setCurrentIndex(max(0, self.mame_classification.findData(profile.mame_classification_source)))
+            self.mame_classification.setCurrentIndex(
+                max(0, self.mame_classification.findData(profile.mame_classification_source))
+            )
             self.scan_progress.setText(f"Perfil: {profile.name} | ID={profile.profile_id}")
         finally:
             self._building = False
@@ -501,7 +578,13 @@ class FilterProfilesPage(QWidget):
     @staticmethod
     def _from_dict(raw):
         try:
-            profile = FilterProfileData(**{key: value for key, value in raw.items() if key in FilterProfileData.__dataclass_fields__})
+            profile = FilterProfileData(
+                **{
+                    key: value
+                    for key, value in raw.items()
+                    if key in FilterProfileData.__dataclass_fields__
+                }
+            )
         except (TypeError, ValueError):
             return None
         if not profile.profile_id:
@@ -519,14 +602,32 @@ class FilterProfilesPage(QWidget):
             raw = json.loads(self._profiles_path.read_text(encoding="utf-8"))
         except (OSError, ValueError, TypeError):
             return []
-        return [profile for item in raw if isinstance(item, dict) and (profile := self._from_dict(item)) is not None] if isinstance(raw, list) else []
+        return (
+            [
+                profile
+                for item in raw
+                if isinstance(item, dict) and (profile := self._from_dict(item)) is not None
+            ]
+            if isinstance(raw, list)
+            else []
+        )
 
     def _write_profiles(self, profiles):
         self._profiles_path.parent.mkdir(parents=True, exist_ok=True)
-        self._profiles_path.write_text(json.dumps([asdict(p) for p in profiles], indent=2, ensure_ascii=False), encoding="utf-8")
+        self._profiles_path.write_text(
+            json.dumps([asdict(p) for p in profiles], indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
 
     def _load_saved_profile(self, source, system, dat_path):
-        return next((p for p in self._read_profiles() if p.source == source and p.system == system and p.dat_path == dat_path), None)
+        return next(
+            (
+                p
+                for p in self._read_profiles()
+                if p.source == source and p.system == system and p.dat_path == dat_path
+            ),
+            None,
+        )
 
     def _refresh_profile_list(self, *_):
         profiles = self._read_profiles()
@@ -535,7 +636,9 @@ class FilterProfilesPage(QWidget):
         for profile in profiles:
             item = QListWidgetItem(f"{profile.name}\n{profile.source} › {profile.system}")
             item.setData(Qt.ItemDataRole.UserRole, profile.profile_id)
-            item.setToolTip(f"ID={profile.profile_id}\nCriado={profile.created_at}\nAtualizado={profile.updated_at}")
+            item.setToolTip(
+                f"ID={profile.profile_id}\nCriado={profile.created_at}\nAtualizado={profile.updated_at}"
+            )
             self.profile_list.addItem(item)
         self.profile_list.blockSignals(False)
 
@@ -551,7 +654,11 @@ class FilterProfilesPage(QWidget):
             candidates = [root] + [root.child(n) for n in range(root.childCount())]
             for item in candidates:
                 data = item.data(0, Qt.ItemDataRole.UserRole)
-                if isinstance(data, (tuple, list)) and tuple(data) == (profile.source, profile.system, profile.dat_path):
+                if isinstance(data, (tuple, list)) and tuple(data) == (
+                    profile.source,
+                    profile.system,
+                    profile.dat_path,
+                ):
                     self.source_tree.setCurrentItem(item)
                     self._current_saved_profile = profile
                     self._load_profile(profile)
@@ -567,7 +674,9 @@ class FilterProfilesPage(QWidget):
     def _new_profile(self) -> None:
         selected = self._selected_item_data()
         if selected is None:
-            QMessageBox.information(self, "Perfil", "Selecione um catálogo antes de criar um novo perfil.")
+            QMessageBox.information(
+                self, "Perfil", "Selecione um catálogo antes de criar um novo perfil."
+            )
             return
         source, system, dat_path = selected
         self._current_saved_profile = None
@@ -622,28 +731,50 @@ class FilterProfilesPage(QWidget):
         source, system, dat_path = selected
         previous = self._current_saved_profile
         now = datetime.now(UTC).isoformat()
-        name = self.profile_name.text().strip() or (previous.name if previous else self._next_profile_name(source, system))
+        name = self.profile_name.text().strip() or (
+            previous.name if previous else self._next_profile_name(source, system)
+        )
         return FilterProfileData(
-            source=source, system=system, dat_path=dat_path,
+            source=source,
+            system=system,
+            dat_path=dat_path,
             profile_id=previous.profile_id if previous else str(uuid4()),
             name=name,
-            created_at=previous.created_at if previous else now, updated_at=now,
-            source_directories=[self.source_list.item(i).text() for i in range(self.source_list.count())],
-            recursive=self.recursive.isChecked(), games_only=self.games_only.isChecked(),
-            include_bios=self.content_checks["bios"].isChecked(), include_educational=self.content_checks["educational"].isChecked(),
-            include_manuals=self.content_checks["manuals"].isChecked(), include_magazines=self.content_checks["magazines"].isChecked(),
-            include_software=self.content_checks["software"].isChecked(), include_demos=self.content_checks["demos"].isChecked(),
-            include_prototypes=self.content_checks["prototypes"].isChecked(), include_unlicensed=self.content_checks["unlicensed"].isChecked(),
+            created_at=previous.created_at if previous else now,
+            updated_at=now,
+            source_directories=[
+                self.source_list.item(i).text() for i in range(self.source_list.count())
+            ],
+            recursive=self.recursive.isChecked(),
+            games_only=self.games_only.isChecked(),
+            include_bios=self.content_checks["bios"].isChecked(),
+            include_educational=self.content_checks["educational"].isChecked(),
+            include_manuals=self.content_checks["manuals"].isChecked(),
+            include_magazines=self.content_checks["magazines"].isChecked(),
+            include_software=self.content_checks["software"].isChecked(),
+            include_demos=self.content_checks["demos"].isChecked(),
+            include_prototypes=self.content_checks["prototypes"].isChecked(),
+            include_unlicensed=self.content_checks["unlicensed"].isChecked(),
             one_game_one_region=self.one_game_one_region.isChecked(),
-            region_priority=[self.region_list.item(i).text() for i in range(self.region_list.count())],
-            remove_previous_versions=self.remove_previous.isChecked(), include_translations=self.include_translations.isChecked(),
-            translation_policy=str(self.translation_policy.currentData()), include_chd=self.include_chd.isChecked(),
-            prefer_chd=self.prefer_chd.isChecked(), allow_cue_bin=self.allow_cue_bin.isChecked(),
-            convert_cue_bin_to_chd=self.convert_cue_bin.isChecked(), keep_cue_bin=self.keep_cue_bin.isChecked(),
-            whloader_games_only=self.wh_games_only.isChecked(), mame_set_type=str(self.mame_set_type.currentData()),
-            mame_clone_policy=str(self.mame_clone_policy.currentData()), mame_include_bios=self.mame_bios.isChecked(),
-            mame_include_devices=self.mame_devices.isChecked(), mame_include_chd=self.mame_chd.isChecked(),
-            mame_include_optional=self.mame_optional.isChecked(), mame_working_only=self.mame_working.isChecked(),
+            region_priority=[
+                self.region_list.item(i).text() for i in range(self.region_list.count())
+            ],
+            remove_previous_versions=self.remove_previous.isChecked(),
+            include_translations=self.include_translations.isChecked(),
+            translation_policy=str(self.translation_policy.currentData()),
+            include_chd=self.include_chd.isChecked(),
+            prefer_chd=self.prefer_chd.isChecked(),
+            allow_cue_bin=self.allow_cue_bin.isChecked(),
+            convert_cue_bin_to_chd=self.convert_cue_bin.isChecked(),
+            keep_cue_bin=self.keep_cue_bin.isChecked(),
+            whloader_games_only=self.wh_games_only.isChecked(),
+            mame_set_type=str(self.mame_set_type.currentData()),
+            mame_clone_policy=str(self.mame_clone_policy.currentData()),
+            mame_include_bios=self.mame_bios.isChecked(),
+            mame_include_devices=self.mame_devices.isChecked(),
+            mame_include_chd=self.mame_chd.isChecked(),
+            mame_include_optional=self.mame_optional.isChecked(),
+            mame_working_only=self.mame_working.isChecked(),
             mame_classification_source=str(self.mame_classification.currentData()),
         )
 
@@ -697,7 +828,11 @@ class FilterProfilesPage(QWidget):
         self._scan_worker.start()
 
     def _scan_progress(self, current, total):
-        self.scan_progress.setText(f"SCAN | progresso={current}/{total} | {current / total * 100:.1f}%" if total else f"SCAN | arquivos={current}")
+        self.scan_progress.setText(
+            f"SCAN | progresso={current}/{total} | {current / total * 100:.1f}%"
+            if total
+            else f"SCAN | arquivos={current}"
+        )
 
     def _append_log(self, level, message):
         self.log_view.addItem(f"{level} | {message}")
@@ -706,8 +841,12 @@ class FilterProfilesPage(QWidget):
     def _scan_completed(self, result):
         self._last_scan_result = result
         self.reconstruction_button.setEnabled(True)
-        self.scan_progress.setText(f"SCAN | concluído | scan_id={result.scan_id} | duração={result.elapsed_seconds:.2f}s | arquivos={result.files_examined} | itens={result.items_examined}")
-        self.reconstruction_requested.emit({"profile": self._current_saved_profile, "scan_result": result})
+        self.scan_progress.setText(
+            f"SCAN | concluído | scan_id={result.scan_id} | duração={result.elapsed_seconds:.2f}s | arquivos={result.files_examined} | itens={result.items_examined}"
+        )
+        self.reconstruction_requested.emit(
+            {"profile": self._current_saved_profile, "scan_result": result}
+        )
 
     def _scan_failed(self, message):
         self._append_log("ERROR", f"SCAN | falha final | {message}")
@@ -726,7 +865,9 @@ class FilterProfilesPage(QWidget):
 
     def _open_reconstruction(self):
         if self._current_saved_profile is not None:
-            self.reconstruction_requested.emit({"profile": self._current_saved_profile, "scan_result": self._last_scan_result})
+            self.reconstruction_requested.emit(
+                {"profile": self._current_saved_profile, "scan_result": self._last_scan_result}
+            )
 
     def _database_path(self):
         return data_root() / "database" / "serm.db"
@@ -760,7 +901,14 @@ class FilterProfilesPage(QWidget):
         self._schedule_catalog_estimate()
 
     def _add_source_item(self, source, system, dat_path):
-        parent = next((self.source_tree.topLevelItem(i) for i in range(self.source_tree.topLevelItemCount()) if self.source_tree.topLevelItem(i).text(0) == source), None)
+        parent = next(
+            (
+                self.source_tree.topLevelItem(i)
+                for i in range(self.source_tree.topLevelItemCount())
+                if self.source_tree.topLevelItem(i).text(0) == source
+            ),
+            None,
+        )
         if parent is None:
             parent = QTreeWidgetItem([source])
             parent.setData(0, Qt.ItemDataRole.UserRole, (source, system, dat_path))
@@ -775,7 +923,11 @@ class FilterProfilesPage(QWidget):
         parent = QTreeWidgetItem([source])
         parent.setData(0, Qt.ItemDataRole.UserRole, (source, source, None))
         self.source_tree.addTopLevelItem(parent)
-        paths = sorted(directory.glob("*.dat"), key=lambda p: p.name.casefold()) if directory.is_dir() else []
+        paths = (
+            sorted(directory.glob("*.dat"), key=lambda p: p.name.casefold())
+            if directory.is_dir()
+            else []
+        )
         if not paths:
             child = QTreeWidgetItem(["Nenhum DAT baixado"])
             child.setData(0, Qt.ItemDataRole.UserRole, (source, "Nenhum DAT baixado", None))

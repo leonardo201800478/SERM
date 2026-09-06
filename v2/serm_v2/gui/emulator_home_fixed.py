@@ -1,4 +1,5 @@
 """Compatibility entry point for the restored emulator Home."""
+
 from __future__ import annotations
 
 from PySide6.QtCore import Qt

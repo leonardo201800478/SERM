@@ -1,4 +1,5 @@
 """CLI para executar a auditoria completa do display MAME."""
+
 from __future__ import annotations
 
 import argparse
@@ -27,7 +28,9 @@ def main() -> int:
     parser.add_argument("--mame", type=Path, help="Executável MAME; por padrão usa Diretórios.")
     parser.add_argument("--resolution", type=Path, help="Arquivo resolution.ini.")
     parser.add_argument("--vsync", type=Path, help="Arquivo Vsync.ini.")
-    parser.add_argument("--force", action="store_true", help="Reimporta mesmo quando o SHA do XML já existe.")
+    parser.add_argument(
+        "--force", action="store_true", help="Reimporta mesmo quando o SHA do XML já existe."
+    )
     args = parser.parse_args()
 
     executable = args.mame.resolve() if args.mame else configured_mame_executable()

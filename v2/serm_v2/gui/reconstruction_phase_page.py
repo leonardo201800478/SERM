@@ -1,4 +1,5 @@
 """Container da fase 3, organizada por família de catálogo."""
+
 from __future__ import annotations
 
 from PySide6.QtWidgets import QTabWidget, QVBoxLayout, QWidget

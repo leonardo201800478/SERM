@@ -3,7 +3,13 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-MIGRATION = Path(__file__).parents[1] / "serm_v2" / "database" / "migrations" / "009_mame_xml_node_remove_path_unique.sql"
+MIGRATION = (
+    Path(__file__).parents[1]
+    / "serm_v2"
+    / "database"
+    / "migrations"
+    / "009_mame_xml_node_remove_path_unique.sql"
+)
 
 
 def test_mame_xml_node_migration_removes_path_unique_and_preserves_fks(tmp_path: Path) -> None:

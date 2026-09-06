@@ -1,4 +1,5 @@
 """No-Intro bulk DAT acquisition from the maintained GitHub release archive."""
+
 from __future__ import annotations
 
 import hashlib
@@ -88,20 +89,20 @@ class NoIntroArchiveProvider:
             keys.update(self._aliases(normalized))
 
         stripped = {self._strip_vendor(value) for value in keys}
-        matches = tuple(
-            entry
-            for entry in source
-            if self._matches_name(entry.name, keys, stripped)
-        )
+        matches = tuple(entry for entry in source if self._matches_name(entry.name, keys, stripped))
         logger.info(
             "[NO-INTRO][MATCH] LaunchBox=%d DATs=%d matches=%d",
-            len(systems), len(source), len(matches),
+            len(systems),
+            len(source),
+            len(matches),
         )
         return matches
 
     def status(self, entry: NoIntroArchiveEntry) -> NoIntroArchiveStatus:
         """Return whether the extracted DAT is available locally."""
-        return NoIntroArchiveStatus(entry=entry, state="current" if entry.path.is_file() else "missing")
+        return NoIntroArchiveStatus(
+            entry=entry, state="current" if entry.path.is_file() else "missing"
+        )
 
     def destination(self, entry: NoIntroArchiveEntry) -> Path:
         """Return the stable path used for an extracted DAT."""
@@ -156,7 +157,8 @@ class NoIntroArchiveProvider:
         try:
             with zipfile.ZipFile(archive_path) as archive:
                 infos = [
-                    info for info in archive.infolist()
+                    info
+                    for info in archive.infolist()
                     if not info.is_dir() and info.filename.lower().endswith(".dat")
                 ]
                 if not infos:
@@ -232,13 +234,28 @@ class NoIntroArchiveProvider:
     def _strip_vendor(cls, value: str) -> str:
         """Remove common manufacturer prefixes from a normalized name."""
         prefixes = (
-            "sony ", "nintendo ", "sega ", "microsoft ", "nec ", "panasonic ",
-            "philips ", "snk ", "commodore ", "bandai ", "atari ", "fujitsu ",
-            "mattel ", "apple ", "ibm ", "vm labs ", "vtech ", "tomy ",
+            "sony ",
+            "nintendo ",
+            "sega ",
+            "microsoft ",
+            "nec ",
+            "panasonic ",
+            "philips ",
+            "snk ",
+            "commodore ",
+            "bandai ",
+            "atari ",
+            "fujitsu ",
+            "mattel ",
+            "apple ",
+            "ibm ",
+            "vm labs ",
+            "vtech ",
+            "tomy ",
         )
         for prefix in prefixes:
             if value.startswith(prefix):
-                return value[len(prefix):]
+                return value[len(prefix) :]
         return value
 
     @classmethod
@@ -247,8 +264,14 @@ class NoIntroArchiveProvider:
         return {
             "nes": {"nintendo entertainment system", "nintendo nintendo entertainment system"},
             "famicom": {"nintendo entertainment system", "nintendo nintendo entertainment system"},
-            "snes": {"super nintendo entertainment system", "nintendo super nintendo entertainment system"},
-            "super nes": {"super nintendo entertainment system", "nintendo super nintendo entertainment system"},
+            "snes": {
+                "super nintendo entertainment system",
+                "nintendo super nintendo entertainment system",
+            },
+            "super nes": {
+                "super nintendo entertainment system",
+                "nintendo super nintendo entertainment system",
+            },
             "genesis": {"mega drive genesis", "sega mega drive genesis"},
             "sega genesis": {"mega drive genesis", "sega mega drive genesis"},
             "sms": {"master system mark iii", "sega master system mark iii"},
@@ -281,10 +304,16 @@ class NoIntroArchiveProvider:
         # fallback without turning arbitrary substrings into matches.
         for key in keys:
             if normalized.startswith(f"{key} "):
-                suffix = normalized[len(key):].strip()
+                suffix = normalized[len(key) :].strip()
                 if suffix in {
-                    "headered", "headerless", "bigendian", "byteswapped", "decrypted",
-                    "encrypted", "parent clone", "parent clone headered",
+                    "headered",
+                    "headerless",
+                    "bigendian",
+                    "byteswapped",
+                    "decrypted",
+                    "encrypted",
+                    "parent clone",
+                    "parent clone headered",
                 }:
                     return True
         return False

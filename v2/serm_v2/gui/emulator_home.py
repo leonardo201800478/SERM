@@ -1,4 +1,5 @@
 """Home V2 com gestão completa de emuladores e RetroArch."""
+
 from __future__ import annotations
 
 import json
@@ -142,7 +143,9 @@ class EmulatorHomePage(QWidget):
         layout = QVBoxLayout(page)
         frame = QFrame()
         grid = QGridLayout(frame)
-        frame.setStyleSheet("QFrame{background:#151515;border:1px solid #3d3d3d;border-radius:8px;}")
+        frame.setStyleSheet(
+            "QFrame{background:#151515;border:1px solid #3d3d3d;border-radius:8px;}"
+        )
         for index, key in enumerate(self.EMULATORS):
             card = QFrame()
             box = QVBoxLayout(card)
@@ -189,7 +192,9 @@ class EmulatorHomePage(QWidget):
         self.log_view = QPlainTextEdit()
         self.log_view.setReadOnly(True)
         self.log_view.setMaximumBlockCount(3000)
-        self.log_view.setStyleSheet("QPlainTextEdit{background:#0b0b0b;color:#d7d7d7;font-family:Consolas;font-size:10px;}")
+        self.log_view.setStyleSheet(
+            "QPlainTextEdit{background:#0b0b0b;color:#d7d7d7;font-family:Consolas;font-size:10px;}"
+        )
         layout.addWidget(self.log_view, 1)
         return page
 
@@ -258,7 +263,9 @@ class EmulatorHomePage(QWidget):
         self.retro_log = QPlainTextEdit()
         self.retro_log.setReadOnly(True)
         self.retro_log.setMaximumBlockCount(3000)
-        self.retro_log.setStyleSheet("QPlainTextEdit{background:#071007;color:#8ee28e;font-family:Consolas;font-size:10px;}")
+        self.retro_log.setStyleSheet(
+            "QPlainTextEdit{background:#071007;color:#8ee28e;font-family:Consolas;font-size:10px;}"
+        )
         layout.addWidget(self.retro_log, 1)
         return page
 
@@ -308,14 +315,18 @@ class EmulatorHomePage(QWidget):
         executable, root, cores = self.retroarch.discover()
         version = self.retroarch.detect_version(executable)
         self.retro_status.setText("● Pronto" if executable else "● Não configurado")
-        self.retro_status.setStyleSheet("color:#55d66b;font-weight:bold;" if executable else "color:#e5c454;font-weight:bold;")
+        self.retro_status.setStyleSheet(
+            "color:#55d66b;font-weight:bold;" if executable else "color:#e5c454;font-weight:bold;"
+        )
         self.retro_path.setText(f"Instalação: {root or 'não configurada'}")
         self.retro_version.setText(f"Versão instalada: {version or 'não detectada'}")
         self.retro_cores.setText(f"Cores: {cores or 'não configurado'}")
 
     def configure(self, key: str) -> None:
         """Seleciona somente o diretório de instalação do emulador."""
-        selected = QFileDialog.getExistingDirectory(self, f"Diretório do {self.LABELS[key]}", str(Path.home()))
+        selected = QFileDialog.getExistingDirectory(
+            self, f"Diretório do {self.LABELS[key]}", str(Path.home())
+        )
         if not selected:
             return
         paths = self._load_paths()
@@ -328,7 +339,9 @@ class EmulatorHomePage(QWidget):
         """Instala/atualiza um emulador em background."""
         destination = self.manager.roots.get(key)
         if not destination:
-            selected = QFileDialog.getExistingDirectory(self, f"Instalar {self.LABELS[key]} em", str(Path.home()))
+            selected = QFileDialog.getExistingDirectory(
+                self, f"Instalar {self.LABELS[key]} em", str(Path.home())
+            )
             if not selected:
                 return
             destination = Path(selected).resolve()
@@ -336,7 +349,12 @@ class EmulatorHomePage(QWidget):
             paths[key] = destination
             self._save_paths(paths)
             self.manager.roots = paths
-        self._start(lambda progress, log: self.manager.install(key, destination, progress=progress, log=log), key)
+        self._start(
+            lambda progress, log: self.manager.install(
+                key, destination, progress=progress, log=log
+            ),
+            key,
+        )
 
     def update_all(self) -> None:
         """Atualiza os quatro emuladores em sequência, inclusive após falhas."""
@@ -358,12 +376,17 @@ class EmulatorHomePage(QWidget):
                 next_one()
                 return
             destination = Path(destination).resolve()
-            self._append_log(f"ATUALIZAR TODOS | iniciando {self.LABELS[key]} | destino={destination}")
+            self._append_log(
+                f"ATUALIZAR TODOS | iniciando {self.LABELS[key]} | destino={destination}"
+            )
             self._start(
-                lambda progress, log, k=key, d=destination: self.manager.install(k, d, progress=progress, log=log),
+                lambda progress, log, k=key, d=destination: self.manager.install(
+                    k, d, progress=progress, log=log
+                ),
                 key,
                 next_one,
             )
+
         next_one()
 
     def _start(self, operation, key: str, continuation=None) -> None:
@@ -372,7 +395,9 @@ class EmulatorHomePage(QWidget):
             return
         self._pending_continuation = continuation
         self.worker = _Worker(operation, self)
-        self.worker.progress.connect(lambda received, total, k=key: self._progress(k, received, total))
+        self.worker.progress.connect(
+            lambda received, total, k=key: self._progress(k, received, total)
+        )
         self.worker.log.connect(self._append_log)
         self.worker.done.connect(lambda result, k=key: self._done(k, result))
         self.worker.error.connect(lambda message, k=key: self._error(k, message))
@@ -413,8 +438,7 @@ class EmulatorHomePage(QWidget):
         self._save_paths(paths)
         self._persist_version_marker(executable, version, archive)
         self._append_log(
-            f"SUCESSO | {self.LABELS[key]} | versão={version} | "
-            f"pacote={archive} | exe={executable}"
+            f"SUCESSO | {self.LABELS[key]} | versão={version} | pacote={archive} | exe={executable}"
         )
         self.refresh()
 
@@ -453,7 +477,9 @@ class EmulatorHomePage(QWidget):
 
     def configure_retroarch(self) -> None:
         """Seleciona e persiste a instalação do RetroArch."""
-        selected = QFileDialog.getExistingDirectory(self, "Diretório do RetroArch", str(Path.home()))
+        selected = QFileDialog.getExistingDirectory(
+            self, "Diretório do RetroArch", str(Path.home())
+        )
         if not selected:
             return
         paths = self._load_paths()
@@ -465,7 +491,9 @@ class EmulatorHomePage(QWidget):
         """Instala/atualiza RetroArch no canal Stable ou Nightly selecionado."""
         destination = self.manager.roots.get("retroarch")
         if not destination:
-            selected = QFileDialog.getExistingDirectory(self, "Instalar RetroArch em", str(Path.home()))
+            selected = QFileDialog.getExistingDirectory(
+                self, "Instalar RetroArch em", str(Path.home())
+            )
             if not selected:
                 return
             destination = Path(selected).resolve()
@@ -485,7 +513,11 @@ class EmulatorHomePage(QWidget):
             cores = self.retroarch.list_cores(self._retro_channel)
             _, _, destination = self.retroarch.discover()
             installed = self.retroarch.installed_cores(destination) if destination else ()
-            comparisons = self.retroarch.compare_installed_cores(cores, destination) if destination and destination.is_dir() else []
+            comparisons = (
+                self.retroarch.compare_installed_cores(cores, destination)
+                if destination and destination.is_dir()
+                else []
+            )
             state_map = {path.name.casefold(): state for path, _, state in comparisons}
             self.core_list.blockSignals(True)
             self.core_list.clear()
@@ -499,8 +531,16 @@ class EmulatorHomePage(QWidget):
                     installed_count += 1
                 if state == "update":
                     update_count += 1
-                marker = "[ATUALIZADO]" if state == "current" else "[ATUALIZAÇÃO]" if state == "update" else "[NOVO]"
-                item = QListWidgetItem(f"{marker} {core.core_name} | {core.date} | CRC {core.crc32}")
+                marker = (
+                    "[ATUALIZADO]"
+                    if state == "current"
+                    else "[ATUALIZAÇÃO]"
+                    if state == "update"
+                    else "[NOVO]"
+                )
+                item = QListWidgetItem(
+                    f"{marker} {core.core_name} | {core.date} | CRC {core.crc32}"
+                )
                 item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
                 item.setCheckState(Qt.CheckState.Unchecked)
                 item.setData(Qt.ItemDataRole.UserRole, core.filename)
@@ -509,9 +549,13 @@ class EmulatorHomePage(QWidget):
                 self.core_items[core.filename] = item
             self.core_list.blockSignals(False)
             new_count = len(cores) - installed_count
-            self.core_summary.setText(f"{len(cores)} publicados  •  {installed_count} instalados  •  {update_count} atualizações  •  {new_count} novos")
+            self.core_summary.setText(
+                f"{len(cores)} publicados  •  {installed_count} instalados  •  {update_count} atualizações  •  {new_count} novos"
+            )
             self._update_core_summary()
-            self._append_retro_log(f"CATÁLOGO | canal={self._retro_channel} | cores={len(cores)} | instalados={installed_count} | atualizações={update_count} | novos={new_count}")
+            self._append_retro_log(
+                f"CATÁLOGO | canal={self._retro_channel} | cores={len(cores)} | instalados={installed_count} | atualizações={update_count} | novos={new_count}"
+            )
         except Exception as exc:  # noqa: BLE001
             self._append_retro_log(f"ERRO CORES | {type(exc).__name__}: {exc}")
             QMessageBox.warning(self, "RetroArch", str(exc))
@@ -521,7 +565,9 @@ class EmulatorHomePage(QWidget):
         try:
             _, _, destination = self.retroarch.discover()
             if destination is None or not destination.is_dir():
-                self._append_retro_log("AVISO | diretório de cores do RetroArch não configurado ou inexistente.")
+                self._append_retro_log(
+                    "AVISO | diretório de cores do RetroArch não configurado ou inexistente."
+                )
                 return
             cores = self.retroarch.list_cores(self._retro_channel)
             comparisons = self.retroarch.compare_installed_cores(cores, destination)
@@ -549,11 +595,17 @@ class EmulatorHomePage(QWidget):
                 self.core_list.addItem(item)
                 self.core_items[remote.filename] = item
             self.core_list.blockSignals(False)
-            self.core_summary.setText(f"{updates} atualizações disponíveis  •  {current} atualizados  • {unknown} sem correspondência")
+            self.core_summary.setText(
+                f"{updates} atualizações disponíveis  •  {current} atualizados  • {unknown} sem correspondência"
+            )
             self._update_core_summary()
-            self._append_retro_log(f"ATUALIZAÇÕES | instalados={len(comparisons)} | atualizações={updates} | atualizados={current} | sem correspondência={unknown}")
+            self._append_retro_log(
+                f"ATUALIZAÇÕES | instalados={len(comparisons)} | atualizações={updates} | atualizados={current} | sem correspondência={unknown}"
+            )
             if not updates:
-                self._append_retro_log("ATUALIZAÇÕES | nenhum core instalado necessita de atualização.")
+                self._append_retro_log(
+                    "ATUALIZAÇÕES | nenhum core instalado necessita de atualização."
+                )
         except Exception as exc:  # noqa: BLE001
             self._append_retro_log(f"ERRO ATUALIZAÇÕES | {type(exc).__name__}: {exc}")
             QMessageBox.warning(self, "RetroArch", str(exc))
@@ -594,15 +646,21 @@ class EmulatorHomePage(QWidget):
 
         _, _, destination = self.retroarch.discover()
         if destination is None or not destination.is_dir():
-            self._append_retro_log("AVISO | diretório de cores do RetroArch não configurado ou inexistente.")
+            self._append_retro_log(
+                "AVISO | diretório de cores do RetroArch não configurado ou inexistente."
+            )
             return
 
         def install_all(progress, log):
             for filename in selected:
-                self.retroarch.install_core(filename, destination, channel=self._retro_channel, progress=progress, log=log)
+                self.retroarch.install_core(
+                    filename, destination, channel=self._retro_channel, progress=progress, log=log
+                )
             return f"{len(selected)} cores instalados em {destination}"
 
-        self._append_retro_log(f"INSTALAÇÃO | iniciando {len(selected)} core(s) selecionado(s) no canal={self._retro_channel}")
+        self._append_retro_log(
+            f"INSTALAÇÃO | iniciando {len(selected)} core(s) selecionado(s) no canal={self._retro_channel}"
+        )
         self._start_retro(install_all)
 
     def _core_selection_changed(self, _item: QListWidgetItem) -> None:

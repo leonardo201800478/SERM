@@ -1,4 +1,5 @@
 """Home V2 baseada nos componentes funcionais originais do SERM."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -19,6 +20,7 @@ from .emulator_home import EmulatorHomePage, _Worker
 
 class HomePage(EmulatorHomePage):
     """Expose uma Home completa e preserva o contrato funcional da V1."""
+
     CORE_MAX_ATTEMPTS = 3
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -77,7 +79,9 @@ class HomePage(EmulatorHomePage):
         if self.worker is not None:
             return
         if self._core_catalog_cache is None:
-            self._append_retro_log("FILTRO | catálogo ainda não carregado; use 'Buscar cores' para consultar o Buildbot.")
+            self._append_retro_log(
+                "FILTRO | catálogo ainda não carregado; use 'Buscar cores' para consultar o Buildbot."
+            )
             return
         self._render_core_catalog(self._filtered_cached_cores())
 
@@ -115,13 +119,18 @@ class HomePage(EmulatorHomePage):
         except Exception as exc:  # noqa: BLE001
             self._append_retro_log(f"ERRO CORES | {type(exc).__name__}: {exc}")
             from PySide6.QtWidgets import QMessageBox
+
             QMessageBox.warning(self, "RetroArch", str(exc))
 
     def _render_core_catalog(self, cores) -> None:
         """Renderiza uma coleção de CoreInfo e compara com os cores instalados."""
         _, _, destination = self.retroarch.discover()
         installed = self.retroarch.installed_cores(destination) if destination else ()
-        comparisons = self.retroarch.compare_installed_cores(cores, destination) if destination and destination.is_dir() else []
+        comparisons = (
+            self.retroarch.compare_installed_cores(cores, destination)
+            if destination and destination.is_dir()
+            else []
+        )
         state_map = {path.name.casefold(): state for path, _, state in comparisons}
         installed_names = {path.name.casefold() for path in installed}
         self.core_list.blockSignals(True)
@@ -133,9 +142,17 @@ class HomePage(EmulatorHomePage):
             state = state_map.get(key, "new")
             installed_count += key in installed_names
             update_count += state == "update"
-            marker = "[ATUALIZADO]" if state == "current" else "[ATUALIZAÇÃO]" if state == "update" else "[NOVO]"
+            marker = (
+                "[ATUALIZADO]"
+                if state == "current"
+                else "[ATUALIZAÇÃO]"
+                if state == "update"
+                else "[NOVO]"
+            )
             beta = " | BETA/NIGHTLY" if core.channel == "nightly" else ""
-            item = QListWidgetItem(f"{marker}{beta} {core.core_name} | {core.date} | CRC {core.crc32}")
+            item = QListWidgetItem(
+                f"{marker}{beta} {core.core_name} | {core.date} | CRC {core.crc32}"
+            )
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             item.setCheckState(Qt.CheckState.Unchecked)
             item.setData(Qt.ItemDataRole.UserRole, core.filename)
@@ -159,7 +176,10 @@ class HomePage(EmulatorHomePage):
         _, _, destination = self.retroarch.discover()
         if destination is None:
             from PySide6.QtWidgets import QMessageBox
-            QMessageBox.information(self, "RetroArch", "Configure o diretório do RetroArch primeiro.")
+
+            QMessageBox.information(
+                self, "RetroArch", "Configure o diretório do RetroArch primeiro."
+            )
             return
         selected = [
             (
@@ -171,6 +191,7 @@ class HomePage(EmulatorHomePage):
         ]
         if not selected:
             from PySide6.QtWidgets import QMessageBox
+
             QMessageBox.information(self, "RetroArch", "Nenhum core foi selecionado.")
             return
         self._core_queue_with_channels = selected
@@ -205,18 +226,22 @@ class HomePage(EmulatorHomePage):
             f"restantes={len(self._core_queue_with_channels)} | máximo={self.CORE_MAX_ATTEMPTS} tentativas"
         )
         self._start_retro(
-            lambda progress, log, f=filename, d=destination, c=download_channel: self._install_core_with_retries(
-                f, d, c, progress, log
+            lambda progress, log, f=filename, d=destination, c=download_channel: (
+                self._install_core_with_retries(f, d, c, progress, log)
             ),
             continuation=lambda f=filename: self._finish_core_queue_item(f, destination),
         )
 
-    def _install_core_with_retries(self, filename: str, destination: Path, channel: str, progress, log):
+    def _install_core_with_retries(
+        self, filename: str, destination: Path, channel: str, progress, log
+    ):
         """Tenta baixar, validar e instalar um core até três vezes."""
         last_error: Exception | None = None
         for attempt in range(1, self.CORE_MAX_ATTEMPTS + 1):
             try:
-                log(f"CORE | {filename} | canal={channel} | tentativa={attempt}/{self.CORE_MAX_ATTEMPTS}")
+                log(
+                    f"CORE | {filename} | canal={channel} | tentativa={attempt}/{self.CORE_MAX_ATTEMPTS}"
+                )
                 return self.retroarch.install_core(
                     filename, destination, channel=channel, progress=progress, log=log
                 )
@@ -321,6 +346,7 @@ class HomePage(EmulatorHomePage):
     def open_official_site(self, key: str) -> None:
         """Abre o repositório oficial do emulador."""
         import webbrowser
+
         url = self.SITES.get(key)
         if url:
             webbrowser.open(url)

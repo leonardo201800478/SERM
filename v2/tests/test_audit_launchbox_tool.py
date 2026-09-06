@@ -1,4 +1,5 @@
 """Tests for the LaunchBox audit command-line tool."""
+
 from __future__ import annotations
 
 import json

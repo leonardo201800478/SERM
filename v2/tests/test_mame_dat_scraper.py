@@ -8,7 +8,7 @@ from serm_v2.emulation.mame_dat_scraper import MameDatError, scrape_mame_dat
 class FakeCompleted:
     returncode = 0
     stderr = ""
-    stdout = "<mame><machine name=\"pacman\"/><machine name=\"galaga\"/></mame>"
+    stdout = '<mame><machine name="pacman"/><machine name="galaga"/></mame>'
 
 
 def test_scrape_mame_dat_invokes_listxml(monkeypatch, tmp_path: Path):

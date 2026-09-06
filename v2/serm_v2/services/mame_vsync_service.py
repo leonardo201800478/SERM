@@ -1,4 +1,5 @@
 """Ingestão do Vsync.ini do MAME como fonte auxiliar do catálogo."""
+
 from __future__ import annotations
 
 import hashlib
@@ -78,7 +79,9 @@ class MameVsyncService:
                     (source_id,),
                 ).fetchone()
                 entries, resolved, unresolved = int(row[0] or 0), int(row[1] or 0), int(row[2] or 0)
-                log(f"MAME | VSYNC | REUSE | source_id={source_id} | mesmo SHA-256 | entradas={entries:,}")
+                log(
+                    f"MAME | VSYNC | REUSE | source_id={source_id} | mesmo SHA-256 | entradas={entries:,}"
+                )
                 return {
                     "source_id": source_id,
                     "entries": entries,
@@ -95,7 +98,9 @@ class MameVsyncService:
                 (self.SOURCE_TYPE, path.name, str(path), source_hash, byte_length, now),
             )
             source_id = int(cursor.lastrowid)
-            machines = {row[1]: row[0] for row in connection.execute("SELECT id, name FROM mame_machine")}
+            machines = {
+                row[1]: row[0] for row in connection.execute("SELECT id, name FROM mame_machine")
+            }
 
             entries = resolved = unresolved = duplicates = 0
             seen: set[str] = set()

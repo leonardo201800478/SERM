@@ -1,4 +1,5 @@
 """Janela popup dos filtros fundamentais do MAME."""
+
 from __future__ import annotations
 
 from PySide6.QtWidgets import (
@@ -19,7 +20,9 @@ from ..services.mame_fundamental_filter_service import (
 class MameFundamentalFiltersDialog(QDialog):
     """Editor modal compacto para as exclusões fundamentais da V1."""
 
-    def __init__(self, values: dict[str, bool] | None = None, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, values: dict[str, bool] | None = None, parent: QWidget | None = None
+    ) -> None:
         super().__init__(parent)
         self.setWindowTitle("MAME — Filtros fundamentais")
         self.setModal(True)
@@ -38,7 +41,9 @@ class MameFundamentalFiltersDialog(QDialog):
         description.setWordWrap(True)
         layout.addWidget(description)
 
-        current = {key: bool((values or {}).get(key, default)) for key, default in DEFAULT_FILTERS.items()}
+        current = {
+            key: bool((values or {}).get(key, default)) for key, default in DEFAULT_FILTERS.items()
+        }
         for key, definition in FILTER_DEFINITIONS.items():
             check = QCheckBox(str(definition["label"]))
             check.setChecked(current[key])

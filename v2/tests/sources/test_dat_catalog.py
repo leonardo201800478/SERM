@@ -23,8 +23,12 @@ FILE,Non-Redump - Nintendo - Wii.dat,https://example.invalid/wii.dat,789,10
 def test_match_supports_launchbox_aliases(tmp_path: Path) -> None:
     provider = PublicDatCatalogProvider(root=tmp_path)
     entries = (
-        DatCatalogEntry("Nintendo - Nintendo Entertainment System.dat", "https://example.invalid/nes.dat", 1, 1),
-        DatCatalogEntry("Sega - Mega Drive - Genesis.dat", "https://example.invalid/genesis.dat", 2, 2),
+        DatCatalogEntry(
+            "Nintendo - Nintendo Entertainment System.dat", "https://example.invalid/nes.dat", 1, 1
+        ),
+        DatCatalogEntry(
+            "Sega - Mega Drive - Genesis.dat", "https://example.invalid/genesis.dat", 2, 2
+        ),
     )
     matches = provider.match(("NES", "Sega Genesis"), entries)
     assert [entry.name for entry in matches] == [
@@ -38,7 +42,12 @@ def test_status_detects_missing_and_current(tmp_path: Path) -> None:
     data = b"test dat"
     import zlib
 
-    entry = DatCatalogEntry("Nintendo - Test.dat", "https://example.invalid/test.dat", zlib.crc32(data) & 0xFFFFFFFF, len(data))
+    entry = DatCatalogEntry(
+        "Nintendo - Test.dat",
+        "https://example.invalid/test.dat",
+        zlib.crc32(data) & 0xFFFFFFFF,
+        len(data),
+    )
     assert provider.status(entry).state == "missing"
     path = provider.destination(entry)
     path.parent.mkdir(parents=True, exist_ok=True)

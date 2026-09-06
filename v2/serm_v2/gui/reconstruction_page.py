@@ -1,4 +1,5 @@
 """Fase 3: reconstrução de um arquivo filtrado em um destino escolhido."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -135,7 +136,11 @@ class ReconstructionPage(QWidget):
 
     def _refresh_latest_filter_hint(self) -> None:
         root = scans_root() / "filtered"
-        files = sorted(root.rglob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True) if root.is_dir() else []
+        files = (
+            sorted(root.rglob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+            if root.is_dir()
+            else []
+        )
         if files:
             self.status.setText(f"Último arquivo filtrado encontrado: {files[0]}")
 
@@ -153,7 +158,9 @@ class ReconstructionPage(QWidget):
             return
         self._filter_path = Path(path).resolve()
         self.filter_label.setText(str(self._filter_path))
-        self.source_label.setText(f"Fonte: {payload.get('source', '—')} › {payload.get('system', '—')}")
+        self.source_label.setText(
+            f"Fonte: {payload.get('source', '—')} › {payload.get('system', '—')}"
+        )
         self.summary.setText(
             f"Filtro {payload.get('filter_run_id', '—')} | scan {payload.get('scan_id', '—')} | "
             f"catálogo {payload.get('catalog_label', '—')} | itens selecionados: {len(payload.get('evidence', [])):,}"
@@ -177,7 +184,9 @@ class ReconstructionPage(QWidget):
             QMessageBox.information(self, "Reconstrução", "Selecione um arquivo filtrado primeiro.")
             return
         if self._destination is None:
-            QMessageBox.information(self, "Reconstrução", "Escolha o diretório de destino primeiro.")
+            QMessageBox.information(
+                self, "Reconstrução", "Escolha o diretório de destino primeiro."
+            )
             return
         try:
             self._plan = ReconstructionService.plan(self._filter_path, self._destination)
@@ -201,7 +210,8 @@ class ReconstructionPage(QWidget):
         if self._plan is None or (self._worker and self._worker.isRunning()):
             return
         answer = QMessageBox.question(
-            self, "Confirmar reconstrução",
+            self,
+            "Confirmar reconstrução",
             f"Montar {self._plan.item_count:,} itens em:\n{self._plan.destination}?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )

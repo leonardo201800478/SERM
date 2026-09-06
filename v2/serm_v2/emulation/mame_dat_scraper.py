@@ -79,9 +79,7 @@ def scrape_mame_dat(
     if completed.returncode != 0:
         stderr = completed.stderr.strip()
         detail = f": {stderr}" if stderr else ""
-        raise MameDatError(
-            f"MAME -listxml failed with exit code {completed.returncode}{detail}"
-        )
+        raise MameDatError(f"MAME -listxml failed with exit code {completed.returncode}{detail}")
 
     xml_text = completed.stdout
     if not xml_text.strip():

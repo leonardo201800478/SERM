@@ -1,4 +1,5 @@
 """Qt logging bridge used by the SERM V2 GUI."""
+
 from __future__ import annotations
 
 import logging

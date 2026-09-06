@@ -6,6 +6,7 @@ Uso, a partir de v2:
 O teste faz somente consultas agregadas e uma amostra pequena, sem despejar
 37 mil registros no terminal.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -19,9 +20,10 @@ DB_PATH = ROOT / "data" / "database" / "serm.db"
 
 def table_exists(db: sqlite3.Connection, table: str) -> bool:
     """Retorna se a tabela informada existe."""
-    return db.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)
-    ).fetchone() is not None
+    return (
+        db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone()
+        is not None
+    )
 
 
 def count(db: sqlite3.Connection, sql: str, params: tuple = ()) -> int:
@@ -109,7 +111,9 @@ def main() -> int:
             (source_id,),
         )
         print(f"FK órfã                 {'PASS' if orphan_fk == 0 else 'FAIL'} | {orphan_fk}")
-        print(f"nome x machine.id       {'PASS' if name_mismatch == 0 else 'FAIL'} | {name_mismatch}")
+        print(
+            f"nome x machine.id       {'PASS' if name_mismatch == 0 else 'FAIL'} | {name_mismatch}"
+        )
 
         print("\n[5/6] DUPLICIDADE / METADADOS")
         duplicates = count(
@@ -136,8 +140,12 @@ def main() -> int:
             (source_id,),
         )
         print(f"duplicidades             {'PASS' if duplicates == 0 else 'FAIL'} | {duplicates}")
-        print(f"FOLDER_SETTINGS         {'PASS' if folder_settings == 0 else 'FAIL'} | {folder_settings}")
-        print(f"resolved sem machine_id {'PASS' if null_machine_resolved == 0 else 'FAIL'} | {null_machine_resolved}")
+        print(
+            f"FOLDER_SETTINGS         {'PASS' if folder_settings == 0 else 'FAIL'} | {folder_settings}"
+        )
+        print(
+            f"resolved sem machine_id {'PASS' if null_machine_resolved == 0 else 'FAIL'} | {null_machine_resolved}"
+        )
 
         print("\n[6/6] COBERTURA DO CATÁLOGO")
         classified_distinct = count(
@@ -147,7 +155,9 @@ def main() -> int:
         )
         print(f"máquinas classificadas  {classified_distinct:,}")
         print(f"máquinas sem CATLIST    {machines - classified_distinct:,}")
-        print("Nota: ausência de CATLIST não é erro; unresolved significa somente entrada declarada pelo CATLIST sem correspondência.")
+        print(
+            "Nota: ausência de CATLIST não é erro; unresolved significa somente entrada declarada pelo CATLIST sem correspondência."
+        )
 
         passed = (
             source_ok

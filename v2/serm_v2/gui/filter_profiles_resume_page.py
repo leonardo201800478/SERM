@@ -1,4 +1,5 @@
 """Controles de retomada, reinício e filtros avançados do scan MAME/No-Intro."""
+
 from __future__ import annotations
 
 import json
@@ -61,10 +62,14 @@ class FilterProfilesPage(_FilterProfilesPage):
         if layout is None:
             return
         self.resume_checkpoint_button = QPushButton("RETOMAR CHECKPOINT")
-        self.resume_checkpoint_button.setToolTip("Retoma o último scan MAME interrompido a partir das machines já confirmadas.")
+        self.resume_checkpoint_button.setToolTip(
+            "Retoma o último scan MAME interrompido a partir das machines já confirmadas."
+        )
         self.resume_checkpoint_button.clicked.connect(self._resume_checkpoint_scan)
         self.new_scan_button = QPushButton("NOVO SCAN DO ZERO")
-        self.new_scan_button.setToolTip("Preserva o checkpoint atual e inicia um novo scan completo.")
+        self.new_scan_button.setToolTip(
+            "Preserva o checkpoint atual e inicia um novo scan completo."
+        )
         self.new_scan_button.clicked.connect(self._start_new_scan)
         layout.insertWidget(max(0, layout.count() - 1), self.resume_checkpoint_button)
         layout.insertWidget(max(0, layout.count() - 1), self.new_scan_button)
@@ -76,7 +81,9 @@ class FilterProfilesPage(_FilterProfilesPage):
         if layout is None or hasattr(self, "mame_catlist_button"):
             return
         self.mame_catlist_button = QPushButton("FILTROS CATLIST…")
-        self.mame_catlist_button.setToolTip("Abrir o catálogo completo de categorias e subcategorias importadas do CATLIST.")
+        self.mame_catlist_button.setToolTip(
+            "Abrir o catálogo completo de categorias e subcategorias importadas do CATLIST."
+        )
         self.mame_catlist_button.clicked.connect(self._open_catlist_filters)
         layout.insertRow(layout.rowCount(), self.mame_catlist_button)
         self.mame_catlist_summary = QLabel()
@@ -86,7 +93,9 @@ class FilterProfilesPage(_FilterProfilesPage):
 
     def _open_catlist_filters(self) -> None:
         profile_id = self._current_saved_profile.profile_id if self._current_saved_profile else ""
-        values = MameCategoryFilterService.load(profile_id) if profile_id else self._category_filters
+        values = (
+            MameCategoryFilterService.load(profile_id) if profile_id else self._category_filters
+        )
         dialog = MameAdvancedFiltersDialog(values, self._database_path(), self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
@@ -103,7 +112,9 @@ class FilterProfilesPage(_FilterProfilesPage):
             return
         categories = len(self._category_filters.get("categories", []))
         subcategories = len(self._category_filters.get("subcategories", []))
-        label.setText(f"CATLIST: {categories} categorias + {subcategories} subcategorias selecionadas para exclusão")
+        label.setText(
+            f"CATLIST: {categories} categorias + {subcategories} subcategorias selecionadas para exclusão"
+        )
 
     def _profile_for_checkpoint(self):
         profile = self._current_profile()
@@ -120,38 +131,54 @@ class FilterProfilesPage(_FilterProfilesPage):
         self.resume_checkpoint_button.setEnabled(available and not self._scan_is_running())
         self.new_scan_button.setEnabled(profile is not None and not self._scan_is_running())
         if available:
-            self.resume_checkpoint_button.setToolTip(f"Retomar {summary['completed']:,} machines já confirmadas; última machine: {summary['last_machine'] or '-'}")
+            self.resume_checkpoint_button.setToolTip(
+                f"Retomar {summary['completed']:,} machines já confirmadas; última machine: {summary['last_machine'] or '-'}"
+            )
 
     def _scan_is_running(self) -> bool:
         worker = getattr(self, "_scan_worker", None)
         no_intro = getattr(self, "_no_intro_worker", None)
-        return (worker is not None and worker.isRunning()) or (no_intro is not None and no_intro.isRunning())
+        return (worker is not None and worker.isRunning()) or (
+            no_intro is not None and no_intro.isRunning()
+        )
 
     def _resume_checkpoint_scan(self) -> None:
         profile = self._save_profile()
         if profile is None or str(profile.source).casefold() != "mame":
-            QMessageBox.information(self, "Retomada", "Selecione um perfil MAME para retomar o checkpoint.")
+            QMessageBox.information(
+                self, "Retomada", "Selecione um perfil MAME para retomar o checkpoint."
+            )
             return
         summary = ScanCheckpointService.summary(profile)
         if summary is None:
-            QMessageBox.information(self, "Retomada", "Nenhum checkpoint MAME disponível para este perfil.")
+            QMessageBox.information(
+                self, "Retomada", "Nenhum checkpoint MAME disponível para este perfil."
+            )
             return
-        self.scan_progress.setText(f"RETOMADA | {summary['completed']:,} machines já concluídas | última={summary['last_machine'] or '-'}")
+        self.scan_progress.setText(
+            f"RETOMADA | {summary['completed']:,} machines já concluídas | última={summary['last_machine'] or '-'}"
+        )
         self._start_scan(profile)
 
     def _start_new_scan(self) -> None:
         profile = self._save_profile()
         if profile is None or str(profile.source).casefold() != "mame":
-            QMessageBox.information(self, "Novo scan", "Selecione um perfil MAME para iniciar um novo scan.")
+            QMessageBox.information(
+                self, "Novo scan", "Selecione um perfil MAME para iniciar um novo scan."
+            )
             return
         if self._scan_is_running():
             return
         archived = ScanCheckpointService.archive_latest(profile)
         if archived is not None:
             self._append_log("INFO", f"SCAN | checkpoint preservado em {archived.name}")
-            self.scan_progress.setText("NOVO SCAN | checkpoint anterior preservado; iniciando do zero.")
+            self.scan_progress.setText(
+                "NOVO SCAN | checkpoint anterior preservado; iniciando do zero."
+            )
         else:
-            self.scan_progress.setText("NOVO SCAN | nenhum checkpoint anterior encontrado; iniciando do zero.")
+            self.scan_progress.setText(
+                "NOVO SCAN | nenhum checkpoint anterior encontrado; iniciando do zero."
+            )
         self._start_scan(profile)
 
     def _start_scan(self, profile):
@@ -192,7 +219,11 @@ class FilterProfilesPage(_FilterProfilesPage):
 
     def _load_profile(self, profile) -> None:
         super()._load_profile(profile)
-        self._category_filters = MameCategoryFilterService.load(profile.profile_id) if str(profile.source).casefold() == "mame" else {"categories": [], "subcategories": []}
+        self._category_filters = (
+            MameCategoryFilterService.load(profile.profile_id)
+            if str(profile.source).casefold() == "mame"
+            else {"categories": [], "subcategories": []}
+        )
         self._update_catlist_summary()
         self._update_checkpoint_controls()
 
@@ -247,17 +278,25 @@ class FilterProfilesPage(_FilterProfilesPage):
             QMessageBox.warning(self, "Filtros", "O arquivo bruto do scan não foi encontrado.")
             return
         try:
-            self._last_filter_result = ScanFilterService.apply_mame(raw_path, profile, self._fundamental_filters, self._category_filters)
+            self._last_filter_result = ScanFilterService.apply_mame(
+                raw_path, profile, self._fundamental_filters, self._category_filters
+            )
         except Exception as exc:  # noqa: BLE001
             self._append_log("ERROR", f"FILTRO | falha | {type(exc).__name__}: {exc}")
             QMessageBox.warning(self, "Filtros", f"Não foi possível aplicar os filtros:\n{exc}")
             return
         result = self._last_filter_result
         self.reconstruction_button.setEnabled(True)
-        self.scan_progress.setText(f"FILTRO | concluído | bruto={result['input_count']:,} | mantidas={result['output_count']:,} | excluídas={result['filtered_count']:,}")
+        self.scan_progress.setText(
+            f"FILTRO | concluído | bruto={result['input_count']:,} | mantidas={result['output_count']:,} | excluídas={result['filtered_count']:,}"
+        )
         self._append_log("INFO", f"FILTRO | arquivo={result['filtered_file_path']}")
         if result.get("filter_counts"):
-            self._append_log("INFO", "FILTRO | " + " | ".join(f"{key}={value:,}" for key, value in result["filter_counts"].items()))
+            self._append_log(
+                "INFO",
+                "FILTRO | "
+                + " | ".join(f"{key}={value:,}" for key, value in result["filter_counts"].items()),
+            )
 
     def _update_catalog_estimate(self) -> None:
         selected = self._selected_item_data()
@@ -268,7 +307,9 @@ class FilterProfilesPage(_FilterProfilesPage):
         if profile is None or raw_path is None:
             return super()._update_catalog_estimate()
         try:
-            preview = ScanFilterService.preview_mame(raw_path, profile, self._fundamental_filters, self._category_filters)
+            preview = ScanFilterService.preview_mame(
+                raw_path, profile, self._fundamental_filters, self._category_filters
+            )
         except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
             self.catalog_estimate.setText("Não foi possível calcular o filtro sobre o scan.")
             self.catalog_estimate_detail.setText(str(exc))
@@ -277,7 +318,10 @@ class FilterProfilesPage(_FilterProfilesPage):
             f"SCAN BRUTO: {int(preview['input_count']):,} ROMs  →  APÓS FILTROS: {int(preview['output_count']):,} ROMs  →  EXCLUÍDAS: {int(preview['filtered_count']):,}"
         )
         counts = preview.get("filter_counts", {})
-        details = " • ".join(f"{key}={int(value):,}" for key, value in counts.items()) or "Nenhuma ROM excluída"
+        details = (
+            " • ".join(f"{key}={int(value):,}" for key, value in counts.items())
+            or "Nenhuma ROM excluída"
+        )
         status = preview.get("status_counts", {})
         self.catalog_estimate_detail.setText(
             f"Catálogo: {preview.get('catalog_label')} | tipo: {preview.get('scan_type')} | "

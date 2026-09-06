@@ -4,6 +4,7 @@ O cache é um banco SQLite local. A chave inclui o catálogo e a assinatura do
 ZIP (caminho, tamanho e mtime_ns), portanto um arquivo alterado nunca reutiliza
 um resultado antigo.
 """
+
 from __future__ import annotations
 
 import json
@@ -115,7 +116,9 @@ class RomScanCacheService:
         cls._writer.submit(cls._save_sync, catalog_hash, machine, signature, payload)
 
     @classmethod
-    def _save_sync(cls, catalog_hash: str, machine: str, signature: dict[str, Any], payload: dict[str, Any]) -> None:
+    def _save_sync(
+        cls, catalog_hash: str, machine: str, signature: dict[str, Any], payload: dict[str, Any]
+    ) -> None:
         try:
             with cls._connect() as connection:
                 connection.execute(

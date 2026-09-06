@@ -1,4 +1,5 @@
 """Bootstrap das migrations SQLite da V2."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -18,7 +19,12 @@ def _table_columns(connection: sqlite3.Connection, table: str) -> set[str]:
 
 def _table_exists(connection: sqlite3.Connection, table: str) -> bool:
     """Verifica a existência de uma tabela SQLite."""
-    return connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone() is not None
+    return (
+        connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)
+        ).fetchone()
+        is not None
+    )
 
 
 def _next_legacy_name(connection: sqlite3.Connection, table: str) -> str:
@@ -35,7 +41,13 @@ def _next_legacy_name(connection: sqlite3.Connection, table: str) -> str:
 def _prepare_legacy_catalog(connection: sqlite3.Connection) -> list[str]:
     """Isola tabelas MAME antigas incompatíveis com o schema atual."""
     required = {
-        "mame_listxml_import": {"id", "emulator_id", "source_hash", "machine_count", "parser_version"},
+        "mame_listxml_import": {
+            "id",
+            "emulator_id",
+            "source_hash",
+            "machine_count",
+            "parser_version",
+        },
         "mame_listxml_document": {"id", "import_id", "source_hash", "xml_text", "byte_length"},
     }
     renamed: list[str] = []
@@ -77,10 +89,14 @@ def apply_migrations(db_path: Path | None = None) -> list[str]:
             connection.execute("PRAGMA foreign_keys=ON")
             connection.execute("PRAGMA journal_mode=WAL")
             connection.execute("PRAGMA synchronous=NORMAL")
-            connection.execute("CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY, applied_at TEXT NOT NULL)")
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY, applied_at TEXT NOT NULL)"
+            )
             for migration in migrations:
                 version = migration.stem
-                if connection.execute("SELECT 1 FROM schema_migrations WHERE version=?", (version,)).fetchone():
+                if connection.execute(
+                    "SELECT 1 FROM schema_migrations WHERE version=?", (version,)
+                ).fetchone():
                     continue
                 try:
                     if version == "003_mame_catalog_schema":
@@ -88,14 +104,21 @@ def apply_migrations(db_path: Path | None = None) -> list[str]:
                     # 009 pertence ao antigo catálogo de árvore XML. No V2
                     # atual a fonte lossless é mame_listxml_document e o
                     # catálogo relacional é criado pela migration 011.
-                    if version == "009_mame_xml_node_remove_path_unique" and not _table_exists(connection, "mame_xml_node"):
-                        connection.execute("INSERT INTO schema_migrations(version, applied_at) VALUES(?, datetime('now'))", (version,))
+                    if version == "009_mame_xml_node_remove_path_unique" and not _table_exists(
+                        connection, "mame_xml_node"
+                    ):
+                        connection.execute(
+                            "INSERT INTO schema_migrations(version, applied_at) VALUES(?, datetime('now'))",
+                            (version,),
+                        )
                         applied.append(version)
                         continue
                     connection.executescript(migration.read_text(encoding="utf-8"))
                 except sqlite3.DatabaseError as exc:
                     connection.rollback()
-                    raise DatabaseBootstrapError(f"Falha ao aplicar migration {version}: {exc}") from exc
+                    raise DatabaseBootstrapError(
+                        f"Falha ao aplicar migration {version}: {exc}"
+                    ) from exc
                 applied.append(version)
             connection.commit()
     except DatabaseBootstrapError:

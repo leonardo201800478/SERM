@@ -1,4 +1,5 @@
 """CLI principal da auditoria MAME/ListXML/Display Profile da V2."""
+
 from __future__ import annotations
 
 import argparse
@@ -22,11 +23,15 @@ def configured_mame() -> Path:
 
 def main() -> int:
     """Executa a ingestão e imprime o relatório final de validação."""
-    parser = argparse.ArgumentParser(description="Auditoria completa do catálogo/display MAME do SERM V2.")
+    parser = argparse.ArgumentParser(
+        description="Auditoria completa do catálogo/display MAME do SERM V2."
+    )
     parser.add_argument("--mame", type=Path, help="Executável MAME; por padrão usa o configurado.")
     parser.add_argument("--resolution", type=Path, help="resolution.ini usado como fallback.")
     parser.add_argument("--vsync", type=Path, help="Vsync.ini usado como fallback.")
-    parser.add_argument("--force", action="store_true", help="Reprocessa um ListXML com o mesmo SHA.")
+    parser.add_argument(
+        "--force", action="store_true", help="Reprocessa um ListXML com o mesmo SHA."
+    )
     args = parser.parse_args()
 
     executable = args.mame.resolve() if args.mame else configured_mame()

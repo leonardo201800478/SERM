@@ -1,4 +1,5 @@
 """Compatibilidade para o ingestor oficial do catálogo MAME."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -17,7 +18,9 @@ class MameCatalogIngestor:
 
     def ingest(self, executable: str | Path, **kwargs) -> dict[str, object]:
         """Importa o ListXML completo sem gerar profiles."""
-        return self.service.ingest(timeout=float(kwargs.get("timeout", 180.0)), force=bool(kwargs.get("force", False)))
+        return self.service.ingest(
+            timeout=float(kwargs.get("timeout", 180.0)), force=bool(kwargs.get("force", False))
+        )
 
 
 __all__ = ["MameCatalogIngestor"]

@@ -24,8 +24,12 @@ def test_ingest_inis_preserves_required_order(monkeypatch, tmp_path: Path):
 
         return Service
 
-    monkeypatch.setattr("serm_v2.services.mame_catalog_service.MameClassificationService", factory("CATLIST"))
-    monkeypatch.setattr("serm_v2.services.mame_catalog_service.MameResolutionService", factory("RESOLUTION"))
+    monkeypatch.setattr(
+        "serm_v2.services.mame_catalog_service.MameClassificationService", factory("CATLIST")
+    )
+    monkeypatch.setattr(
+        "serm_v2.services.mame_catalog_service.MameResolutionService", factory("RESOLUTION")
+    )
     monkeypatch.setattr("serm_v2.services.mame_catalog_service.MameVsyncService", factory("VSYNC"))
 
     service = MameCatalogService(logger=lambda _: None)
@@ -80,7 +84,11 @@ def test_listxml_failure_does_not_start_ini_pipeline(monkeypatch):
     ini_calls: list[Path] = []
 
     monkeypatch.setattr(service, "configured_executable", lambda: Path("C:/mame/mame.exe"))
-    monkeypatch.setattr(service, "_run_mame", lambda executable, timeout: (_ for _ in ()).throw(MameCatalogError("listxml failed")))
+    monkeypatch.setattr(
+        service,
+        "_run_mame",
+        lambda executable, timeout: (_ for _ in ()).throw(MameCatalogError("listxml failed")),
+    )
     monkeypatch.setattr(service, "_ingest_inis", lambda root: ini_calls.append(root))
 
     with pytest.raises(MameCatalogError, match="listxml failed"):

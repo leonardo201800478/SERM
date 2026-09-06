@@ -1,4 +1,5 @@
 """Ingestão do resolution.ini do MAME como fonte auxiliar do catálogo."""
+
 from __future__ import annotations
 
 import hashlib
@@ -30,9 +31,7 @@ class MameResolutionService:
         ):
             if candidate.is_file():
                 return candidate
-        raise MameResolutionError(
-            "resolution.ini não encontrado em folders/ nem na raiz do MAME."
-        )
+        raise MameResolutionError("resolution.ini não encontrado em folders/ nem na raiz do MAME.")
 
     @staticmethod
     def _hash_file(path: Path) -> tuple[str, int]:
@@ -124,8 +123,7 @@ class MameResolutionService:
             )
             source_id = int(cursor.lastrowid)
             machines = {
-                row[1]: row[0]
-                for row in connection.execute("SELECT id, name FROM mame_machine")
+                row[1]: row[0] for row in connection.execute("SELECT id, name FROM mame_machine")
             }
 
             entries = resolved = unresolved = 0

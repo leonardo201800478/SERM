@@ -5,6 +5,7 @@ Vsync.ini são fontes externas/fallback e nunca sobrescrevem silenciosamente
 um valor presente no ListXML. O XML bruto também é preservado por nó/atributo,
 permitindo suportar novos campos do MAME sem perda de informação.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -210,7 +211,9 @@ class MameDisplayCatalog:
             mame_build=root.attrib.get("build"),
         )
 
-    def _insert_machine(self, connection: sqlite3.Connection, import_id: int, element: ET.Element) -> int:
+    def _insert_machine(
+        self, connection: sqlite3.Connection, import_id: int, element: ET.Element
+    ) -> int:
         """Insere a identidade principal da máquina."""
         attrs = element.attrib
         description = element.findtext("description")
@@ -223,9 +226,16 @@ class MameDisplayCatalog:
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 import_id,
-                attrs.get("name", ""), attrs.get("sourcefile"), attrs.get("isdevice"),
-                attrs.get("runnable"), attrs.get("cloneof"), attrs.get("romof"),
-                attrs.get("sampleof"), description, year, manufacturer,
+                attrs.get("name", ""),
+                attrs.get("sourcefile"),
+                attrs.get("isdevice"),
+                attrs.get("runnable"),
+                attrs.get("cloneof"),
+                attrs.get("romof"),
+                attrs.get("sampleof"),
+                description,
+                year,
+                manufacturer,
             ),
         )
         return int(row.lastrowid)
@@ -249,16 +259,27 @@ class MameDisplayCatalog:
              text_value, attributes_json)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (
-                import_id, parent_node_id, machine_id, element.tag, 0, path,
-                (element.text or "").strip() or None, attrs,
+                import_id,
+                parent_node_id,
+                machine_id,
+                element.tag,
+                0,
+                path,
+                (element.text or "").strip() or None,
+                attrs,
             ),
         )
-        node_id = int(row.lastrowid or connection.execute(
-            "SELECT id FROM mame_xml_node WHERE import_id=? AND xml_path=?",
-            (import_id, path),
-        ).fetchone()[0])
+        node_id = int(
+            row.lastrowid
+            or connection.execute(
+                "SELECT id FROM mame_xml_node WHERE import_id=? AND xml_path=?",
+                (import_id, path),
+            ).fetchone()[0]
+        )
         if element.tag == "machine" and machine_id is not None and not skip_root_machine_link:
-            connection.execute("UPDATE mame_machine SET xml_node_id=? WHERE id=?", (node_id, machine_id))
+            connection.execute(
+                "UPDATE mame_machine SET xml_node_id=? WHERE id=?", (node_id, machine_id)
+            )
 
         counters: dict[str, int] = {}
         for child in element:
@@ -297,110 +318,277 @@ class MameDisplayCatalog:
                     (machine_id, a.get("name"), a.get("description"), a.get("default")),
                 )
             elif tag == "rom":
-                self._insert_attrs(connection, "mame_rom", machine_id, child.attrib, {
-                    "name": "name", "bios": "bios", "size": "size", "crc": "crc", "sha1": "sha1",
-                    "md5": "md5", "merge": "merge", "region": "region", "offset": "offset",
-                    "status": "status", "optional": "optional", "dispose": "dispose",
-                })
+                self._insert_attrs(
+                    connection,
+                    "mame_rom",
+                    machine_id,
+                    child.attrib,
+                    {
+                        "name": "name",
+                        "bios": "bios",
+                        "size": "size",
+                        "crc": "crc",
+                        "sha1": "sha1",
+                        "md5": "md5",
+                        "merge": "merge",
+                        "region": "region",
+                        "offset": "offset",
+                        "status": "status",
+                        "optional": "optional",
+                        "dispose": "dispose",
+                    },
+                )
             elif tag == "disk":
-                self._insert_attrs(connection, "mame_disk", machine_id, child.attrib, {
-                    "name": "name", "md5": "md5", "sha1": "sha1", "merge": "merge", "region": "region",
-                    "index": "index_value", "writable": "writable", "status": "status", "optional": "optional",
-                })
+                self._insert_attrs(
+                    connection,
+                    "mame_disk",
+                    machine_id,
+                    child.attrib,
+                    {
+                        "name": "name",
+                        "md5": "md5",
+                        "sha1": "sha1",
+                        "merge": "merge",
+                        "region": "region",
+                        "index": "index_value",
+                        "writable": "writable",
+                        "status": "status",
+                        "optional": "optional",
+                    },
+                )
             elif tag == "device_ref":
-                self._insert_attrs(connection, "mame_device_ref", machine_id, child.attrib, {
-                    "name": "name", "tag": "tag", "mandatory": "mandatory",
-                })
+                self._insert_attrs(
+                    connection,
+                    "mame_device_ref",
+                    machine_id,
+                    child.attrib,
+                    {
+                        "name": "name",
+                        "tag": "tag",
+                        "mandatory": "mandatory",
+                    },
+                )
             elif tag == "sample":
-                self._insert_attrs(connection, "mame_sample", machine_id, child.attrib, {"name": "name"})
+                self._insert_attrs(
+                    connection, "mame_sample", machine_id, child.attrib, {"name": "name"}
+                )
             elif tag == "chip":
-                self._insert_attrs(connection, "mame_chip", machine_id, child.attrib, {
-                    "type": "type", "name": "name", "clock": "clock", "tag": "tag",
-                })
+                self._insert_attrs(
+                    connection,
+                    "mame_chip",
+                    machine_id,
+                    child.attrib,
+                    {
+                        "type": "type",
+                        "name": "name",
+                        "clock": "clock",
+                        "tag": "tag",
+                    },
+                )
             elif tag == "sound":
-                self._insert_attrs(connection, "mame_sound", machine_id, child.attrib, {"channels": "channels"})
+                self._insert_attrs(
+                    connection, "mame_sound", machine_id, child.attrib, {"channels": "channels"}
+                )
             elif tag == "display":
                 self._insert_display(connection, machine_id, child)
                 display_count += 1
             elif tag == "input":
-                self._insert_attrs(connection, "mame_input", machine_id, child.attrib, {
-                    "players": "players", "buttons": "buttons", "coins": "coins", "service": "service",
-                    "tilt": "tilt",
-                })
+                self._insert_attrs(
+                    connection,
+                    "mame_input",
+                    machine_id,
+                    child.attrib,
+                    {
+                        "players": "players",
+                        "buttons": "buttons",
+                        "coins": "coins",
+                        "service": "service",
+                        "tilt": "tilt",
+                    },
+                )
                 for control in child.findall("control"):
                     connection.execute(
                         """UPDATE mame_input SET control_type=?, ways=?, minimum=?, maximum=?, sensitivity=?, keydelta=?, reverse=?
                         WHERE id=(SELECT MAX(id) FROM mame_input WHERE machine_id=?)""",
-                        (control.attrib.get("type"), control.attrib.get("ways"), control.attrib.get("minimum"),
-                         control.attrib.get("maximum"), control.attrib.get("sensitivity"), control.attrib.get("keydelta"),
-                         control.attrib.get("reverse"), machine_id),
+                        (
+                            control.attrib.get("type"),
+                            control.attrib.get("ways"),
+                            control.attrib.get("minimum"),
+                            control.attrib.get("maximum"),
+                            control.attrib.get("sensitivity"),
+                            control.attrib.get("keydelta"),
+                            control.attrib.get("reverse"),
+                            machine_id,
+                        ),
                     )
             elif tag == "dipswitch":
                 row = connection.execute(
                     "INSERT INTO mame_dipswitch(machine_id,name,tag,mask) VALUES(?,?,?,?)",
-                    (machine_id, child.attrib.get("name"), child.attrib.get("tag"), child.attrib.get("mask")),
+                    (
+                        machine_id,
+                        child.attrib.get("name"),
+                        child.attrib.get("tag"),
+                        child.attrib.get("mask"),
+                    ),
                 )
                 dip_id = int(row.lastrowid)
                 for value in child.findall("dipvalue"):
                     connection.execute(
                         "INSERT INTO mame_dipvalue(dipswitch_id,name,value,default_value) VALUES(?,?,?,?)",
-                        (dip_id, value.attrib.get("name"), value.attrib.get("value"), value.attrib.get("default")),
+                        (
+                            dip_id,
+                            value.attrib.get("name"),
+                            value.attrib.get("value"),
+                            value.attrib.get("default"),
+                        ),
                     )
             elif tag == "configuration":
                 row = connection.execute(
                     "INSERT INTO mame_configuration(machine_id,name,tag,mask) VALUES(?,?,?,?)",
-                    (machine_id, child.attrib.get("name"), child.attrib.get("tag"), child.attrib.get("mask")),
+                    (
+                        machine_id,
+                        child.attrib.get("name"),
+                        child.attrib.get("tag"),
+                        child.attrib.get("mask"),
+                    ),
                 )
                 config_id = int(row.lastrowid)
-                for value in child.findall("conflocation") + child.findall("confsetting") + child.findall("configvalue"):
+                for value in (
+                    child.findall("conflocation")
+                    + child.findall("confsetting")
+                    + child.findall("configvalue")
+                ):
                     connection.execute(
                         "INSERT INTO mame_configvalue(configuration_id,name,value,default_value) VALUES(?,?,?,?)",
-                        (config_id, value.attrib.get("name"), value.attrib.get("value"), value.attrib.get("default")),
+                        (
+                            config_id,
+                            value.attrib.get("name"),
+                            value.attrib.get("value"),
+                            value.attrib.get("default"),
+                        ),
                     )
             elif tag == "port":
-                self._insert_attrs(connection, "mame_port", machine_id, child.attrib, {
-                    "tag": "tag", "type": "type", "mask": "mask", "defvalue": "defvalue", "value": "value",
-                })
+                self._insert_attrs(
+                    connection,
+                    "mame_port",
+                    machine_id,
+                    child.attrib,
+                    {
+                        "tag": "tag",
+                        "type": "type",
+                        "mask": "mask",
+                        "defvalue": "defvalue",
+                        "value": "value",
+                    },
+                )
             elif tag == "adjuster":
-                self._insert_attrs(connection, "mame_adjuster", machine_id, child.attrib, {
-                    "name": "name", "default": "default_value", "minimum": "minimum", "maximum": "maximum",
-                })
+                self._insert_attrs(
+                    connection,
+                    "mame_adjuster",
+                    machine_id,
+                    child.attrib,
+                    {
+                        "name": "name",
+                        "default": "default_value",
+                        "minimum": "minimum",
+                        "maximum": "maximum",
+                    },
+                )
             elif tag == "driver":
-                self._insert_attrs(connection, "mame_driver", machine_id, child.attrib, {
-                    "status": "status", "emulation": "emulation", "color": "color", "sound": "sound",
-                    "graphic": "graphic", "cocktail": "cocktail", "protection": "protection", "savestate": "savestate",
-                })
+                self._insert_attrs(
+                    connection,
+                    "mame_driver",
+                    machine_id,
+                    child.attrib,
+                    {
+                        "status": "status",
+                        "emulation": "emulation",
+                        "color": "color",
+                        "sound": "sound",
+                        "graphic": "graphic",
+                        "cocktail": "cocktail",
+                        "protection": "protection",
+                        "savestate": "savestate",
+                    },
+                )
             elif tag == "feature":
-                self._insert_attrs(connection, "mame_feature", machine_id, child.attrib, {
-                    "type": "type", "status": "status", "overall": "overall",
-                })
+                self._insert_attrs(
+                    connection,
+                    "mame_feature",
+                    machine_id,
+                    child.attrib,
+                    {
+                        "type": "type",
+                        "status": "status",
+                        "overall": "overall",
+                    },
+                )
             elif tag == "device":
-                self._insert_attrs(connection, "mame_device", machine_id, child.attrib, {
-                    "type": "type", "tag": "tag", "clock": "clock", "shortname": "shortname",
-                    "name": "name", "fixed_image": "fixed_image",
-                })
+                self._insert_attrs(
+                    connection,
+                    "mame_device",
+                    machine_id,
+                    child.attrib,
+                    {
+                        "type": "type",
+                        "tag": "tag",
+                        "clock": "clock",
+                        "shortname": "shortname",
+                        "name": "name",
+                        "fixed_image": "fixed_image",
+                    },
+                )
             elif tag == "slot":
                 row = connection.execute(
                     "INSERT INTO mame_slot(machine_id,name,tag,fixed) VALUES(?,?,?,?)",
-                    (machine_id, child.attrib.get("name"), child.attrib.get("tag"), child.attrib.get("fixed")),
+                    (
+                        machine_id,
+                        child.attrib.get("name"),
+                        child.attrib.get("tag"),
+                        child.attrib.get("fixed"),
+                    ),
                 )
                 slot_id = int(row.lastrowid)
                 for option in child.findall("slotoption"):
                     connection.execute(
                         "INSERT INTO mame_slotoption(slot_id,name,devname,default_value,selectable) VALUES(?,?,?,?,?)",
-                        (slot_id, option.attrib.get("name"), option.attrib.get("devname"), option.attrib.get("default"), option.attrib.get("selectable")),
+                        (
+                            slot_id,
+                            option.attrib.get("name"),
+                            option.attrib.get("devname"),
+                            option.attrib.get("default"),
+                            option.attrib.get("selectable"),
+                        ),
                     )
             elif tag == "softwarelist":
-                self._insert_attrs(connection, "mame_softwarelist", machine_id, child.attrib, {
-                    "tag": "tag", "name": "name", "status": "status", "filter": "filter",
-                })
+                self._insert_attrs(
+                    connection,
+                    "mame_softwarelist",
+                    machine_id,
+                    child.attrib,
+                    {
+                        "tag": "tag",
+                        "name": "name",
+                        "status": "status",
+                        "filter": "filter",
+                    },
+                )
             elif tag == "ramoption":
-                self._insert_attrs(connection, "mame_ramoption", machine_id, child.attrib, {
-                    "name": "name", "default": "default_value",
-                })
+                self._insert_attrs(
+                    connection,
+                    "mame_ramoption",
+                    machine_id,
+                    child.attrib,
+                    {
+                        "name": "name",
+                        "default": "default_value",
+                    },
+                )
         return display_count
 
-    def _insert_display(self, connection: sqlite3.Connection, machine_id: int, element: ET.Element) -> None:
+    def _insert_display(
+        self, connection: sqlite3.Connection, machine_id: int, element: ET.Element
+    ) -> None:
         """Insere todos os atributos de timing/display conhecidos."""
         a = element.attrib
         connection.execute(
@@ -409,15 +597,33 @@ class MameDisplayCatalog:
              vtotal,vbend,vbstart,hsync,vsync,orientation_raw,source,confidence)
             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
-                machine_id, a.get("tag"), a.get("type"), a.get("rotate"), self._int(a.get("width")),
-                self._int(a.get("height")), self._float(a.get("refresh")), a.get("refresh"), a.get("pixclock"),
-                a.get("htotal"), a.get("hbend"), a.get("hbstart"), a.get("vtotal"), a.get("vbend"),
-                a.get("vbstart"), a.get("hsync"), a.get("vsync"), a.get("rotate"), "listxml", "authoritative",
+                machine_id,
+                a.get("tag"),
+                a.get("type"),
+                a.get("rotate"),
+                self._int(a.get("width")),
+                self._int(a.get("height")),
+                self._float(a.get("refresh")),
+                a.get("refresh"),
+                a.get("pixclock"),
+                a.get("htotal"),
+                a.get("hbend"),
+                a.get("hbstart"),
+                a.get("vtotal"),
+                a.get("vbend"),
+                a.get("vbstart"),
+                a.get("hsync"),
+                a.get("vsync"),
+                a.get("rotate"),
+                "listxml",
+                "authoritative",
             ),
         )
 
     @staticmethod
-    def _insert_attrs(connection, table: str, machine_id: int, attrs: dict[str, str], mapping: dict[str, str]) -> None:
+    def _insert_attrs(
+        connection, table: str, machine_id: int, attrs: dict[str, str], mapping: dict[str, str]
+    ) -> None:
         """Insere uma entidade simples usando um mapeamento atributo→coluna."""
         columns = ["machine_id", *mapping.values()]
         values = [machine_id, *(attrs.get(source) for source in mapping)]
@@ -446,11 +652,15 @@ class MameDisplayCatalog:
     def _ensure_schema(self, connection: sqlite3.Connection) -> None:
         """Aplica todas as migrations antes de persistir o catálogo."""
         migration_root = Path(__file__).resolve().parents[1] / "database" / "migrations"
-        connection.executescript((migration_root / "001_configuration_schema.sql").read_text(encoding="utf-8"))
+        connection.executescript(
+            (migration_root / "001_configuration_schema.sql").read_text(encoding="utf-8")
+        )
         second = migration_root / "002_configuration_localization.sql"
         if second.is_file():
             connection.executescript(second.read_text(encoding="utf-8"))
-        connection.executescript((migration_root / "003_mame_catalog_schema.sql").read_text(encoding="utf-8"))
+        connection.executescript(
+            (migration_root / "003_mame_catalog_schema.sql").read_text(encoding="utf-8")
+        )
 
 
 __all__ = ["DisplayFact", "DisplayImportResult", "MameDisplayCatalog", "MameDisplayCatalogError"]

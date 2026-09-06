@@ -4,6 +4,7 @@ A reconstrução usa o mesmo 7-Zip detectado pelo EmulatorManager tanto para
 ZIP quanto para 7Z. Isso mantém uma única implementação externa de compressão
 e permite controlar formato e nível sem alterar o scanner.
 """
+
 from __future__ import annotations
 
 import subprocess

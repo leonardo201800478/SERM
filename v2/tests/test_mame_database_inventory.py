@@ -5,6 +5,7 @@ Para executar contra o banco local:
 
 O teste é opcional em ambientes sem o banco real e não modifica dados.
 """
+
 from __future__ import annotations
 
 import os

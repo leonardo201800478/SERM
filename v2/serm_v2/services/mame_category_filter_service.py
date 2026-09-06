@@ -1,4 +1,5 @@
 """Filtros avançados do MAME baseados no CATLIST persistido."""
+
 from __future__ import annotations
 
 import json
@@ -35,7 +36,9 @@ class MameCategoryFilterService:
         data = cls._read()
         data[str(profile_id)] = {
             "categories": sorted({str(v) for v in values.get("categories", []) if str(v).strip()}),
-            "subcategories": sorted({str(v) for v in values.get("subcategories", []) if str(v).strip()}),
+            "subcategories": sorted(
+                {str(v) for v in values.get("subcategories", []) if str(v).strip()}
+            ),
         }
         FILTERS_FILE.parent.mkdir(parents=True, exist_ok=True)
         FILTERS_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -74,7 +77,9 @@ class MameCategoryFilterService:
         ]
 
     @classmethod
-    def matching_machine_names(cls, selected: dict[str, list[str]], database: Path | None = None) -> set[str]:
+    def matching_machine_names(
+        cls, selected: dict[str, list[str]], database: Path | None = None
+    ) -> set[str]:
         """Retorna nomes de machines classificados por qualquer seleção CATLIST."""
         categories = {str(v) for v in selected.get("categories", [])}
         subcategories = {str(v) for v in selected.get("subcategories", [])}
@@ -96,7 +101,7 @@ class MameCategoryFilterService:
         query = f"""
             SELECT DISTINCT machine_name
             FROM mame_classification
-            WHERE resolved_status = 'resolved' AND ({' OR '.join(clauses)})
+            WHERE resolved_status = 'resolved' AND ({" OR ".join(clauses)})
         """
         with sqlite3.connect(db_path, timeout=30.0) as db:
             return {str(row[0]) for row in db.execute(query, params) if row[0]}

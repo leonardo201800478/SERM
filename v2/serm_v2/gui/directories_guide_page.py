@@ -1,4 +1,5 @@
 """Safe, editable emulator directory configuration for SERM V2."""
+
 from __future__ import annotations
 
 import json
@@ -455,7 +456,9 @@ class DirectoryGuidePage(QWidget):
             else:
                 self._add_single(form, storage, label)
         layout.addWidget(group)
-        note = QLabel("MAME aceita múltiplas raízes em search paths separados por ';'. A ordem é preservada.")
+        note = QLabel(
+            "MAME aceita múltiplas raízes em search paths separados por ';'. A ordem é preservada."
+        )
         note.setWordWrap(True)
         layout.addWidget(note)
 
@@ -469,7 +472,9 @@ class DirectoryGuidePage(QWidget):
         for key, label, _ in self.FBNEO_KEYS:
             self._add_single(form, f"fbneo:{key}", label)
         layout.addWidget(group)
-        note = QLabel("Os slots szAppRomPaths[0..19] existentes são preservados; remover uma pasta apenas limpa o slot correspondente.")
+        note = QLabel(
+            "Os slots szAppRomPaths[0..19] existentes são preservados; remover uma pasta apenas limpa o slot correspondente."
+        )
         note.setWordWrap(True)
         layout.addWidget(note)
 
@@ -486,7 +491,9 @@ class DirectoryGuidePage(QWidget):
             else:
                 self._add_single(form, storage, label)
         layout.addWidget(group)
-        note = QLabel("Opções vetoriais do Flycast são apresentadas como listas; opções escalares continuam como uma única pasta.")
+        note = QLabel(
+            "Opções vetoriais do Flycast são apresentadas como listas; opções escalares continuam como uma única pasta."
+        )
         note.setWordWrap(True)
         layout.addWidget(note)
 
@@ -638,7 +645,9 @@ class DirectoryGuidePage(QWidget):
         data = self._load_json(self.PATHS_FILE)
         raw_config = data.get(self._config_key(key))
         if not raw_config:
-            QMessageBox.warning(self, "Configuração", "Selecione primeiro o arquivo de configuração.")
+            QMessageBox.warning(
+                self, "Configuração", "Selecione primeiro o arquivo de configuração."
+            )
             return
         config = Path(str(raw_config)).expanduser()
         if not config.is_file():
@@ -713,11 +722,7 @@ class DirectoryGuidePage(QWidget):
         selected = self._path_lists["fbneo:roms"].paths()
         for index, old in enumerate(current_roms):
             value = selected[index] if index < len(selected) else ""
-            encoded = (
-                self._encode_path(value, config, old, emulator="fbneo")
-                if value
-                else ""
-            )
+            encoded = self._encode_path(value, config, old, emulator="fbneo") if value else ""
             editor.set_value("szAppRomPaths", encoded, indexed=True, index=index)
         for key, _, cfg_key in self.FBNEO_KEYS:
             current = editor.values(cfg_key)
@@ -824,9 +829,7 @@ class DirectoryGuidePage(QWidget):
                 continue
             parts = values[0].split(";") if key in multi else [values[0]]
             resolved = [
-                self._resolve_path(part, config, emulator="mame")
-                for part in parts
-                if part.strip()
+                self._resolve_path(part, config, emulator="mame") for part in parts if part.strip()
             ]
             storage = f"mame:{key}"
             if storage in self._path_lists:
@@ -861,10 +864,7 @@ class DirectoryGuidePage(QWidget):
             if multi:
                 parts = self._split_vector(values[0])
                 self._path_lists[storage].set_paths(
-                    [
-                        self._resolve_path(part, config, emulator="flycast")
-                        for part in parts
-                    ]
+                    [self._resolve_path(part, config, emulator="flycast") for part in parts]
                 )
             else:
                 self._path_edits[storage].setText(

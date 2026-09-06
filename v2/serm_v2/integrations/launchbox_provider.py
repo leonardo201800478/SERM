@@ -4,6 +4,7 @@ LaunchBox is treated as an external provider. This module never writes to the
 LaunchBox database or XML files and does not make them part of SERM's source
 of truth.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -77,7 +78,10 @@ class LaunchBoxProvider:
 
     def table_columns(self, table: str) -> tuple[str, ...]:
         """Return column names for a validated LaunchBox table in read-only mode."""
-        if not table or any(character not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_" for character in table):
+        if not table or any(
+            character not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
+            for character in table
+        ):
             raise ValueError("Nome de tabela inválido.")
         database = self._require_database()
         with sqlite3.connect(f"file:{database.as_posix()}?mode=ro", uri=True) as connection:
@@ -93,7 +97,9 @@ class LaunchBoxProvider:
         required = {"DatabaseID", "Name", "Platform"}
         missing = required - columns
         if missing:
-            raise RuntimeError(f"Tabela Games do LaunchBox sem colunas obrigatórias: {sorted(missing)}")
+            raise RuntimeError(
+                f"Tabela Games do LaunchBox sem colunas obrigatórias: {sorted(missing)}"
+            )
 
         optional_columns = (
             "ReleaseDate",
@@ -103,7 +109,12 @@ class LaunchBoxProvider:
             "Publisher",
             "Genres",
         )
-        selected = ["DatabaseID", "Name", "Platform", *(column for column in optional_columns if column in columns)]
+        selected = [
+            "DatabaseID",
+            "Name",
+            "Platform",
+            *(column for column in optional_columns if column in columns),
+        ]
         query = f'SELECT {", ".join(fchr for fchr in (f'"{column}"' for column in selected))} FROM "Games" ORDER BY "DatabaseID"'
         parameters: tuple[Any, ...] = ()
         if limit is not None:

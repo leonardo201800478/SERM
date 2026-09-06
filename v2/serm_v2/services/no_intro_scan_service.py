@@ -4,6 +4,7 @@ O DAT selecionado e a fonte de verdade. O scan nao aplica filtros nem heuristica
 para escolher variantes: Headered/Headerless, BigEndian/ByteSwapped,
 Encrypted/Decrypted etc. sao DATs independentes.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -58,7 +59,9 @@ class NoIntroScanService:
 
         sources = [Path(p).expanduser().resolve() for p in profile.source_directories]
         if not sources:
-            raise NoIntroScanError("Nenhum diretorio de origem foi configurado para o scan No-Intro.")
+            raise NoIntroScanError(
+                "Nenhum diretorio de origem foi configurado para o scan No-Intro."
+            )
         for source in sources:
             if not source.is_dir():
                 raise NoIntroScanError(f"Diretorio de origem nao encontrado: {source}")
@@ -87,28 +90,31 @@ class NoIntroScanService:
         total = len(expected)
         completed = 0
         with stream_path.open("w", encoding="utf-8", newline="\n") as stream:
-            self._write_jsonl(stream, {
-                "record_type": "header",
-                "format": "SERM-SCAN-V1",
-                "scan_id": result.scan_id,
-                "profile_id": result.profile_id,
-                "source": result.source,
-                "system": result.system,
-                "scan_type": result.scan_type,
-                "catalog_label": result.catalog_label,
-                "catalog_hash": result.catalog_hash,
-                "dat_path": str(dat_path),
-                "started_at": started,
-                "source_paths": [str(path) for path in sources],
-                "machine_count_expected": len(games),
-                "item_count_expected": total,
-                "metadata": {
-                    "validation": "expected_driven",
-                    "persist_mode": "streaming",
-                    "filters_applied": False,
-                    "variant_selection": "selected_dat_is_authoritative",
+            self._write_jsonl(
+                stream,
+                {
+                    "record_type": "header",
+                    "format": "SERM-SCAN-V1",
+                    "scan_id": result.scan_id,
+                    "profile_id": result.profile_id,
+                    "source": result.source,
+                    "system": result.system,
+                    "scan_type": result.scan_type,
+                    "catalog_label": result.catalog_label,
+                    "catalog_hash": result.catalog_hash,
+                    "dat_path": str(dat_path),
+                    "started_at": started,
+                    "source_paths": [str(path) for path in sources],
+                    "machine_count_expected": len(games),
+                    "item_count_expected": total,
+                    "metadata": {
+                        "validation": "expected_driven",
+                        "persist_mode": "streaming",
+                        "filters_applied": False,
+                        "variant_selection": "selected_dat_is_authoritative",
+                    },
                 },
-            })
+            )
             for game_name, items in games.items():
                 if self._cancelled:
                     break
@@ -119,22 +125,32 @@ class NoIntroScanService:
                 if completed == total or completed % 250 == 0:
                     stream.flush()
 
-            self._write_jsonl(stream, {
-                "record_type": "scan_end",
-                "status": "cancelled" if self._cancelled else "completed",
-                "finished_at": time.time(),
-                "status_counts": dict(result.status_counts),
-                "files_examined": result.files_examined,
-                "archives_examined": result.archives_examined,
-                "items_examined": result.items_examined,
-                "errors": result.errors,
-            })
+            self._write_jsonl(
+                stream,
+                {
+                    "record_type": "scan_end",
+                    "status": "cancelled" if self._cancelled else "completed",
+                    "finished_at": time.time(),
+                    "status_counts": dict(result.status_counts),
+                    "files_examined": result.files_examined,
+                    "archives_examined": result.archives_examined,
+                    "items_examined": result.items_examined,
+                    "errors": result.errors,
+                },
+            )
             stream.flush()
 
         result.finished_at = time.time()
         return result
 
-    def _scan_game(self, game_name: str, items: list[_ExpectedRom], sources: list[Path], result: ScanResult, stream) -> None:
+    def _scan_game(
+        self,
+        game_name: str,
+        items: list[_ExpectedRom],
+        sources: list[Path],
+        result: ScanResult,
+        stream,
+    ) -> None:
         expected_by_name: dict[str, list[_ExpectedRom]] = {}
         for item in items:
             expected_by_name.setdefault(Path(item.rom_name).name.casefold(), []).append(item)
@@ -158,7 +174,9 @@ class NoIntroScanService:
         for item in items:
             if occurrences[self._item_key(item)] == 0:
                 self._emit(
-                    self._evidence(item, "MISSING", message="Arquivo nao encontrado na fonte do scan."),
+                    self._evidence(
+                        item, "MISSING", message="Arquivo nao encontrado na fonte do scan."
+                    ),
                     result,
                     stream,
                 )
@@ -176,7 +194,9 @@ class NoIntroScanService:
                     for item in candidates:
                         key = self._item_key(item)
                         duplicate = occurrences[key] > 0
-                        evidence = self._validate_zip_member(zf, info, item, archive, duplicate=duplicate)
+                        evidence = self._validate_zip_member(
+                            zf, info, item, archive, duplicate=duplicate
+                        )
                         if evidence is None:
                             continue
                         occurrences[key] += 1
@@ -208,7 +228,9 @@ class NoIntroScanService:
             result.errors += 1
             self._log_error(result, stream, path, exc)
 
-    def _validate_zip_member(self, zf, info, item: _ExpectedRom, archive: Path, *, duplicate: bool) -> ScanEvidence:
+    def _validate_zip_member(
+        self, zf, info, item: _ExpectedRom, archive: Path, *, duplicate: bool
+    ) -> ScanEvidence:
         actual_size = int(info.file_size)
         actual_crc = f"{int(info.CRC) & 0xFFFFFFFF:08x}"
         expected_crc = item.crc.casefold()
@@ -255,7 +277,12 @@ class NoIntroScanService:
 
     @staticmethod
     def _item_key(item: _ExpectedRom) -> tuple[str, str, int, str]:
-        return (item.game_name.casefold(), item.rom_name.casefold(), item.size, item.sha1.casefold())
+        return (
+            item.game_name.casefold(),
+            item.rom_name.casefold(),
+            item.size,
+            item.sha1.casefold(),
+        )
 
     @staticmethod
     def _group_by_game(items: list[_ExpectedRom]) -> dict[str, list[_ExpectedRom]]:
@@ -336,16 +363,18 @@ class NoIntroScanService:
                     size = int(rom.attrib.get("size") or 0)
                 except ValueError:
                     size = 0
-                expected.append(_ExpectedRom(
-                    game_name=game_name,
-                    rom_name=rom_name,
-                    size=size,
-                    crc=str(rom.attrib.get("crc") or "").casefold(),
-                    md5=str(rom.attrib.get("md5") or "").casefold(),
-                    sha1=str(rom.attrib.get("sha1") or "").casefold(),
-                    status=str(rom.attrib.get("status") or "").casefold(),
-                    fmt=str(rom.attrib.get("format") or "").strip(),
-                ))
+                expected.append(
+                    _ExpectedRom(
+                        game_name=game_name,
+                        rom_name=rom_name,
+                        size=size,
+                        crc=str(rom.attrib.get("crc") or "").casefold(),
+                        md5=str(rom.attrib.get("md5") or "").casefold(),
+                        sha1=str(rom.attrib.get("sha1") or "").casefold(),
+                        status=str(rom.attrib.get("status") or "").casefold(),
+                        fmt=str(rom.attrib.get("format") or "").strip(),
+                    )
+                )
         return expected, header
 
     @staticmethod
@@ -375,22 +404,33 @@ class NoIntroScanService:
     @staticmethod
     def _serialize(evidence: ScanEvidence) -> dict:
         return {
-            "machine_name": evidence.machine_name, "rom_name": evidence.rom_name, "status": evidence.status,
-            "expected_size": evidence.expected_size, "actual_size": evidence.actual_size,
-            "expected_crc": evidence.expected_crc, "actual_crc": evidence.actual_crc,
-            "expected_sha1": evidence.expected_sha1, "actual_sha1": evidence.actual_sha1,
-            "expected_md5": evidence.expected_md5, "actual_md5": evidence.actual_md5,
-            "path": evidence.path, "archive_path": evidence.archive_path, "archive_member": evidence.archive_member,
-            "merge_name": evidence.merge_name, "optional": evidence.optional, "message": evidence.message,
+            "machine_name": evidence.machine_name,
+            "rom_name": evidence.rom_name,
+            "status": evidence.status,
+            "expected_size": evidence.expected_size,
+            "actual_size": evidence.actual_size,
+            "expected_crc": evidence.expected_crc,
+            "actual_crc": evidence.actual_crc,
+            "expected_sha1": evidence.expected_sha1,
+            "actual_sha1": evidence.actual_sha1,
+            "expected_md5": evidence.expected_md5,
+            "actual_md5": evidence.actual_md5,
+            "path": evidence.path,
+            "archive_path": evidence.archive_path,
+            "archive_member": evidence.archive_member,
+            "merge_name": evidence.merge_name,
+            "optional": evidence.optional,
+            "message": evidence.message,
             "error": evidence.error,
         }
 
     @staticmethod
     def _log_error(result: ScanResult, stream, path: Path, exc: Exception) -> None:
         result.status_counts["ERROR"] += 1
-        NoIntroScanService._write_jsonl(stream, {
-            "record_type": "error", "path": str(path), "error": f"{type(exc).__name__}: {exc}"
-        })
+        NoIntroScanService._write_jsonl(
+            stream,
+            {"record_type": "error", "path": str(path), "error": f"{type(exc).__name__}: {exc}"},
+        )
 
 
 __all__ = ["NoIntroScanError", "NoIntroScanService"]

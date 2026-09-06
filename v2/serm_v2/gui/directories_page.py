@@ -1,4 +1,5 @@
 """Unified directory configuration for SERM V2."""
+
 from __future__ import annotations
 
 import json
@@ -356,7 +357,7 @@ class DirectoriesPage(QWidget):
                 continue
             safe_value = value.replace(chr(34), chr(39))
             replacement = f'{cfg_key} = "{safe_value}"'
-            pattern = rf'^\s*{re.escape(cfg_key)}\s*=.*$'
+            pattern = rf"^\s*{re.escape(cfg_key)}\s*=.*$"
             if re.search(pattern, text, re.MULTILINE):
                 text = re.sub(pattern, replacement, text, flags=re.MULTILINE)
             else:

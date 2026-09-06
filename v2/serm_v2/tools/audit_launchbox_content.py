@@ -1,4 +1,5 @@
 """CLI for quantitative LaunchBox content auditing."""
+
 from __future__ import annotations
 
 import argparse
@@ -12,7 +13,9 @@ from ..runtime.paths import exports_root
 
 def build_parser() -> argparse.ArgumentParser:
     """Build the command-line argument parser."""
-    parser = argparse.ArgumentParser(description="Audit the content population of LaunchBox metadata.")
+    parser = argparse.ArgumentParser(
+        description="Audit the content population of LaunchBox metadata."
+    )
     parser.add_argument(
         "--output",
         type=Path,

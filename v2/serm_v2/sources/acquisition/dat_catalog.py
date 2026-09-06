@@ -1,4 +1,5 @@
 """Public DAT Catalog acquisition backend for SERM."""
+
 from __future__ import annotations
 
 import csv
@@ -83,7 +84,9 @@ class PublicDatCatalogProvider:
             raise ValueError(f"Categoria de catálogo inválida: {category!r}")
         url = self.INDEX_URL_TEMPLATE.format(category=quote(category, safe=""))
         logger.info("[DAT-CATALOG][HTTP] GET %s", url)
-        request = urllib.request.Request(url, headers={"User-Agent": self.USER_AGENT, "Accept": "text/csv,*/*;q=0.8"})
+        request = urllib.request.Request(
+            url, headers={"User-Agent": self.USER_AGENT, "Accept": "text/csv,*/*;q=0.8"}
+        )
         try:
             with self._opener.open(request, timeout=self.timeout) as response:
                 payload = response.read()
@@ -124,7 +127,9 @@ class PublicDatCatalogProvider:
             entries.append(DatCatalogEntry(name, cls._normalize_url(url), crc32, size, category))
         return tuple(entries)
 
-    def match(self, systems: tuple[str, ...], entries: tuple[DatCatalogEntry, ...] | None = None) -> tuple[DatCatalogEntry, ...]:
+    def match(
+        self, systems: tuple[str, ...], entries: tuple[DatCatalogEntry, ...] | None = None
+    ) -> tuple[DatCatalogEntry, ...]:
         """Match LaunchBox system names against DAT filenames."""
         entries = entries if entries is not None else self.fetch_catalog()
         keys: set[str] = set()
@@ -134,11 +139,17 @@ class PublicDatCatalogProvider:
             keys.update(self._aliases(key))
         aliases = {self._strip_vendor(key) for key in keys}
         matches = tuple(
-            entry for entry in entries
+            entry
+            for entry in entries
             if self._normalize(Path(entry.name).stem) in keys
             or self._strip_vendor(self._normalize(Path(entry.name).stem)) in aliases
         )
-        logger.info("[DAT-CATALOG][MATCH] LaunchBox=%d | DATs=%d | matches=%d", len(systems), len(entries), len(matches))
+        logger.info(
+            "[DAT-CATALOG][MATCH] LaunchBox=%d | DATs=%d | matches=%d",
+            len(systems),
+            len(entries),
+            len(matches),
+        )
         return matches
 
     def status(self, entry: DatCatalogEntry) -> DatStatus:
@@ -251,7 +262,9 @@ class PublicDatCatalogProvider:
             if attempt < self.RETRIES:
                 time.sleep(self.RETRY_DELAY_SECONDS * attempt)
         if last_error is not None:
-            raise DatCatalogError(f"Falha ao baixar URL: {current_url} | {last_error}") from last_error
+            raise DatCatalogError(
+                f"Falha ao baixar URL: {current_url} | {last_error}"
+            ) from last_error
         raise DatCatalogError(f"Falha ao baixar URL: {current_url}")
 
     @staticmethod
@@ -263,8 +276,14 @@ class PublicDatCatalogProvider:
             value = data.decode("utf-8-sig").strip()
         except UnicodeDecodeError:
             return False
-        return bool(value) and "\n" not in value and "\r" not in value and value.lower().endswith(".dat") and (
-            value.startswith("../") or value.startswith("./") or value.startswith("normalized/")
+        return (
+            bool(value)
+            and "\n" not in value
+            and "\r" not in value
+            and value.lower().endswith(".dat")
+            and (
+                value.startswith("../") or value.startswith("./") or value.startswith("normalized/")
+            )
         )
 
     @staticmethod
@@ -276,13 +295,21 @@ class PublicDatCatalogProvider:
             try:
                 with zipfile.ZipFile(io.BytesIO(data)) as archive:
                     candidates = [
-                        info for info in archive.infolist()
+                        info
+                        for info in archive.infolist()
                         if not info.is_dir() and info.filename.lower().endswith(".dat")
                     ]
                     if not candidates:
                         raise DatCatalogError(f"ZIP de '{entry_name}' não contém arquivo DAT.")
                     wanted = Path(entry_name).name.casefold()
-                    candidate = next((item for item in candidates if Path(item.filename).name.casefold() == wanted), candidates[0])
+                    candidate = next(
+                        (
+                            item
+                            for item in candidates
+                            if Path(item.filename).name.casefold() == wanted
+                        ),
+                        candidates[0],
+                    )
                     payload = archive.read(candidate)
             except (zipfile.BadZipFile, OSError, KeyError) as exc:
                 raise DatCatalogError(f"ZIP inválido para '{entry_name}'.") from exc
@@ -291,7 +318,9 @@ class PublicDatCatalogProvider:
             return payload
         if not PublicDatCatalogProvider._looks_like_dat(data):
             preview = data[:120].decode("utf-8", errors="replace").replace("\n", " ")
-            raise DatCatalogError(f"Resposta inválida para '{entry_name}' (não é DAT/ZIP): {preview!r}")
+            raise DatCatalogError(
+                f"Resposta inválida para '{entry_name}' (não é DAT/ZIP): {preview!r}"
+            )
         return data
 
     @staticmethod
@@ -299,7 +328,12 @@ class PublicDatCatalogProvider:
         """Recognize common DAT/XML headers and reject arbitrary text/HTML."""
         sample = data[:4096].lstrip(b"\xef\xbb\xbf \t\r\n")
         lowered = sample.lower()
-        return lowered.startswith(b"clrmamepro (") or lowered.startswith(b"<datafile") or lowered.startswith(b"<?xml") or b"<clrmamepro>" in lowered[:512]
+        return (
+            lowered.startswith(b"clrmamepro (")
+            or lowered.startswith(b"<datafile")
+            or lowered.startswith(b"<?xml")
+            or b"<clrmamepro>" in lowered[:512]
+        )
 
     def _read_manifest(self) -> dict[str, dict[str, object]]:
         """Read the local DAT provenance manifest."""
@@ -323,7 +357,14 @@ class PublicDatCatalogProvider:
         path = quote(parts.path, safe="/%:@-._~!$&'()*+,;=")
         return urlunsplit((parts.scheme, parts.netloc, path, parts.query, parts.fragment))
 
-    def _write_manifest(self, entry: DatCatalogEntry, sha256: str, downloaded_size: int, downloaded_crc32: int, resolved_url: str) -> None:
+    def _write_manifest(
+        self,
+        entry: DatCatalogEntry,
+        sha256: str,
+        downloaded_size: int,
+        downloaded_crc32: int,
+        resolved_url: str,
+    ) -> None:
         """Persist remote and resolved artifact provenance."""
         manifest = self._read_manifest()
         manifest[entry.name] = {
@@ -337,7 +378,9 @@ class PublicDatCatalogProvider:
             "sha256": sha256,
         }
         self.manifest_path.parent.mkdir(parents=True, exist_ok=True)
-        self.manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+        self.manifest_path.write_text(
+            json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
 
     @staticmethod
     def _sha256(path: Path) -> str:
@@ -367,10 +410,29 @@ class PublicDatCatalogProvider:
     @classmethod
     def _strip_vendor(cls, value: str) -> str:
         """Strip common manufacturer prefixes from normalized DAT names."""
-        prefixes = ("sony ", "nintendo ", "sega ", "microsoft ", "nec ", "panasonic ", "philips ", "snk ", "commodore ", "bandai ", "atari ", "fujitsu ", "mattel ", "apple ", "ibm ", "vm labs ", "vtech ", "tomy ")
+        prefixes = (
+            "sony ",
+            "nintendo ",
+            "sega ",
+            "microsoft ",
+            "nec ",
+            "panasonic ",
+            "philips ",
+            "snk ",
+            "commodore ",
+            "bandai ",
+            "atari ",
+            "fujitsu ",
+            "mattel ",
+            "apple ",
+            "ibm ",
+            "vm labs ",
+            "vtech ",
+            "tomy ",
+        )
         for prefix in prefixes:
             if value.startswith(prefix):
-                return value[len(prefix):]
+                return value[len(prefix) :]
         return value
 
     @classmethod
@@ -379,8 +441,14 @@ class PublicDatCatalogProvider:
         aliases = {
             "nes": {"nintendo entertainment system", "nintendo nintendo entertainment system"},
             "famicom": {"nintendo entertainment system", "nintendo nintendo entertainment system"},
-            "snes": {"super nintendo entertainment system", "nintendo super nintendo entertainment system"},
-            "super nes": {"super nintendo entertainment system", "nintendo super nintendo entertainment system"},
+            "snes": {
+                "super nintendo entertainment system",
+                "nintendo super nintendo entertainment system",
+            },
+            "super nes": {
+                "super nintendo entertainment system",
+                "nintendo super nintendo entertainment system",
+            },
             "genesis": {"mega drive genesis", "sega mega drive genesis"},
             "sega genesis": {"mega drive genesis", "sega mega drive genesis"},
             "sms": {"master system mark iii", "sega master system mark iii"},

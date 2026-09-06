@@ -1,4 +1,5 @@
 """Generic immutable records exchanged by source adapters."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping

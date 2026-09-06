@@ -1,4 +1,5 @@
 """Painel de teste da Etapa 3: ingestão do resolution.ini."""
+
 from __future__ import annotations
 
 from typing import TypedDict, cast
@@ -26,6 +27,7 @@ class _ResolutionResult(TypedDict):
 
 class _ResolutionWorker(QThread):
     """Executa a ingestão sem bloquear a interface."""
+
     message = Signal(str)
     completed = Signal(object)
     failed = Signal(str)
@@ -38,7 +40,9 @@ class _ResolutionWorker(QThread):
     def run(self) -> None:
         """Executa o serviço e encaminha os logs para a GUI."""
         try:
-            result = MameResolutionService(self.database_path, self.mame_root).ingest(logger=self.message.emit)
+            result = MameResolutionService(self.database_path, self.mame_root).ingest(
+                logger=self.message.emit
+            )
             self.completed.emit(result)
         except (MameResolutionError, MameCatalogError) as exc:
             self.failed.emit(str(exc))
@@ -101,7 +105,9 @@ class MameResolutionTab(QWidget):
     def _completed(self, result: object) -> None:
         """Exibe o resumo da ingestão."""
         result = cast(_ResolutionResult, result)
-        self.status.setText(f"Concluído | entradas={result['entries']:,} | resolvidas={result['resolved']:,} | não resolvidas={result['unresolved']:,}")
+        self.status.setText(
+            f"Concluído | entradas={result['entries']:,} | resolvidas={result['resolved']:,} | não resolvidas={result['unresolved']:,}"
+        )
         self._log(f"OK | RESOLUTION | entradas={result['entries']:,}")
         self._log(f"OK | RESOLUTION | resolvidas={result['resolved']:,}")
         self._log(f"OK | RESOLUTION | não resolvidas={result['unresolved']:,}")

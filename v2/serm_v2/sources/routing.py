@@ -1,4 +1,5 @@
 """Source routing rules shared by external system adapters."""
+
 from __future__ import annotations
 
 from enum import StrEnum

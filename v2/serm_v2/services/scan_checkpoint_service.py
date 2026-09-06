@@ -1,4 +1,5 @@
 """Utilitários para preservar e reiniciar checkpoints de scans MAME."""
+
 from __future__ import annotations
 
 import json
@@ -47,7 +48,10 @@ class ScanCheckpointService:
         try:
             if checkpoint.is_file():
                 payload = json.loads(checkpoint.read_text(encoding="utf-8"))
-                if payload.get("format") == "SERM-SCAN-CHECKPOINT-V2" and int(payload.get("completed_count", 0)) > 0:
+                if (
+                    payload.get("format") == "SERM-SCAN-CHECKPOINT-V2"
+                    and int(payload.get("completed_count", 0)) > 0
+                ):
                     return True
         except (OSError, ValueError, TypeError):
             pass
@@ -115,7 +119,12 @@ class ScanCheckpointService:
                         status = str(record.get("status") or status)
         except OSError:
             return None
-        return {"path": path, "completed": completed, "last_machine": last_machine, "status": status}
+        return {
+            "path": path,
+            "completed": completed,
+            "last_machine": last_machine,
+            "status": status,
+        }
 
     @classmethod
     def archive_latest(cls, profile) -> Path | None:

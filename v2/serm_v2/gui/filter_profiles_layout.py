@@ -1,4 +1,5 @@
 """Layout configurável da tela de filtros e scan."""
+
 from __future__ import annotations
 
 import json
@@ -150,7 +151,13 @@ class FilterProfilesPage(_BaseFilterProfilesPage):
         self.reconstruction_button = QPushButton("ABRIR RECONSTRUÇÃO")
         self.reconstruction_button.setEnabled(False)
         self.reconstruction_button.clicked.connect(self._open_reconstruction)
-        for button in (self.save_button, self.scan_button, self.cancel_button, self.apply_filter_button, self.reconstruction_button):
+        for button in (
+            self.save_button,
+            self.scan_button,
+            self.cancel_button,
+            self.apply_filter_button,
+            self.reconstruction_button,
+        ):
             buttons.addWidget(button)
         buttons.addStretch()
         scan_layout.addLayout(buttons)
@@ -174,7 +181,9 @@ class FilterProfilesPage(_BaseFilterProfilesPage):
     def _build_mame_controls(self) -> None:
         super()._build_mame_controls()
         self.mame_fundamental_button = QPushButton("FILTROS FUNDAMENTAIS…")
-        self.mame_fundamental_button.setToolTip("Abrir em uma janela separada as exclusões fundamentais da V1.")
+        self.mame_fundamental_button.setToolTip(
+            "Abrir em uma janela separada as exclusões fundamentais da V1."
+        )
         self.mame_fundamental_button.clicked.connect(self._open_fundamental_filters)
         self.mame_fundamental_summary = QLabel()
         self.mame_fundamental_summary.setWordWrap(True)
@@ -198,7 +207,11 @@ class FilterProfilesPage(_BaseFilterProfilesPage):
 
     def _open_fundamental_filters(self) -> None:
         profile_id = self._current_saved_profile.profile_id if self._current_saved_profile else ""
-        values = MameFundamentalFilterService.load(profile_id) if profile_id else dict(self._fundamental_filters)
+        values = (
+            MameFundamentalFilterService.load(profile_id)
+            if profile_id
+            else dict(self._fundamental_filters)
+        )
         dialog = MameFundamentalFiltersDialog(values, self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
@@ -207,13 +220,19 @@ class FilterProfilesPage(_BaseFilterProfilesPage):
             MameFundamentalFilterService.save(profile_id, self._fundamental_filters)
         self._update_fundamental_summary()
         self._schedule_catalog_estimate()
-        self.scan_progress.setText("Filtros fundamentais alterados. O scan bruto não será repetido até você solicitar um novo scan.")
+        self.scan_progress.setText(
+            "Filtros fundamentais alterados. O scan bruto não será repetido até você solicitar um novo scan."
+        )
 
     def _update_fundamental_summary(self) -> None:
         if not hasattr(self, "mame_fundamental_summary"):
             return
         active = sum(1 for enabled in self._fundamental_filters.values() if enabled)
-        self.mame_fundamental_summary.setText(f"{active} exclusões fundamentais ativas" if active else "Nenhuma exclusão fundamental ativa")
+        self.mame_fundamental_summary.setText(
+            f"{active} exclusões fundamentais ativas"
+            if active
+            else "Nenhuma exclusão fundamental ativa"
+        )
 
     def _update_catalog_estimate(self) -> None:
         selected = self._selected_item_data()
@@ -223,8 +242,12 @@ class FilterProfilesPage(_BaseFilterProfilesPage):
             return
         source, system, _dat_path = selected
         if source != "MAME":
-            self.catalog_estimate.setText("A auditoria externa será identificada pela versão/data do DAT.")
-            self.catalog_estimate_detail.setText("Os filtros específicos serão executados somente depois do snapshot do DAT.")
+            self.catalog_estimate.setText(
+                "A auditoria externa será identificada pela versão/data do DAT."
+            )
+            self.catalog_estimate_detail.setText(
+                "Os filtros específicos serão executados somente depois do snapshot do DAT."
+            )
             return
         profile = self._current_profile()
         if profile is None:
@@ -232,7 +255,9 @@ class FilterProfilesPage(_BaseFilterProfilesPage):
         latest = ScanRepository(self._database_path()).latest_for_profile(profile.profile_id)
         if not latest or not latest.get("scan_file_path"):
             self.catalog_estimate.setText("Nenhum scan bruto disponível para este perfil.")
-            self.catalog_estimate_detail.setText("Execute o scan uma única vez. Depois disso os filtros trabalharão somente sobre o arquivo salvo.")
+            self.catalog_estimate_detail.setText(
+                "Execute o scan uma única vez. Depois disso os filtros trabalharão somente sobre o arquivo salvo."
+            )
             return
         raw_path = Path(str(latest["scan_file_path"]))
         if not raw_path.is_file():
@@ -247,18 +272,30 @@ class FilterProfilesPage(_BaseFilterProfilesPage):
             self.catalog_estimate.setText("Não foi possível calcular o filtro sobre o scan.")
             self.catalog_estimate_detail.setText(str(exc))
             return
-        self.catalog_estimate.setText(f"SCAN BRUTO: {int(preview['input_count']):,} ROMs  →  APÓS FILTROS: {int(preview['output_count']):,} ROMs  →  EXCLUÍDAS: {int(preview['filtered_count']):,}")
+        self.catalog_estimate.setText(
+            f"SCAN BRUTO: {int(preview['input_count']):,} ROMs  →  APÓS FILTROS: {int(preview['output_count']):,} ROMs  →  EXCLUÍDAS: {int(preview['filtered_count']):,}"
+        )
         counts = preview.get("filter_counts", {})
-        details = " • ".join(f"{key}={int(value):,}" for key, value in counts.items()) or "Nenhuma ROM excluída"
+        details = (
+            " • ".join(f"{key}={int(value):,}" for key, value in counts.items())
+            or "Nenhuma ROM excluída"
+        )
         status = preview.get("status_counts", {})
-        self.catalog_estimate_detail.setText(f"Catálogo: {preview.get('catalog_label')} | tipo: {preview.get('scan_type')} | CURRENT={status.get('CURRENT', 0):,} | MISSING={status.get('MISSING', 0):,} | WRONG={status.get('WRONG', 0):,} | DUPLICATE={status.get('DUPLICATE', 0):,}\nFiltros: {details}")
+        self.catalog_estimate_detail.setText(
+            f"Catálogo: {preview.get('catalog_label')} | tipo: {preview.get('scan_type')} | CURRENT={status.get('CURRENT', 0):,} | MISSING={status.get('MISSING', 0):,} | WRONG={status.get('WRONG', 0):,} | DUPLICATE={status.get('DUPLICATE', 0):,}\nFiltros: {details}"
+        )
 
     def _load_profile(self, profile) -> None:
         super()._load_profile(profile)
         self._fundamental_filters = MameFundamentalFilterService.load(profile.profile_id)
         if str(profile.source).casefold() == "mame":
             self.mame_scan_type.blockSignals(True)
-            self.mame_scan_type.setCurrentIndex(max(0, self.mame_scan_type.findData(MameScanSettingsService.load(profile.profile_id))))
+            self.mame_scan_type.setCurrentIndex(
+                max(
+                    0,
+                    self.mame_scan_type.findData(MameScanSettingsService.load(profile.profile_id)),
+                )
+            )
             self.mame_scan_type.blockSignals(False)
         self._update_fundamental_summary()
         self._last_filter_result = None
@@ -304,7 +341,9 @@ class FilterProfilesPage(_BaseFilterProfilesPage):
         self._last_scan_result = result
         self.apply_filter_button.setEnabled(True)
         self.reconstruction_button.setEnabled(False)
-        self.scan_progress.setText(f"SCAN BRUTO | concluído | scan_id={result.scan_id} | catálogo={result.catalog_label} | tipo={result.scan_type} | arquivos={result.files_examined} | itens={result.items_examined}")
+        self.scan_progress.setText(
+            f"SCAN BRUTO | concluído | scan_id={result.scan_id} | catálogo={result.catalog_label} | tipo={result.scan_type} | arquivos={result.files_examined} | itens={result.items_examined}"
+        )
         self._schedule_catalog_estimate()
 
     def _apply_filters_to_scan(self) -> None:
@@ -314,30 +353,48 @@ class FilterProfilesPage(_BaseFilterProfilesPage):
         repository = ScanRepository(self._database_path())
         latest = repository.latest_for_profile(profile.profile_id)
         if not latest:
-            QMessageBox.information(self, "Filtros", "Nenhum scan bruto foi encontrado para este perfil.")
+            QMessageBox.information(
+                self, "Filtros", "Nenhum scan bruto foi encontrado para este perfil."
+            )
             return
         raw_path = repository.raw_file(str(latest["scan_id"]))
         if raw_path is None or not raw_path.is_file():
             QMessageBox.warning(self, "Filtros", "O arquivo bruto do scan não foi encontrado.")
             return
         try:
-            self._last_filter_result = ScanFilterService.apply_mame(raw_path, profile, self._fundamental_filters)
+            self._last_filter_result = ScanFilterService.apply_mame(
+                raw_path, profile, self._fundamental_filters
+            )
         except Exception as exc:  # noqa: BLE001
             self._append_log("ERROR", f"FILTRO | falha | {type(exc).__name__}: {exc}")
             QMessageBox.warning(self, "Filtros", f"Não foi possível aplicar os filtros:\n{exc}")
             return
         result = self._last_filter_result
         self.reconstruction_button.setEnabled(True)
-        self.scan_progress.setText(f"FILTRO | concluído | bruto={result['input_count']:,} | mantidas={result['output_count']:,} | excluídas={result['filtered_count']:,}")
+        self.scan_progress.setText(
+            f"FILTRO | concluído | bruto={result['input_count']:,} | mantidas={result['output_count']:,} | excluídas={result['filtered_count']:,}"
+        )
         self._append_log("INFO", f"FILTRO | arquivo={result['filtered_file_path']}")
         if result["filter_counts"]:
-            self._append_log("INFO", "FILTRO | " + " | ".join(f"{key}={value:,}" for key, value in result["filter_counts"].items()))
+            self._append_log(
+                "INFO",
+                "FILTRO | "
+                + " | ".join(f"{key}={value:,}" for key, value in result["filter_counts"].items()),
+            )
         self._schedule_catalog_estimate()
-        self.reconstruction_requested.emit({"profile": profile, "scan_result": self._last_scan_result, "filter_result": result})
+        self.reconstruction_requested.emit(
+            {"profile": profile, "scan_result": self._last_scan_result, "filter_result": result}
+        )
 
     def _open_reconstruction(self):
         if self._current_saved_profile is not None and self._last_filter_result is not None:
-            self.reconstruction_requested.emit({"profile": self._current_saved_profile, "scan_result": self._last_scan_result, "filter_result": self._last_filter_result})
+            self.reconstruction_requested.emit(
+                {
+                    "profile": self._current_saved_profile,
+                    "scan_result": self._last_scan_result,
+                    "filter_result": self._last_filter_result,
+                }
+            )
 
     def _refresh_profile_list(self, *_args):
         selected_id = None
@@ -351,7 +408,9 @@ class FilterProfilesPage(_BaseFilterProfilesPage):
         for row, profile in enumerate(profiles):
             item = QListWidgetItem(f"{profile.name}\n{profile.source} › {profile.system}")
             item.setData(Qt.ItemDataRole.UserRole, profile.profile_id)
-            item.setToolTip(f"ID={profile.profile_id}\nCriado={profile.created_at}\nAtualizado={profile.updated_at}")
+            item.setToolTip(
+                f"ID={profile.profile_id}\nCriado={profile.created_at}\nAtualizado={profile.updated_at}"
+            )
             self.profile_list.addItem(item)
             if profile.profile_id == selected_id:
                 selected_row = row

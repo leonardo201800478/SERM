@@ -1,4 +1,5 @@
 """Aquisição do índice TOSEC de jogos Commodore C64 para o SERM V2."""
+
 from __future__ import annotations
 
 import hashlib
@@ -46,9 +47,7 @@ class C64DataService:
     RAW_PATH = data_root() / "sources" / "tosec" / "c64_games_source.html"
     MANIFEST_PATH = data_root() / "sources" / "tosec" / "c64_games_manifest.json"
 
-    _DAT_RE = re.compile(
-        r"Commodore C64 - Games(?: - [^<\r\n]+)? \(TOSEC-[^<\r\n]+\)\.dat"
-    )
+    _DAT_RE = re.compile(r"Commodore C64 - Games(?: - [^<\r\n]+)? \(TOSEC-[^<\r\n]+\)\.dat")
     _RELEASE_RE = re.compile(r"(?<!\d)(20\d{2}-\d{2}-\d{2})(?!\d)")
 
     def __init__(self, timeout: int = 120) -> None:

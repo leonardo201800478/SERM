@@ -1,4 +1,5 @@
 """Sistema visual unificado do SERM V2 com estética arcade/pixel-art."""
+
 from __future__ import annotations
 
 from PySide6.QtWidgets import (
@@ -136,30 +137,45 @@ def refine_dashboard(root) -> dict[str, int]:
     for frame in root.findChildren(QFrame):
         if frame.objectName() == "navigationSidebar":
             continue
-        if frame.styleSheet(): frame.setStyleSheet("")
-        frame.setObjectName("panel"); panels += 1
+        if frame.styleSheet():
+            frame.setStyleSheet("")
+        frame.setObjectName("panel")
+        panels += 1
     for label in root.findChildren(QLabel):
         text = label.text().strip()
         if text in {"SERM V2", "SERM V2 — Home"} or text.startswith("SERM V2 —"):
-            label.setStyleSheet(""); label.setProperty("role", "title"); label.style().unpolish(label); label.style().polish(label); titles += 1
+            label.setStyleSheet("")
+            label.setProperty("role", "title")
+            label.style().unpolish(label)
+            label.style().polish(label)
+            titles += 1
         elif text in {"Log RetroArch", "Log detalhado da instalação"}:
-            label.setStyleSheet(""); label.setProperty("role", "section"); label.style().unpolish(label); label.style().polish(label); sections += 1
+            label.setStyleSheet("")
+            label.setProperty("role", "section")
+            label.style().unpolish(label)
+            label.style().polish(label)
+            sections += 1
     for button in root.findChildren(QPushButton):
         button.setMinimumHeight(max(button.minimumHeight(), 30))
         text = button.text().strip().casefold()
-        if any(token in text for token in ("selecionar pasta", "adicionar pasta", "selecionar diretório")):
+        if any(
+            token in text
+            for token in ("selecionar pasta", "adicionar pasta", "selecionar diretório")
+        ):
             button.setProperty("role", "folder")
         elif "remover selecionada" in text:
             button.setProperty("role", "danger")
         elif "salvar diretórios" in text or "instalar selecionados" in text:
             button.setProperty("role", "primary")
-        button.style().unpolish(button); button.style().polish(button)
+        button.style().unpolish(button)
+        button.style().polish(button)
     for widget in root.findChildren(QListWidget):
         parent_name = widget.parentWidget().__class__.__name__ if widget.parentWidget() else ""
         if widget.objectName() == "navigationList":
             continue
         if parent_name == "PathListWidget":
-            widget.setMinimumHeight(82); widget.setMaximumHeight(130)
+            widget.setMinimumHeight(82)
+            widget.setMaximumHeight(130)
         else:
             widget.setMinimumHeight(max(widget.minimumHeight(), 140))
     for widget in root.findChildren(QPlainTextEdit):
@@ -167,7 +183,8 @@ def refine_dashboard(root) -> dict[str, int]:
     for widget in root.findChildren(QProgressBar):
         widget.setMaximumHeight(20)
     for widget in root.findChildren(QTabWidget):
-        widget.setDocumentMode(True); widget.setUsesScrollButtons(False)
+        widget.setDocumentMode(True)
+        widget.setUsesScrollButtons(False)
     return {"panels": panels, "titles": titles, "sections": sections}
 
 
@@ -175,7 +192,10 @@ def normalize_log_widgets(root) -> int:
     """Padroniza todos os consoles QPlainTextEdit para o monitor de fósforo."""
     widgets = root.findChildren(QPlainTextEdit)
     for widget in widgets:
-        widget.setStyleSheet(""); widget.setObjectName("logConsole"); widget.setReadOnly(True); widget.setMaximumBlockCount(max(widget.maximumBlockCount(), 3000))
+        widget.setStyleSheet("")
+        widget.setObjectName("logConsole")
+        widget.setReadOnly(True)
+        widget.setMaximumBlockCount(max(widget.maximumBlockCount(), 3000))
     return len(widgets)
 
 

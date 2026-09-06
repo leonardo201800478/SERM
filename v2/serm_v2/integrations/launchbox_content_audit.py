@@ -3,6 +3,7 @@
 This audit measures how fields are populated and how values are distributed.
 It deliberately produces statistics instead of importing LaunchBox records.
 """
+
 from __future__ import annotations
 
 import sqlite3

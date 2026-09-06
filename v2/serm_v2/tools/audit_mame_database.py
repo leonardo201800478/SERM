@@ -5,6 +5,7 @@ O relatório é deliberadamente orientado ao banco real: enumera todas as tabela
 Nenhum dado é alterado. O objetivo é servir de documentação viva para futuras
 funções do SERM V2.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -89,7 +90,9 @@ def main() -> int:
     """Executa a auditoria e grava o relatório Markdown solicitado."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--database", type=Path, default=database_path(), help="Caminho do SQLite")
-    parser.add_argument("--output", type=Path, default=Path("mame_database_audit.md"), help="Relatório Markdown")
+    parser.add_argument(
+        "--output", type=Path, default=Path("mame_database_audit.md"), help="Relatório Markdown"
+    )
     args = parser.parse_args()
 
     report = build_report(args.database)

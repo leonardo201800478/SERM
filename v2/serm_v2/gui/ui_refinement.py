@@ -4,6 +4,7 @@ Este módulo altera somente a apresentação dos widgets já existentes: barras 
 progresso, divisórias ajustáveis e tipografia dos consoles. A lógica funcional
 permanece nas páginas e serviços originais.
 """
+
 from __future__ import annotations
 
 from PySide6.QtCore import Qt

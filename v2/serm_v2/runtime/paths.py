@@ -4,6 +4,7 @@ Development and portable/compiled deployments keep operational data in a
 `data` directory owned by the V2 application root. The location can be
 explicitly overridden with ``SERM_DATA_DIR`` when required by an administrator.
 """
+
 from __future__ import annotations
 
 import os

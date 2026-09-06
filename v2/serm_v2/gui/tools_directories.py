@@ -1,4 +1,5 @@
 """Diretórios auxiliares usados pelo SERM V2."""
+
 from __future__ import annotations
 
 import json
@@ -91,15 +92,11 @@ class ToolsDirectoriesPage(QWidget):
         launchbox_path = str(launchbox or configured.get("launchbox") or "")
         self.launchbox_edit.setText(launchbox_path)
         launchbox_found = bool(launchbox_path) and Path(launchbox_path).is_file()
-        self.launchbox_status.setText(
-            "● Encontrado" if launchbox_found else "● Não encontrado"
-        )
+        self.launchbox_status.setText("● Encontrado" if launchbox_found else "● Não encontrado")
 
         sevenzip = configured.get("sevenzip")
         detected = (
-            Path(sevenzip)
-            if sevenzip and Path(sevenzip).is_file()
-            else EmulatorManager.find_7zip()
+            Path(sevenzip) if sevenzip and Path(sevenzip).is_file() else EmulatorManager.find_7zip()
         )
         self.sevenzip_edit.setText(str(detected or ""))
         self.sevenzip_status.setText(

@@ -1,4 +1,5 @@
 """CLI for generating a controlled, read-only LaunchBox audit report."""
+
 from __future__ import annotations
 
 import argparse
@@ -27,9 +28,15 @@ def build_report(audit: LaunchBoxAudit, sample_limit: int) -> dict[str, object]:
 
 def main(argv: list[str] | None = None) -> int:
     """Generate a LaunchBox audit JSON report and print its location."""
-    parser = argparse.ArgumentParser(description="Audita a estrutura local do LaunchBox em modo somente leitura.")
-    parser.add_argument("--sample", type=int, default=10, help="Quantidade de jogos na amostra (padrão: 10).")
-    parser.add_argument("--output", type=Path, help="Arquivo JSON de saída; por padrão usa v2/data/exports/.")
+    parser = argparse.ArgumentParser(
+        description="Audita a estrutura local do LaunchBox em modo somente leitura."
+    )
+    parser.add_argument(
+        "--sample", type=int, default=10, help="Quantidade de jogos na amostra (padrão: 10)."
+    )
+    parser.add_argument(
+        "--output", type=Path, help="Arquivo JSON de saída; por padrão usa v2/data/exports/."
+    )
     args = parser.parse_args(argv)
 
     if args.sample < 1:

@@ -1,4 +1,5 @@
 """Editor avançado de filtros MAME usando a classificação CATLIST."""
+
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
@@ -24,7 +25,12 @@ from ..services.mame_category_filter_service import MameCategoryFilterService
 class MameAdvancedFiltersDialog(QDialog):
     """Seleciona categorias e subcategorias CATLIST para exclusão do set."""
 
-    def __init__(self, values: dict[str, list[str]] | None = None, database=None, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        values: dict[str, list[str]] | None = None,
+        database=None,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         self.setWindowTitle("MAME — Filtros avançados CATLIST")
         self.setModal(True)
@@ -38,10 +44,12 @@ class MameAdvancedFiltersDialog(QDialog):
         title = QLabel("Filtros avançados do MAME — classificação CATLIST")
         title.setProperty("role", "title")
         root.addWidget(title)
-        root.addWidget(QLabel(
-            "Selecione o que deve ser EXCLUÍDO do set. As opções abaixo vêm diretamente "
-            "da tabela mame_classification, criada a partir do CATLIST. O scan bruto não é alterado."
-        ))
+        root.addWidget(
+            QLabel(
+                "Selecione o que deve ser EXCLUÍDO do set. As opções abaixo vêm diretamente "
+                "da tabela mame_classification, criada a partir do CATLIST. O scan bruto não é alterado."
+            )
+        )
 
         tools = QHBoxLayout()
         self.search = QLineEdit()
@@ -71,7 +79,9 @@ class MameAdvancedFiltersDialog(QDialog):
         self.summary = QLabel()
         self.summary.setWordWrap(True)
         root.addWidget(self.summary)
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
@@ -86,10 +96,15 @@ class MameAdvancedFiltersDialog(QDialog):
         self.tree.blockSignals(True)
         self.tree.clear()
         for category, children in grouped.items():
-            category_item = QTreeWidgetItem([category, str(sum(int(c["machines"]) for c in children))])
+            category_item = QTreeWidgetItem(
+                [category, str(sum(int(c["machines"]) for c in children))]
+            )
             category_item.setData(0, Qt.ItemDataRole.UserRole, ("category", category))
             category_item.setFlags(category_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            category_item.setCheckState(0, Qt.CheckState.Checked if category in self._categories else Qt.CheckState.Unchecked)
+            category_item.setCheckState(
+                0,
+                Qt.CheckState.Checked if category in self._categories else Qt.CheckState.Unchecked,
+            )
             self.tree.addTopLevelItem(category_item)
             for child in children:
                 sub = str(child["subcategory"])
@@ -98,7 +113,12 @@ class MameAdvancedFiltersDialog(QDialog):
                 item = QTreeWidgetItem([sub, str(child["machines"])])
                 item.setData(0, Qt.ItemDataRole.UserRole, ("subcategory", sub))
                 item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-                item.setCheckState(0, Qt.CheckState.Checked if sub in self._subcategories else Qt.CheckState.Unchecked)
+                item.setCheckState(
+                    0,
+                    Qt.CheckState.Checked
+                    if sub in self._subcategories
+                    else Qt.CheckState.Unchecked,
+                )
                 category_item.addChild(item)
             category_item.setExpanded(True)
         self.tree.blockSignals(False)
@@ -145,21 +165,28 @@ class MameAdvancedFiltersDialog(QDialog):
                         child.setCheckState(0, Qt.CheckState.Checked)
                         self._subcategories.add(str(child.data(0, Qt.ItemDataRole.UserRole)[1]))
         self.tree.blockSignals(False)
-        self._refresh_selected_list(); self._refresh_summary()
+        self._refresh_selected_list()
+        self._refresh_summary()
 
     def _clear(self) -> None:
-        self._categories.clear(); self._subcategories.clear()
+        self._categories.clear()
+        self._subcategories.clear()
         self.tree.blockSignals(True)
         for i in range(self.tree.topLevelItemCount()):
-            parent = self.tree.topLevelItem(i); parent.setCheckState(0, Qt.CheckState.Unchecked)
-            for j in range(parent.childCount()): parent.child(j).setCheckState(0, Qt.CheckState.Unchecked)
+            parent = self.tree.topLevelItem(i)
+            parent.setCheckState(0, Qt.CheckState.Unchecked)
+            for j in range(parent.childCount()):
+                parent.child(j).setCheckState(0, Qt.CheckState.Unchecked)
         self.tree.blockSignals(False)
-        self._refresh_selected_list(); self._refresh_summary()
+        self._refresh_selected_list()
+        self._refresh_summary()
 
     def _refresh_selected_list(self) -> None:
         self.selected_list.clear()
-        for value in sorted(self._categories): self.selected_list.addItem(QListWidgetItem(f"Categoria: {value}"))
-        for value in sorted(self._subcategories): self.selected_list.addItem(QListWidgetItem(f"Subcategoria: {value}"))
+        for value in sorted(self._categories):
+            self.selected_list.addItem(QListWidgetItem(f"Categoria: {value}"))
+        for value in sorted(self._subcategories):
+            self.selected_list.addItem(QListWidgetItem(f"Subcategoria: {value}"))
 
     def _refresh_summary(self) -> None:
         self.summary.setText(
@@ -168,7 +195,10 @@ class MameAdvancedFiltersDialog(QDialog):
         )
 
     def values(self) -> dict[str, list[str]]:
-        return {"categories": sorted(self._categories), "subcategories": sorted(self._subcategories)}
+        return {
+            "categories": sorted(self._categories),
+            "subcategories": sorted(self._subcategories),
+        }
 
 
 __all__ = ["MameAdvancedFiltersDialog"]

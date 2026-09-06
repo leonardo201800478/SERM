@@ -6,6 +6,7 @@ executável selecionado pelo usuário é consultado com ``-showconfig`` e
 A documentação oficial é usada como referência sem substituir a versão real
 instalada.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -282,11 +283,22 @@ class MameConfigurationCatalog:
                 """INSERT INTO config_observation
                 (emulator_id, executable, version, observed_at, command, output_hash, status, raw_output_path)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (emulator_id, str(executable), version, observed_at, "-showconfig -noreadconfig -showusage", output_hash, "validated", str(self.RAW_ROOT)),
+                (
+                    emulator_id,
+                    str(executable),
+                    version,
+                    observed_at,
+                    "-showconfig -noreadconfig -showusage",
+                    output_hash,
+                    "validated",
+                    str(self.RAW_ROOT),
+                ),
             )
             group_cache: dict[str, int] = {}
             for order, option in enumerate(options):
-                group_slug, surface = self.CATEGORY_MAP.get(option.category, ("system", "configuration"))
+                group_slug, surface = self.CATEGORY_MAP.get(
+                    option.category, ("system", "configuration")
+                )
                 group_id = group_cache.get(group_slug)
                 if group_id is None:
                     row = connection.execute(
@@ -296,7 +308,13 @@ class MameConfigurationCatalog:
                     if row is None:
                         connection.execute(
                             "INSERT INTO config_group(emulator_id, slug, name, description, sort_order) VALUES (?, ?, ?, ?, ?)",
-                            (emulator_id, group_slug, group_slug.replace("_", " ").title(), None, order),
+                            (
+                                emulator_id,
+                                group_slug,
+                                group_slug.replace("_", " ").title(),
+                                None,
+                                order,
+                            ),
                         )
                         row = connection.execute("SELECT last_insert_rowid()").fetchone()
                     group_id = int(row[0])
@@ -318,28 +336,51 @@ class MameConfigurationCatalog:
                         source_reference=excluded.source_reference,
                         sort_order=excluded.sort_order""",
                     (
-                        emulator_id, group_id, option.key, option.key, option.description,
-                        option.value_type, option.control_type, option.default_value,
-                        surface, 0, version, "mame -showusage", order,
+                        emulator_id,
+                        group_id,
+                        option.key,
+                        option.key,
+                        option.description,
+                        option.value_type,
+                        option.control_type,
+                        option.default_value,
+                        surface,
+                        0,
+                        version,
+                        "mame -showusage",
+                        order,
                     ),
                 )
                 option_id = connection.execute(
                     "SELECT id FROM config_option WHERE emulator_id=? AND key=?",
                     (emulator_id, option.key),
                 ).fetchone()[0]
-                connection.execute("DELETE FROM config_option_value WHERE option_id=?", (option_id,))
+                connection.execute(
+                    "DELETE FROM config_option_value WHERE option_id=?", (option_id,)
+                )
                 for value_order, choice in enumerate(option.choices):
                     connection.execute(
                         """INSERT INTO config_option_value
                         (option_id, value, label, description, sort_order, is_default)
                         VALUES (?, ?, ?, NULL, ?, ?)""",
-                        (option_id, choice, choice, value_order, int(choice == option.default_value)),
+                        (
+                            option_id,
+                            choice,
+                            choice,
+                            value_order,
+                            int(choice == option.default_value),
+                        ),
                     )
             connection.commit()
 
     def _ensure_schema(self, connection: sqlite3.Connection) -> None:
         """Garante que a migration de configuração foi aplicada ao banco atual."""
-        migration = Path(__file__).resolve().parents[1] / "database" / "migrations" / "001_configuration_schema.sql"
+        migration = (
+            Path(__file__).resolve().parents[1]
+            / "database"
+            / "migrations"
+            / "001_configuration_schema.sql"
+        )
         if not migration.is_file():
             raise MameConfigurationError(f"Migration não encontrada: {migration}")
         row = connection.execute(

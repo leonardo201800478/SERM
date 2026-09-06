@@ -1,4 +1,5 @@
 """No-Intro acquisition page for SERM V2."""
+
 from __future__ import annotations
 
 import logging
@@ -81,7 +82,12 @@ class NoIntroPage(QWidget):
             self.status.setText(
                 f"{len(self.entries)} sistemas No-Intro encontrados no LaunchBox. Catálogo: {len(catalog)} entradas."
             )
-            logger.info("[NO-INTRO][MATCH] LaunchBox=%d catalog=%d matches=%d", len(names), len(catalog), len(self.entries))
+            logger.info(
+                "[NO-INTRO][MATCH] LaunchBox=%d catalog=%d matches=%d",
+                len(names),
+                len(catalog),
+                len(self.entries),
+            )
         except NoIntroArchiveError as exc:
             logger.exception("[NO-INTRO][ARCHIVE] Falha ao carregar catálogo")
             self.entries = ()

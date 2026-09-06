@@ -1,4 +1,5 @@
 """Interface para ingerir o DAT/ListXML do MAME configurado."""
+
 from __future__ import annotations
 
 from typing import cast
@@ -65,7 +66,9 @@ class MameCatalogPage(QWidget):
     def refresh(self) -> None:
         """Mostra o executável atualmente configurado em Diretórios."""
         try:
-            self.executable.setText(f"Executável configurado: {self.service.configured_executable()}")
+            self.executable.setText(
+                f"Executável configurado: {self.service.configured_executable()}"
+            )
         except MameCatalogError as exc:
             self.executable.setText(f"Executável configurado: não definido — {exc}")
 

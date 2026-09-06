@@ -1,4 +1,5 @@
 """Fase 1 do pipeline: auditoria completa das fontes contra DAT/catalogo."""
+
 from __future__ import annotations
 
 import re
@@ -262,9 +263,7 @@ class _SystemScanTab(QWidget):
         if self.source == "MAME":
             value = str(self.scan_type.currentData() or "arcade")
             MameScanSettingsService.save(self._settings_profile_id(), value)
-            self.status.setText(
-                f"Tipo de scan MAME selecionado: {self.scan_type.currentText()}."
-            )
+            self.status.setText(f"Tipo de scan MAME selecionado: {self.scan_type.currentText()}.")
 
     def _settings_profile_id(self) -> str:
         return "scan-mame-mame"
@@ -345,11 +344,7 @@ class _SystemScanTab(QWidget):
             source=self.source,
             system=self.system_combo.currentText().strip(),
             dat_path=self.dat_combo.currentData() if self.source == "No-Intro" else None,
-            scan_type=(
-                str(self.scan_type.currentData())
-                if self.source == "MAME"
-                else "full"
-            ),
+            scan_type=(str(self.scan_type.currentData()) if self.source == "MAME" else "full"),
         )
         from .filter_profiles_page import FilterProfileData
 
@@ -358,13 +353,11 @@ class _SystemScanTab(QWidget):
             system=target.system,
             dat_path=str(target.dat_path) if target.dat_path else None,
             profile_id=(
-                f"scan-{target.source.casefold()}-"
-                f"{target.system.casefold().replace(' ', '-')}"
+                f"scan-{target.source.casefold()}-{target.system.casefold().replace(' ', '-')}"
             ),
             name=f"SCAN — {target.source} — {target.system}",
             source_directories=[
-                self.source_list.item(i).text()
-                for i in range(self.source_list.count())
+                self.source_list.item(i).text() for i in range(self.source_list.count())
             ],
         )
         if self.source == "MAME":

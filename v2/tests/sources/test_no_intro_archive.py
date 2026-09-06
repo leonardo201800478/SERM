@@ -48,7 +48,8 @@ def test_match_supports_launchbox_aliases(tmp_path: Path) -> None:
     entries = (
         NoIntroArchiveEntry(
             "Nintendo - Nintendo Entertainment System (Headered) (20260704-141639).dat",
-            provider.dat_root / "Nintendo - Nintendo Entertainment System (Headered) (20260704-141639).dat",
+            provider.dat_root
+            / "Nintendo - Nintendo Entertainment System (Headered) (20260704-141639).dat",
         ),
         NoIntroArchiveEntry(
             "Sega - Mega Drive - Genesis (Parent-Clone) (20260629-112427).dat",

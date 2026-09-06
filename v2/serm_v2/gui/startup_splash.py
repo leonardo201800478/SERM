@@ -1,4 +1,5 @@
 """Splash screen 16:9 do SERM V2."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -12,7 +13,9 @@ class StartupSplash(QWidget):
     """Splash 16:9 com arte pixel-art e barra de carregamento."""
 
     def __init__(self, mode: str = "startup") -> None:
-        super().__init__(None, Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
+        super().__init__(
+            None, Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint
+        )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setFixedSize(1280, 720)
         self._mode = mode
@@ -37,7 +40,9 @@ class StartupSplash(QWidget):
         overlay.addStretch()
         self.phase = QLabel()
         self.phase.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.phase.setStyleSheet("color:#f4f8ff;font-family:Consolas;font-size:22px;font-weight:bold;")
+        self.phase.setStyleSheet(
+            "color:#f4f8ff;font-family:Consolas;font-size:22px;font-weight:bold;"
+        )
         overlay.addWidget(self.phase)
         self.detail = QLabel()
         self.detail.setAlignment(Qt.AlignmentFlag.AlignCenter)

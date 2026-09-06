@@ -11,6 +11,7 @@ Quando uma chave existe no arquivo real, a edição usa ConfigFileEditor, com
 backup e gravação atômica. Recursos não nativos são apenas catalogados pelo SERM,
 sem inventar chaves no arquivo do emulador.
 """
+
 from __future__ import annotations
 
 import json
@@ -69,56 +70,142 @@ class EmulatorShadersBezelsPage(QWidget):
     SHADERS: dict[str, tuple[LayerSpec, ...]] = {
         "mame": (
             LayerSpec("bgfx_path", "Diretório BGFX", "Diretório onde o MAME procura shaders BGFX."),
-            LayerSpec("bgfx_screen_chains", "Screen chain", "Cadeia BGFX aplicada às telas. Exemplos documentados: default, unfiltered, hlsl, crt-geom, crt-geom-deluxe e lcd-grid."),
-            LayerSpec("bgfx_shadow_mask", "Shadow mask", "Arquivo PNG de shadow mask usado pelo BGFX."),
-            LayerSpec("bgfx_vectorcrt", "Vector CRT", "Ativa o renderer CRT persistente para jogos vetoriais."),
+            LayerSpec(
+                "bgfx_screen_chains",
+                "Screen chain",
+                "Cadeia BGFX aplicada às telas. Exemplos documentados: default, unfiltered, hlsl, crt-geom, crt-geom-deluxe e lcd-grid.",
+            ),
+            LayerSpec(
+                "bgfx_shadow_mask", "Shadow mask", "Arquivo PNG de shadow mask usado pelo BGFX."
+            ),
+            LayerSpec(
+                "bgfx_vectorcrt",
+                "Vector CRT",
+                "Ativa o renderer CRT persistente para jogos vetoriais.",
+            ),
             LayerSpec("gl_glsl", "GLSL", "Ativa o pipeline GLSL legado do MAME."),
             LayerSpec("gl_glsl_filter", "Filtro GLSL", "Filtragem aplicada à saída GLSL."),
-            LayerSpec("glsl_shader_mame0", "GLSL shader 0", "Primeiro shader da cadeia GLSL; os demais podem ser mantidos por edição avançada."),
+            LayerSpec(
+                "glsl_shader_mame0",
+                "GLSL shader 0",
+                "Primeiro shader da cadeia GLSL; os demais podem ser mantidos por edição avançada.",
+            ),
         ),
         "fbneo": (
             LayerSpec("nVidDX9HardFX", "HardFX", "Índice do efeito HardFX do blitter DirectX 9."),
             LayerSpec("bVidDX9Bilinear", "Bilinear", "Ativa filtragem bilinear no blitter DX9."),
             LayerSpec("bVidScanlines", "Scanlines", "Ativa scanlines no pipeline de vídeo."),
-            LayerSpec("bVidScanDelay", "Scan delay / phosphor", "Ativa o efeito de persistência de fósforo documentado pelo template do FBNeo."),
+            LayerSpec(
+                "bVidScanDelay",
+                "Scan delay / phosphor",
+                "Ativa o efeito de persistência de fósforo documentado pelo template do FBNeo.",
+            ),
             LayerSpec("bVidMotionBlur", "Motion blur", "Ativa motion blur do vídeo."),
             LayerSpec("bVidHardwareVertex", "Hardware vertex", "Usa hardware vertex processing."),
         ),
         "flycast": (
-            LayerSpec("rend.LinearInterpolation", "Linear interpolation", "Filtragem linear da imagem renderizada."),
-            LayerSpec("rend.TextureFiltering", "Texture filtering", "Modo de filtragem de texturas do renderer."),
+            LayerSpec(
+                "rend.LinearInterpolation",
+                "Linear interpolation",
+                "Filtragem linear da imagem renderizada.",
+            ),
+            LayerSpec(
+                "rend.TextureFiltering",
+                "Texture filtering",
+                "Modo de filtragem de texturas do renderer.",
+            ),
             LayerSpec("rend.TextureUpscale2", "Texture upscale", "Fator de upscale das texturas."),
-            LayerSpec("rend.MaxFilteredTextureSize", "Max filtered texture", "Limite da textura filtrada."),
-            LayerSpec("rend.CustomTextures", "Custom textures", "Habilita substituição por texturas personalizadas."),
-            LayerSpec("rend.PreloadCustomTextures", "Preload custom textures", "Pré-carrega texturas personalizadas."),
+            LayerSpec(
+                "rend.MaxFilteredTextureSize", "Max filtered texture", "Limite da textura filtrada."
+            ),
+            LayerSpec(
+                "rend.CustomTextures",
+                "Custom textures",
+                "Habilita substituição por texturas personalizadas.",
+            ),
+            LayerSpec(
+                "rend.PreloadCustomTextures",
+                "Preload custom textures",
+                "Pré-carrega texturas personalizadas.",
+            ),
         ),
         "supermodel": (),
         "retroarch": (
-            LayerSpec("video_shader_enable", "Shader habilitado", "Ativa o shader configurado pelo RetroArch."),
-            LayerSpec("video_shader", "Shader / preset", "Caminho do shader ou preset. RetroArch aceita presets como .slangp, .glslp e .cgp conforme o pipeline."),
-            LayerSpec("video_shader_dir", "Diretório de shaders", "Diretório padrão usado pelo RetroArch para shaders."),
-            LayerSpec("video_shader_watch_files", "Watch files", "Monitora alterações nos arquivos de shader quando suportado."),
-            LayerSpec("video_shader_remember_last_dir", "Lembrar diretório", "Mantém o último diretório de shader utilizado."),
+            LayerSpec(
+                "video_shader_enable",
+                "Shader habilitado",
+                "Ativa o shader configurado pelo RetroArch.",
+            ),
+            LayerSpec(
+                "video_shader",
+                "Shader / preset",
+                "Caminho do shader ou preset. RetroArch aceita presets como .slangp, .glslp e .cgp conforme o pipeline.",
+            ),
+            LayerSpec(
+                "video_shader_dir",
+                "Diretório de shaders",
+                "Diretório padrão usado pelo RetroArch para shaders.",
+            ),
+            LayerSpec(
+                "video_shader_watch_files",
+                "Watch files",
+                "Monitora alterações nos arquivos de shader quando suportado.",
+            ),
+            LayerSpec(
+                "video_shader_remember_last_dir",
+                "Lembrar diretório",
+                "Mantém o último diretório de shader utilizado.",
+            ),
         ),
     }
 
     BEZELS: dict[str, tuple[LayerSpec, ...]] = {
         "mame": (
-            LayerSpec("artpath", "Diretório de artwork", "Diretório onde o MAME procura artwork e layouts."),
-            LayerSpec("fallback_artwork", "Fallback artwork", "Artwork/layout usado quando o sistema não possui um artwork específico."),
-            LayerSpec("override_artwork", "Override artwork", "Substitui o artwork selecionado por um layout específico."),
-            LayerSpec("artwork_crop", "Cortar artwork", "Recorta artwork para preencher a área de vídeo."),
+            LayerSpec(
+                "artpath",
+                "Diretório de artwork",
+                "Diretório onde o MAME procura artwork e layouts.",
+            ),
+            LayerSpec(
+                "fallback_artwork",
+                "Fallback artwork",
+                "Artwork/layout usado quando o sistema não possui um artwork específico.",
+            ),
+            LayerSpec(
+                "override_artwork",
+                "Override artwork",
+                "Substitui o artwork selecionado por um layout específico.",
+            ),
+            LayerSpec(
+                "artwork_crop", "Cortar artwork", "Recorta artwork para preencher a área de vídeo."
+            ),
         ),
         "fbneo": (),
         "flycast": (),
         "supermodel": (),
         "retroarch": (
-            LayerSpec("input_overlay_enable", "Overlay habilitado", "Ativa o sistema de overlays do RetroArch."),
-            LayerSpec("input_overlay", "Overlay / bezel", "Caminho do arquivo .cfg do overlay. Overlays decorativos podem funcionar como bezel."),
+            LayerSpec(
+                "input_overlay_enable",
+                "Overlay habilitado",
+                "Ativa o sistema de overlays do RetroArch.",
+            ),
+            LayerSpec(
+                "input_overlay",
+                "Overlay / bezel",
+                "Caminho do arquivo .cfg do overlay. Overlays decorativos podem funcionar como bezel.",
+            ),
             LayerSpec("input_overlay_opacity", "Opacidade", "Opacidade do overlay."),
             LayerSpec("input_overlay_scale", "Escala", "Escala do overlay."),
-            LayerSpec("input_overlay_hide_in_menu", "Ocultar no menu", "Oculta o overlay enquanto o menu está aberto."),
-            LayerSpec("input_overlay_enable_autopreferred", "Autopreferido", "Permite seleção automática do overlay preferido quando disponível."),
+            LayerSpec(
+                "input_overlay_hide_in_menu",
+                "Ocultar no menu",
+                "Oculta o overlay enquanto o menu está aberto.",
+            ),
+            LayerSpec(
+                "input_overlay_enable_autopreferred",
+                "Autopreferido",
+                "Permite seleção automática do overlay preferido quando disponível.",
+            ),
         ),
     }
 
@@ -164,7 +251,9 @@ class EmulatorShadersBezelsPage(QWidget):
         title = QLabel("Shaders / Bezels")
         title.setProperty("role", "title")
         root.addWidget(title)
-        info = QLabel("Shaders e Bezels são tratados separadamente. Chaves só ficam editáveis quando existem no arquivo real; camadas não nativas não inventam configurações do emulador.")
+        info = QLabel(
+            "Shaders e Bezels são tratados separadamente. Chaves só ficam editáveis quando existem no arquivo real; camadas não nativas não inventam configurações do emulador."
+        )
         info.setWordWrap(True)
         root.addWidget(info)
         self.emulators = QTabWidget()
@@ -199,21 +288,42 @@ class EmulatorShadersBezelsPage(QWidget):
         else:
             for spec in specs:
                 edit = QLineEdit()
-                edit.setPlaceholderText("Não presente no arquivo"); edit.setToolTip(spec.description)
+                edit.setPlaceholderText("Não presente no arquivo")
+                edit.setToolTip(spec.description)
                 self.controls[(emulator, layer, spec.key)] = edit
-                row = QWidget(); row_layout = QHBoxLayout(row); row_layout.setContentsMargins(0, 0, 0, 0); row_layout.addWidget(edit, 1)
-                if spec.key.endswith(("_path", "_dir", "artpath", "fallback_artwork", "override_artwork", "input_overlay", "video_shader")):
-                    browse = QPushButton("..."); browse.setMaximumWidth(42); browse.clicked.connect(lambda _=False, e=emulator, l=layer, k=spec.key: self._browse(e, l, k)); row_layout.addWidget(browse)
+                row = QWidget()
+                row_layout = QHBoxLayout(row)
+                row_layout.setContentsMargins(0, 0, 0, 0)
+                row_layout.addWidget(edit, 1)
+                if spec.key.endswith(
+                    (
+                        "_path",
+                        "_dir",
+                        "artpath",
+                        "fallback_artwork",
+                        "override_artwork",
+                        "input_overlay",
+                        "video_shader",
+                    )
+                ):
+                    browse = QPushButton("...")
+                    browse.setMaximumWidth(42)
+                    browse.clicked.connect(
+                        lambda _=False, e=emulator, layer_name=layer, k=spec.key: self._browse(e, layer_name, k)
+                    )
+                    row_layout.addWidget(browse)
                 form.addRow(spec.label, row)
         scroll.setWidget(content)
         outer.addWidget(scroll, 1)
         buttons = QHBoxLayout()
         save = QPushButton("Salvar")
         save.setProperty("role", "primary")
-        save.clicked.connect(lambda _=False, e=emulator, l=layer: self.save(e, l))
+        save.clicked.connect(lambda _=False, e=emulator, layer_name=layer: self.save(e, layer_name))
         refresh = QPushButton("Recarregar")
         refresh.clicked.connect(self.refresh)
-        buttons.addStretch(1); buttons.addWidget(refresh); buttons.addWidget(save)
+        buttons.addStretch(1)
+        buttons.addWidget(refresh)
+        buttons.addWidget(save)
         outer.addLayout(buttons)
         return page
 
@@ -238,9 +348,16 @@ class EmulatorShadersBezelsPage(QWidget):
         """Seleciona arquivo/diretório e coloca o caminho no campo visual."""
         current = self.controls[(emulator, layer, key)].text().strip()
         if key.endswith(("_path", "_dir", "artpath")):
-            selected = QFileDialog.getExistingDirectory(self, "Selecionar diretório", current or str(Path.home()))
+            selected = QFileDialog.getExistingDirectory(
+                self, "Selecionar diretório", current or str(Path.home())
+            )
         else:
-            selected, _ = QFileDialog.getOpenFileName(self, "Selecionar arquivo", current or str(Path.home()), "Arquivos visuais (*.png *.jpg *.jpeg *.cfg *.slang *.slangp *.glsl *.glslp *.cgp);;Todos os arquivos (*)")
+            selected, _ = QFileDialog.getOpenFileName(
+                self,
+                "Selecionar arquivo",
+                current or str(Path.home()),
+                "Arquivos visuais (*.png *.jpg *.jpeg *.cfg *.slang *.slangp *.glsl *.glslp *.cgp);;Todos os arquivos (*)",
+            )
         if selected:
             self.controls[(emulator, layer, key)].setText(str(Path(selected).resolve()))
 
@@ -248,7 +365,10 @@ class EmulatorShadersBezelsPage(QWidget):
         """Lê novamente os arquivos e preenche as duas camadas sem gravar."""
         for emulator in self.LABELS:
             editor = self._editor(emulator)
-            for layer, specs in (("shader", self.SHADERS[emulator]), ("bezel", self.BEZELS[emulator])):
+            for layer, specs in (
+                ("shader", self.SHADERS[emulator]),
+                ("bezel", self.BEZELS[emulator]),
+            ):
                 status = self.status[(emulator, layer)]
                 if editor is None:
                     status.setText("Arquivo não configurado / não encontrado")
@@ -266,7 +386,11 @@ class EmulatorShadersBezelsPage(QWidget):
         """Grava somente as chaves nativas existentes, preservando o arquivo."""
         editor = self._editor(emulator)
         if editor is None:
-            QMessageBox.warning(self, "Shaders / Bezels", "Arquivo de configuração não encontrado. Configure-o primeiro na guia Diretórios.")
+            QMessageBox.warning(
+                self,
+                "Shaders / Bezels",
+                "Arquivo de configuração não encontrado. Configure-o primeiro na guia Diretórios.",
+            )
             return
         specs = self.SHADERS[emulator] if layer == "shader" else self.BEZELS[emulator]
         changed = 0
@@ -285,10 +409,14 @@ class EmulatorShadersBezelsPage(QWidget):
                 return
             backup = editor.save()
         except Exception as exc:
-            QMessageBox.critical(self, "Falha ao salvar", f"Nenhuma alteração foi concluída com segurança.\n\n{exc}")
+            QMessageBox.critical(
+                self, "Falha ao salvar", f"Nenhuma alteração foi concluída com segurança.\n\n{exc}"
+            )
             return
         self.refresh()
-        QMessageBox.information(self, "Configuração salva", f"{changed} opção(ões) alterada(s).\nBackup:\n{backup}")
+        QMessageBox.information(
+            self, "Configuração salva", f"{changed} opção(ões) alterada(s).\nBackup:\n{backup}"
+        )
 
 
 __all__ = ["EmulatorShadersBezelsPage", "LayerSpec"]

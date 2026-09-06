@@ -1,4 +1,5 @@
 """Planejamento e execução da fase 3 do pipeline SERM."""
+
 from __future__ import annotations
 
 import json
@@ -121,16 +122,23 @@ class ReconstructionService:
             filter_run_id=str(payload.get("filter_run_id") or ""),
             scan_id=str(payload.get("scan_id") or ""),
             source_filter_file=str(Path(filter_path).expanduser().resolve()),
-            destination=str(dest), source=str(payload.get("source") or ""),
-            system=str(payload.get("system") or ""), catalog_label=str(payload.get("catalog_label") or ""),
-            scan_type=str(payload.get("scan_type") or "full"), item_count=len(items),
-            archive_count=archive_count, loose_count=loose_count, chd_count=chd_count,
+            destination=str(dest),
+            source=str(payload.get("source") or ""),
+            system=str(payload.get("system") or ""),
+            catalog_label=str(payload.get("catalog_label") or ""),
+            scan_type=str(payload.get("scan_type") or "full"),
+            item_count=len(items),
+            archive_count=archive_count,
+            loose_count=loose_count,
+            chd_count=chd_count,
             items=tuple(items),
         )
 
     @classmethod
     def execute(
-        cls, plan: ReconstructionPlan, *,
+        cls,
+        plan: ReconstructionPlan,
+        *,
         progress_callback: Callable[[int, int], None] | None = None,
         cancel_callback: Callable[[], bool] | None = None,
     ) -> dict:
@@ -142,7 +150,9 @@ class ReconstructionService:
         loose_items: list[ReconstructionItem] = []
         for item in plan.items:
             if item.kind == "archive":
-                archive_groups.setdefault((item.source_path, item.output_path), []).append(item.archive_member or "")
+                archive_groups.setdefault((item.source_path, item.output_path), []).append(
+                    item.archive_member or ""
+                )
             else:
                 loose_items.append(item)
         total = len(archive_groups) + len(loose_items)
@@ -177,8 +187,16 @@ class ReconstructionService:
             if progress_callback:
                 progress_callback(done, total)
         if errors:
-            raise ReconstructionError("Reconstrução concluída com erros:\n" + "\n".join(errors[:20]))
-        return {"destination": str(destination), "filter_run_id": plan.filter_run_id, "scan_id": plan.scan_id, "created_count": len(created), "created": created}
+            raise ReconstructionError(
+                "Reconstrução concluída com erros:\n" + "\n".join(errors[:20])
+            )
+        return {
+            "destination": str(destination),
+            "filter_run_id": plan.filter_run_id,
+            "scan_id": plan.scan_id,
+            "created_count": len(created),
+            "created": created,
+        }
 
     @staticmethod
     def _rebuild_archive(source: Path, output: Path, members: list[str]) -> None:
@@ -194,18 +212,29 @@ class ReconstructionService:
         Path(temp_name).unlink(missing_ok=True)
         temp = Path(temp_name)
         try:
-            with zipfile.ZipFile(source, "r") as zin, zipfile.ZipFile(temp, "w", compression=zipfile.ZIP_STORED) as zout:
+            with (
+                zipfile.ZipFile(source, "r") as zin,
+                zipfile.ZipFile(temp, "w", compression=zipfile.ZIP_STORED) as zout,
+            ):
                 names = set(zin.namelist())
                 missing = [member for member in unique_members if member not in names]
                 if missing:
                     raise ReconstructionError(f"Membro ausente em {source.name}: {missing[0]}")
                 for member in unique_members:
                     info = zin.getinfo(member)
-                    with zin.open(info, "r") as source_member, zout.open(info, "w") as target_member:
+                    with (
+                        zin.open(info, "r") as source_member,
+                        zout.open(info, "w") as target_member,
+                    ):
                         shutil.copyfileobj(source_member, target_member, length=1024 * 1024)
             temp.replace(output)
         finally:
             temp.unlink(missing_ok=True)
 
 
-__all__ = ["ReconstructionError", "ReconstructionItem", "ReconstructionPlan", "ReconstructionService"]
+__all__ = [
+    "ReconstructionError",
+    "ReconstructionItem",
+    "ReconstructionPlan",
+    "ReconstructionService",
+]

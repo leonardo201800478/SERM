@@ -1,4 +1,5 @@
 """Provider contract for external data sources."""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod

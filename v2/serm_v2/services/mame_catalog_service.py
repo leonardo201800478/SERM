@@ -1,4 +1,5 @@
 """Aquisição e persistência do catálogo completo do ListXML do MAME."""
+
 from __future__ import annotations
 
 import hashlib
@@ -67,7 +68,9 @@ class MameCatalogService:
         xml_text = self._run_mame(executable, timeout)
         raw_bytes = len(xml_text.encode("utf-8"))
         source_hash = hashlib.sha256(xml_text.encode("utf-8")).hexdigest()
-        self._log(f"MAME | [{run_id}] | CAPTURE OK | tamanho={self._human_bytes(raw_bytes)} | sha256={source_hash[:16]}")
+        self._log(
+            f"MAME | [{run_id}] | CAPTURE OK | tamanho={self._human_bytes(raw_bytes)} | sha256={source_hash[:16]}"
+        )
 
         try:
             root = ET.fromstring(xml_text)
@@ -77,7 +80,9 @@ class MameCatalogService:
             raise MameCatalogError(f"Raiz inesperada no ListXML: {root.tag}")
         machine_count = len(root.findall("machine"))
         build = root.attrib.get("build")
-        self._log(f"MAME | [{run_id}] | PARSE OK | build={build or 'desconhecido'} | máquinas={machine_count:,}")
+        self._log(
+            f"MAME | [{run_id}] | PARSE OK | build={build or 'desconhecido'} | máquinas={machine_count:,}"
+        )
 
         self.RAW_ROOT.mkdir(parents=True, exist_ok=True)
         source = self.RAW_ROOT / f"listxml-{source_hash[:16]}.xml"
@@ -102,22 +107,49 @@ class MameCatalogService:
                 (source_hash,),
             ).fetchone()
             if existing and not force:
-                self._log(f"MAME | [{run_id}] | DEDUP | import_id={existing[0]} | hash já persistido")
-                result = self._result(existing[0], existing[1], existing[2], Path(existing[3]) if existing[3] else source, source_hash, started, True, run_id)
+                self._log(
+                    f"MAME | [{run_id}] | DEDUP | import_id={existing[0]} | hash já persistido"
+                )
+                result = self._result(
+                    existing[0],
+                    existing[1],
+                    existing[2],
+                    Path(existing[3]) if existing[3] else source,
+                    source_hash,
+                    started,
+                    True,
+                    run_id,
+                )
                 db.commit()
                 result["ini_results"] = self._ingest_inis(executable.parent)
                 return result
 
             now = datetime.now(UTC).isoformat()
-            self._log(f"MAME | [{run_id}] | DB | criando importação | tamanho={self._human_bytes(raw_bytes)}")
+            self._log(
+                f"MAME | [{run_id}] | DB | criando importação | tamanho={self._human_bytes(raw_bytes)}"
+            )
             cur = db.execute(
                 """INSERT INTO mame_listxml_import
                 (emulator_id,executable,mame_build,mame_config,debug,imported_at,source_hash,xml_path,machine_count,byte_length,parser_version,status)
                 VALUES(?,?,?,?,?,?,?,?,?,?,?,'captured')""",
-                (int(emulator[0]), str(executable), build, root.attrib.get("mameconfig"), root.attrib.get("debug"), now, source_hash, str(source), machine_count, raw_bytes, self.PARSER_VERSION),
+                (
+                    int(emulator[0]),
+                    str(executable),
+                    build,
+                    root.attrib.get("mameconfig"),
+                    root.attrib.get("debug"),
+                    now,
+                    source_hash,
+                    str(source),
+                    machine_count,
+                    raw_bytes,
+                    self.PARSER_VERSION,
+                ),
             )
             import_id = int(cur.lastrowid)
-            self._log(f"MAME | [{run_id}] | DB | import_id={import_id} | salvando documento lossless")
+            self._log(
+                f"MAME | [{run_id}] | DB | import_id={import_id} | salvando documento lossless"
+            )
             db.execute(
                 """INSERT INTO mame_listxml_document
                 (import_id,source_hash,encoding,xml_text,byte_length,stored_at)
@@ -137,10 +169,18 @@ class MameCatalogService:
             f"disks={totals['disks']:,} | displays={totals['displays']:,} | samples={totals['samples']:,} | "
             f"chips={totals['chips']:,} | dispositivos={totals['devices']:,} | tempo={float(totals['elapsed_seconds']):.2f}s"
         )
-        self._log(f"MAME | [{run_id}] | DB OK | banco={self._human_bytes(db_size)} | tempo_db={db_elapsed:.2f}s")
-        self._log(f"MAME | [{run_id}] | AUDITORIA | XML={self._human_bytes(raw_bytes)} | hash={source_hash[:16]} | máquinas={machine_count:,}")
-        self._log(f"MAME | [{run_id}] | DONE | catálogo completo ingerido | tempo_total={elapsed:.2f}s")
-        result = self._result(import_id, build, machine_count, source, source_hash, started, False, run_id, totals)
+        self._log(
+            f"MAME | [{run_id}] | DB OK | banco={self._human_bytes(db_size)} | tempo_db={db_elapsed:.2f}s"
+        )
+        self._log(
+            f"MAME | [{run_id}] | AUDITORIA | XML={self._human_bytes(raw_bytes)} | hash={source_hash[:16]} | máquinas={machine_count:,}"
+        )
+        self._log(
+            f"MAME | [{run_id}] | DONE | catálogo completo ingerido | tempo_total={elapsed:.2f}s"
+        )
+        result = self._result(
+            import_id, build, machine_count, source, source_hash, started, False, run_id, totals
+        )
         result["ini_results"] = self._ingest_inis(executable.parent)
         return result
 
@@ -153,7 +193,9 @@ class MameCatalogService:
         )
         results: list[tuple[str, dict[str, object]]] = []
         total = len(stages)
-        self._log(f"MAME | INIS | QUEUE | 1/{total} CATLIST → 2/{total} RESOLUTION → 3/{total} VSYNC")
+        self._log(
+            f"MAME | INIS | QUEUE | 1/{total} CATLIST → 2/{total} RESOLUTION → 3/{total} VSYNC"
+        )
         for index, (name, service_class) in enumerate(stages, 1):
             self._log(f"MAME | INIS | QUEUE | {index}/{total} | {name}")
             service = service_class(self.DB_FILE, mame_root)
@@ -166,14 +208,24 @@ class MameCatalogService:
         """Executa MAME de modo seguro e retorna o XML completo."""
         try:
             result = subprocess.run(
-                [str(executable), "-listxml"], cwd=executable.parent, stdin=subprocess.DEVNULL,
-                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout, check=False,
-                shell=False, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                [str(executable), "-listxml"],
+                cwd=executable.parent,
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=timeout,
+                check=False,
+                shell=False,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise MameCatalogError(f"Falha ao executar MAME -listxml: {exc}") from exc
         if result.returncode != 0:
-            raise MameCatalogError(f"MAME -listxml retornou {result.returncode}: {result.stderr.strip()}")
+            raise MameCatalogError(
+                f"MAME -listxml retornou {result.returncode}: {result.stderr.strip()}"
+            )
         if not result.stdout.strip():
             raise MameCatalogError("MAME -listxml retornou XML vazio.")
         return result.stdout
@@ -182,29 +234,74 @@ class MameCatalogService:
     def _validate_schema(db: sqlite3.Connection) -> None:
         """Verifica o conjunto mínimo do catálogo relacional."""
         required = {
-            "emulator_definition", "mame_listxml_import", "mame_listxml_document", "mame_machine",
-            "mame_machine_metadata", "mame_rom", "mame_disk", "mame_display", "mame_sample",
-            "mame_chip", "mame_device", "mame_device_ref", "mame_input", "mame_control",
-            "mame_driver", "mame_feature", "mame_slot", "mame_slot_option", "mame_softwarelist",
-            "mame_ramoption", "mame_dipswitch", "mame_dipvalue", "mame_configuration",
-            "mame_confsetting", "mame_port", "mame_adjuster", "mame_biosset",
+            "emulator_definition",
+            "mame_listxml_import",
+            "mame_listxml_document",
+            "mame_machine",
+            "mame_machine_metadata",
+            "mame_rom",
+            "mame_disk",
+            "mame_display",
+            "mame_sample",
+            "mame_chip",
+            "mame_device",
+            "mame_device_ref",
+            "mame_input",
+            "mame_control",
+            "mame_driver",
+            "mame_feature",
+            "mame_slot",
+            "mame_slot_option",
+            "mame_softwarelist",
+            "mame_ramoption",
+            "mame_dipswitch",
+            "mame_dipvalue",
+            "mame_configuration",
+            "mame_confsetting",
+            "mame_port",
+            "mame_adjuster",
+            "mame_biosset",
         }
-        existing = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        existing = {
+            row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
         missing = sorted(required - existing)
         if missing:
-            raise MameCatalogError("Schema MAME incompleto; migrations necessárias: " + ", ".join(missing))
+            raise MameCatalogError(
+                "Schema MAME incompleto; migrations necessárias: " + ", ".join(missing)
+            )
 
-    def _result(self, import_id: int, build: str | None, machines: int, source: Path, source_hash: str,
-                started: float, deduplicated: bool, run_id: str, totals: dict[str, int | float] | None = None) -> dict[str, object]:
+    def _result(
+        self,
+        import_id: int,
+        build: str | None,
+        machines: int,
+        source: Path,
+        source_hash: str,
+        started: float,
+        deduplicated: bool,
+        run_id: str,
+        totals: dict[str, int | float] | None = None,
+    ) -> dict[str, object]:
         """Monta o resultado padronizado da operação."""
         totals = totals or {}
         return {
-            "import_id": import_id, "mame_build": build, "machine_count": int(machines),
-            "display_count": int(totals.get("displays", 0)), "rom_count": int(totals.get("roms", 0)),
-            "disk_count": int(totals.get("disks", 0)), "raw_xml": self.RAW_FILE, "xml_path": source,
-            "database": self.DB_FILE, "source_hash": source_hash,
-            "elapsed_seconds": perf_counter() - started, "deduplicated": deduplicated,
-            "lossless": True, "catalog_complete": True, "profiles_generated": 0, "run_id": run_id,
+            "import_id": import_id,
+            "mame_build": build,
+            "machine_count": int(machines),
+            "display_count": int(totals.get("displays", 0)),
+            "rom_count": int(totals.get("roms", 0)),
+            "disk_count": int(totals.get("disks", 0)),
+            "raw_xml": self.RAW_FILE,
+            "xml_path": source,
+            "database": self.DB_FILE,
+            "source_hash": source_hash,
+            "elapsed_seconds": perf_counter() - started,
+            "deduplicated": deduplicated,
+            "lossless": True,
+            "catalog_complete": True,
+            "profiles_generated": 0,
+            "run_id": run_id,
         }
 
     @staticmethod

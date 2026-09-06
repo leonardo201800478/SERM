@@ -1,4 +1,5 @@
 """Tests for the read-only LaunchBox structural audit."""
+
 from __future__ import annotations
 
 import sqlite3

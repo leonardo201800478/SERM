@@ -1,4 +1,5 @@
 """Teste de integridade da ingestão Vsync.ini do catálogo MAME."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -51,14 +52,28 @@ def main() -> int:
         print(f"máquinas distintas     {distinct_machines or 0:,}")
 
         print("\n[4/5] INTEGRIDADE")
-        orphan = con.execute("SELECT COUNT(*) FROM mame_vsync v LEFT JOIN mame_machine m ON m.id=v.machine_id WHERE v.machine_id IS NOT NULL AND m.id IS NULL AND v.source_document_id=?", (source[0],)).fetchone()[0]
-        mismatch = con.execute("SELECT COUNT(*) FROM mame_vsync v JOIN mame_machine m ON m.id=v.machine_id WHERE v.machine_name<>m.name AND v.source_document_id=?", (source[0],)).fetchone()[0]
-        duplicate = con.execute("SELECT COUNT(*) FROM (SELECT machine_name FROM mame_vsync WHERE source_document_id=? GROUP BY machine_name HAVING COUNT(*)>1)", (source[0],)).fetchone()[0]
-        invalid_value = con.execute("SELECT COUNT(*) FROM mame_vsync WHERE source_document_id=? AND vsync_enabled NOT IN (0,1)", (source[0],)).fetchone()[0]
+        orphan = con.execute(
+            "SELECT COUNT(*) FROM mame_vsync v LEFT JOIN mame_machine m ON m.id=v.machine_id WHERE v.machine_id IS NOT NULL AND m.id IS NULL AND v.source_document_id=?",
+            (source[0],),
+        ).fetchone()[0]
+        mismatch = con.execute(
+            "SELECT COUNT(*) FROM mame_vsync v JOIN mame_machine m ON m.id=v.machine_id WHERE v.machine_name<>m.name AND v.source_document_id=?",
+            (source[0],),
+        ).fetchone()[0]
+        duplicate = con.execute(
+            "SELECT COUNT(*) FROM (SELECT machine_name FROM mame_vsync WHERE source_document_id=? GROUP BY machine_name HAVING COUNT(*)>1)",
+            (source[0],),
+        ).fetchone()[0]
+        invalid_value = con.execute(
+            "SELECT COUNT(*) FROM mame_vsync WHERE source_document_id=? AND vsync_enabled NOT IN (0,1)",
+            (source[0],),
+        ).fetchone()[0]
         print(f"FK órfã                {'PASS' if orphan == 0 else 'FAIL'} | {orphan}")
         print(f"nome x machine.id      {'PASS' if mismatch == 0 else 'FAIL'} | {mismatch}")
         print(f"máquina duplicada      {'PASS' if duplicate == 0 else 'FAIL'} | {duplicate}")
-        print(f"valor inválido         {'PASS' if invalid_value == 0 else 'FAIL'} | {invalid_value}")
+        print(
+            f"valor inválido         {'PASS' if invalid_value == 0 else 'FAIL'} | {invalid_value}"
+        )
 
         print("\n[5/5] COBERTURA")
         coverage = (resolved or 0) * 100 / total_machines if total_machines else 0

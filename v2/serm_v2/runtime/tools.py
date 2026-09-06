@@ -1,11 +1,14 @@
 """Runtime discovery helpers for external applications used by SERM V2."""
+
 from __future__ import annotations
 
 import os
 from pathlib import Path
 
 
-def find_windows_executable(names: tuple[str, ...], extra_roots: tuple[Path, ...] = ()) -> Path | None:
+def find_windows_executable(
+    names: tuple[str, ...], extra_roots: tuple[Path, ...] = ()
+) -> Path | None:
     """Find an executable on PATH or common Windows installation roots."""
     for name in names:
         candidate = _which(name)

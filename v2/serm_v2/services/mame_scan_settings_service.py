@@ -3,6 +3,7 @@
 O tipo de scan é metadado da auditoria, não um filtro. Ele define qual universo
 catalográfico deve ser materializado no arquivo bruto do scan.
 """
+
 from __future__ import annotations
 
 import json

@@ -4,6 +4,7 @@ The integration treats LaunchBox as an optional external metadata/runtime
 provider. SERM V2 owns its own configuration and never depends on LaunchBox
 for application startup.
 """
+
 from __future__ import annotations
 
 import json

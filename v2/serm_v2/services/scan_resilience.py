@@ -1,4 +1,5 @@
 """Controle cooperativo de pausa/cancelamento dos scans V2."""
+
 from __future__ import annotations
 
 import threading

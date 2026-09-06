@@ -4,6 +4,7 @@ A seleção das ROMs acontece somente depois do scan, sobre o snapshot bruto.
 Este serviço guarda apenas a configuração; não consulta o catálogo nem o
 filesystem durante a auditoria.
 """
+
 from __future__ import annotations
 
 import json
@@ -23,11 +24,26 @@ DEFAULT_FILTERS: Final[dict[str, bool]] = {
 }
 
 FILTER_DEFINITIONS: Final[dict[str, dict[str, object]]] = {
-    "mechanical": {"label": "Máquinas mecânicas / eletromecânicas", "description": "Exclui Mechanical/Electromechanical e equivalentes."},
-    "dance": {"label": "Máquinas de dança", "description": "Exclui máquinas classificadas como Dance."},
-    "console": {"label": "Consoles", "description": "Exclui máquinas classificadas como console/game console."},
-    "handheld": {"label": "Portáteis / Handhelds", "description": "Exclui máquinas classificadas como handheld/portable."},
-    "fruit_machines": {"label": "Fruit Machines e derivados", "description": "Exclui Fruit Machine, Slot, Casino, Gambling, Redemption e Medal."},
+    "mechanical": {
+        "label": "Máquinas mecânicas / eletromecânicas",
+        "description": "Exclui Mechanical/Electromechanical e equivalentes.",
+    },
+    "dance": {
+        "label": "Máquinas de dança",
+        "description": "Exclui máquinas classificadas como Dance.",
+    },
+    "console": {
+        "label": "Consoles",
+        "description": "Exclui máquinas classificadas como console/game console.",
+    },
+    "handheld": {
+        "label": "Portáteis / Handhelds",
+        "description": "Exclui máquinas classificadas como handheld/portable.",
+    },
+    "fruit_machines": {
+        "label": "Fruit Machines e derivados",
+        "description": "Exclui Fruit Machine, Slot, Casino, Gambling, Redemption e Medal.",
+    },
 }
 
 # Estes padrões são aplicados aos dados de classificação já congelados no
@@ -38,8 +54,15 @@ CATEGORY_PATTERNS: Final[dict[str, tuple[str, ...]]] = {
     "console": ("console",),
     "handheld": ("handheld", "portable"),
     "fruit_machines": (
-        "fruit machine", "fruit_machine", "slot machine", "slot_machine",
-        "casino", "gambling", "redemption", "medal game", "medal_game",
+        "fruit machine",
+        "fruit_machine",
+        "slot machine",
+        "slot_machine",
+        "casino",
+        "gambling",
+        "redemption",
+        "medal game",
+        "medal_game",
     ),
 }
 
@@ -56,7 +79,9 @@ class MameFundamentalFilterService:
         if not isinstance(raw, dict):
             return {}
         return {
-            profile_id: {key: bool(values.get(key, default)) for key, default in DEFAULT_FILTERS.items()}
+            profile_id: {
+                key: bool(values.get(key, default)) for key, default in DEFAULT_FILTERS.items()
+            }
             for profile_id, values in raw.items()
             if isinstance(profile_id, str) and isinstance(values, dict)
         }
@@ -69,7 +94,9 @@ class MameFundamentalFilterService:
     @classmethod
     def save(cls, profile_id: str, values: dict[str, bool]) -> None:
         data = cls._read()
-        data[str(profile_id)] = {key: bool(values.get(key, default)) for key, default in DEFAULT_FILTERS.items()}
+        data[str(profile_id)] = {
+            key: bool(values.get(key, default)) for key, default in DEFAULT_FILTERS.items()
+        }
         FILTERS_FILE.parent.mkdir(parents=True, exist_ok=True)
         FILTERS_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
@@ -86,4 +113,9 @@ class MameFundamentalFilterService:
         return f"{len(active)} exclusões ativas" if active else "Nenhuma exclusão ativa"
 
 
-__all__ = ["DEFAULT_FILTERS", "FILTER_DEFINITIONS", "CATEGORY_PATTERNS", "MameFundamentalFilterService"]
+__all__ = [
+    "DEFAULT_FILTERS",
+    "FILTER_DEFINITIONS",
+    "CATEGORY_PATTERNS",
+    "MameFundamentalFilterService",
+]

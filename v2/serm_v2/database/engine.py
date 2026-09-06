@@ -2,6 +2,7 @@
 
 No V1 database or legacy service is imported here.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

@@ -1,4 +1,5 @@
 """Read-only structural audit helpers for the LaunchBox provider."""
+
 from __future__ import annotations
 
 import sqlite3

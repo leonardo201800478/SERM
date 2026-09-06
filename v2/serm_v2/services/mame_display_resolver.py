@@ -1,4 +1,5 @@
 """Resolução de display do MAME com fontes externas e precedência explícita."""
+
 from __future__ import annotations
 
 import hashlib
@@ -49,7 +50,9 @@ class MameDisplayResolver:
         now = datetime.now(UTC).isoformat()
         with sqlite3.connect(self.db_path) as connection:
             connection.execute("PRAGMA foreign_keys = ON")
-            row = connection.execute("SELECT id FROM emulator_definition WHERE slug='mame'").fetchone()
+            row = connection.execute(
+                "SELECT id FROM emulator_definition WHERE slug='mame'"
+            ).fetchone()
             if row is None:
                 raise MameDisplayResolverError("emulator_definition('mame') não existe.")
             emulator_id = int(row[0])
@@ -57,7 +60,15 @@ class MameDisplayResolver:
                 """INSERT INTO mame_display_source
                 (emulator_id, source_name, source_path, source_hash, imported_at, parser_version, row_count, status)
                 VALUES (?, ?, ?, ?, ?, ?, ?, 'imported')""",
-                (emulator_id, source_name, str(source_path), source_hash, now, self.PARSER_VERSION, len(facts)),
+                (
+                    emulator_id,
+                    source_name,
+                    str(source_path),
+                    source_hash,
+                    now,
+                    self.PARSER_VERSION,
+                    len(facts),
+                ),
             )
             source_id = int(connection.execute("SELECT last_insert_rowid()").fetchone()[0])
             for fact in facts:
@@ -66,11 +77,20 @@ class MameDisplayResolver:
                     (source_id,machine_name,resolution_width,resolution_height,refresh_hz,refresh_raw,
                      orientation,pixel_aspect_x,pixel_aspect_y,raw_value,line_number)
                     VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
-                    (fact.machine_name, ) if False else (
-                        source_id, fact.machine_name, fact.width, fact.height, fact.refresh_hz,
+                    (fact.machine_name,)
+                    if False
+                    else (
+                        source_id,
+                        fact.machine_name,
+                        fact.width,
+                        fact.height,
+                        fact.refresh_hz,
                         str(fact.refresh_hz) if fact.refresh_hz is not None else None,
-                        fact.orientation, fact.pixel_aspect_x, fact.pixel_aspect_y,
-                        fact.raw_value, fact.line_number,
+                        fact.orientation,
+                        fact.pixel_aspect_x,
+                        fact.pixel_aspect_y,
+                        fact.raw_value,
+                        fact.line_number,
                     ),
                 )
             connection.commit()
@@ -127,7 +147,11 @@ class MameDisplayResolver:
                     resolved_width, res_source = width, "listxml"
                     resolved_height, _ = height, "listxml"
                     if resolved_width is None or resolved_height is None:
-                        if resolution_fact and resolution_fact[0] is not None and resolution_fact[1] is not None:
+                        if (
+                            resolution_fact
+                            and resolution_fact[0] is not None
+                            and resolution_fact[1] is not None
+                        ):
                             resolved_width, resolved_height = resolution_fact[0], resolution_fact[1]
                             res_source = "resolution.ini"
                     resolved_refresh, refresh_source = refresh, "listxml"
@@ -141,9 +165,16 @@ class MameDisplayResolver:
                     pixel_y = resolution_fact[6] if resolution_fact else None
                     pixel_source = "resolution.ini" if pixel_x and pixel_y else "missing"
                     fallback = int(
-                        res_source != "listxml" or refresh_source != "listxml" or orientation_source != "listxml" or pixel_source != "missing"
+                        res_source != "listxml"
+                        or refresh_source != "listxml"
+                        or orientation_source != "listxml"
+                        or pixel_source != "missing"
                     )
-                    status = "resolved" if resolved_width and resolved_height and resolved_refresh else "partial"
+                    status = (
+                        "resolved"
+                        if resolved_width and resolved_height and resolved_refresh
+                        else "partial"
+                    )
                     if not resolved_width or not resolved_height or resolved_refresh is None:
                         stats["missing"] += 1
                     if fallback:
@@ -164,14 +195,38 @@ class MameDisplayResolver:
                         refresh_confidence=excluded.refresh_confidence,orientation_confidence=excluded.orientation_confidence,
                         pixel_aspect_confidence=excluded.pixel_aspect_confidence,fallback_used=excluded.fallback_used,
                         compared_at=excluded.compared_at""",
-                        (machine_id,display_id,resolved_width,resolved_height,resolved_refresh,resolved_orientation,
-                         pixel_x,pixel_y,res_source,refresh_source,orientation_source,pixel_source,
-                         "authoritative" if res_source == "listxml" else "fallback",
-                         "authoritative" if refresh_source == "listxml" else "fallback",
-                         "authoritative" if orientation_source == "listxml" else "fallback",
-                         "fallback" if pixel_source != "missing" else "missing", fallback, now),
+                        (
+                            machine_id,
+                            display_id,
+                            resolved_width,
+                            resolved_height,
+                            resolved_refresh,
+                            resolved_orientation,
+                            pixel_x,
+                            pixel_y,
+                            res_source,
+                            refresh_source,
+                            orientation_source,
+                            pixel_source,
+                            "authoritative" if res_source == "listxml" else "fallback",
+                            "authoritative" if refresh_source == "listxml" else "fallback",
+                            "authoritative" if orientation_source == "listxml" else "fallback",
+                            "fallback" if pixel_source != "missing" else "missing",
+                            fallback,
+                            now,
+                        ),
                     )
-                    self._compare(connection, machine_id, display_id, width, height, refresh, resolution_fact, vsync_fact, now)
+                    self._compare(
+                        connection,
+                        machine_id,
+                        display_id,
+                        width,
+                        height,
+                        refresh,
+                        resolution_fact,
+                        vsync_fact,
+                        now,
+                    )
                     connection.execute(
                         """INSERT INTO mame_machine_display_profile
                         (machine_id,display_id,profile_version,width,height,refresh_hz,orientation,pixel_aspect_x,pixel_aspect_y,
@@ -184,16 +239,33 @@ class MameDisplayResolver:
                         source_refresh=excluded.source_refresh,source_orientation=excluded.source_orientation,
                         source_pixel_aspect=excluded.source_pixel_aspect,fallback_used=excluded.fallback_used,
                         status=excluded.status,generated_at=excluded.generated_at""",
-                        (machine_id,display_id,profile_version,resolved_width,resolved_height,resolved_refresh,
-                         resolved_orientation,pixel_x,pixel_y,res_source,refresh_source,orientation_source,pixel_source,
-                         fallback,status,now),
+                        (
+                            machine_id,
+                            display_id,
+                            profile_version,
+                            resolved_width,
+                            resolved_height,
+                            resolved_refresh,
+                            resolved_orientation,
+                            pixel_x,
+                            pixel_y,
+                            res_source,
+                            refresh_source,
+                            orientation_source,
+                            pixel_source,
+                            fallback,
+                            status,
+                            now,
+                        ),
                     )
                     stats["profiles"] += 1
             connection.commit()
         return stats
 
     @staticmethod
-    def _fact(facts: dict[str, dict[str, tuple]], source_name: str, machine_name: str) -> tuple | None:
+    def _fact(
+        facts: dict[str, dict[str, tuple]], source_name: str, machine_name: str
+    ) -> tuple | None:
         """Obtém o fato mais recente de uma fonte por nome curto da máquina."""
         return facts.get(source_name, {}).get(machine_name)
 
@@ -217,13 +289,34 @@ class MameDisplayResolver:
             (machine_id, now),
         )
 
-    def _compare(self, connection, machine_id, display_id, width, height, refresh, resolution_fact, vsync_fact, now):
+    def _compare(
+        self,
+        connection,
+        machine_id,
+        display_id,
+        width,
+        height,
+        refresh,
+        resolution_fact,
+        vsync_fact,
+        now,
+    ):
         """Registra divergências campo a campo entre ListXML e fallbacks."""
         checks = [
-            ("resolution", f"{width}x{height}" if width and height else None,
-             f"{resolution_fact[0]}x{resolution_fact[1]}" if resolution_fact and resolution_fact[0] and resolution_fact[1] else None, "resolution.ini"),
-            ("refresh", str(refresh) if refresh is not None else None,
-             str(vsync_fact[2]) if vsync_fact and vsync_fact[2] is not None else None, "Vsync.ini"),
+            (
+                "resolution",
+                f"{width}x{height}" if width and height else None,
+                f"{resolution_fact[0]}x{resolution_fact[1]}"
+                if resolution_fact and resolution_fact[0] and resolution_fact[1]
+                else None,
+                "resolution.ini",
+            ),
+            (
+                "refresh",
+                str(refresh) if refresh is not None else None,
+                str(vsync_fact[2]) if vsync_fact and vsync_fact[2] is not None else None,
+                "Vsync.ini",
+            ),
         ]
         for field, a, b, source_b in checks:
             if b is None:
@@ -238,7 +331,7 @@ class MameDisplayResolver:
                 """INSERT INTO mame_display_comparison
                 (machine_id,display_id,source_a,source_b,field_name,value_a,value_b,result,detail,compared_at)
                 VALUES(?,?,?,?,?,?,?,?,?,?)""",
-                (machine_id,display_id,"ListXML",source_b,field,a,b,result,None,now),
+                (machine_id, display_id, "ListXML", source_b, field, a, b, result, None, now),
             )
 
     @classmethod
@@ -274,7 +367,11 @@ class MameDisplayResolver:
             orientation = str(payload.get("orientation")) if payload.get("orientation") else None
             aspect = str(payload.get("pixel_aspect")) if payload.get("pixel_aspect") else None
             ax, ay = cls._aspect(aspect)
-            result.append(ExternalDisplayFact(machine, width, height, refresh, orientation, ax, ay, raw, payload.get("line")))
+            result.append(
+                ExternalDisplayFact(
+                    machine, width, height, refresh, orientation, ax, ay, raw, payload.get("line")
+                )
+            )
         return result
 
     @staticmethod

@@ -1,4 +1,5 @@
 """Redump DAT acquisition through the official redump.info download endpoints."""
+
 from __future__ import annotations
 
 import logging
@@ -29,9 +30,7 @@ class RedumpEntry:
         """Convert a catalog entry to the official redump.info DAT endpoint."""
         direct_url = RedumpProvider.direct_url_for_name(entry.name)
         if direct_url is None:
-            raise RedumpError(
-                f"Não existe endpoint Redump conhecido para '{entry.name}'."
-            )
+            raise RedumpError(f"Não existe endpoint Redump conhecido para '{entry.name}'.")
         return cls(entry.name, direct_url, entry.crc32, entry.size, entry.category)
 
     def as_catalog_entry(self) -> DatCatalogEntry:

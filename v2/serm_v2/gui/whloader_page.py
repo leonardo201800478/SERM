@@ -1,4 +1,5 @@
 """Interface inicial do WHLoader para aquisição e indexação da base WHDLoad."""
+
 from __future__ import annotations
 
 import logging
@@ -54,7 +55,9 @@ class WHLoaderPage(QWidget):
 
         actions = QHBoxLayout()
         self.scan_button = QPushButton("ATUALIZAR / SCAN DATA")
-        self.scan_button.setToolTip("Baixa a base WHDLoad do Amiberry, valida o JSON e atualiza o índice local do SERM.")
+        self.scan_button.setToolTip(
+            "Baixa a base WHDLoad do Amiberry, valida o JSON e atualiza o índice local do SERM."
+        )
         self.scan_button.clicked.connect(self.scan_data)
         actions.addWidget(self.scan_button)
         actions.addStretch()

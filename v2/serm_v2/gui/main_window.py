@@ -1,4 +1,5 @@
 """Janela principal do SERM V2."""
+
 from __future__ import annotations
 
 import logging
@@ -40,7 +41,11 @@ class MainWindow(QMainWindow):
         ("Configurações", "Configurações dos emuladores", "SP_FileDialogDetailedView"),
         ("Shaders / Bezels", "Aparência, shaders e bezels", "SP_ComputerIcon"),
         ("1 — Scan", "Auditoria completa contra DAT/catalogo", "SP_DriveHDIcon"),
-        ("2 — Filtragem", "Aplicar filtros sobre um scan já concluído", "SP_FileDialogDetailedView"),
+        (
+            "2 — Filtragem",
+            "Aplicar filtros sobre um scan já concluído",
+            "SP_FileDialogDetailedView",
+        ),
         ("3 — Reconstrução", "Montar o set a partir do arquivo filtrado", "SP_FileDialogInfoView"),
         ("Scraper de DATs", "Importação e processamento de DATs", "SP_FileIcon"),
     )
@@ -61,7 +66,9 @@ class MainWindow(QMainWindow):
         database_path = Path(settings.database)
         applied = apply_migrations(database_path)
         if applied:
-            logging.getLogger(__name__).info("[SERM][DB] migrations aplicadas=%s", ", ".join(applied))
+            logging.getLogger(__name__).info(
+                "[SERM][DB] migrations aplicadas=%s", ", ".join(applied)
+            )
         self.database = create_sqlite_engine(database_path)
         self.log_viewer = LogViewer()
         self._build_ui()
@@ -94,7 +101,9 @@ class MainWindow(QMainWindow):
         if not screens:
             return
         current = self.screen()
-        target = next((screen for screen in screens if self._screen_key(screen) == saved_screen), None)
+        target = next(
+            (screen for screen in screens if self._screen_key(screen) == saved_screen), None
+        )
         if target is None and saved_screen:
             name = saved_screen.split("|", 1)[0]
             target = next((screen for screen in screens if screen.name().strip() == name), None)
@@ -124,7 +133,10 @@ class MainWindow(QMainWindow):
         if screen is not None:
             settings.setValue(self._SCREEN_KEY, self._screen_key(screen))
             geometry = screen.geometry()
-            settings.setValue(self._SCREEN_GEOMETRY_KEY, f"{geometry.x()},{geometry.y()},{geometry.width()},{geometry.height()}")
+            settings.setValue(
+                self._SCREEN_GEOMETRY_KEY,
+                f"{geometry.x()},{geometry.y()},{geometry.width()},{geometry.height()}",
+            )
         settings.sync()
 
     def _build_ui(self) -> None:
@@ -177,7 +189,16 @@ class MainWindow(QMainWindow):
         self.filter_tab = FilteringPhasePage(self)
         self.reconstruction_tab = ReconstructionPhasePage(self)
         self.dat_scraper_tab = DatScraperPage(self)
-        self.pages = (self.home_section, self.directories_tab, self.settings_tab, self.visuals_tab, self.scan_tab, self.filter_tab, self.reconstruction_tab, self.dat_scraper_tab)
+        self.pages = (
+            self.home_section,
+            self.directories_tab,
+            self.settings_tab,
+            self.visuals_tab,
+            self.scan_tab,
+            self.filter_tab,
+            self.reconstruction_tab,
+            self.dat_scraper_tab,
+        )
         for page in self.pages:
             self.page_stack.addWidget(page)
         root_layout.addWidget(sidebar)
@@ -191,7 +212,9 @@ class MainWindow(QMainWindow):
             self.page_stack.setCurrentIndex(index)
             self._refresh_page(index)
             item = self.navigation.item(index)
-            self.status_bar.showMessage((item.data(Qt.ItemDataRole.UserRole) or item.text()) if item else "Pronto")
+            self.status_bar.showMessage(
+                (item.data(Qt.ItemDataRole.UserRole) or item.text()) if item else "Pronto"
+            )
 
     def _refresh_page(self, index: int) -> None:
         page = self.pages[index]

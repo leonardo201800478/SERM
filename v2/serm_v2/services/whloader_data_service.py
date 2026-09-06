@@ -1,4 +1,5 @@
 """Aquisição e normalização da base WHDLoad do Amiberry."""
+
 from __future__ import annotations
 
 import hashlib
@@ -217,7 +218,11 @@ class WHLoaderDataService:
                             game_id,
                             slave_name,
                             self._text(slave.get("datapath")),
-                            json.dumps(slave.get("custom_fields", []), ensure_ascii=False, separators=(",", ":")),
+                            json.dumps(
+                                slave.get("custom_fields", []),
+                                ensure_ascii=False,
+                                separators=(",", ":"),
+                            ),
                         ),
                     )
                     slave_total += 1
@@ -256,7 +261,12 @@ class WHLoaderDataService:
         elapsed = time.perf_counter() - started
         logger.info(
             "[WHLOADER][SCAN] jogos=%d | duplicatas=%d | slaves=%d | sha256=%s | download=%.2fs | total=%.2fs",
-            len(games), duplicates, slaves, source_hash, download_seconds, elapsed,
+            len(games),
+            duplicates,
+            slaves,
+            source_hash,
+            download_seconds,
+            elapsed,
         )
         return WHLoaderScanResult(
             games=len(games),

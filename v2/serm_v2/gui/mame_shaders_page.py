@@ -5,6 +5,7 @@ arquivos INI que podem interferir na configuração global. Presets continuam
 sendo preservados; arquivos efetivamente carregados são classificados e
 conflitos são apresentados antes da aplicação de configurações.
 """
+
 from __future__ import annotations
 
 import json
@@ -138,7 +139,9 @@ class MameShadersPage(QWidget):
             result[key.strip().lower()] = value.strip()
         return result
 
-    def _scan_ini_environment(self, editor: ConfigFileEditor) -> tuple[list[Path], list[tuple[str, Path, str]]]:
+    def _scan_ini_environment(
+        self, editor: ConfigFileEditor
+    ) -> tuple[list[Path], list[tuple[str, Path, str]]]:
         """Varre o inipath e retorna INIs encontrados e conflitos relevantes."""
         directories = self._inipath(editor)
         files: list[Path] = []
@@ -150,7 +153,19 @@ class MameShadersPage(QWidget):
                     continue
                 files.append(path)
                 for key, value in self._ini_keys(path).items():
-                    if key in {self.VIDEO_KEY, self.BACKEND_KEY, self.CHAIN_KEY, "filter", "prescale", "waitvsync", "syncrefresh", "switchres", "resolution", "aspect", "view"}:
+                    if key in {
+                        self.VIDEO_KEY,
+                        self.BACKEND_KEY,
+                        self.CHAIN_KEY,
+                        "filter",
+                        "prescale",
+                        "waitvsync",
+                        "syncrefresh",
+                        "switchres",
+                        "resolution",
+                        "aspect",
+                        "view",
+                    }:
                         if key in tracked and tracked[key][1] != value:
                             conflicts.append((key, path, value))
                         tracked[key] = (path, value)
@@ -201,11 +216,17 @@ class MameShadersPage(QWidget):
             self.chain.setCurrentIndex(max(0, self.chain.findData(configured)))
         files, conflicts = self._scan_ini_environment(editor)
         if conflicts:
-            details = "\n".join(f"{key}: {path.name} → {value}" for key, path, value in conflicts[:10])
+            details = "\n".join(
+                f"{key}: {path.name} → {value}" for key, path, value in conflicts[:10]
+            )
             self.scan.setText(f"⚠ {len(conflicts)} conflito(s) detectado(s) no inipath:\n{details}")
         else:
-            self.scan.setText(f"✓ INI environment normalizado para análise: {len(files)} arquivo(s) encontrado(s) no inipath.")
-        self.status.setText(f"Driver={driver} | Backend={backend} | Chain global={configured or 'não definido'} | mame.ini={editor.path}")
+            self.scan.setText(
+                f"✓ INI environment normalizado para análise: {len(files)} arquivo(s) encontrado(s) no inipath."
+            )
+        self.status.setText(
+            f"Driver={driver} | Backend={backend} | Chain global={configured or 'não definido'} | mame.ini={editor.path}"
+        )
 
 
 __all__ = ["MameShadersPage"]

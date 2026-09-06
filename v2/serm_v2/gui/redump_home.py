@@ -1,4 +1,5 @@
 """Redump direct acquisition page for SERM V2."""
+
 from __future__ import annotations
 
 import logging

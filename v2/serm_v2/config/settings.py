@@ -1,4 +1,5 @@
 """V2 settings kept independent from legacy configuration."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

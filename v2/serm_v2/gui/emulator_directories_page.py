@@ -1,4 +1,5 @@
 """Directory guide with explicit emulator executable selection."""
+
 from __future__ import annotations
 
 import subprocess

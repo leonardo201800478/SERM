@@ -255,7 +255,9 @@ class DatSourceTab(QWidget):
         self._set_busy(True)
         try:
             entries = tuple(self.loader())
-            self.rows = [_Row(self._entry_name(entry), entry, self._entry_state(entry)) for entry in entries]
+            self.rows = [
+                _Row(self._entry_name(entry), entry, self._entry_state(entry)) for entry in entries
+            ]
             self._rebuild_rows()
             self.summary.setText(f"{len(self.rows)} sistemas encontrados")
             self._append(f"BUSCAR | sistemas={len(self.rows)}")
@@ -283,7 +285,12 @@ class DatSourceTab(QWidget):
 
     @staticmethod
     def _prefix(state: str) -> str:
-        return {"current": "[OK]", "missing": "[AUSENTE]", "outdated": "[ATUALIZAR]", "unknown": "[?]"}.get(state, "[?]")
+        return {
+            "current": "[OK]",
+            "missing": "[AUSENTE]",
+            "outdated": "[ATUALIZAR]",
+            "unknown": "[?]",
+        }.get(state, "[?]")
 
     def _selected(self) -> list[_Row]:
         names = {check.property("entry_name") for check in self._checks if check.isChecked()}
@@ -314,7 +321,9 @@ class DatSourceTab(QWidget):
         for check, row in zip(self._checks, self.rows, strict=True):
             check.setChecked(row.state in {"missing", "outdated", "unknown"})
         pending = sum(row.state in {"missing", "outdated", "unknown"} for row in self.rows)
-        self.summary.setText(f"{len(self.rows)} sistemas | {pending} precisam de instalação/atualização")
+        self.summary.setText(
+            f"{len(self.rows)} sistemas | {pending} precisam de instalação/atualização"
+        )
         self._append(f"ATUALIZAÇÕES | candidatos={pending}")
 
     def _start_worker(self, selected, operation) -> None:
@@ -339,7 +348,13 @@ class DatSourceTab(QWidget):
         self.search()
 
     def _set_busy(self, busy: bool) -> None:
-        for button in (self.search_button, self.install_button, self.update_button, self.select_button, self.clear_button):
+        for button in (
+            self.search_button,
+            self.install_button,
+            self.update_button,
+            self.select_button,
+            self.clear_button,
+        ):
             button.setEnabled(not busy)
 
 
@@ -391,7 +406,9 @@ class _WHLoaderTab(QWidget):
         self.worker.start()
 
     def _completed(self, result: WHLoaderScanResult) -> None:
-        self.status.setText(f"{result.games:,} jogos | {result.slaves:,} slaves | schema {result.schema_version or '—'}")
+        self.status.setText(
+            f"{result.games:,} jogos | {result.slaves:,} slaves | schema {result.schema_version or '—'}"
+        )
         self._append(f"OK | jogos={result.games} | slaves={result.slaves}")
         self._append(f"SHA256 | {result.source_hash}")
         self._append(f"RAW | {Path(result.raw_path)}")
@@ -418,11 +435,17 @@ class _C64Tab(QWidget):
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Commodore C64 — GAMES / DAT"))
         layout.addWidget(QLabel("Fonte: TOSEC | escopo exclusivo: Commodore C64 - Games"))
-        layout.addWidget(QLabel("Política: jogos em uma única mídia são priorizados; software não-jogo não entra no catálogo."))
+        layout.addWidget(
+            QLabel(
+                "Política: jogos em uma única mídia são priorizados; software não-jogo não entra no catálogo."
+            )
+        )
 
         actions = QHBoxLayout()
         self.scan_button = QPushButton("SCAN DATA")
-        self.scan_button.setToolTip("Baixa o índice da release TOSEC e registra somente os DATs de jogos C64.")
+        self.scan_button.setToolTip(
+            "Baixa o índice da release TOSEC e registra somente os DATs de jogos C64."
+        )
         self.scan_button.clicked.connect(self.scan_data)
         actions.addWidget(self.scan_button)
         actions.addStretch()
@@ -609,7 +632,9 @@ class _MameTab(QWidget):
         mode = "REUTILIZADA (mesmo SHA-256)" if data.get("deduplicated") else "NOVA IMPORTAÇÃO"
         if data.get("force"):
             mode = "FORÇADA"
-        self.status.setText(f"Concluído | MAME {build} | {data['machine_count']:,} máquinas | {data['display_count']:,} displays | {elapsed:.2f}s")
+        self.status.setText(
+            f"Concluído | MAME {build} | {data['machine_count']:,} máquinas | {data['display_count']:,} displays | {elapsed:.2f}s"
+        )
         self._log("OK", f"Versão/build: {build}")
         self._log("OK", f"Máquinas: {data['machine_count']:,}")
         self._log("OK", f"Displays normalizados: {data['display_count']:,}")
@@ -657,13 +682,17 @@ class DatScraperPage(QWidget):
             entries = self.no_intro.fetch_catalog()
             names = tuple(platform.name for platform in self.launchbox_provider.iter_platforms())
             return self.no_intro.match(names, entries)
-        return DatSourceTab("No-Intro — DATs", load, self.no_intro.download, self.no_intro.status, self)
+
+        return DatSourceTab(
+            "No-Intro — DATs", load, self.no_intro.download, self.no_intro.status, self
+        )
 
     def _redump_tab(self) -> DatSourceTab:
         def load():
             entries = self.redump.fetch_catalog()
             names = tuple(platform.name for platform in self.launchbox_provider.iter_platforms())
             return self.redump.match(names, entries)
+
         return DatSourceTab("Redump — DATs", load, self.redump.download, self.redump.status, self)
 
 
