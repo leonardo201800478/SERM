@@ -82,3 +82,5 @@ jobs:
             v2/tests/mame/test_listxml_catalog_integrity.py
           git commit -m "chore(ruff): corrigir diagnósticos dos serviços V2"
           git push
+
+# Trigger validation after installation of this workflow.
