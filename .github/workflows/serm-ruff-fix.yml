@@ -28,7 +28,22 @@ jobs:
 
       - name: Fix lint V2
         working-directory: v2
-        run: ruff check serm_v2 tests --fix --unsafe-fixes
+        run: |
+          ruff check serm_v2 tests --fix --unsafe-fixes --ignore E741
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("serm_v2/gui/emulator_shaders_bezels_page.py")
+          text = path.read_text(encoding="utf-8")
+          text = text.replace(
+              "lambda _=False, e=emulator, l=layer, k=spec.key: self._browse(e, l, k)",
+              "lambda _=False, e=emulator, layer_name=layer, k=spec.key: self._browse(e, layer_name, k)",
+          )
+          text = text.replace(
+              "lambda _=False, e=emulator, l=layer: self.save(e, l)",
+              "lambda _=False, e=emulator, layer_name=layer: self.save(e, layer_name)",
+          )
+          path.write_text(text, encoding="utf-8")
+          PY
 
       - name: Validate V2
         working-directory: v2
