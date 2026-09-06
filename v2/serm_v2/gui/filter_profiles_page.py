@@ -10,8 +10,8 @@ from uuid import uuid4
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout,
-    QLabel, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QScrollArea,
-    QSplitter, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton,
+    QScrollArea, QSplitter, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 from ..runtime.paths import data_root
@@ -88,7 +88,7 @@ class _ScanWorker(QThread):
 
 
 class FilterProfilesPage(QWidget):
-    """Perfil único de filtro/scan; o resultado segue para a reconstrução."""
+    """Perfil de filtro/scan; o resultado segue para a reconstrução."""
     scan_requested = Signal(object)
     reconstruction_requested = Signal(object)
     REGION_DEFAULT = ("Brazil", "America", "Europe", "Japan", "World", "Restante")
@@ -101,6 +101,7 @@ class FilterProfilesPage(QWidget):
         self._scan_worker: _ScanWorker | None = None
         self._last_scan_result: ScanResult | None = None
         self._building = False
+        self._editor_splitter: QSplitter | None = None
         self._estimate_timer = QTimer(self)
         self._estimate_timer.setSingleShot(True)
         self._estimate_timer.setInterval(80)
@@ -123,6 +124,7 @@ class FilterProfilesPage(QWidget):
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(self._catalog_panel())
         splitter.addWidget(self._editor_panel())
+        splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
         root.addWidget(splitter, 1)
 
@@ -133,13 +135,23 @@ class FilterProfilesPage(QWidget):
         self.source_tree.setHeaderLabels(["Fonte / sistema"])
         self.source_tree.setMinimumWidth(270)
         self.source_tree.itemSelectionChanged.connect(self._selection_changed)
-        layout.addWidget(self.source_tree, 1)
+        layout.addWidget(self.source_tree, 3)
+
         profiles_box = QGroupBox("Perfis salvos")
         profiles_layout = QVBoxLayout(profiles_box)
         self.profile_list = QListWidget()
         self.profile_list.currentItemChanged.connect(self._saved_profile_selected)
-        profiles_layout.addWidget(self.profile_list)
+        profiles_layout.addWidget(self.profile_list, 1)
+        profile_actions = QHBoxLayout()
+        new_profile = QPushButton("NOVO PERFIL")
+        delete_profile = QPushButton("EXCLUIR")
+        new_profile.clicked.connect(self._new_profile)
+        delete_profile.clicked.connect(self._delete_selected_profile)
+        profile_actions.addWidget(new_profile)
+        profile_actions.addWidget(delete_profile)
+        profiles_layout.addLayout(profile_actions)
         layout.addWidget(profiles_box, 1)
+
         refresh = QPushButton("ATUALIZAR")
         refresh.clicked.connect(self.refresh)
         layout.addWidget(refresh)
@@ -150,23 +162,21 @@ class FilterProfilesPage(QWidget):
         layout = QVBoxLayout(page)
         self.selected_label = QLabel("Selecione um catálogo")
         layout.addWidget(self.selected_label)
-        source_box = QGroupBox("Fontes temporárias do scan — máximo 3")
-        source_layout = QVBoxLayout(source_box)
-        self.source_list = QListWidget()
-        source_layout.addWidget(self.source_list)
-        actions = QHBoxLayout()
-        add = QPushButton("+ ADICIONAR")
-        remove = QPushButton("REMOVER")
-        add.clicked.connect(self._add_source_directory)
-        remove.clicked.connect(self._remove_source_directory)
-        actions.addWidget(add)
-        actions.addWidget(remove)
-        actions.addStretch()
-        source_layout.addLayout(actions)
-        self.recursive = QCheckBox("Incluir subdiretórios")
-        self.recursive.setChecked(True)
-        source_layout.addWidget(self.recursive)
-        layout.addWidget(source_box)
+
+        self._editor_splitter = QSplitter(Qt.Orientation.Vertical)
+        source_box = self._source_box()
+        lower = QWidget()
+        lower_layout = QVBoxLayout(lower)
+        lower_layout.setContentsMargins(0, 0, 0, 0)
+
+        name_layout = QHBoxLayout()
+        name_layout.addWidget(QLabel("Nome do perfil:"))
+        self.profile_name = QLineEdit()
+        self.profile_name.setPlaceholderText("Ex.: MAME Arcade 1G1R")
+        self.profile_name.editingFinished.connect(self._profile_name_changed)
+        name_layout.addWidget(self.profile_name, 1)
+        lower_layout.addLayout(name_layout)
+
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
@@ -176,7 +186,8 @@ class FilterProfilesPage(QWidget):
         self._build_mame_controls()
         self.filter_layout.addStretch()
         scroll.setWidget(body)
-        layout.addWidget(scroll, 1)
+        lower_layout.addWidget(scroll, 1)
+
         estimate_box = QGroupBox("Estimativa do catálogo — filtros em tempo real")
         estimate_layout = QVBoxLayout(estimate_box)
         self.catalog_estimate = QLabel("Selecione um catálogo para calcular.")
@@ -186,7 +197,8 @@ class FilterProfilesPage(QWidget):
         self.catalog_estimate_detail = QLabel("Nenhuma consulta executada.")
         self.catalog_estimate_detail.setWordWrap(True)
         estimate_layout.addWidget(self.catalog_estimate_detail)
-        layout.addWidget(estimate_box)
+        lower_layout.addWidget(estimate_box)
+
         scan_box = QGroupBox("Execução do Scan")
         scan_layout = QVBoxLayout(scan_box)
         self.scan_progress = QLabel("Nenhum scan executado.")
@@ -208,10 +220,39 @@ class FilterProfilesPage(QWidget):
         buttons.addStretch()
         scan_layout.addLayout(buttons)
         self.log_view = QListWidget()
-        self.log_view.setMinimumHeight(130)
+        self.log_view.setMinimumHeight(100)
+        self.log_view.setMaximumHeight(180)
         scan_layout.addWidget(self.log_view)
-        layout.addWidget(scan_box)
+        lower_layout.addWidget(scan_box)
+
+        self._editor_splitter.addWidget(source_box)
+        self._editor_splitter.addWidget(lower)
+        self._editor_splitter.setStretchFactor(0, 0)
+        self._editor_splitter.setStretchFactor(1, 1)
+        self._editor_splitter.setSizes([145, 650])
+        layout.addWidget(self._editor_splitter, 1)
         return page
+
+    def _source_box(self) -> QGroupBox:
+        source_box = QGroupBox("Fontes temporárias do scan — máximo 3")
+        source_layout = QVBoxLayout(source_box)
+        self.source_list = QListWidget()
+        self.source_list.setMinimumHeight(55)
+        self.source_list.setMaximumHeight(95)
+        source_layout.addWidget(self.source_list)
+        actions = QHBoxLayout()
+        add = QPushButton("+ ADICIONAR")
+        remove = QPushButton("REMOVER")
+        add.clicked.connect(self._add_source_directory)
+        remove.clicked.connect(self._remove_source_directory)
+        actions.addWidget(add)
+        actions.addWidget(remove)
+        actions.addStretch()
+        source_layout.addLayout(actions)
+        self.recursive = QCheckBox("Incluir subdiretórios")
+        self.recursive.setChecked(True)
+        source_layout.addWidget(self.recursive)
+        return source_box
 
     def _build_generic_controls(self) -> None:
         self.content_box = QGroupBox("Conteúdo")
@@ -377,9 +418,13 @@ class FilterProfilesPage(QWidget):
         self._load_profile(profile or self._new_default_profile(source, system, dat_path))
         self._configure_source_controls(source)
         self._refresh_profile_list()
-        latest = ScanRepository(self._database_path()).latest_for_profile(self._current_saved_profile.profile_id) if self._current_saved_profile else None
-        if latest:
-            self.scan_progress.setText(f"Último scan: {latest['scan_id']} | status={latest['status']} | arquivos={latest['files_examined']} | itens={latest['items_examined']}")
+        if self._current_saved_profile:
+            latest = ScanRepository(self._database_path()).latest_for_profile(self._current_saved_profile.profile_id)
+            if latest:
+                self.scan_progress.setText(
+                    f"Último scan: {latest['scan_id']} | status={latest['status']} | "
+                    f"arquivos={latest['files_examined']} | itens={latest['items_examined']}"
+                )
         self._schedule_catalog_estimate()
 
     def _configure_source_controls(self, source: str) -> None:
@@ -407,6 +452,7 @@ class FilterProfilesPage(QWidget):
     def _load_profile(self, profile: FilterProfileData) -> None:
         self._building = True
         try:
+            self.profile_name.setText(profile.name)
             self.source_list.clear()
             self.source_list.addItems(profile.source_directories[:3])
             self.recursive.setChecked(profile.recursive)
@@ -436,37 +482,6 @@ class FilterProfilesPage(QWidget):
             self.scan_progress.setText(f"Perfil: {profile.name} | ID={profile.profile_id}")
         finally:
             self._building = False
-
-    def _current_profile(self):
-        selected = self._selected_item_data()
-        if selected is None:
-            return None
-        source, system, dat_path = selected
-        previous = self._current_saved_profile
-        now = datetime.now(timezone.utc).isoformat()
-        return FilterProfileData(
-            source=source, system=system, dat_path=dat_path,
-            profile_id=previous.profile_id if previous else str(uuid4()),
-            name=previous.name if previous else f"{source} — {system}",
-            created_at=previous.created_at if previous else now, updated_at=now,
-            source_directories=[self.source_list.item(i).text() for i in range(self.source_list.count())],
-            recursive=self.recursive.isChecked(), games_only=self.games_only.isChecked(),
-            include_bios=self.content_checks["bios"].isChecked(), include_educational=self.content_checks["educational"].isChecked(),
-            include_manuals=self.content_checks["manuals"].isChecked(), include_magazines=self.content_checks["magazines"].isChecked(),
-            include_software=self.content_checks["software"].isChecked(), include_demos=self.content_checks["demos"].isChecked(),
-            include_prototypes=self.content_checks["prototypes"].isChecked(), include_unlicensed=self.content_checks["unlicensed"].isChecked(),
-            one_game_one_region=self.one_game_one_region.isChecked(),
-            region_priority=[self.region_list.item(i).text() for i in range(self.region_list.count())],
-            remove_previous_versions=self.remove_previous.isChecked(), include_translations=self.include_translations.isChecked(),
-            translation_policy=str(self.translation_policy.currentData()), include_chd=self.include_chd.isChecked(),
-            prefer_chd=self.prefer_chd.isChecked(), allow_cue_bin=self.allow_cue_bin.isChecked(),
-            convert_cue_bin_to_chd=self.convert_cue_bin.isChecked(), keep_cue_bin=self.keep_cue_bin.isChecked(),
-            whloader_games_only=self.wh_games_only.isChecked(), mame_set_type=str(self.mame_set_type.currentData()),
-            mame_clone_policy=str(self.mame_clone_policy.currentData()), mame_include_bios=self.mame_bios.isChecked(),
-            mame_include_devices=self.mame_devices.isChecked(), mame_include_chd=self.mame_chd.isChecked(),
-            mame_include_optional=self.mame_optional.isChecked(), mame_working_only=self.mame_working.isChecked(),
-            mame_classification_source=str(self.mame_classification.currentData()),
-        )
 
     @staticmethod
     def _from_dict(raw):
@@ -505,7 +520,7 @@ class FilterProfilesPage(QWidget):
         for profile in profiles:
             item = QListWidgetItem(f"{profile.name}\n{profile.source} › {profile.system}")
             item.setData(Qt.ItemDataRole.UserRole, profile.profile_id)
-            item.setToolTip(f"ID={profile.profile_id}\nAtualizado={profile.updated_at}")
+            item.setToolTip(f"ID={profile.profile_id}\nCriado={profile.created_at}\nAtualizado={profile.updated_at}")
             self.profile_list.addItem(item)
         self.profile_list.blockSignals(False)
 
@@ -528,6 +543,94 @@ class FilterProfilesPage(QWidget):
                     self._configure_source_controls(profile.source)
                     self._schedule_catalog_estimate()
                     return
+
+    def _profile_name_changed(self) -> None:
+        name = self.profile_name.text().strip()
+        if name:
+            self.scan_progress.setText(f"Nome do perfil: {name}")
+
+    def _new_profile(self) -> None:
+        selected = self._selected_item_data()
+        if selected is None:
+            QMessageBox.information(self, "Perfil", "Selecione um catálogo antes de criar um novo perfil.")
+            return
+        source, system, dat_path = selected
+        self._current_saved_profile = None
+        self._last_scan_result = None
+        profile = self._new_default_profile(source, system, dat_path)
+        profile.name = self._next_profile_name(source, system)
+        self._load_profile(profile)
+        self._configure_source_controls(source)
+        self._schedule_catalog_estimate()
+
+    def _next_profile_name(self, source: str, system: str) -> str:
+        base = f"{source} — {system}"
+        names = {profile.name.casefold() for profile in self._read_profiles()}
+        if base.casefold() not in names:
+            return base
+        index = 2
+        while f"{base} #{index}".casefold() in names:
+            index += 1
+        return f"{base} #{index}"
+
+    def _delete_selected_profile(self) -> None:
+        item = self.profile_list.currentItem()
+        if item is None:
+            QMessageBox.information(self, "Perfis", "Selecione um perfil para excluir.")
+            return
+        profile_id = item.data(Qt.ItemDataRole.UserRole)
+        profiles = self._read_profiles()
+        profile = next((p for p in profiles if p.profile_id == profile_id), None)
+        if profile is None:
+            self._refresh_profile_list()
+            return
+        answer = QMessageBox.question(
+            self,
+            "Excluir perfil",
+            f"Excluir o perfil '{profile.name}'?\n\nO histórico de scans já gravados não será apagado.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        profiles = [p for p in profiles if p.profile_id != profile_id]
+        self._write_profiles(profiles)
+        if self._current_saved_profile and self._current_saved_profile.profile_id == profile_id:
+            self._current_saved_profile = None
+        self._refresh_profile_list()
+        self.scan_progress.setText("Perfil excluído. O histórico de scans foi preservado.")
+
+    def _current_profile(self):
+        selected = self._selected_item_data()
+        if selected is None:
+            return None
+        source, system, dat_path = selected
+        previous = self._current_saved_profile
+        now = datetime.now(timezone.utc).isoformat()
+        name = self.profile_name.text().strip() or (previous.name if previous else self._next_profile_name(source, system))
+        return FilterProfileData(
+            source=source, system=system, dat_path=dat_path,
+            profile_id=previous.profile_id if previous else str(uuid4()),
+            name=name,
+            created_at=previous.created_at if previous else now, updated_at=now,
+            source_directories=[self.source_list.item(i).text() for i in range(self.source_list.count())],
+            recursive=self.recursive.isChecked(), games_only=self.games_only.isChecked(),
+            include_bios=self.content_checks["bios"].isChecked(), include_educational=self.content_checks["educational"].isChecked(),
+            include_manuals=self.content_checks["manuals"].isChecked(), include_magazines=self.content_checks["magazines"].isChecked(),
+            include_software=self.content_checks["software"].isChecked(), include_demos=self.content_checks["demos"].isChecked(),
+            include_prototypes=self.content_checks["prototypes"].isChecked(), include_unlicensed=self.content_checks["unlicensed"].isChecked(),
+            one_game_one_region=self.one_game_one_region.isChecked(),
+            region_priority=[self.region_list.item(i).text() for i in range(self.region_list.count())],
+            remove_previous_versions=self.remove_previous.isChecked(), include_translations=self.include_translations.isChecked(),
+            translation_policy=str(self.translation_policy.currentData()), include_chd=self.include_chd.isChecked(),
+            prefer_chd=self.prefer_chd.isChecked(), allow_cue_bin=self.allow_cue_bin.isChecked(),
+            convert_cue_bin_to_chd=self.convert_cue_bin.isChecked(), keep_cue_bin=self.keep_cue_bin.isChecked(),
+            whloader_games_only=self.wh_games_only.isChecked(), mame_set_type=str(self.mame_set_type.currentData()),
+            mame_clone_policy=str(self.mame_clone_policy.currentData()), mame_include_bios=self.mame_bios.isChecked(),
+            mame_include_devices=self.mame_devices.isChecked(), mame_include_chd=self.mame_chd.isChecked(),
+            mame_include_optional=self.mame_optional.isChecked(), mame_working_only=self.mame_working.isChecked(),
+            mame_classification_source=str(self.mame_classification.currentData()),
+        )
 
     def _save_profile(self):
         profile = self._current_profile()
@@ -614,11 +717,7 @@ class FilterProfilesPage(QWidget):
         return data_root() / "database" / "serm.db"
 
     def _reset_defaults(self):
-        selected = self._selected_item_data()
-        if selected:
-            self._current_saved_profile = None
-            self._load_profile(self._new_default_profile(*selected))
-            self._schedule_catalog_estimate()
+        self._new_profile()
 
     def _add_source_directory(self):
         if self.source_list.count() >= 3:
