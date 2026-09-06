@@ -56,9 +56,10 @@ class NoIntroFilterService:
     def profile_payload(cls, profile, region_priority):
         defaults = {
             "include_bios": False, "include_demos": False, "include_prototypes": False, "include_betas": False,
-            "include_programs": False, "include_np": False, "include_samples": False, "include_aftermarket": False,
+            "include_programs": False, "include_np": False, "include_samples": False, "include_aftermarket": True,
             "include_unlicensed": False, "include_pirates": False, "include_enhancement_chips": False,
             "include_tech_demos": False, "include_bad_dumps": False, "include_clones": True,
+            "include_unl_regions": True,
             "one_game_one_region": False, "include_translations": False, "include_hacks": False,
             "keep_unverified_variants": True, "remove_previous_versions": True,
         }
@@ -100,12 +101,11 @@ class NoIntroFilterService:
     def _release_key(item):
         machine = str(item.get("machine_name") or item.get("merge_name") or "").strip().casefold()
         archive = str(item.get("archive_path") or "").strip().casefold()
-        path = str(item.get("path") or "").strip().casefold()
         if archive:
             return machine, archive
         if machine:
             return machine, ""
-        return machine, path
+        return machine, str(item.get("path") or "").strip().casefold()
 
     @classmethod
     def _choose_release(cls, releases, profile):
@@ -163,6 +163,10 @@ class NoIntroFilterService:
         for tag, option, reason in filters:
             if tag in tags and not getattr(profile, option, False):
                 return reason
+        # "Unl" pode ser representado como conteúdo não licenciado e/ou como
+        # marcador regional. O filtro de região Unl é independente.
+        if any(tag.startswith("region:unl") for tag in tags) and not getattr(profile, "include_unl_regions", True):
+            return "unl_region"
         if "variant:translation" in tags and not getattr(profile, "include_translations", False):
             return "translation"
         if "variant:hack" in tags and not getattr(profile, "include_hacks", False):
@@ -194,6 +198,7 @@ class NoIntroFilterService:
             "spa": "spain", "spain": "spain", "esp": "spain",
             "jpn": "japan", "japan": "japan", "chn": "china", "china": "china", "cn": "china",
             "kor": "korea", "korea": "korea", "kr": "korea", "world": "world", "ww": "world",
+            "unl": "others", "unlicensed": "others",
         }
         return min(ranks.get(aliases.get(region, "others"), ranks.get("others", len(ranks))) for region in regions)
 
