@@ -6,19 +6,7 @@ import logging
 from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QSettings, QSize, Qt
-from PySide6.QtWidgets import (
-    QApplication,
-    QFrame,
-    QHBoxLayout,
-    QLabel,
-    QListWidget,
-    QListWidgetItem,
-    QMainWindow,
-    QStackedWidget,
-    QStyle,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QApplication, QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMainWindow, QStackedWidget, QStyle, QVBoxLayout, QWidget
 
 from ..config.settings import Settings
 from ..database.bootstrap import apply_migrations
@@ -32,20 +20,18 @@ from .home import HomePage
 from .log_handler import LogViewer
 from .reconstruction_phase_page import ReconstructionPhasePage
 from .scan_phase_page import ScanPhasePage
+from .tools_directories import ToolsDirectoriesPage
 
 
 class MainWindow(QMainWindow):
     NAV_ITEMS = (
         ("Home", "Página inicial e estado dos emuladores", "SP_DirHomeIcon"),
         ("Diretórios", "Gerenciar diretórios dos emuladores", "SP_DirIcon"),
+        ("Ferramentas", "LaunchBox, 7-Zip e outros executáveis auxiliares", "SP_ComputerIcon"),
         ("Configurações", "Configurações dos emuladores", "SP_FileDialogDetailedView"),
         ("Shaders / Bezels", "Aparência, shaders e bezels", "SP_ComputerIcon"),
         ("1 — Scan", "Auditoria completa contra DAT/catalogo", "SP_DriveHDIcon"),
-        (
-            "2 — Filtragem",
-            "Aplicar filtros sobre um scan já concluído",
-            "SP_FileDialogDetailedView",
-        ),
+        ("2 — Filtragem", "Aplicar filtros sobre um scan já concluído", "SP_FileDialogDetailedView"),
         ("3 — Reconstrução", "Montar o set a partir do arquivo filtrado", "SP_FileDialogInfoView"),
         ("Scraper de DATs", "Importação e processamento de DATs", "SP_FileIcon"),
     )
@@ -66,9 +52,7 @@ class MainWindow(QMainWindow):
         database_path = Path(settings.database)
         applied = apply_migrations(database_path)
         if applied:
-            logging.getLogger(__name__).info(
-                "[SERM][DB] migrations aplicadas=%s", ", ".join(applied)
-            )
+            logging.getLogger(__name__).info("[SERM][DB] migrations aplicadas=%s", ", ".join(applied))
         self.database = create_sqlite_engine(database_path)
         self.log_viewer = LogViewer()
         self._build_ui()
@@ -89,18 +73,13 @@ class MainWindow(QMainWindow):
         return max(0, intersection.width()) * max(0, intersection.height())
 
     def _find_restore_screen(self, screens, saved_screen, rect):
-        target = next(
-            (screen for screen in screens if self._get_screen_key(screen) == saved_screen), None
-        )
+        target = next((screen for screen in screens if self._get_screen_key(screen) == saved_screen), None)
         if target is None and saved_screen:
             name = saved_screen.split("|", 1)[0]
             target = next((screen for screen in screens if screen.name().strip() == name), None)
         if target is not None:
             return target
-        best = max(
-            screens,
-            key=lambda screen: self._intersection_area(rect, screen.availableGeometry()),
-        )
+        best = max(screens, key=lambda screen: self._intersection_area(rect, screen.availableGeometry()))
         if self._intersection_area(rect, best.availableGeometry()) > 0:
             return best
         return self.screen() or QApplication.primaryScreen() or screens[0]
@@ -138,10 +117,7 @@ class MainWindow(QMainWindow):
         if screen is not None:
             settings.setValue(self._SCREEN_KEY, self._get_screen_key(screen))
             geometry = screen.geometry()
-            settings.setValue(
-                self._SCREEN_GEOMETRY_KEY,
-                f"{geometry.x()},{geometry.y()},{geometry.width()},{geometry.height()}",
-            )
+            settings.setValue(self._SCREEN_GEOMETRY_KEY, f"{geometry.x()},{geometry.y()},{geometry.width()},{geometry.height()}")
         settings.sync()
 
     def _build_ui(self) -> None:
@@ -188,6 +164,7 @@ class MainWindow(QMainWindow):
         self.page_stack.setObjectName("pageStack")
         self.home_section = HomePage(self)
         self.directories_tab = DirectoriesPage(self)
+        self.tools_tab = ToolsDirectoriesPage(self)
         self.settings_tab = EmulatorSettingsPage(self)
         self.visuals_tab = EmulatorShadersBezelsPage(self)
         self.scan_tab = ScanPhasePage(self)
@@ -197,6 +174,7 @@ class MainWindow(QMainWindow):
         self.pages = (
             self.home_section,
             self.directories_tab,
+            self.tools_tab,
             self.settings_tab,
             self.visuals_tab,
             self.scan_tab,
@@ -217,9 +195,7 @@ class MainWindow(QMainWindow):
             self.page_stack.setCurrentIndex(index)
             self._refresh_page(index)
             item = self.navigation.item(index)
-            self.status_bar.showMessage(
-                (item.data(Qt.ItemDataRole.UserRole) or item.text()) if item else "Pronto"
-            )
+            self.status_bar.showMessage((item.data(Qt.ItemDataRole.UserRole) or item.text()) if item else "Pronto")
 
     def _refresh_page(self, index: int) -> None:
         page = self.pages[index]
