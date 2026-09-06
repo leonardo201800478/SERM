@@ -154,6 +154,8 @@ class StableRomScanService(RomScanService):
     @staticmethod
     def _completed_machines(path, machine_names, db_path):
         valid = set(machine_names)
+        if not valid:
+            return set()
         placeholders = ",".join("?" for _ in machine_names)
         with sqlite3.connect(db_path) as connection:
             expected = {str(name): int(count) for name, count in connection.execute(f"SELECT m.name, COUNT(r.id) FROM mame_machine m LEFT JOIN mame_rom r ON r.machine_id=m.id WHERE m.name IN ({placeholders}) GROUP BY m.name", tuple(machine_names))}
