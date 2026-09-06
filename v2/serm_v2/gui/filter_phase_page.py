@@ -2,28 +2,20 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from dataclasses import asdict
 from pathlib import Path
 from uuid import uuid4
+from datetime import datetime, timezone
 
 from PySide6.QtWidgets import (
-    QCheckBox,
-    QComboBox,
-    QGroupBox,
-    QHBoxLayout,
-    QLabel,
-    QListWidget,
-    QMessageBox,
-    QPushButton,
-    QVBoxLayout,
-    QWidget,
+    QCheckBox, QComboBox, QGroupBox, QHBoxLayout, QLabel, QMessageBox,
+    QPushButton, QVBoxLayout, QWidget,
 )
 
-from ..runtime.paths import data_root, database_path, scans_root
+from ..runtime.paths import data_root, database_path
 from ..services.mame_fundamental_filter_service import (
-    DEFAULT_FILTERS,
-    FILTER_DEFINITIONS,
-    MameFundamentalFilterService,
+    DEFAULT_FILTERS, FILTER_DEFINITIONS, MameFundamentalFilterService,
 )
 from ..services.scan_filter_service import ScanFilterService
 from ..services.scan_repository import ScanRepository
@@ -120,16 +112,13 @@ class FilteringPhasePage(QWidget):
         self._scan_changed()
 
     def _refresh_scans(self) -> None:
-        repository = ScanRepository(database_path())
         self.scan_combo.blockSignals(True)
         self.scan_combo.clear()
         try:
-            import sqlite3
             with sqlite3.connect(database_path()) as connection:
                 connection.row_factory = sqlite3.Row
                 rows = connection.execute(
-                    "SELECT * FROM scan_runs WHERE status IN ('completed','cancelled') "
-                    "ORDER BY started_at DESC"
+                    "SELECT * FROM scan_runs WHERE status='completed' ORDER BY started_at DESC"
                 ).fetchall()
         except sqlite3.Error:
             rows = []
@@ -210,15 +199,12 @@ class FilteringPhasePage(QWidget):
         if isinstance(existing, FilterProfileData):
             profile = existing
         else:
-            now = str(__import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat())
+            now = datetime.now(timezone.utc).isoformat()
             profile = FilterProfileData(
-                source=str(data.get("source", "MAME")),
-                system=str(data.get("system", "")),
-                dat_path=data.get("dat_path"),
-                profile_id=uuid4().hex,
+                source=str(data.get("source", "MAME")), system=str(data.get("system", "")),
+                dat_path=data.get("dat_path"), profile_id=uuid4().hex,
                 name=f"{data.get('source')} — {data.get('system')} — filtro",
-                created_at=now,
-                updated_at=now,
+                created_at=now, updated_at=now,
             )
         profile.mame_clone_policy = str(self.clone_policy.currentData())
         profile.mame_include_bios = self.include_bios.isChecked()
