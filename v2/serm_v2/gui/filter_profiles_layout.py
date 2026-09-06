@@ -1,8 +1,11 @@
 """Layout configurável da tela de filtros e scan."""
 from __future__ import annotations
 
+import json
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QComboBox,
     QDialog,
     QGroupBox,
     QHBoxLayout,
@@ -17,7 +20,6 @@ from PySide6.QtWidgets import (
     QTreeWidget,
     QVBoxLayout,
     QWidget,
-    QComboBox,
 )
 
 from ..services.mame_fundamental_filter_service import DEFAULT_FILTERS, MameFundamentalFilterService
@@ -88,7 +90,6 @@ class FilterProfilesPage(_BaseFilterProfilesPage):
         source_box = self._source_box()
         source_box.setMinimumHeight(85)
         self.source_list.setMaximumHeight(16777215)
-
         filter_box = QWidget()
         filter_layout = QVBoxLayout(filter_box)
         filter_layout.setContentsMargins(0, 0, 0, 0)
@@ -110,7 +111,6 @@ class FilterProfilesPage(_BaseFilterProfilesPage):
         scroll.setWidget(body)
         filter_layout.addWidget(scroll, 1)
         filter_box.setMinimumHeight(220)
-
         estimate_box = QGroupBox("Catálogo do scan — resultado bruto × filtro")
         estimate_layout = QVBoxLayout(estimate_box)
         self.catalog_estimate = QLabel("Execute o primeiro scan para criar o snapshot bruto.")
@@ -121,7 +121,6 @@ class FilterProfilesPage(_BaseFilterProfilesPage):
         self.catalog_estimate_detail.setWordWrap(True)
         estimate_layout.addWidget(self.catalog_estimate_detail)
         estimate_box.setMinimumHeight(85)
-
         scan_box = QGroupBox("1 — Scan bruto / 2 — Aplicação dos filtros")
         scan_layout = QVBoxLayout(scan_box)
         self.mame_scan_type_label = QLabel("Tipo de scan MAME:")
@@ -159,7 +158,6 @@ class FilterProfilesPage(_BaseFilterProfilesPage):
         self.log_view.setMaximumHeight(180)
         scan_layout.addWidget(self.log_view, 1)
         scan_box.setMinimumHeight(180)
-
         sections.addWidget(source_box)
         sections.addWidget(filter_box)
         sections.addWidget(estimate_box)
@@ -242,19 +240,11 @@ class FilterProfilesPage(_BaseFilterProfilesPage):
             self.catalog_estimate.setText("Não foi possível calcular o filtro sobre o scan.")
             self.catalog_estimate_detail.setText(str(exc))
             return
-        self.catalog_estimate.setText(
-            f"SCAN BRUTO: {int(preview['input_count']):,} ROMs  →  "
-            f"APÓS FILTROS: {int(preview['output_count']):,} ROMs  →  "
-            f"EXCLUÍDAS: {int(preview['filtered_count']):,}"
-        )
+        self.catalog_estimate.setText(f"SCAN BRUTO: {int(preview['input_count']):,} ROMs  →  APÓS FILTROS: {int(preview['output_count']):,} ROMs  →  EXCLUÍDAS: {int(preview['filtered_count']):,}")
         counts = preview.get("filter_counts", {})
         details = " • ".join(f"{key}={int(value):,}" for key, value in counts.items()) or "Nenhuma ROM excluída"
         status = preview.get("status_counts", {})
-        self.catalog_estimate_detail.setText(
-            f"Catálogo: {preview.get('catalog_label')} | tipo: {preview.get('scan_type')} | "
-            f"CURRENT={status.get('CURRENT', 0):,} | MISSING={status.get('MISSING', 0):,} | WRONG={status.get('WRONG', 0):,} | "
-            f"DUPLICATE={status.get('DUPLICATE', 0):,}\nFiltros: {details}"
-        )
+        self.catalog_estimate_detail.setText(f"Catálogo: {preview.get('catalog_label')} | tipo: {preview.get('scan_type')} | CURRENT={status.get('CURRENT', 0):,} | MISSING={status.get('MISSING', 0):,} | WRONG={status.get('WRONG', 0):,} | DUPLICATE={status.get('DUPLICATE', 0):,}\nFiltros: {details}")
 
     def _load_profile(self, profile) -> None:
         super()._load_profile(profile)
@@ -304,26 +294,22 @@ class FilterProfilesPage(_BaseFilterProfilesPage):
         super()._start_scan(profile)
 
     def _scan_completed(self, result):
-        # O scan bruto é o fim da etapa de auditoria. Não abrimos reconstrução
-        # aqui: primeiro o usuário aplica os filtros sobre o snapshot salvo.
         self._last_scan_result = result
         self.apply_filter_button.setEnabled(True)
         self.reconstruction_button.setEnabled(False)
-        self.scan_progress.setText(
-            f"SCAN BRUTO | concluído | scan_id={result.scan_id} | catálogo={result.catalog_label} | "
-            f"tipo={result.scan_type} | arquivos={result.files_examined} | itens={result.items_examined}"
-        )
+        self.scan_progress.setText(f"SCAN BRUTO | concluído | scan_id={result.scan_id} | catálogo={result.catalog_label} | tipo={result.scan_type} | arquivos={result.files_examined} | itens={result.items_examined}")
         self._schedule_catalog_estimate()
 
     def _apply_filters_to_scan(self) -> None:
         profile = self._save_profile()
         if profile is None:
             return
-        latest = ScanRepository(self._database_path()).latest_for_profile(profile.profile_id)
+        repository = ScanRepository(self._database_path())
+        latest = repository.latest_for_profile(profile.profile_id)
         if not latest:
             QMessageBox.information(self, "Filtros", "Nenhum scan bruto foi encontrado para este perfil.")
             return
-        raw_path = ScanRepository(self._database_path()).raw_file(str(latest["scan_id"]))
+        raw_path = repository.raw_file(str(latest["scan_id"]))
         if raw_path is None or not raw_path.is_file():
             QMessageBox.warning(self, "Filtros", "O arquivo bruto do scan não foi encontrado.")
             return
@@ -335,12 +321,10 @@ class FilterProfilesPage(_BaseFilterProfilesPage):
             return
         result = self._last_filter_result
         self.reconstruction_button.setEnabled(True)
-        self.scan_progress.setText(
-            f"FILTRO | concluído | bruto={result['input_count']:,} | "
-            f"mantidas={result['output_count']:,} | excluídas={result['filtered_count']:,}"
-        )
+        self.scan_progress.setText(f"FILTRO | concluído | bruto={result['input_count']:,} | mantidas={result['output_count']:,} | excluídas={result['filtered_count']:,}")
         self._append_log("INFO", f"FILTRO | arquivo={result['filtered_file_path']}")
-        self._append_log("INFO", "FILTRO | " + " | ".join(f"{key}={value:,}" for key, value in result["filter_counts"].items()))
+        if result["filter_counts"]:
+            self._append_log("INFO", "FILTRO | " + " | ".join(f"{key}={value:,}" for key, value in result["filter_counts"].items()))
         self._schedule_catalog_estimate()
         self.reconstruction_requested.emit({"profile": profile, "scan_result": self._last_scan_result, "filter_result": result})
 
