@@ -285,7 +285,8 @@ class StableRomScanService(RomScanService):
         return self._create_new_stream(result, profile, sources, machines)
 
     @staticmethod
-    def _completed_machines(path, machines, db_path):
+    def _completed_machines(path, machines, db_path=None):
+        """Lê apenas checkpoints explícitos; db_path permanece por compatibilidade."""
         valid = set(machines)
         if not valid:
             return set()
@@ -329,7 +330,10 @@ _base._machine_error = StableRomScanService._machine_error
 _base._scan_mame_resumable = StableRomScanService._scan_mame_resumable
 _base._create_new_stream = StableRomScanService._create_new_stream
 _base._find_resume_stream = StableRomScanService._find_resume_stream
-_base._completed_machines = StableRomScanService._completed_machines
-_base._last_completed = StableRomScanService._last_completed
+# Preservar o descritor staticmethod ao aplicar o monkey-patch na classe base.
+# Sem isso, a função recebe self implicitamente e a retomada falha com
+# "takes 3 positional arguments but 4 were given".
+_base._completed_machines = staticmethod(StableRomScanService._completed_machines)
+_base._last_completed = staticmethod(StableRomScanService._last_completed)
 
 __all__ = ["StableRomScanService"]
