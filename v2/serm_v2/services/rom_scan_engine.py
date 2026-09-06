@@ -11,7 +11,7 @@ from pathlib import Path
 
 from ..runtime.paths import database_path, scans_root
 from .mame_scan_settings_service import MameScanSettingsService
-from .rom_scan_service import RomScanService, ScanResult
+from .rom_scan_service import RomScanService, ScanResult, ScanEvidence, _MachineResult
 
 _ORIGINAL_SCAN = RomScanService.scan
 
@@ -73,6 +73,9 @@ class StableRomScanService(RomScanService):
         self._heartbeat_rom = ""
         return super()._scan_machine(machine, *args, **kwargs)
 
+    def _machine_error(self, machine, exc):
+        return _MachineResult(machine=machine, records=[ScanEvidence(machine_name=machine, rom_name="", status="ERROR", message="Falha inesperada durante a machine; será reprocessada na retomada", error=f"{type(exc).__name__}: {exc}")], errors=1)
+
     def _scan_mame_resumable(self, profile, db_path):
         with sqlite3.connect(db_path) as connection:
             connection.row_factory = sqlite3.Row
@@ -99,10 +102,14 @@ class StableRomScanService(RomScanService):
                 futures = {executor.submit(worker_scan, name, db_path, int(import_id), sources, classification_columns): name for name in pending}
                 done = len(completed)
                 for future in as_completed(futures):
+                    machine = futures[future]
                     if self._cancelled:
                         break
-                    machine = futures[future]
-                    unit = future.result()
+                    try:
+                        unit = future.result()
+                    except Exception as exc:  # noqa: BLE001
+                        unit = self._machine_error(machine, exc)
+                        self._log("ERROR", f"SCAN | machine={machine} | falha isolada: {type(exc).__name__}: {exc} | continuará")
                     self._write_machine(stream, unit)
                     stream.flush()
                     done += 1
