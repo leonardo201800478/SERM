@@ -1,13 +1,9 @@
 PRAGMA foreign_keys = ON;
 
--- O scan bruto é uma auditoria imutável do catálogo selecionado.
--- Filtros nunca alteram scan_runs/scan_items.
-
-ALTER TABLE scan_runs ADD COLUMN catalog_label TEXT;
-ALTER TABLE scan_runs ADD COLUMN scan_type TEXT NOT NULL DEFAULT 'full';
-ALTER TABLE scan_runs ADD COLUMN scan_file_path TEXT;
-
-CREATE INDEX IF NOT EXISTS ix_scan_runs_catalog ON scan_runs(source, system, catalog_label, scan_type, started_at DESC);
+-- A tabela de filtros referencia o scan bruto, mas nunca o modifica.
+-- scan_runs recebe catalog_label/scan_type/scan_file_path por migração
+-- compatível executada pelo ScanRepository, pois SQLite não possui
+-- ALTER TABLE ... ADD COLUMN IF NOT EXISTS.
 
 CREATE TABLE IF NOT EXISTS filter_runs (
     filter_run_id TEXT PRIMARY KEY,
