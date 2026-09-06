@@ -14,9 +14,10 @@ from .dat_scraper import DatScraperPage
 from .emulator_directories_page import DirectoriesPage
 from .emulator_settings_page import EmulatorSettingsPage
 from .emulator_shaders_bezels_page import EmulatorShadersBezelsPage
+from .filter_phase_page import FilteringPhasePage
 from .home import HomePage
 from .log_handler import LogViewer
-from .process_pipeline_page import FilteringPhasePage, ReconstructionPhasePage
+from .process_pipeline_page import ReconstructionPhasePage
 from .scan_phase_page import ScanPhasePage
 
 
@@ -193,7 +194,7 @@ class MainWindow(QMainWindow):
         elif page is self.scan_tab:
             self.scan_tab.refresh()
         elif page is self.filter_tab:
-            self.filter_tab.mame.refresh()
+            self.filter_tab.refresh()
         elif page is self.reconstruction_tab:
             self.reconstruction_tab.refresh()
         elif page is self.dat_scraper_tab:
