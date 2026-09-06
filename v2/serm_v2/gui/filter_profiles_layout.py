@@ -3,10 +3,6 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QCheckBox,
-    QComboBox,
-    QFileDialog,
-    QFormLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -18,7 +14,6 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSplitter,
     QTreeWidget,
-    QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -88,6 +83,7 @@ class FilterProfilesPage(_BaseFilterProfilesPage):
 
         source_box = self._source_box()
         source_box.setMinimumHeight(85)
+        self.source_list.setMaximumHeight(16777215)
 
         filter_box = QWidget()
         filter_layout = QVBoxLayout(filter_box)
