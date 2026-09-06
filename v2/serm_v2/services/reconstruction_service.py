@@ -49,6 +49,7 @@ class ReconstructionError(RuntimeError):
 class ReconstructionService:
     FILTER_FORMAT = "SERM-FILTER-V1"
     MAME_SET_TYPES = frozenset({"split", "non_merged", "full_merged"})
+    MAME_TARGET_PREFIX = "__MAME_TARGET__:"
 
     @classmethod
     def load_filter(cls, path: str | Path) -> dict:
@@ -70,17 +71,14 @@ class ReconstructionService:
         payload = cls.load_filter(filter_path)
         dest = Path(destination).expanduser().resolve()
         set_type = cls._mame_set_type(payload)
-        evidence = payload["evidence"]
-
         if str(payload.get("source", "")).casefold() == "mame":
-            grouped, loose = cls._group_mame_evidence(evidence, set_type)
+            grouped, loose = cls._group_mame_evidence(payload["evidence"], set_type)
         else:
-            grouped, loose = cls._group_evidence(evidence)
+            grouped, loose = cls._group_evidence(payload["evidence"])
 
         items, archive_count, seen_outputs = cls._plan_archive_items(grouped, dest)
         loose_items, loose_count, chd_count = cls._plan_loose_items(loose, dest, seen_outputs)
         items.extend(loose_items)
-
         return ReconstructionPlan(
             filter_run_id=str(payload.get("filter_run_id") or ""),
             scan_id=str(payload.get("scan_id") or ""),
@@ -130,17 +128,10 @@ class ReconstructionService:
     def _group_mame_evidence(
         cls, evidence: list, set_type: str
     ) -> tuple[OrderedDict[str, list[dict]], list[dict]]:
-        """Agrupa evidências MAME de acordo com Split/Non-Merged/Full-Merged.
-
-        Split mantém cada máquina em seu próprio arquivo. Non-Merged torna cada
-        clone autossuficiente, incorporando os membros do parent. Full-Merged
-        concentra parent e clones no ZIP do parent. BIOS/devices seguem seu
-        próprio set quando aparecem no snapshot.
-        """
-        archives: OrderedDict[str, list[dict]] = OrderedDict()
-        loose: list[dict] = []
+        """Agrupa evidências MAME para Split, Non-Merged e Full-Merged."""
         machine_entries: dict[str, list[dict]] = {}
         machine_parent: dict[str, str] = {}
+        loose: list[dict] = []
 
         for entry in evidence:
             if not isinstance(entry, dict):
@@ -165,68 +156,69 @@ class ReconstructionService:
                 current = machine_parent[current]
             return current
 
+        def chain_to_parent(machine: str) -> list[str]:
+            chain: list[str] = []
+            current = machine
+            while current and current not in chain:
+                chain.append(current)
+                current = machine_parent.get(current, "")
+            return list(reversed(chain))
+
+        grouped: OrderedDict[str, list[dict]] = OrderedDict()
         for machine, entries in machine_entries.items():
+            if not machine:
+                # Não inventa um nome de set quando o snapshot não possui machine_name.
+                for entry in entries:
+                    grouped.setdefault(str(entry.get("archive_path")), []).append(entry)
+                continue
+
             if set_type == "split":
-                target_machine = machine
-            elif set_type == "full_merged":
-                target_machine = root_parent(machine)
-            else:  # non_merged
-                target_machine = machine
+                target = machine
+                grouped.setdefault(cls.MAME_TARGET_PREFIX + target, []).extend(entries)
+                continue
 
-            for entry in entries:
-                source = str(entry.get("archive_path") or "").strip()
-                if set_type == "non_merged":
-                    # Cada clone recebe também os membros de seus parents.
-                    chain: list[str] = []
-                    current = machine
-                    while current:
-                        chain.append(current)
-                        parent = machine_parent.get(current)
-                        if not parent or parent in chain:
-                            break
-                        current = parent
-                    for chain_machine in reversed(chain):
-                        for parent_entry in machine_entries.get(chain_machine, []):
-                            parent_source = str(parent_entry.get("archive_path") or "").strip()
-                            parent_member = str(parent_entry.get("archive_member") or "").strip()
-                            if parent_source and parent_member:
-                                archives.setdefault(str(dest_key(machine)), []).append(parent_entry)
-                    continue
-                archives.setdefault(str(dest_key(target_machine)), []).append(entry)
+            if set_type == "full_merged":
+                target = root_parent(machine)
+                grouped.setdefault(cls.MAME_TARGET_PREFIX + target, []).extend(entries)
+                continue
 
-        return archives, loose
+            # Non-Merged: cada máquina recebe os próprios membros e todos os
+            # membros necessários dos parents acima dela.
+            target = machine
+            output_entries = grouped.setdefault(cls.MAME_TARGET_PREFIX + target, [])
+            for chain_machine in chain_to_parent(machine):
+                output_entries.extend(machine_entries.get(chain_machine, []))
 
-    @staticmethod
-    def _group_output_key(machine: str) -> str:
-        return machine or "unknown"
+        return grouped, loose
 
-    @staticmethod
+    @classmethod
     def _plan_archive_items(
-        grouped: OrderedDict[str, list[dict]], dest: Path
+        cls, grouped: OrderedDict[str, list[dict]], dest: Path
     ) -> tuple[list[ReconstructionItem], int, set[str]]:
         items: list[ReconstructionItem] = []
-        seen_archive_outputs: set[str] = set()
+        seen_outputs: set[str] = set()
         archive_count = 0
         for source, entries in grouped.items():
-            source_path = Path(source)
-            if source.startswith("__MAME_TARGET__:"):
-                output_name = source.split(":", 1)[1]
-                output = dest / f"{output_name}.zip"
+            if source.startswith(cls.MAME_TARGET_PREFIX):
+                output = dest / f"{source.removeprefix(cls.MAME_TARGET_PREFIX)}.zip"
             else:
-                output = dest / source_path.name
+                output = dest / Path(source).name
             output_key = str(output).casefold()
-            if output_key in seen_archive_outputs:
-                continue
-            seen_archive_outputs.add(output_key)
-            archive_count += 1
-            seen_members: set[str] = set()
+            if output_key not in seen_outputs:
+                seen_outputs.add(output_key)
+                archive_count += 1
+            seen_members: set[tuple[str, str]] = set()
             for entry in entries:
-                member = str(entry.get("archive_member") or "").replace("\\", "/")
-                if not member or member in seen_members:
+                archive_source = str(entry.get("archive_path") or source).strip()
+                member = str(entry.get("archive_member") or "").replace("\\", "/").strip()
+                if not archive_source or not member:
                     continue
-                seen_members.add(member)
-                items.append(ReconstructionItem(str(entry.get("archive_path") or source), member, str(output), "archive"))
-        return items, archive_count, seen_archive_outputs
+                identity = (archive_source.casefold(), member.casefold())
+                if identity in seen_members:
+                    continue
+                seen_members.add(identity)
+                items.append(ReconstructionItem(archive_source, member, str(output), "archive"))
+        return items, archive_count, seen_outputs
 
     @staticmethod
     def _plan_loose_items(
@@ -273,35 +265,38 @@ class ReconstructionService:
         cls._execute_loose_items(loose_items, created, errors, done, total, progress_callback, cancel_callback)
         if errors:
             raise ReconstructionError("Reconstrução concluída com erros:\n" + "\n".join(errors[:20]))
-        return {"destination": str(destination), "filter_run_id": plan.filter_run_id, "scan_id": plan.scan_id, "created_count": len(created), "created": created, "set_type": plan.set_type}
+        return {
+            "destination": str(destination),
+            "filter_run_id": plan.filter_run_id,
+            "scan_id": plan.scan_id,
+            "created_count": len(created),
+            "created": created,
+            "set_type": plan.set_type,
+        }
 
     @staticmethod
-    def _group_execution_items(items: tuple[ReconstructionItem, ...]) -> tuple[OrderedDict[tuple[str, str], list[str]], list[ReconstructionItem]]:
-        archives: OrderedDict[tuple[str, str], list[str]] = OrderedDict()
+    def _group_execution_items(
+        items: tuple[ReconstructionItem, ...],
+    ) -> tuple[OrderedDict[str, list[tuple[str, list[str]]]], list[ReconstructionItem]]:
+        archives: OrderedDict[str, list[tuple[str, list[str]]]] = OrderedDict()
         loose: list[ReconstructionItem] = []
+        by_key: dict[tuple[str, str], list[str]] = {}
         for item in items:
             if item.kind == "archive":
-                archives.setdefault((item.source_path, item.output_path), []).append(item.archive_member or "")
+                key = (item.output_path, item.source_path)
+                by_key.setdefault(key, []).append(item.archive_member or "")
             else:
                 loose.append(item)
-        # Reagrupar arquivos de múltiplas origens que apontam para o mesmo
-        # output. Isso é necessário em Non-Merged/Full-Merged.
-        by_output: OrderedDict[str, list[tuple[str, list[str]]]] = OrderedDict()
-        for (source, output), members in archives.items():
-            by_output.setdefault(output, []).append((source, members))
-        normalized: OrderedDict[tuple[str, str], list[str]] = OrderedDict()
-        for output, groups in by_output.items():
-            for source, members in groups:
-                normalized[(source, output)] = members
-        return normalized, loose
+        for (output, source), members in by_key.items():
+            archives.setdefault(output, []).append((source, members))
+        return archives, loose
 
     @classmethod
-    def _execute_archives(cls, groups, created, errors, total, progress_callback, cancel_callback) -> int:
+    def _execute_archives(
+        cls, groups, created, errors, total, progress_callback, cancel_callback
+    ) -> int:
         done = 0
-        by_output: OrderedDict[str, list[tuple[str, list[str]]]] = OrderedDict()
-        for (source_text, output_text), members in groups.items():
-            by_output.setdefault(output_text, []).append((source_text, members))
-        for output_text, source_groups in by_output.items():
+        for output_text, source_groups in groups.items():
             cls._raise_if_cancelled(cancel_callback)
             try:
                 cls._rebuild_archive_from_sources(source_groups, Path(output_text))
@@ -313,19 +308,24 @@ class ReconstructionService:
         return done
 
     @classmethod
-    def _rebuild_archive_from_sources(cls, source_groups, output: Path) -> None:
+    def _rebuild_archive_from_sources(
+        cls, source_groups: list[tuple[str, list[str]]], output: Path
+    ) -> None:
         output.parent.mkdir(parents=True, exist_ok=True)
         unique: OrderedDict[str, tuple[Path, str]] = OrderedDict()
         for source_text, members in source_groups:
             source = Path(source_text)
             if not source.is_file():
                 raise FileNotFoundError(source)
+            if source.suffix.casefold() != ".zip":
+                raise ReconstructionError(f"Fonte não ZIP para reconstrução de arquivo: {source}")
             with zipfile.ZipFile(source, "r") as zin:
                 names = set(zin.namelist())
                 for member in dict.fromkeys(members):
                     if member not in names:
                         raise ReconstructionError(f"Membro ausente em {source.name}: {member}")
                     unique.setdefault(member, (source, member))
+
         fd, temp_name = tempfile.mkstemp(prefix="serm-rebuild-", suffix=".zip", dir=output.parent)
         os.close(fd)
         temp = Path(temp_name)
@@ -341,7 +341,9 @@ class ReconstructionService:
             temp.unlink(missing_ok=True)
 
     @classmethod
-    def _execute_loose_items(cls, items, created, errors, done, total, progress_callback, cancel_callback) -> None:
+    def _execute_loose_items(
+        cls, items, created, errors, done, total, progress_callback, cancel_callback
+    ) -> None:
         for item in items:
             cls._raise_if_cancelled(cancel_callback)
             try:
@@ -363,32 +365,16 @@ class ReconstructionService:
             raise ReconstructionError("Reconstrução cancelada pelo usuário.")
 
     @staticmethod
-    def _report_progress(progress_callback: Callable[[int, int], None] | None, done: int, total: int) -> None:
+    def _report_progress(
+        progress_callback: Callable[[int, int], None] | None, done: int, total: int
+    ) -> None:
         if progress_callback:
             progress_callback(done, total)
 
-    @staticmethod
-    def _rebuild_archive(source: Path, output: Path, members: list[str]) -> None:
-        if not source.is_file():
-            raise FileNotFoundError(source)
-        output.parent.mkdir(parents=True, exist_ok=True)
-        unique_members = list(dict.fromkeys(members))
-        if source.suffix.casefold() != ".zip":
-            shutil.copy2(source, output)
-            return
-        fd, temp_name = tempfile.mkstemp(prefix="serm-rebuild-", suffix=".zip", dir=output.parent)
-        os.close(fd)
-        temp = Path(temp_name)
-        try:
-            with zipfile.ZipFile(source, "r") as zin, zipfile.ZipFile(temp, "w", compression=zipfile.ZIP_STORED) as zout:
-                names = set(zin.namelist())
-                missing = [member for member in unique_members if member not in names]
-                if missing:
-                    raise ReconstructionError(f"Membro ausente em {source.name}: {missing[0]}")
-                for member in unique_members:
-                    info = zin.getinfo(member)
-                    with zin.open(info, "r") as source_member, zout.open(info, "w") as target_member:
-                        shutil.copyfileobj(source_member, target_member, length=1024 * 1024)
-            temp.replace(output)
-        finally:
-            temp.unlink(missing_ok=True)
+
+__all__ = [
+    "ReconstructionError",
+    "ReconstructionItem",
+    "ReconstructionPlan",
+    "ReconstructionService",
+]
