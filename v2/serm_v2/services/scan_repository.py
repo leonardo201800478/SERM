@@ -53,20 +53,14 @@ class ScanRepository:
                 expected_sha1 TEXT, actual_sha1 TEXT, expected_md5 TEXT, actual_md5 TEXT,
                 path TEXT, archive_path TEXT, archive_member TEXT, merge_name TEXT, optional INTEGER NOT NULL DEFAULT 0,
                 message TEXT, error TEXT)""")
-            connection.execute(
-                "CREATE INDEX IF NOT EXISTS ix_scan_items_scan_status ON scan_items(scan_id,status)"
-            )
+            connection.execute("CREATE INDEX IF NOT EXISTS ix_scan_items_scan_status ON scan_items(scan_id,status)")
             connection.execute("""CREATE TABLE IF NOT EXISTS filter_runs (
                 filter_run_id TEXT PRIMARY KEY, scan_id TEXT NOT NULL REFERENCES scan_runs(scan_id) ON DELETE CASCADE,
                 profile_id TEXT NOT NULL, created_at REAL NOT NULL, filtered_file_path TEXT NOT NULL,
                 input_count INTEGER NOT NULL DEFAULT 0, output_count INTEGER NOT NULL DEFAULT 0,
                 status_counts_json TEXT NOT NULL DEFAULT '{}', filters_json TEXT NOT NULL DEFAULT '{}')""")
-            connection.execute(
-                "CREATE INDEX IF NOT EXISTS ix_filter_runs_scan ON filter_runs(scan_id,created_at DESC)"
-            )
-            connection.execute(
-                "CREATE INDEX IF NOT EXISTS ix_filter_runs_profile ON filter_runs(profile_id,created_at DESC)"
-            )
+            connection.execute("CREATE INDEX IF NOT EXISTS ix_filter_runs_scan ON filter_runs(scan_id,created_at DESC)")
+            connection.execute("CREATE INDEX IF NOT EXISTS ix_filter_runs_profile ON filter_runs(profile_id,created_at DESC)")
 
     @staticmethod
     def _iter_stream_evidence(stream_path: Path):
@@ -79,14 +73,7 @@ class ScanRepository:
                 if record.get("record_type") == "evidence":
                     yield record
 
-    def save(
-        self,
-        result: ScanResult,
-        *,
-        status: str = "completed",
-        dat_path: str | None = None,
-        profile_schema_version: int = 1,
-    ) -> None:
+    def save(self, result: ScanResult, *, status: str = "completed", dat_path: str | None = None, profile_schema_version: int = 1) -> None:
         scan_file = ScanFileRepository.save(result)
         with self._connect() as connection:
             connection.execute(
@@ -95,111 +82,89 @@ class ScanRepository:
                 catalog_label, scan_type, scan_file_path, status, started_at, finished_at,
                 files_examined, archives_examined, items_examined, errors, status_counts_json
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    result.scan_id,
-                    result.profile_id,
-                    profile_schema_version,
-                    result.source,
-                    result.system,
-                    dat_path,
-                    result.catalog_hash,
-                    result.catalog_label,
-                    result.scan_type,
-                    str(scan_file),
-                    status,
-                    result.started_at,
-                    result.finished_at or None,
-                    result.files_examined,
-                    result.archives_examined,
-                    result.items_examined,
-                    result.errors,
-                    json.dumps(dict(result.status_counts), ensure_ascii=False),
-                ),
+                (result.scan_id, result.profile_id, profile_schema_version, result.source, result.system,
+                 dat_path, result.catalog_hash, result.catalog_label, result.scan_type, str(scan_file), status,
+                 result.started_at, result.finished_at or None, result.files_examined, result.archives_examined,
+                 result.items_examined, result.errors, json.dumps(dict(result.status_counts), ensure_ascii=False)),
             )
             connection.execute("DELETE FROM scan_items WHERE scan_id=?", (result.scan_id,))
             stream_path = Path(result.evidence_stream_path) if result.evidence_stream_path else None
             if stream_path and stream_path.is_file():
                 batch: list[tuple] = []
                 for e in self._iter_stream_evidence(stream_path):
-                    batch.append(
-                        (
-                            result.scan_id,
-                            e.get("machine_name"),
-                            e.get("rom_name"),
-                            "ROM",
-                            e.get("status", "ERROR"),
-                            e.get("expected_size"),
-                            e.get("actual_size"),
-                            e.get("expected_crc", ""),
-                            e.get("actual_crc", ""),
-                            e.get("expected_sha1", ""),
-                            e.get("actual_sha1", ""),
-                            e.get("expected_md5", ""),
-                            e.get("actual_md5", ""),
-                            e.get("path"),
-                            e.get("archive_path"),
-                            e.get("archive_member"),
-                            e.get("merge_name"),
-                            int(bool(e.get("optional"))),
-                            e.get("message", ""),
-                            e.get("error"),
-                        )
-                    )
+                    batch.append((result.scan_id, e.get("machine_name"), e.get("rom_name"), "ROM", e.get("status", "ERROR"),
+                                  e.get("expected_size"), e.get("actual_size"), e.get("expected_crc", ""), e.get("actual_crc", ""),
+                                  e.get("expected_sha1", ""), e.get("actual_sha1", ""), e.get("expected_md5", ""), e.get("actual_md5", ""),
+                                  e.get("path"), e.get("archive_path"), e.get("archive_member"), e.get("merge_name"),
+                                  int(bool(e.get("optional"))), e.get("message", ""), e.get("error")))
                     if len(batch) >= 1000:
-                        connection.executemany(
-                            """INSERT INTO scan_items (
+                        connection.executemany("""INSERT INTO scan_items (
                             scan_id,machine_name,rom_name,item_type,status,expected_size,actual_size,expected_crc,actual_crc,
                             expected_sha1,actual_sha1,expected_md5,actual_md5,path,archive_path,archive_member,merge_name,optional,message,error
-                        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                            batch,
-                        )
+                        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", batch)
                         batch.clear()
                 if batch:
-                    connection.executemany(
-                        """INSERT INTO scan_items (
+                    connection.executemany("""INSERT INTO scan_items (
                         scan_id,machine_name,rom_name,item_type,status,expected_size,actual_size,expected_crc,actual_crc,
                         expected_sha1,actual_sha1,expected_md5,actual_md5,path,archive_path,archive_member,merge_name,optional,message,error
-                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                        batch,
-                    )
+                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", batch)
 
     def save_filter_result(self, result: dict) -> None:
         with self._connect() as connection:
-            connection.execute(
-                """INSERT OR REPLACE INTO filter_runs (
+            connection.execute("""INSERT OR REPLACE INTO filter_runs (
                 filter_run_id, scan_id, profile_id, created_at, filtered_file_path,
                 input_count, output_count, status_counts_json, filters_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    result["filter_run_id"],
-                    result["scan_id"],
-                    result["profile_id"],
-                    result["created_at"],
-                    result["filtered_file_path"],
-                    result["input_count"],
-                    result["output_count"],
-                    json.dumps(result.get("filter_counts", {}), ensure_ascii=False),
-                    json.dumps(result.get("filters", {}), ensure_ascii=False),
-                ),
-            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""", (
+                result["filter_run_id"], result["scan_id"], result["profile_id"], result["created_at"],
+                result["filtered_file_path"], result["input_count"], result["output_count"],
+                json.dumps(result.get("filter_counts", {}), ensure_ascii=False),
+                json.dumps(result.get("filters", {}), ensure_ascii=False),
+            ))
 
     def latest_for_profile(self, profile_id: str) -> dict | None:
         with self._connect() as connection:
-            row = connection.execute(
-                "SELECT * FROM scan_runs WHERE profile_id=? ORDER BY started_at DESC LIMIT 1",
-                (profile_id,),
-            ).fetchone()
+            row = connection.execute("SELECT * FROM scan_runs WHERE profile_id=? ORDER BY started_at DESC LIMIT 1", (profile_id,)).fetchone()
         if row is None:
             return None
         data = dict(row)
         data["status_counts"] = json.loads(data.pop("status_counts_json") or "{}")
         return data
 
+    def list_for_source(self, source: str, *, status: str | None = "completed") -> list[dict]:
+        query = "SELECT * FROM scan_runs WHERE lower(source)=lower(?)"
+        params: list[object] = [source]
+        if status is not None:
+            query += " AND status=?"
+            params.append(status)
+        query += " ORDER BY started_at DESC"
+        with self._connect() as connection:
+            rows = connection.execute(query, params).fetchall()
+        return [dict(row) for row in rows]
+
+    def delete(self, scan_id: str) -> bool:
+        """Remove o registro, evidências e snapshot bruto de um scan."""
+        record = self.get(scan_id)
+        if record is None:
+            return False
+        paths: list[Path] = []
+        raw_path = record.get("scan_file_path")
+        if raw_path:
+            paths.append(Path(str(raw_path)))
+        fallback = ScanFileRepository.latest_path(scan_id)
+        if fallback and fallback not in paths:
+            paths.append(fallback)
+        with self._connect() as connection:
+            connection.execute("DELETE FROM scan_runs WHERE scan_id=?", (scan_id,))
+        for path in paths:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        return True
+
     def get(self, scan_id: str) -> dict | None:
         with self._connect() as connection:
-            row = connection.execute(
-                "SELECT * FROM scan_runs WHERE scan_id=?", (scan_id,)
-            ).fetchone()
+            row = connection.execute("SELECT * FROM scan_runs WHERE scan_id=?", (scan_id,)).fetchone()
         return dict(row) if row else None
 
     def evidence(self, scan_id: str, *, status: str | None = None) -> list[dict]:
