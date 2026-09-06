@@ -3,14 +3,22 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QFileDialog,
+    QFormLayout,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMessageBox,
     QPushButton,
     QScrollArea,
     QSplitter,
+    QTreeWidget,
+    QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -19,17 +27,19 @@ from .filter_profiles_page import FilterProfilesPage as _BaseFilterProfilesPage
 
 
 class FilterProfilesPage(_BaseFilterProfilesPage):
-    """Versão da tela com todas as seções verticalmente redimensionáveis."""
+    """Tela de filtros/scan com todas as seções verticalmente redimensionáveis."""
 
     def _catalog_panel(self) -> QWidget:
-        box = super()._catalog_panel()
-        # Substitui o layout interno rígido por um splitter entre catálogos e perfis.
-        layout = box.layout()
-        while layout.count():
-            item = layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.setParent(None)
+        box = QGroupBox("Catálogos")
+        layout = QVBoxLayout(box)
+
+        self.source_tree = QTreeWidget()
+        self.source_tree.setHeaderLabels(["Fonte / sistema"])
+        self.source_tree.setMinimumWidth(270)
+        self.source_tree.itemSelectionChanged.connect(self._selection_changed)
+
+        self.profile_list = QListWidget()
+        self.profile_list.currentItemChanged.connect(self._saved_profile_selected)
 
         splitter = QSplitter(Qt.Orientation.Vertical)
         splitter.setChildrenCollapsible(False)
@@ -50,7 +60,6 @@ class FilterProfilesPage(_BaseFilterProfilesPage):
         new_profile.clicked.connect(self._new_profile)
         self.profile_delete_button.clicked.connect(self._delete_selected_profile)
         self.profile_list.currentItemChanged.connect(self._update_delete_button)
-        self._update_delete_button()
         actions.addWidget(new_profile)
         actions.addWidget(self.profile_delete_button)
         profiles_layout.addLayout(actions)
@@ -85,7 +94,6 @@ class FilterProfilesPage(_BaseFilterProfilesPage):
         filter_layout.setContentsMargins(0, 0, 0, 0)
         name_layout = QHBoxLayout()
         name_layout.addWidget(QLabel("Nome do perfil:"))
-        from PySide6.QtWidgets import QLineEdit
         self.profile_name = QLineEdit()
         self.profile_name.setPlaceholderText("Ex.: MAME Arcade 1G1R")
         self.profile_name.editingFinished.connect(self._profile_name_changed)
@@ -104,44 +112,22 @@ class FilterProfilesPage(_BaseFilterProfilesPage):
         filter_layout.addWidget(scroll, 1)
         filter_box.setMinimumHeight(220)
 
-        estimate_box = self._estimate_box()
-        estimate_box.setMinimumHeight(70)
-
-        scan_box = self._scan_box()
-        scan_box.setMinimumHeight(150)
-
-        sections.addWidget(source_box)
-        sections.addWidget(filter_box)
-        sections.addWidget(estimate_box)
-        sections.addWidget(scan_box)
-        sections.setStretchFactor(0, 1)
-        sections.setStretchFactor(1, 5)
-        sections.setStretchFactor(2, 1)
-        sections.setStretchFactor(3, 2)
-        sections.setSizes([130, 430, 95, 220])
-        outer.addWidget(sections, 1)
-        return page
-
-    def _estimate_box(self):
-        from PySide6.QtWidgets import QGroupBox
-        box = QGroupBox("Estimativa do catálogo — filtros em tempo real")
-        layout = QVBoxLayout(box)
+        estimate_box = QGroupBox("Estimativa do catálogo — filtros em tempo real")
+        estimate_layout = QVBoxLayout(estimate_box)
         self.catalog_estimate = QLabel("Selecione um catálogo para calcular.")
         self.catalog_estimate.setWordWrap(True)
         self.catalog_estimate.setProperty("role", "subtitle")
-        layout.addWidget(self.catalog_estimate)
+        estimate_layout.addWidget(self.catalog_estimate)
         self.catalog_estimate_detail = QLabel("Nenhuma consulta executada.")
         self.catalog_estimate_detail.setWordWrap(True)
-        layout.addWidget(self.catalog_estimate_detail)
-        return box
+        estimate_layout.addWidget(self.catalog_estimate_detail)
+        estimate_box.setMinimumHeight(70)
 
-    def _scan_box(self):
-        from PySide6.QtWidgets import QGroupBox
-        box = QGroupBox("Execução do Scan")
-        layout = QVBoxLayout(box)
+        scan_box = QGroupBox("Execução do Scan")
+        scan_layout = QVBoxLayout(scan_box)
         self.scan_progress = QLabel("Nenhum scan executado.")
         self.scan_progress.setWordWrap(True)
-        layout.addWidget(self.scan_progress)
+        scan_layout.addWidget(self.scan_progress)
         buttons = QHBoxLayout()
         self.save_button = QPushButton("SALVAR PERFIL")
         self.save_button.clicked.connect(self._save_profile)
@@ -156,18 +142,31 @@ class FilterProfilesPage(_BaseFilterProfilesPage):
         for button in (self.save_button, self.scan_button, self.cancel_button, self.reconstruction_button):
             buttons.addWidget(button)
         buttons.addStretch()
-        layout.addLayout(buttons)
+        scan_layout.addLayout(buttons)
         self.log_view = QListWidget()
         self.log_view.setMinimumHeight(80)
         self.log_view.setMaximumHeight(180)
-        layout.addWidget(self.log_view, 1)
-        return box
+        scan_layout.addWidget(self.log_view, 1)
+        scan_box.setMinimumHeight(150)
+
+        sections.addWidget(source_box)
+        sections.addWidget(filter_box)
+        sections.addWidget(estimate_box)
+        sections.addWidget(scan_box)
+        sections.setStretchFactor(0, 1)
+        sections.setStretchFactor(1, 5)
+        sections.setStretchFactor(2, 1)
+        sections.setStretchFactor(3, 2)
+        sections.setSizes([130, 430, 95, 220])
+        outer.addWidget(sections, 1)
+        return page
 
     def _refresh_profile_list(self, *_args):
         selected_id = None
         current = self.profile_list.currentItem() if hasattr(self, "profile_list") else None
         if current is not None:
             selected_id = current.data(Qt.ItemDataRole.UserRole)
+
         profiles = self._read_profiles()
         self.profile_list.blockSignals(True)
         self.profile_list.clear()
@@ -192,10 +191,9 @@ class FilterProfilesPage(_BaseFilterProfilesPage):
 
     def _delete_selected_profile(self) -> None:
         selected = self.profile_list.selectedItems()
-        if not selected:
-            current = self.profile_list.currentItem()
-            if current is not None:
-                selected = [current]
+        current = self.profile_list.currentItem()
+        if not selected and current is not None:
+            selected = [current]
         if not selected:
             QMessageBox.information(self, "Perfis", "Selecione um perfil para excluir.")
             return
