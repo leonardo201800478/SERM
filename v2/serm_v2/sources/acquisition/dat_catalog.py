@@ -157,7 +157,13 @@ class PublicDatCatalogProvider:
             or recorded.get("url") != entry.url
         ):
             return DatStatus(entry, path, "outdated")
-        return DatStatus(entry, path, "current", recorded.get("sha256"))
+        local_sha256 = recorded.get("sha256")
+        return DatStatus(
+            entry,
+            path,
+            "current",
+            local_sha256 if isinstance(local_sha256, str) else None,
+        )
 
     def download(self, entry: DatCatalogEntry) -> DatStatus:
         """Download a DAT or ZIP, extract a DAT when necessary, and record provenance."""

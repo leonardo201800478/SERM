@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from pathlib import Path
+from typing import cast
 
 from serm_v2.integrations.launchbox import LaunchBoxIntegration
 from serm_v2.integrations.launchbox_audit import LaunchBoxAudit
@@ -41,7 +42,8 @@ def test_build_report_is_serializable(tmp_path: Path) -> None:
 
     assert report["platform_count"] == 1
     assert report["emulated_platform_count"] == 1
-    assert report["game_sample"][0]["name"] == "Game A"
+    game_sample = cast(list[dict[str, object]], report["game_sample"])
+    assert game_sample[0]["name"] == "Game A"
     json.dumps(report)
 
 
