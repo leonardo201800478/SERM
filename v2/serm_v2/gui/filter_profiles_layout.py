@@ -17,21 +17,24 @@ from PySide6.QtWidgets import (
     QTreeWidget,
     QVBoxLayout,
     QWidget,
+    QComboBox,
 )
 
-from ..services.mame_fundamental_filter_service import (
-    DEFAULT_FILTERS,
-    MameFundamentalFilterService,
-)
+from ..services.mame_fundamental_filter_service import DEFAULT_FILTERS, MameFundamentalFilterService
+from ..services.mame_scan_settings_service import MameScanSettingsService, SCAN_TYPES
+from ..services.scan_file_repository import ScanFileRepository
+from ..services.scan_filter_service import ScanFilterService
+from ..services.scan_repository import ScanRepository
 from .filter_profiles_page import FilterProfilesPage as _BaseFilterProfilesPage
 from .mame_fundamental_filters_dialog import MameFundamentalFiltersDialog
 
 
 class FilterProfilesPage(_BaseFilterProfilesPage):
-    """Tela de filtros/scan com todas as seções verticalmente redimensionáveis."""
+    """Tela de filtros/scan com pipeline explícito: SCAN bruto → FILTRO → reconstrução."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         self._fundamental_filters = dict(DEFAULT_FILTERS)
+        self._last_filter_result: dict | None = None
         super().__init__(parent)
 
     def _catalog_panel(self) -> QWidget:
@@ -85,6 +88,7 @@ class FilterProfilesPage(_BaseFilterProfilesPage):
         source_box = self._source_box()
         source_box.setMinimumHeight(85)
         self.source_list.setMaximumHeight(16777215)
+
         filter_box = QWidget()
         filter_layout = QVBoxLayout(filter_box)
         filter_layout.setContentsMargins(0, 0, 0, 0)
@@ -106,18 +110,29 @@ class FilterProfilesPage(_BaseFilterProfilesPage):
         scroll.setWidget(body)
         filter_layout.addWidget(scroll, 1)
         filter_box.setMinimumHeight(220)
-        estimate_box = QGroupBox("Estimativa do catálogo — filtros em tempo real")
+
+        estimate_box = QGroupBox("Catálogo do scan — resultado bruto × filtro")
         estimate_layout = QVBoxLayout(estimate_box)
-        self.catalog_estimate = QLabel("Selecione um catálogo para calcular.")
+        self.catalog_estimate = QLabel("Execute o primeiro scan para criar o snapshot bruto.")
         self.catalog_estimate.setWordWrap(True)
         self.catalog_estimate.setProperty("role", "subtitle")
         estimate_layout.addWidget(self.catalog_estimate)
-        self.catalog_estimate_detail = QLabel("Nenhuma consulta executada.")
+        self.catalog_estimate_detail = QLabel("Os filtros nunca participam do scan.")
         self.catalog_estimate_detail.setWordWrap(True)
         estimate_layout.addWidget(self.catalog_estimate_detail)
-        estimate_box.setMinimumHeight(70)
-        scan_box = QGroupBox("Execução do Scan")
+        estimate_box.setMinimumHeight(85)
+
+        scan_box = QGroupBox("1 — Scan bruto / 2 — Aplicação dos filtros")
         scan_layout = QVBoxLayout(scan_box)
+        self.mame_scan_type_label = QLabel("Tipo de scan MAME:")
+        self.mame_scan_type = QComboBox()
+        for key, label in SCAN_TYPES.items():
+            self.mame_scan_type.addItem(label, key)
+        self.mame_scan_type.currentIndexChanged.connect(self._scan_type_changed)
+        scan_type_row = QHBoxLayout()
+        scan_type_row.addWidget(self.mame_scan_type_label)
+        scan_type_row.addWidget(self.mame_scan_type, 1)
+        scan_layout.addLayout(scan_type_row)
         self.scan_progress = QLabel("Nenhum scan executado.")
         self.scan_progress.setWordWrap(True)
         scan_layout.addWidget(self.scan_progress)
@@ -129,10 +144,13 @@ class FilterProfilesPage(_BaseFilterProfilesPage):
         self.cancel_button = QPushButton("CANCELAR")
         self.cancel_button.setEnabled(False)
         self.cancel_button.clicked.connect(self._cancel_scan)
+        self.apply_filter_button = QPushButton("APLICAR FILTROS AO SCAN")
+        self.apply_filter_button.setEnabled(False)
+        self.apply_filter_button.clicked.connect(self._apply_filters_to_scan)
         self.reconstruction_button = QPushButton("ABRIR RECONSTRUÇÃO")
         self.reconstruction_button.setEnabled(False)
         self.reconstruction_button.clicked.connect(self._open_reconstruction)
-        for button in (self.save_button, self.scan_button, self.cancel_button, self.reconstruction_button):
+        for button in (self.save_button, self.scan_button, self.cancel_button, self.apply_filter_button, self.reconstruction_button):
             buttons.addWidget(button)
         buttons.addStretch()
         scan_layout.addLayout(buttons)
@@ -140,7 +158,8 @@ class FilterProfilesPage(_BaseFilterProfilesPage):
         self.log_view.setMinimumHeight(80)
         self.log_view.setMaximumHeight(180)
         scan_layout.addWidget(self.log_view, 1)
-        scan_box.setMinimumHeight(150)
+        scan_box.setMinimumHeight(180)
+
         sections.addWidget(source_box)
         sections.addWidget(filter_box)
         sections.addWidget(estimate_box)
@@ -149,7 +168,7 @@ class FilterProfilesPage(_BaseFilterProfilesPage):
         sections.setStretchFactor(1, 5)
         sections.setStretchFactor(2, 1)
         sections.setStretchFactor(3, 2)
-        sections.setSizes([130, 430, 95, 220])
+        sections.setSizes([130, 430, 95, 250])
         outer.addWidget(sections, 1)
         return page
 
@@ -166,6 +185,12 @@ class FilterProfilesPage(_BaseFilterProfilesPage):
             layout.addRow(self.mame_fundamental_summary)
         self._update_fundamental_summary()
 
+    def _scan_type_changed(self, *_args) -> None:
+        self._last_filter_result = None
+        self.apply_filter_button.setEnabled(False)
+        self.reconstruction_button.setEnabled(False)
+        self._schedule_catalog_estimate()
+
     def _open_fundamental_filters(self) -> None:
         profile_id = self._current_saved_profile.profile_id if self._current_saved_profile else ""
         values = MameFundamentalFilterService.load(profile_id) if profile_id else dict(self._fundamental_filters)
@@ -177,31 +202,87 @@ class FilterProfilesPage(_BaseFilterProfilesPage):
             MameFundamentalFilterService.save(profile_id, self._fundamental_filters)
         self._update_fundamental_summary()
         self._schedule_catalog_estimate()
-        self.scan_progress.setText("Filtros fundamentais atualizados. Salve o perfil antes de iniciar o scan.")
+        self.scan_progress.setText("Filtros fundamentais alterados. O scan bruto não será repetido até você solicitar um novo scan.")
 
     def _update_fundamental_summary(self) -> None:
         if not hasattr(self, "mame_fundamental_summary"):
             return
         active = sum(1 for enabled in self._fundamental_filters.values() if enabled)
-        self.mame_fundamental_summary.setText(
-            f"{active} exclusões fundamentais ativas" if active else "Nenhuma exclusão fundamental ativa"
+        self.mame_fundamental_summary.setText(f"{active} exclusões fundamentais ativas" if active else "Nenhuma exclusão fundamental ativa")
+
+    def _update_catalog_estimate(self) -> None:
+        selected = self._selected_item_data()
+        if selected is None:
+            self.catalog_estimate.setText("Selecione um catálogo.")
+            self.catalog_estimate_detail.setText("Nenhum scan disponível.")
+            return
+        source, system, _dat_path = selected
+        if source != "MAME":
+            self.catalog_estimate.setText("A auditoria externa será identificada pela versão/data do DAT.")
+            self.catalog_estimate_detail.setText("Os filtros específicos serão executados somente depois do snapshot do DAT.")
+            return
+        profile = self._current_profile()
+        if profile is None:
+            return
+        latest = ScanRepository(self._database_path()).latest_for_profile(profile.profile_id)
+        if not latest or not latest.get("scan_file_path"):
+            self.catalog_estimate.setText("Nenhum scan bruto disponível para este perfil.")
+            self.catalog_estimate_detail.setText("Execute o scan uma única vez. Depois disso os filtros trabalharão somente sobre o arquivo salvo.")
+            return
+        raw_path = Path(str(latest["scan_file_path"]))
+        if not raw_path.is_file():
+            raw_path = ScanFileRepository.latest_path(str(latest["scan_id"])) or raw_path
+        if not raw_path.is_file():
+            self.catalog_estimate.setText("Arquivo do scan não encontrado.")
+            self.catalog_estimate_detail.setText(str(raw_path))
+            return
+        try:
+            preview = ScanFilterService.preview_mame(raw_path, profile, self._fundamental_filters)
+        except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
+            self.catalog_estimate.setText("Não foi possível calcular o filtro sobre o scan.")
+            self.catalog_estimate_detail.setText(str(exc))
+            return
+        self.catalog_estimate.setText(
+            f"SCAN BRUTO: {int(preview['input_count']):,} ROMs  →  "
+            f"APÓS FILTROS: {int(preview['output_count']):,} ROMs  →  "
+            f"EXCLUÍDAS: {int(preview['filtered_count']):,}"
+        )
+        counts = preview.get("filter_counts", {})
+        details = " • ".join(f"{key}={int(value):,}" for key, value in counts.items()) or "Nenhuma ROM excluída"
+        status = preview.get("status_counts", {})
+        self.catalog_estimate_detail.setText(
+            f"Catálogo: {preview.get('catalog_label')} | tipo: {preview.get('scan_type')} | "
+            f"CURRENT={status.get('CURRENT', 0):,} | MISSING={status.get('MISSING', 0):,} | WRONG={status.get('WRONG', 0):,} | "
+            f"DUPLICATE={status.get('DUPLICATE', 0):,}\nFiltros: {details}"
         )
 
     def _load_profile(self, profile) -> None:
         super()._load_profile(profile)
         self._fundamental_filters = MameFundamentalFilterService.load(profile.profile_id)
+        if str(profile.source).casefold() == "mame":
+            self.mame_scan_type.blockSignals(True)
+            self.mame_scan_type.setCurrentIndex(max(0, self.mame_scan_type.findData(MameScanSettingsService.load(profile.profile_id))))
+            self.mame_scan_type.blockSignals(False)
         self._update_fundamental_summary()
+        self._last_filter_result = None
+        self.apply_filter_button.setEnabled(False)
+        self.reconstruction_button.setEnabled(False)
 
     def _save_profile(self):
         profile = super()._save_profile()
         if profile is not None and str(profile.source).casefold() == "mame":
             MameFundamentalFilterService.save(profile.profile_id, self._fundamental_filters)
+            MameScanSettingsService.save(profile.profile_id, str(self.mame_scan_type.currentData()))
             self._update_fundamental_summary()
         return profile
 
     def _new_profile(self) -> None:
         super()._new_profile()
         self._fundamental_filters = dict(DEFAULT_FILTERS)
+        self.mame_scan_type.blockSignals(True)
+        self.mame_scan_type.setCurrentIndex(0)
+        self.mame_scan_type.blockSignals(False)
+        self._last_filter_result = None
         self._update_fundamental_summary()
 
     def _delete_selected_profile(self) -> None:
@@ -212,6 +293,60 @@ class FilterProfilesPage(_BaseFilterProfilesPage):
         super()._delete_selected_profile()
         if profile_id:
             MameFundamentalFilterService.delete(str(profile_id))
+            MameScanSettingsService.delete(str(profile_id))
+
+    def _start_scan(self, profile):
+        if str(profile.source).casefold() == "mame":
+            MameScanSettingsService.save(profile.profile_id, str(self.mame_scan_type.currentData()))
+        self._last_filter_result = None
+        self.apply_filter_button.setEnabled(False)
+        self.reconstruction_button.setEnabled(False)
+        super()._start_scan(profile)
+
+    def _scan_completed(self, result):
+        # O scan bruto é o fim da etapa de auditoria. Não abrimos reconstrução
+        # aqui: primeiro o usuário aplica os filtros sobre o snapshot salvo.
+        self._last_scan_result = result
+        self.apply_filter_button.setEnabled(True)
+        self.reconstruction_button.setEnabled(False)
+        self.scan_progress.setText(
+            f"SCAN BRUTO | concluído | scan_id={result.scan_id} | catálogo={result.catalog_label} | "
+            f"tipo={result.scan_type} | arquivos={result.files_examined} | itens={result.items_examined}"
+        )
+        self._schedule_catalog_estimate()
+
+    def _apply_filters_to_scan(self) -> None:
+        profile = self._save_profile()
+        if profile is None:
+            return
+        latest = ScanRepository(self._database_path()).latest_for_profile(profile.profile_id)
+        if not latest:
+            QMessageBox.information(self, "Filtros", "Nenhum scan bruto foi encontrado para este perfil.")
+            return
+        raw_path = ScanRepository(self._database_path()).raw_file(str(latest["scan_id"]))
+        if raw_path is None or not raw_path.is_file():
+            QMessageBox.warning(self, "Filtros", "O arquivo bruto do scan não foi encontrado.")
+            return
+        try:
+            self._last_filter_result = ScanFilterService.apply_mame(raw_path, profile, self._fundamental_filters)
+        except Exception as exc:  # noqa: BLE001
+            self._append_log("ERROR", f"FILTRO | falha | {type(exc).__name__}: {exc}")
+            QMessageBox.warning(self, "Filtros", f"Não foi possível aplicar os filtros:\n{exc}")
+            return
+        result = self._last_filter_result
+        self.reconstruction_button.setEnabled(True)
+        self.scan_progress.setText(
+            f"FILTRO | concluído | bruto={result['input_count']:,} | "
+            f"mantidas={result['output_count']:,} | excluídas={result['filtered_count']:,}"
+        )
+        self._append_log("INFO", f"FILTRO | arquivo={result['filtered_file_path']}")
+        self._append_log("INFO", "FILTRO | " + " | ".join(f"{key}={value:,}" for key, value in result["filter_counts"].items()))
+        self._schedule_catalog_estimate()
+        self.reconstruction_requested.emit({"profile": profile, "scan_result": self._last_scan_result, "filter_result": result})
+
+    def _open_reconstruction(self):
+        if self._current_saved_profile is not None and self._last_filter_result is not None:
+            self.reconstruction_requested.emit({"profile": self._current_saved_profile, "scan_result": self._last_scan_result, "filter_result": self._last_filter_result})
 
     def _refresh_profile_list(self, *_args):
         selected_id = None
