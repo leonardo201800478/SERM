@@ -1,29 +1,182 @@
-"""Fase 2: filtra exclusivamente um arquivo de scan ja concluido."""
+"""Fase 2: filtragem de snapshots já concluídos, separada por sistema."""
 from __future__ import annotations
 
 import json
 import sqlite3
 from dataclasses import asdict
+from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
-from datetime import datetime, timezone
 
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QGroupBox, QHBoxLayout, QLabel, QMessageBox,
-    QPushButton, QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QGroupBox, QHBoxLayout, QLabel, QListWidget,
+    QMessageBox, QPushButton, QTabWidget, QVBoxLayout, QWidget,
 )
 
-from ..runtime.paths import data_root, database_path
-from ..services.mame_fundamental_filter_service import (
-    DEFAULT_FILTERS, FILTER_DEFINITIONS, MameFundamentalFilterService,
-)
+from ..runtime.paths import data_root, database_path, scans_root
+from ..services.mame_fundamental_filter_service import DEFAULT_FILTERS, FILTER_DEFINITIONS, MameFundamentalFilterService
 from ..services.scan_filter_service import ScanFilterService
 from ..services.scan_repository import ScanRepository
 from .filter_profiles_page import FilterProfileData
 
 
-class FilteringPhasePage(QWidget):
-    """Editor da fase 2, com o scan bruto como entrada imutavel."""
+class _GenericFilterTab(QWidget):
+    """Filtro mínimo e seguro para fontes sem regras específicas ainda definidas."""
+
+    def __init__(self, source: str, parent=None) -> None:
+        super().__init__(parent)
+        self.source = source
+        self._build_ui()
+        self.refresh()
+
+    def _build_ui(self) -> None:
+        layout = QVBoxLayout(self)
+        title = QLabel(f"{self.source} — FILTRAGEM")
+        title.setProperty("role", "title")
+        layout.addWidget(title)
+        description = QLabel(
+            "Esta guia trabalha somente sobre o arquivo de scan selecionado. "
+            "Não revarre o diretório e não altera o snapshot bruto. Regras específicas "
+            "do catálogo serão adicionadas aqui sem misturar a auditoria."
+        )
+        description.setWordWrap(True)
+        layout.addWidget(description)
+
+        box = QGroupBox("1. Scan completo de entrada")
+        form = QVBoxLayout(box)
+        self.scan_combo = QComboBox()
+        self.scan_combo.currentIndexChanged.connect(self._changed)
+        form.addWidget(self.scan_combo)
+        self.info = QLabel("Nenhum scan selecionado.")
+        self.info.setWordWrap(True)
+        form.addWidget(self.info)
+        layout.addWidget(box)
+
+        rules = QGroupBox("2. Regras disponíveis")
+        rules_layout = QVBoxLayout(rules)
+        self.current_only = QCheckBox("Manter somente itens CURRENT")
+        self.current_only.setChecked(True)
+        self.keep_duplicates = QCheckBox("Manter ocorrências DUPLICATE")
+        self.keep_duplicates.setChecked(False)
+        rules_layout.addWidget(self.current_only)
+        rules_layout.addWidget(self.keep_duplicates)
+        layout.addWidget(rules)
+
+        self.preview = QLabel("Selecione um scan para visualizar o resultado.")
+        self.preview.setWordWrap(True)
+        layout.addWidget(self.preview)
+        self.apply_button = QPushButton("GERAR ARQUIVO FILTRADO")
+        self.apply_button.clicked.connect(self.apply)
+        layout.addWidget(self.apply_button)
+        self.result = QLabel("Nenhum arquivo filtrado gerado nesta sessão.")
+        self.result.setWordWrap(True)
+        layout.addWidget(self.result)
+        layout.addStretch()
+
+    def refresh(self) -> None:
+        self.scan_combo.blockSignals(True)
+        self.scan_combo.clear()
+        try:
+            with sqlite3.connect(database_path()) as connection:
+                connection.row_factory = sqlite3.Row
+                rows = connection.execute(
+                    "SELECT * FROM scan_runs WHERE status='completed' AND lower(source)=lower(?) ORDER BY started_at DESC",
+                    (self.source,),
+                ).fetchall()
+        except sqlite3.Error:
+            rows = []
+        for row in rows:
+            data = dict(row)
+            self.scan_combo.addItem(
+                f"{data['system']} › {data['catalog_label'] or 'catalogo'} | {data['scan_id']}", data
+            )
+        self.scan_combo.blockSignals(False)
+        self._changed()
+
+    def _changed(self, *_args) -> None:
+        data = self.scan_combo.currentData()
+        if not isinstance(data, dict):
+            self.info.setText("Nenhum scan concluído para esta fonte.")
+            self.apply_button.setEnabled(False)
+            return
+        counts = self._counts(data)
+        self.info.setText(
+            f"Entrada: {data.get('scan_file_path') or '—'}\n"
+            f"Itens={int(data.get('items_examined') or 0):,} | CURRENT={counts.get('CURRENT', 0):,} | "
+            f"MISSING={counts.get('MISSING', 0):,} | WRONG={counts.get('WRONG', 0):,}"
+        )
+        self.apply_button.setEnabled(Path(str(data.get('scan_file_path') or '')).is_file())
+        self._preview()
+
+    @staticmethod
+    def _counts(data: dict) -> dict:
+        try:
+            return json.loads(data.get("status_counts_json") or "{}")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return {}
+
+    def _preview(self) -> None:
+        data = self.scan_combo.currentData()
+        if not isinstance(data, dict):
+            return
+        path = Path(str(data.get("scan_file_path") or ""))
+        if not path.is_file():
+            self.preview.setText("Arquivo de scan não localizado.")
+            return
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            evidence = payload.get("evidence", [])
+            selected = [e for e in evidence if self._keep(e)]
+            self.preview.setText(f"Preview: entrada={len(evidence):,} | saída={len(selected):,} | excluídas={len(evidence)-len(selected):,}")
+        except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+            self.preview.setText(f"Preview indisponível: {exc}")
+
+    def _keep(self, evidence: dict) -> bool:
+        status = str(evidence.get("status") or "").upper()
+        if self.current_only.isChecked() and status != "CURRENT":
+            return self.keep_duplicates.isChecked() and status == "DUPLICATE"
+        if status == "DUPLICATE" and not self.keep_duplicates.isChecked():
+            return False
+        return status == "CURRENT"
+
+    def apply(self) -> None:
+        data = self.scan_combo.currentData()
+        if not isinstance(data, dict):
+            return
+        source_path = Path(str(data.get("scan_file_path") or ""))
+        if not source_path.is_file():
+            QMessageBox.warning(self, "Filtragem", "O arquivo de scan não existe mais.")
+            return
+        try:
+            payload = json.loads(source_path.read_text(encoding="utf-8"))
+            evidence = [e for e in payload.get("evidence", []) if self._keep(e)]
+            run_id = uuid4().hex[:16]
+            out_dir = scans_root() / "filtered" / str(self.source).casefold().replace("-", "_")
+            out_dir.mkdir(parents=True, exist_ok=True)
+            label = str(payload.get("catalog_label") or "catalog").replace("/", "_").replace("\\", "_")
+            out = out_dir / f"{self.source}_{label}_{payload.get('scan_type', 'full')}_FILTER_{run_id}.json"
+            result = {
+                "format": "SERM-FILTER-V1", "filter_run_id": run_id,
+                "scan_id": payload.get("scan_id"), "profile_id": f"generic-{self.source.casefold()}",
+                "source": payload.get("source"), "system": payload.get("system"),
+                "scan_type": payload.get("scan_type", "full"), "catalog_label": payload.get("catalog_label"),
+                "catalog_hash": payload.get("catalog_hash"), "source_scan_file": str(source_path.resolve()),
+                "created_at": datetime.now(timezone.utc).timestamp(), "input_count": len(payload.get("evidence", [])),
+                "output_count": len(evidence), "filtered_count": len(payload.get("evidence", [])) - len(evidence),
+                "filter_counts": {"status": "current_only" if self.current_only.isChecked() else "status_filter"},
+                "filters": {"current_only": self.current_only.isChecked(), "keep_duplicates": self.keep_duplicates.isChecked()},
+                "evidence": evidence,
+            }
+            out.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
+            result["filtered_file_path"] = str(out)
+            ScanRepository(database_path()).save_filter_result(result)
+            self.result.setText(f"ARQUIVO FILTRADO GERADO\n{out}\nentrada={result['input_count']:,} | saída={result['output_count']:,}")
+        except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+            QMessageBox.critical(self, "Filtragem", f"Falha ao gerar arquivo filtrado:\n{exc}")
+
+
+class _MameFilterTab(QWidget):
+    """Guia MAME com as regras específicas já implementadas na V2."""
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -33,77 +186,67 @@ class FilteringPhasePage(QWidget):
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
-        title = QLabel("2 — FILTRAGEM DE ROMS")
+        title = QLabel("MAME — FILTRAGEM")
         title.setProperty("role", "title")
         layout.addWidget(title)
-        description = QLabel(
-            "Entrada: arquivo de scan completo. Saida: novo arquivo filtrado. "
-            "O arquivo de scan nunca e sobrescrito e nenhuma leitura do filesystem "
-            "e feita para descobrir novamente as ROMs."
-        )
-        description.setWordWrap(True)
-        layout.addWidget(description)
+        desc = QLabel("Entrada: somente scan MAME concluído. Saída: novo snapshot filtrado. O scan bruto permanece imutável.")
+        desc.setWordWrap(True)
+        layout.addWidget(desc)
 
-        input_box = QGroupBox("1. Selecionar scan concluido")
-        input_layout = QVBoxLayout(input_box)
+        box = QGroupBox("1. Scan completo")
+        v = QVBoxLayout(box)
         self.scan_combo = QComboBox()
         self.scan_combo.currentIndexChanged.connect(self._scan_changed)
-        input_layout.addWidget(self.scan_combo)
+        v.addWidget(self.scan_combo)
         self.scan_info = QLabel("Nenhum scan selecionado.")
         self.scan_info.setWordWrap(True)
-        input_layout.addWidget(self.scan_info)
-        layout.addWidget(input_box)
+        v.addWidget(self.scan_info)
+        layout.addWidget(box)
 
-        profile_box = QGroupBox("2. Perfil de filtragem")
-        profile_layout = QVBoxLayout(profile_box)
+        profile_box = QGroupBox("2. Perfil")
+        pv = QVBoxLayout(profile_box)
         self.profile_combo = QComboBox()
         self.profile_combo.currentIndexChanged.connect(self._profile_changed)
-        profile_layout.addWidget(self.profile_combo)
-        profile_actions = QHBoxLayout()
+        pv.addWidget(self.profile_combo)
         self.save_profile_button = QPushButton("SALVAR PERFIL")
         self.save_profile_button.clicked.connect(self._save_profile)
-        profile_actions.addWidget(self.save_profile_button)
-        profile_actions.addStretch()
-        profile_layout.addLayout(profile_actions)
+        pv.addWidget(self.save_profile_button)
         layout.addWidget(profile_box)
 
-        fundamental = QGroupBox("MAME — filtros fundamentais")
-        fundamental_layout = QVBoxLayout(fundamental)
+        fundamental = QGroupBox("Filtros fundamentais")
+        fv = QVBoxLayout(fundamental)
         self.fundamental_checks: dict[str, QCheckBox] = {}
         for key, definition in FILTER_DEFINITIONS.items():
             check = QCheckBox(str(definition["label"]))
             check.setToolTip(str(definition["description"]))
             check.setChecked(DEFAULT_FILTERS[key])
             self.fundamental_checks[key] = check
-            fundamental_layout.addWidget(check)
+            fv.addWidget(check)
         layout.addWidget(fundamental)
 
-        advanced = QGroupBox("MAME — selecao de set")
-        advanced_layout = QVBoxLayout(advanced)
+        advanced = QGroupBox("Seleção de set")
+        av = QVBoxLayout(advanced)
         self.clone_policy = QComboBox()
         self.clone_policy.addItem("Com clones", "with_clones")
         self.clone_policy.addItem("Somente parents", "parents_only")
-        advanced_layout.addWidget(self.clone_policy)
+        av.addWidget(self.clone_policy)
         self.include_bios = QCheckBox("Incluir BIOS")
         self.include_devices = QCheckBox("Incluir Devices")
         self.include_optional = QCheckBox("Incluir ROMs opcionais")
         self.working_only = QCheckBox("Somente máquinas working")
         for check in (self.include_bios, self.include_devices, self.include_optional, self.working_only):
-            advanced_layout.addWidget(check)
+            av.addWidget(check)
         layout.addWidget(advanced)
 
-        action_box = QGroupBox("3. Gerar arquivo filtrado")
-        action_layout = QVBoxLayout(action_box)
         self.preview = QLabel("Selecione um scan para calcular o resultado.")
         self.preview.setWordWrap(True)
-        action_layout.addWidget(self.preview)
-        self.apply_button = QPushButton("APLICAR FILTROS E GERAR SCAN FILTRADO")
+        layout.addWidget(self.preview)
+        self.apply_button = QPushButton("APLICAR FILTROS E GERAR ARQUIVO FILTRADO")
         self.apply_button.clicked.connect(self.apply_filters)
-        action_layout.addWidget(self.apply_button)
+        layout.addWidget(self.apply_button)
         self.result_label = QLabel("Nenhum arquivo filtrado gerado nesta sessão.")
         self.result_label.setWordWrap(True)
-        action_layout.addWidget(self.result_label)
-        layout.addWidget(action_box)
+        layout.addWidget(self.result_label)
         layout.addStretch()
 
     def refresh(self) -> None:
@@ -117,15 +260,12 @@ class FilteringPhasePage(QWidget):
         try:
             with sqlite3.connect(database_path()) as connection:
                 connection.row_factory = sqlite3.Row
-                rows = connection.execute(
-                    "SELECT * FROM scan_runs WHERE status='completed' ORDER BY started_at DESC"
-                ).fetchall()
+                rows = connection.execute("SELECT * FROM scan_runs WHERE status='completed' AND lower(source)='mame' ORDER BY started_at DESC").fetchall()
         except sqlite3.Error:
             rows = []
         for row in rows:
             data = dict(row)
-            label = f"{data['source']} › {data['system']} › {data['catalog_label'] or 'catalogo'} | {data['scan_id']}"
-            self.scan_combo.addItem(label, data)
+            self.scan_combo.addItem(f"{data['catalog_label'] or 'MAME'} › {data['scan_type']} | {data['scan_id']}", data)
         self.scan_combo.blockSignals(False)
 
     def _refresh_profiles(self) -> None:
@@ -139,39 +279,32 @@ class FilteringPhasePage(QWidget):
                             profiles.append(FilterProfileData(**{k: v for k, v in item.items() if k in FilterProfileData.__dataclass_fields__}))
                         except (TypeError, ValueError):
                             continue
-        except (OSError, ValueError, TypeError):
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
             pass
         self.profile_combo.blockSignals(True)
         self.profile_combo.clear()
         self.profile_combo.addItem("Perfil novo / configuração atual", None)
         for profile in profiles:
-            self.profile_combo.addItem(f"{profile.name} | {profile.source} › {profile.system}", profile)
+            if str(profile.source).casefold() == "mame":
+                self.profile_combo.addItem(f"{profile.name} | {profile.system}", profile)
         self.profile_combo.blockSignals(False)
-
-    def _scan_changed(self, *_args) -> None:
-        data = self.scan_combo.currentData()
-        if not isinstance(data, dict):
-            self.scan_info.setText("Nenhum scan selecionado.")
-            self.apply_button.setEnabled(False)
-            return
-        self.scan_info.setText(
-            f"Entrada imutável: {data.get('scan_file_path') or 'arquivo não localizado'}\n"
-            f"Status: {data.get('status')} | itens: {int(data.get('items_examined') or 0):,} | "
-            f"CURRENT: {self._status_count(data, 'CURRENT'):,} | MISSING: {self._status_count(data, 'MISSING'):,}"
-        )
-        is_mame = str(data.get("source", "")).casefold() == "mame"
-        for widget in (*self.fundamental_checks.values(), self.clone_policy, self.include_bios, self.include_devices, self.include_optional, self.working_only):
-            widget.setEnabled(is_mame)
-        self.apply_button.setEnabled(is_mame)
-        self._update_preview()
 
     @staticmethod
     def _status_count(data: dict, status: str) -> int:
         try:
-            counts = json.loads(data.get("status_counts_json") or "{}")
-            return int(counts.get(status, 0))
+            return int(json.loads(data.get("status_counts_json") or "{}").get(status, 0))
         except (TypeError, ValueError, json.JSONDecodeError):
             return 0
+
+    def _scan_changed(self, *_args) -> None:
+        data = self.scan_combo.currentData()
+        enabled = isinstance(data, dict)
+        self.apply_button.setEnabled(enabled and Path(str(data.get("scan_file_path") or "")).is_file() if enabled else False)
+        if not enabled:
+            self.scan_info.setText("Nenhum scan selecionado.")
+            return
+        self.scan_info.setText(f"Entrada: {data.get('scan_file_path')}\nCURRENT={self._status_count(data,'CURRENT'):,} | MISSING={self._status_count(data,'MISSING'):,} | WRONG={self._status_count(data,'WRONG'):,}")
+        self._update_preview()
 
     def _profile_changed(self, *_args) -> None:
         profile = self.profile_combo.currentData()
@@ -179,17 +312,14 @@ class FilteringPhasePage(QWidget):
             values = MameFundamentalFilterService.load(profile.profile_id)
             for key, check in self.fundamental_checks.items():
                 check.setChecked(values[key])
-            self._set_profile_options(profile)
+            index = self.clone_policy.findData(profile.mame_clone_policy)
+            if index >= 0:
+                self.clone_policy.setCurrentIndex(index)
+            self.include_bios.setChecked(profile.mame_include_bios)
+            self.include_devices.setChecked(profile.mame_include_devices)
+            self.include_optional.setChecked(profile.mame_include_optional)
+            self.working_only.setChecked(profile.mame_working_only)
         self._update_preview()
-
-    def _set_profile_options(self, profile: FilterProfileData) -> None:
-        index = self.clone_policy.findData(profile.mame_clone_policy)
-        if index >= 0:
-            self.clone_policy.setCurrentIndex(index)
-        self.include_bios.setChecked(profile.mame_include_bios)
-        self.include_devices.setChecked(profile.mame_include_devices)
-        self.include_optional.setChecked(profile.mame_include_optional)
-        self.working_only.setChecked(profile.mame_working_only)
 
     def _current_profile(self) -> FilterProfileData | None:
         data = self.scan_combo.currentData()
@@ -201,9 +331,8 @@ class FilteringPhasePage(QWidget):
         else:
             now = datetime.now(timezone.utc).isoformat()
             profile = FilterProfileData(
-                source=str(data.get("source", "MAME")), system=str(data.get("system", "")),
-                dat_path=data.get("dat_path"), profile_id=uuid4().hex,
-                name=f"{data.get('source')} — {data.get('system')} — filtro",
+                source="MAME", system=str(data.get("system", "MAME")), dat_path=data.get("dat_path"),
+                profile_id=uuid4().hex, name=f"MAME — {data.get('system', 'MAME')} — filtro",
                 created_at=now, updated_at=now,
             )
         profile.mame_clone_policy = str(self.clone_policy.currentData())
@@ -216,7 +345,6 @@ class FilteringPhasePage(QWidget):
     def _save_profile(self) -> None:
         profile = self._current_profile()
         if profile is None:
-            QMessageBox.information(self, "Perfil", "Selecione um scan primeiro.")
             return
         profiles: list[FilterProfileData] = []
         try:
@@ -228,24 +356,21 @@ class FilteringPhasePage(QWidget):
                             profiles.append(FilterProfileData(**{k: v for k, v in item.items() if k in FilterProfileData.__dataclass_fields__}))
                         except (TypeError, ValueError):
                             pass
-        except (OSError, ValueError, TypeError):
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
             pass
         profiles = [item for item in profiles if item.profile_id != profile.profile_id]
         profiles.append(profile)
         self._profiles_path.parent.mkdir(parents=True, exist_ok=True)
         self._profiles_path.write_text(json.dumps([asdict(item) for item in profiles], indent=2, ensure_ascii=False), encoding="utf-8")
         MameFundamentalFilterService.save(profile.profile_id, {key: check.isChecked() for key, check in self.fundamental_checks.items()})
-        self._refresh_profiles()
-        self.result_label.setText(f"Perfil salvo: {profile.name} | ID={profile.profile_id}")
 
     def _update_preview(self) -> None:
         data = self.scan_combo.currentData()
-        if not isinstance(data, dict) or str(data.get("source", "")).casefold() != "mame":
-            self.preview.setText("A filtragem específica desta fase ainda não está disponível para esta fonte.")
+        if not isinstance(data, dict):
             return
         path = Path(str(data.get("scan_file_path") or ""))
         if not path.is_file():
-            self.preview.setText("Arquivo de scan não localizado no caminho registrado.")
+            self.preview.setText("Arquivo de scan não localizado.")
             return
         profile = self._current_profile()
         if profile is None:
@@ -253,10 +378,7 @@ class FilteringPhasePage(QWidget):
         values = {key: check.isChecked() for key, check in self.fundamental_checks.items()}
         try:
             result = ScanFilterService.preview_mame(path, profile, values)
-            self.preview.setText(
-                f"Preview: entrada={result['input_count']:,} | selecionadas={result['output_count']:,} | "
-                f"excluídas={result['filtered_count']:,}"
-            )
+            self.preview.setText(f"Preview: entrada={result['input_count']:,} | selecionadas={result['output_count']:,} | excluídas={result['filtered_count']:,}")
         except Exception as exc:  # noqa: BLE001
             self.preview.setText(f"Preview indisponível: {type(exc).__name__}: {exc}")
 
@@ -266,7 +388,7 @@ class FilteringPhasePage(QWidget):
             return
         path = Path(str(data.get("scan_file_path") or ""))
         if not path.is_file():
-            QMessageBox.warning(self, "Filtragem", "O arquivo de scan selecionado não existe mais.")
+            QMessageBox.warning(self, "Filtragem", "O arquivo de scan não existe mais.")
             return
         profile = self._current_profile()
         if profile is None:
@@ -274,15 +396,42 @@ class FilteringPhasePage(QWidget):
         values = {key: check.isChecked() for key, check in self.fundamental_checks.items()}
         try:
             result = ScanFilterService.apply_mame(path, profile, values)
+            self._save_profile()
+            ScanRepository(database_path()).save_filter_result(result)
+            self.result_label.setText(f"ARQUIVO FILTRADO GERADO\n{result['filtered_file_path']}\nentrada={result['input_count']:,} | saída={result['output_count']:,}")
         except Exception as exc:  # noqa: BLE001
             QMessageBox.critical(self, "Filtragem", f"Falha ao gerar arquivo filtrado:\n{exc}")
-            return
-        self._save_profile()
-        ScanRepository(database_path()).save_filter_result(result)
-        self.result_label.setText(
-            f"ARQUIVO FILTRADO GERADO\n{result['filtered_file_path']}\n"
-            f"entrada={result['input_count']:,} | saída={result['output_count']:,}"
-        )
+
+
+class FilteringPhasePage(QWidget):
+    """Fase 2 independente, com uma subguia para cada família de sistema."""
+
+    SYSTEMS = ("MAME", "No-Intro", "Redump", "WHLoader", "C64")
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        title = QLabel("2 — FILTRAGEM DE ROMS")
+        title.setProperty("role", "title")
+        layout.addWidget(title)
+        description = QLabel("DAT completo → Scan bruto → esta fase seleciona o que deve seguir para a reconstrução. Nenhuma guia de filtragem executa novo scan.")
+        description.setWordWrap(True)
+        layout.addWidget(description)
+        self.tabs = QTabWidget()
+        self.tabs.setObjectName("filterSystemTabs")
+        self.mame = _MameFilterTab(self)
+        self.tabs.addTab(self.mame, "MAME")
+        self.pages: list[QWidget] = [self.mame]
+        for source in self.SYSTEMS[1:]:
+            page = _GenericFilterTab(source, self)
+            self.pages.append(page)
+            self.tabs.addTab(page, source)
+        layout.addWidget(self.tabs, 1)
+
+    def refresh(self) -> None:
+        for page in self.pages:
+            if hasattr(page, "refresh"):
+                page.refresh()
 
 
 __all__ = ["FilteringPhasePage"]
