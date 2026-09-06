@@ -35,6 +35,8 @@ class MameDisplayResolver:
     """Importa fallbacks e resolve um Machine Display Profile determinístico."""
 
     PARSER_VERSION = "1.0"
+    RESOLUTION_SOURCE = "resolution.ini"
+    VSYNC_SOURCE = "Vsync.ini"
 
     def __init__(self, db_path: Path | None = None) -> None:
         self.db_path = db_path or database_path()
@@ -77,9 +79,7 @@ class MameDisplayResolver:
                     (source_id,machine_name,resolution_width,resolution_height,refresh_hz,refresh_raw,
                      orientation,pixel_aspect_x,pixel_aspect_y,raw_value,line_number)
                     VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
-                    (fact.machine_name,)
-                    if False
-                    else (
+                    (
                         source_id,
                         fact.machine_name,
                         fact.width,
@@ -102,165 +102,278 @@ class MameDisplayResolver:
         stats = {"machines": 0, "profiles": 0, "fallbacks": 0, "missing": 0, "comparisons": 0}
         with sqlite3.connect(self.db_path) as connection:
             connection.execute("PRAGMA foreign_keys = ON")
-            latest = connection.execute(
-                "SELECT id FROM mame_listxml_import ORDER BY id DESC LIMIT 1"
-            ).fetchone()
-            if latest is None:
-                raise MameDisplayResolverError("Nenhum ListXML foi importado.")
-            import_id = int(latest[0])
+            import_id = self._latest_import_id(connection)
             machines = connection.execute(
                 "SELECT id,name FROM mame_machine WHERE import_id=? ORDER BY name", (import_id,)
             ).fetchall()
-            sources = {
-                row[0]: row[1]
-                for row in connection.execute(
-                    """SELECT source_name,id FROM mame_display_source
-                    WHERE id IN (SELECT MAX(id) FROM mame_display_source GROUP BY source_name)"""
-                ).fetchall()
-            }
-            facts: dict[str, dict[str, tuple]] = {}
-            for source_name, source_id in sources.items():
-                facts[source_name] = {
-                    row[0]: row[1:]
-                    for row in connection.execute(
-                        """SELECT machine_name,resolution_width,resolution_height,refresh_hz,refresh_raw,
-                        orientation,pixel_aspect_x,pixel_aspect_y,raw_value,line_number
-                        FROM mame_external_display_fact WHERE source_id=?""",
-                        (source_id,),
-                    ).fetchall()
-                }
-
+            facts = self._load_facts(connection)
             for machine_id, machine_name in machines:
-                stats["machines"] += 1
-                displays = connection.execute(
-                    """SELECT id,width,height,refresh_hz,rotate FROM mame_display
-                    WHERE machine_id=? ORDER BY id""",
-                    (machine_id,),
-                ).fetchall()
-                if not displays:
-                    stats["missing"] += 1
-                    self._record_missing(connection, machine_id, machine_name, now)
-                    continue
-                for display_id, width, height, refresh, rotate in displays:
-                    resolution_fact = self._fact(facts, "resolution.ini", machine_name)
-                    vsync_fact = self._fact(facts, "Vsync.ini", machine_name)
-                    resolved_width, res_source = width, "listxml"
-                    resolved_height, _ = height, "listxml"
-                    if resolved_width is None or resolved_height is None:
-                        if (
-                            resolution_fact
-                            and resolution_fact[0] is not None
-                            and resolution_fact[1] is not None
-                        ):
-                            resolved_width, resolved_height = resolution_fact[0], resolution_fact[1]
-                            res_source = "resolution.ini"
-                    resolved_refresh, refresh_source = refresh, "listxml"
-                    if resolved_refresh is None and vsync_fact and vsync_fact[2] is not None:
-                        resolved_refresh, refresh_source = vsync_fact[2], "Vsync.ini"
-                    resolved_orientation = self._orientation(rotate)
-                    orientation_source = "listxml" if rotate is not None else "resolution.ini"
-                    if rotate is None and resolution_fact and resolution_fact[4]:
-                        resolved_orientation = resolution_fact[4]
-                    pixel_x = resolution_fact[5] if resolution_fact else None
-                    pixel_y = resolution_fact[6] if resolution_fact else None
-                    pixel_source = "resolution.ini" if pixel_x and pixel_y else "missing"
-                    fallback = int(
-                        res_source != "listxml"
-                        or refresh_source != "listxml"
-                        or orientation_source != "listxml"
-                        or pixel_source != "missing"
-                    )
-                    status = (
-                        "resolved"
-                        if resolved_width and resolved_height and resolved_refresh
-                        else "partial"
-                    )
-                    if not resolved_width or not resolved_height or resolved_refresh is None:
-                        stats["missing"] += 1
-                    if fallback:
-                        stats["fallbacks"] += 1
-                    connection.execute(
-                        """INSERT INTO mame_display_resolution
-                        (machine_id,display_id,width,height,refresh_hz,orientation,pixel_aspect_x,pixel_aspect_y,
-                         resolution_source,refresh_source,orientation_source,pixel_aspect_source,
-                         resolution_confidence,refresh_confidence,orientation_confidence,pixel_aspect_confidence,
-                         fallback_used,compared_at)
-                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                        ON CONFLICT(machine_id,display_id) DO UPDATE SET
-                        width=excluded.width,height=excluded.height,refresh_hz=excluded.refresh_hz,
-                        orientation=excluded.orientation,pixel_aspect_x=excluded.pixel_aspect_x,
-                        pixel_aspect_y=excluded.pixel_aspect_y,resolution_source=excluded.resolution_source,
-                        refresh_source=excluded.refresh_source,orientation_source=excluded.orientation_source,
-                        pixel_aspect_source=excluded.pixel_aspect_source,resolution_confidence=excluded.resolution_confidence,
-                        refresh_confidence=excluded.refresh_confidence,orientation_confidence=excluded.orientation_confidence,
-                        pixel_aspect_confidence=excluded.pixel_aspect_confidence,fallback_used=excluded.fallback_used,
-                        compared_at=excluded.compared_at""",
-                        (
-                            machine_id,
-                            display_id,
-                            resolved_width,
-                            resolved_height,
-                            resolved_refresh,
-                            resolved_orientation,
-                            pixel_x,
-                            pixel_y,
-                            res_source,
-                            refresh_source,
-                            orientation_source,
-                            pixel_source,
-                            "authoritative" if res_source == "listxml" else "fallback",
-                            "authoritative" if refresh_source == "listxml" else "fallback",
-                            "authoritative" if orientation_source == "listxml" else "fallback",
-                            "fallback" if pixel_source != "missing" else "missing",
-                            fallback,
-                            now,
-                        ),
-                    )
-                    self._compare(
-                        connection,
-                        machine_id,
-                        display_id,
-                        width,
-                        height,
-                        refresh,
-                        resolution_fact,
-                        vsync_fact,
-                        now,
-                    )
-                    connection.execute(
-                        """INSERT INTO mame_machine_display_profile
-                        (machine_id,display_id,profile_version,width,height,refresh_hz,orientation,pixel_aspect_x,pixel_aspect_y,
-                         source_resolution,source_refresh,source_orientation,source_pixel_aspect,fallback_used,status,generated_at)
-                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                        ON CONFLICT(machine_id,display_id,profile_version) DO UPDATE SET
-                        width=excluded.width,height=excluded.height,refresh_hz=excluded.refresh_hz,
-                        orientation=excluded.orientation,pixel_aspect_x=excluded.pixel_aspect_x,
-                        pixel_aspect_y=excluded.pixel_aspect_y,source_resolution=excluded.source_resolution,
-                        source_refresh=excluded.source_refresh,source_orientation=excluded.source_orientation,
-                        source_pixel_aspect=excluded.source_pixel_aspect,fallback_used=excluded.fallback_used,
-                        status=excluded.status,generated_at=excluded.generated_at""",
-                        (
-                            machine_id,
-                            display_id,
-                            profile_version,
-                            resolved_width,
-                            resolved_height,
-                            resolved_refresh,
-                            resolved_orientation,
-                            pixel_x,
-                            pixel_y,
-                            res_source,
-                            refresh_source,
-                            orientation_source,
-                            pixel_source,
-                            fallback,
-                            status,
-                            now,
-                        ),
-                    )
-                    stats["profiles"] += 1
+                stats = self._resolve_machine(
+                    connection,
+                    machine_id,
+                    machine_name,
+                    facts,
+                    profile_version,
+                    now,
+                    stats,
+                )
             connection.commit()
         return stats
+
+    def _resolve_machine(
+        self,
+        connection,
+        machine_id: int,
+        machine_name: str,
+        facts: dict[str, dict[str, tuple]],
+        profile_version: str,
+        now: str,
+        stats: dict[str, int],
+    ) -> dict[str, int]:
+        """Resolve todas as entradas de display de uma máquina."""
+        stats["machines"] += 1
+        displays = connection.execute(
+            """SELECT id,width,height,refresh_hz,rotate FROM mame_display
+            WHERE machine_id=? ORDER BY id""",
+            (machine_id,),
+        ).fetchall()
+        if not displays:
+            stats["missing"] += 1
+            self._record_missing(connection, machine_id, now)
+            return stats
+        for display_id, width, height, refresh, rotate in displays:
+            resolution_fact = self._fact(facts, self.RESOLUTION_SOURCE, machine_name)
+            vsync_fact = self._fact(facts, self.VSYNC_SOURCE, machine_name)
+            resolved = self._resolve_display_values(
+                width, height, refresh, rotate, resolution_fact, vsync_fact
+            )
+            fallback = self._fallback_used(resolved)
+            status = self._display_status(resolved)
+            self._update_stats(stats, resolved, fallback)
+            self._save_resolution(connection, machine_id, display_id, resolved, fallback, now)
+            self._compare(
+                connection,
+                machine_id,
+                display_id,
+                width,
+                height,
+                refresh,
+                resolution_fact,
+                vsync_fact,
+                now,
+            )
+            self._save_profile(
+                connection,
+                machine_id,
+                display_id,
+                profile_version,
+                resolved,
+                fallback,
+                status,
+                now,
+            )
+            stats["profiles"] += 1
+        return stats
+
+    @staticmethod
+    def _fallback_used(resolved: dict[str, object]) -> int:
+        """Indica se algum campo usou fallback em vez do ListXML."""
+        return int(
+            resolved["resolution_source"] != "listxml"
+            or resolved["refresh_source"] != "listxml"
+            or resolved["orientation_source"] != "listxml"
+            or resolved["pixel_aspect_source"] != "missing"
+        )
+
+    @staticmethod
+    def _display_status(resolved: dict[str, object]) -> str:
+        """Classifica o resultado final do perfil do display."""
+        return (
+            "resolved"
+            if resolved["width"] and resolved["height"] and resolved["refresh_hz"]
+            else "partial"
+        )
+
+    @staticmethod
+    def _update_stats(stats: dict[str, int], resolved: dict[str, object], fallback: int) -> None:
+        """Atualiza contadores globais de status do processo."""
+        if not resolved["width"] or not resolved["height"] or resolved["refresh_hz"] is None:
+            stats["missing"] += 1
+        if fallback:
+            stats["fallbacks"] += 1
+
+    def _save_resolution(
+        self,
+        connection,
+        machine_id: int,
+        display_id: int,
+        resolved: dict[str, object],
+        fallback: int,
+        now: str,
+    ) -> None:
+        """Persiste a resolução resolvida em mame_display_resolution."""
+        connection.execute(
+            """INSERT INTO mame_display_resolution
+            (machine_id,display_id,width,height,refresh_hz,orientation,pixel_aspect_x,pixel_aspect_y,
+             resolution_source,refresh_source,orientation_source,pixel_aspect_source,
+             resolution_confidence,refresh_confidence,orientation_confidence,pixel_aspect_confidence,
+             fallback_used,compared_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(machine_id,display_id) DO UPDATE SET
+            width=excluded.width,height=excluded.height,refresh_hz=excluded.refresh_hz,
+            orientation=excluded.orientation,pixel_aspect_x=excluded.pixel_aspect_x,
+            pixel_aspect_y=excluded.pixel_aspect_y,resolution_source=excluded.resolution_source,
+            refresh_source=excluded.refresh_source,orientation_source=excluded.orientation_source,
+            pixel_aspect_source=excluded.pixel_aspect_source,resolution_confidence=excluded.resolution_confidence,
+            refresh_confidence=excluded.refresh_confidence,orientation_confidence=excluded.orientation_confidence,
+            pixel_aspect_confidence=excluded.pixel_aspect_confidence,fallback_used=excluded.fallback_used,
+            compared_at=excluded.compared_at""",
+            (
+                machine_id,
+                display_id,
+                resolved["width"],
+                resolved["height"],
+                resolved["refresh_hz"],
+                resolved["orientation"],
+                resolved["pixel_aspect_x"],
+                resolved["pixel_aspect_y"],
+                resolved["resolution_source"],
+                resolved["refresh_source"],
+                resolved["orientation_source"],
+                resolved["pixel_aspect_source"],
+                "authoritative" if resolved["resolution_source"] == "listxml" else "fallback",
+                "authoritative" if resolved["refresh_source"] == "listxml" else "fallback",
+                "authoritative" if resolved["orientation_source"] == "listxml" else "fallback",
+                "fallback" if resolved["pixel_aspect_source"] != "missing" else "missing",
+                fallback,
+                now,
+            ),
+        )
+
+    def _save_profile(
+        self,
+        connection,
+        machine_id: int,
+        display_id: int,
+        profile_version: str,
+        resolved: dict[str, object],
+        fallback: int,
+        status: str,
+        now: str,
+    ) -> None:
+        """Persiste a versão do perfil de display em mame_machine_display_profile."""
+        connection.execute(
+            """INSERT INTO mame_machine_display_profile
+            (machine_id,display_id,profile_version,width,height,refresh_hz,orientation,pixel_aspect_x,pixel_aspect_y,
+             source_resolution,source_refresh,source_orientation,source_pixel_aspect,fallback_used,status,generated_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(machine_id,display_id,profile_version) DO UPDATE SET
+            width=excluded.width,height=excluded.height,refresh_hz=excluded.refresh_hz,
+            orientation=excluded.orientation,pixel_aspect_x=excluded.pixel_aspect_x,
+            pixel_aspect_y=excluded.pixel_aspect_y,source_resolution=excluded.source_resolution,
+            source_refresh=excluded.source_refresh,source_orientation=excluded.source_orientation,
+            source_pixel_aspect=excluded.source_pixel_aspect,fallback_used=excluded.fallback_used,
+            status=excluded.status,generated_at=excluded.generated_at""",
+            (
+                machine_id,
+                display_id,
+                profile_version,
+                resolved["width"],
+                resolved["height"],
+                resolved["refresh_hz"],
+                resolved["orientation"],
+                resolved["pixel_aspect_x"],
+                resolved["pixel_aspect_y"],
+                resolved["resolution_source"],
+                resolved["refresh_source"],
+                resolved["orientation_source"],
+                resolved["pixel_aspect_source"],
+                fallback,
+                status,
+                now,
+            ),
+        )
+
+    @staticmethod
+    def _latest_import_id(connection) -> int:
+        """Retorna o último import de ListXML ou lança erro."""
+        latest = connection.execute(
+            "SELECT id FROM mame_listxml_import ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        if latest is None:
+            raise MameDisplayResolverError("Nenhum ListXML foi importado.")
+        return int(latest[0])
+
+    @staticmethod
+    def _load_facts(connection) -> dict[str, dict[str, tuple]]:
+        """Carrega os fatos mais recentes de cada fonte externa."""
+        sources = {
+            row[0]: row[1]
+            for row in connection.execute(
+                """SELECT source_name,id FROM mame_display_source
+                WHERE id IN (SELECT MAX(id) FROM mame_display_source GROUP BY source_name)"""
+            ).fetchall()
+        }
+        facts: dict[str, dict[str, tuple]] = {}
+        for source_name, source_id in sources.items():
+            facts[source_name] = {
+                row[0]: row[1:]
+                for row in connection.execute(
+                    """SELECT machine_name,resolution_width,resolution_height,refresh_hz,refresh_raw,
+                    orientation,pixel_aspect_x,pixel_aspect_y,raw_value,line_number
+                    FROM mame_external_display_fact WHERE source_id=?""",
+                    (source_id,),
+                ).fetchall()
+            }
+        return facts
+
+    @staticmethod
+    def _resolve_display_values(
+        width: int | None,
+        height: int | None,
+        refresh: float | None,
+        rotate: str | None,
+        resolution_fact: tuple | None,
+        vsync_fact: tuple | None,
+    ) -> dict[str, object]:
+        """Aplica precedência ListXML → fallback por campo."""
+        resolved_width, res_source = width, "listxml"
+        resolved_height = height
+        if (resolved_width is None or resolved_height is None) and resolution_fact:
+            if resolution_fact[0] is not None and resolution_fact[1] is not None:
+                resolved_width, resolved_height = resolution_fact[0], resolution_fact[1]
+                res_source = MameDisplayResolver.RESOLUTION_SOURCE
+
+            resolved_refresh, refresh_source = refresh, "listxml"
+        if resolved_refresh is None and vsync_fact and vsync_fact[2] is not None:
+            resolved_refresh, refresh_source = vsync_fact[2], MameDisplayResolver.VSYNC_SOURCE
+
+        resolved_orientation = MameDisplayResolver._orientation(rotate)
+        orientation_source = (
+            "listxml" if rotate is not None else MameDisplayResolver.RESOLUTION_SOURCE
+        )
+        if rotate is None and resolution_fact and resolution_fact[4]:
+            resolved_orientation = resolution_fact[4]
+
+        pixel_x = resolution_fact[5] if resolution_fact else None
+        pixel_y = resolution_fact[6] if resolution_fact else None
+        pixel_source = (
+            MameDisplayResolver.RESOLUTION_SOURCE
+            if pixel_x is not None and pixel_y is not None
+            else "missing"
+        )
+        return {
+            "width": resolved_width,
+            "height": resolved_height,
+            "refresh_hz": resolved_refresh,
+            "orientation": resolved_orientation,
+            "pixel_aspect_x": pixel_x,
+            "pixel_aspect_y": pixel_y,
+            "resolution_source": res_source,
+            "refresh_source": refresh_source,
+            "orientation_source": orientation_source,
+            "pixel_aspect_source": pixel_source,
+        }
 
     @staticmethod
     def _fact(
@@ -276,7 +389,7 @@ class MameDisplayResolver:
             return None
         return "vertical" if rotate in {"90", "270"} else "horizontal"
 
-    def _record_missing(self, connection, machine_id: int, machine_name: str, now: str) -> None:
+    def _record_missing(self, connection, machine_id: int, now: str) -> None:
         """Registra uma máquina sem display ListXML para auditoria posterior."""
         connection.execute(
             """INSERT INTO mame_machine_display_profile
@@ -309,13 +422,13 @@ class MameDisplayResolver:
                 f"{resolution_fact[0]}x{resolution_fact[1]}"
                 if resolution_fact and resolution_fact[0] and resolution_fact[1]
                 else None,
-                "resolution.ini",
+                MameDisplayResolver.RESOLUTION_SOURCE,
             ),
             (
                 "refresh",
                 str(refresh) if refresh is not None else None,
                 str(vsync_fact[2]) if vsync_fact and vsync_fact[2] is not None else None,
-                "Vsync.ini",
+                MameDisplayResolver.VSYNC_SOURCE,
             ),
         ]
         for field, a, b, source_b in checks:
@@ -337,6 +450,14 @@ class MameDisplayResolver:
     @classmethod
     def _parse_external(cls, text: str, source_name: str) -> list[ExternalDisplayFact]:
         """Aceita formatos INI, ``name=value`` e ``name widthxheight``."""
+        facts = cls._collect_external_facts(text)
+        return [
+            cls._build_external_fact(machine, payload, source_name)
+            for machine, payload in facts.items()
+        ]
+
+    @classmethod
+    def _collect_external_facts(cls, text: str) -> dict[str, dict[str, object]]:
         facts: dict[str, dict[str, object]] = {}
         section: str | None = None
         for line_number, raw in enumerate(text.splitlines(), 1):
@@ -357,24 +478,30 @@ class MameDisplayResolver:
             else:
                 payload["value"] = value
                 payload["line"] = line_number
-        result: list[ExternalDisplayFact] = []
-        for machine, payload in facts.items():
-            raw = str(payload.get("value", ""))
-            width, height = cls._resolution(payload.get("resolution") or payload.get("value"))
-            refresh = cls._number(payload.get("refresh"))
-            if refresh is None and source_name.lower() == "vsync.ini":
-                refresh = cls._number(payload.get("value"))
-            orientation = str(payload.get("orientation")) if payload.get("orientation") else None
-            aspect = str(payload.get("pixel_aspect")) if payload.get("pixel_aspect") else None
-            ax, ay = cls._aspect(aspect)
-            line_value = payload.get("line")
-            line_number = line_value if isinstance(line_value, int) else None
-            result.append(
-                ExternalDisplayFact(
-                    machine, width, height, refresh, orientation, ax, ay, raw, line_number
-                )
-            )
-        return result
+        return facts
+
+    @classmethod
+    def _build_external_fact(
+        cls, machine: str, payload: dict[str, object], source_name: str
+    ) -> ExternalDisplayFact:
+        raw = str(payload.get("value", ""))
+        width, height = cls._resolution(
+            payload.get("resolution") or payload.get("value")
+        )
+        refresh = cls._number(payload.get("refresh"))
+        if refresh is None and source_name.lower() == "vsync.ini":
+            refresh = cls._number(payload.get("value"))
+        orientation = cls._optional_text(payload.get("orientation"))
+        ax, ay = cls._aspect(cls._optional_text(payload.get("pixel_aspect")))
+        line_value = payload.get("line")
+        line_number = line_value if isinstance(line_value, int) else None
+        return ExternalDisplayFact(
+            machine, width, height, refresh, orientation, ax, ay, raw, line_number
+        )
+
+    @staticmethod
+    def _optional_text(value: object) -> str | None:
+        return str(value) if value else None
 
     @staticmethod
     def _split_line(line: str) -> tuple[str | None, str | None]:
@@ -392,7 +519,7 @@ class MameDisplayResolver:
         """Extrai ``width x height`` de uma string livre."""
         if value is None:
             return None, None
-        match = re.search(r"(\d+)\s*[xX×]\s*(\d+)", str(value))
+        match = re.search(r"(\d++)[ \t]*+[xX×][ \t]*+(\d++)", str(value))
         return (int(match.group(1)), int(match.group(2))) if match else (None, None)
 
     @staticmethod

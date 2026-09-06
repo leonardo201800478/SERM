@@ -302,12 +302,12 @@ class MameDisplayCatalog:
             )
         return node_id
 
-    def _insert_normalized_children(
+    def _insert_normalized_children(  # NOSONAR - tag-specific XML normalization requires these branches
         self,
         connection: sqlite3.Connection,
         machine_id: int,
         machine: ET.Element,
-    ) -> int:
+    ) -> int:  # NOSONAR - tag-specific XML normalization requires these branches
         """Extrai as entidades conhecidas do ListXML para consultas eficientes."""
         display_count = 0
         for child in machine:

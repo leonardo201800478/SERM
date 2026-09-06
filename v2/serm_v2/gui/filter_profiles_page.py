@@ -436,56 +436,74 @@ class FilterProfilesPage(QWidget):
             self.catalog_estimate.setText("Selecione um catálogo para calcular.")
             self.catalog_estimate_detail.setText("Nenhuma consulta executada.")
             return
-        source, system, dat_path = selected
+
+        source, _, dat_path = selected
         if source != "MAME":
-            if dat_path and Path(dat_path).is_file():
-                try:
-                    raw = Path(dat_path).read_text(encoding="utf-8", errors="ignore")
-                    games = raw.lower().count("<game ")
-                    self.catalog_estimate.setText(f"CATÁLOGO: {games:,} entradas")
-                    self.catalog_estimate_detail.setText(
-                        "Estimativa instantânea do DAT. Filtros específicos serão aplicados pelo scanner do sistema."
-                    )
-                except OSError as exc:
-                    self.catalog_estimate.setText("CATÁLOGO: indisponível")
-                    self.catalog_estimate_detail.setText(f"Não foi possível ler o DAT: {exc}")
-            else:
-                self.catalog_estimate.setText("CATÁLOGO: aguardando DAT")
-                self.catalog_estimate_detail.setText(
-                    "Baixe/importе o catálogo para habilitar a estimativa."
-                )
+            self._update_non_mame_catalog_estimate(dat_path)
             return
+
         profile = self._current_profile()
         if profile is None:
             return
+
         estimate = RomScanService().estimate_mame(profile, database=self._database_path())
+        self._apply_mame_catalog_estimate(estimate)
+
+    def _update_non_mame_catalog_estimate(self, dat_path: str | None) -> None:
+        if not dat_path or not Path(dat_path).is_file():
+            self.catalog_estimate.setText("CATÁLOGO: aguardando DAT")
+            self.catalog_estimate_detail.setText(
+                "Baixe/importе o catálogo para habilitar a estimativa."
+            )
+            return
+
+        try:
+            raw = Path(dat_path).read_text(encoding="utf-8", errors="ignore")
+            games = raw.lower().count("<game ")
+            self.catalog_estimate.setText(f"CATÁLOGO: {games:,} entradas")
+            self.catalog_estimate_detail.setText(
+                "Estimativa instantânea do DAT. Filtros específicos serão aplicados pelo scanner do sistema."
+            )
+        except OSError as exc:
+            self.catalog_estimate.setText("CATÁLOGO: indisponível")
+            self.catalog_estimate_detail.setText(f"Não foi possível ler o DAT: {exc}")
+
+    def _apply_mame_catalog_estimate(self, estimate: dict) -> None:
         error = estimate.get("error")
         if error:
             self.catalog_estimate.setText("CATÁLOGO MAME: indisponível")
             self.catalog_estimate_detail.setText(f"Erro ao calcular: {error}")
             return
-        def as_int(value: object) -> int:
-            if value is None:
-                return 0
-            if isinstance(value, bool):
-                return int(value)
-            if isinstance(value, (int, float)):
-                return int(value)
-            if isinstance(value, str):
-                try:
-                    return int(value)
-                except ValueError:
-                    return 0
-            return 0
+
+        roms = self._estimate_count(estimate.get("roms"))
+        machines = self._estimate_count(estimate.get("machines"))
+        optional = self._estimate_count(estimate.get("optional_roms"))
+        disks = self._estimate_count(estimate.get("disks"))
+        catalog_roms = self._estimate_count(estimate.get("catalog_roms"))
 
         self.catalog_estimate.setText(
-            f"ROMs selecionadas: {as_int(estimate.get('roms')):,}  •  máquinas: {as_int(estimate.get('machines')):,}"
+            f"ROMs selecionadas: {roms:,}  •  máquinas: {machines:,}"
         )
         details = (
-            f"Opcionais: {as_int(estimate.get('optional_roms')):,}  •  CHDs/disks: {as_int(estimate.get('disks')):,}  •  "
-            f"SET: {estimate.get('set_type', 'split')}  •  catálogo total: {as_int(estimate.get('catalog_roms')):,} ROMs"
+            f"Opcionais: {optional:,}  •  CHDs/disks: {disks:,}  •  "
+            f"SET: {estimate.get('set_type', 'split')}  •  catálogo total: {catalog_roms:,} ROMs"
         )
         self.catalog_estimate_detail.setText(details)
+
+    @staticmethod
+    def _estimate_count(value: object) -> int:
+        if value is None:
+            return 0
+        if isinstance(value, bool):
+            return int(value)
+        if isinstance(value, (int, float)):
+            return int(value)
+        if isinstance(value, str):
+            try:
+                return int(value)
+            except ValueError:
+                return 0
+        return 0
 
     def _selected_item_data(self):
         item = self.source_tree.currentItem()
@@ -663,28 +681,30 @@ class FilterProfilesPage(QWidget):
         profile = next((p for p in self._read_profiles() if p.profile_id == profile_id), None)
         if profile is None:
             return
+        item = self._find_profile_source_item(profile)
+        if item is None:
+            return
+        self.source_tree.setCurrentItem(item)
+        self._current_saved_profile = profile
+        self._load_profile(profile)
+        self._configure_source_controls(profile.source)
+        self._schedule_catalog_estimate()
+
+    def _find_profile_source_item(self, profile):
+        target = (profile.source, profile.system, profile.dat_path)
         for i in range(self.source_tree.topLevelItemCount()):
             root = self.source_tree.topLevelItem(i)
             if root is None:
                 continue
-            candidates = [root]
-            for n in range(root.childCount()):
-                child = root.child(n)
-                if child is not None:
-                    candidates.append(child)
-            for item in candidates:
-                data = item.data(0, Qt.ItemDataRole.UserRole)
-                if isinstance(data, (tuple, list)) and tuple(data) == (
-                    profile.source,
-                    profile.system,
-                    profile.dat_path,
-                ):
-                    self.source_tree.setCurrentItem(item)
-                    self._current_saved_profile = profile
-                    self._load_profile(profile)
-                    self._configure_source_controls(profile.source)
-                    self._schedule_catalog_estimate()
-                    return
+            for item in [root] + [root.child(n) for n in range(root.childCount())]:
+                if item is not None and self._matches_profile_source(item, target):
+                    return item
+        return None
+
+    @staticmethod
+    def _matches_profile_source(item, target):
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        return isinstance(data, (tuple, list)) and tuple(data) == target
 
     def _profile_name_changed(self) -> None:
         name = self.profile_name.text().strip()

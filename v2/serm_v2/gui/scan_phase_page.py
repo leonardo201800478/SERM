@@ -31,6 +31,8 @@ from ..services.rom_scan_engine import StableRomScanService
 from ..services.rom_scan_service import RomScanService
 from ..services.scan_repository import ScanRepository
 
+DIRECTORIES_DIALOG_TITLE = "Diretórios"
+
 
 @dataclass(frozen=True, slots=True)
 class ScanTarget:
@@ -304,7 +306,7 @@ class _SystemScanTab(QWidget):
         if self.source_list.count() >= self.MAX_SOURCES:
             QMessageBox.information(
                 self,
-                "Diretórios",
+                DIRECTORIES_DIALOG_TITLE,
                 f"O limite é de {self.MAX_SOURCES} diretórios por scan.",
             )
             return
@@ -316,7 +318,7 @@ class _SystemScanTab(QWidget):
             if Path(self.source_list.item(index).text()).resolve() == Path(path):
                 QMessageBox.information(
                     self,
-                    "Diretórios",
+                    DIRECTORIES_DIALOG_TITLE,
                     "Esse diretório já está configurado.",
                 )
                 return
@@ -328,7 +330,7 @@ class _SystemScanTab(QWidget):
         if row < 0:
             QMessageBox.information(
                 self,
-                "Diretórios",
+                DIRECTORIES_DIALOG_TITLE,
                 "Selecione um diretório para remover.",
             )
             return

@@ -67,56 +67,12 @@ class ReconstructionService:
     def plan(cls, filter_path: str | Path, destination: str | Path) -> ReconstructionPlan:
         payload = cls.load_filter(filter_path)
         dest = Path(destination).expanduser().resolve()
-        grouped: OrderedDict[str, list[dict]] = OrderedDict()
-        loose: list[dict] = []
-        for evidence in payload["evidence"]:
-            if not isinstance(evidence, dict):
-                continue
-            archive = str(evidence.get("archive_path") or "").strip()
-            path = str(evidence.get("path") or "").strip()
-            member = str(evidence.get("archive_member") or "").strip() or None
-            source = archive or path
-            if not source:
-                continue
-            if archive and member:
-                grouped.setdefault(source, []).append(evidence)
-            else:
-                loose.append(evidence)
-
-        items: list[ReconstructionItem] = []
-        seen_archive_outputs: set[str] = set()
-        archive_count = 0
-        for source, entries in grouped.items():
-            src = Path(source)
-            output = dest / src.name
-            output_key = str(output).casefold()
-            if output_key in seen_archive_outputs:
-                continue
-            seen_archive_outputs.add(output_key)
-            archive_count += 1
-            for entry in entries:
-                member = str(entry.get("archive_member") or "").replace("\\", "/")
-                items.append(ReconstructionItem(str(src), member, str(output), "archive"))
-
-        loose_count = 0
-        chd_count = 0
-        used_outputs = set(seen_archive_outputs)
-        for entry in loose:
-            src_text = str(entry.get("path") or "").strip()
-            if not src_text:
-                continue
-            src = Path(src_text).expanduser()
-            output = dest / src.name
-            key = str(output).casefold()
-            if key in used_outputs:
-                continue
-            used_outputs.add(key)
-            kind = "chd" if src.suffix.casefold() == ".chd" else "loose"
-            if kind == "chd":
-                chd_count += 1
-            else:
-                loose_count += 1
-            items.append(ReconstructionItem(str(src), None, str(output), kind))
+        grouped, loose = cls._group_evidence(payload["evidence"])
+        items, archive_count, seen_outputs = cls._plan_archive_items(grouped, dest)
+        loose_items, loose_count, chd_count = cls._plan_loose_items(
+            loose, dest, seen_outputs
+        )
+        items.extend(loose_items)
 
         return ReconstructionPlan(
             filter_run_id=str(payload.get("filter_run_id") or ""),
@@ -134,6 +90,70 @@ class ReconstructionService:
             items=tuple(items),
         )
 
+    @staticmethod
+    def _group_evidence(evidence: list) -> tuple[OrderedDict[str, list[dict]], list[dict]]:
+        grouped: OrderedDict[str, list[dict]] = OrderedDict()
+        loose: list[dict] = []
+        for entry in evidence:
+            if not isinstance(entry, dict):
+                continue
+            archive = str(entry.get("archive_path") or "").strip()
+            path = str(entry.get("path") or "").strip()
+            member = str(entry.get("archive_member") or "").strip() or None
+            source = archive or path
+            if not source:
+                continue
+            if archive and member:
+                grouped.setdefault(source, []).append(entry)
+            else:
+                loose.append(entry)
+        return grouped, loose
+
+    @staticmethod
+    def _plan_archive_items(
+        grouped: OrderedDict[str, list[dict]], dest: Path
+    ) -> tuple[list[ReconstructionItem], int, set[str]]:
+        items: list[ReconstructionItem] = []
+        seen_archive_outputs: set[str] = set()
+        archive_count = 0
+        for source, entries in grouped.items():
+            src = Path(source)
+            output = dest / src.name
+            output_key = str(output).casefold()
+            if output_key in seen_archive_outputs:
+                continue
+            seen_archive_outputs.add(output_key)
+            archive_count += 1
+            for entry in entries:
+                member = str(entry.get("archive_member") or "").replace("\\", "/")
+                items.append(ReconstructionItem(str(src), member, str(output), "archive"))
+        return items, archive_count, seen_archive_outputs
+
+    @staticmethod
+    def _plan_loose_items(
+        loose: list[dict], dest: Path, used_outputs: set[str]
+    ) -> tuple[list[ReconstructionItem], int, int]:
+        items: list[ReconstructionItem] = []
+        loose_count = 0
+        chd_count = 0
+        for entry in loose:
+            src_text = str(entry.get("path") or "").strip()
+            if not src_text:
+                continue
+            src = Path(src_text).expanduser()
+            output = dest / src.name
+            key = str(output).casefold()
+            if key in used_outputs:
+                continue
+            used_outputs.add(key)
+            kind = "chd" if src.suffix.casefold() == ".chd" else "loose"
+            if kind == "chd":
+                chd_count += 1
+            else:
+                loose_count += 1
+            items.append(ReconstructionItem(str(src), None, str(output), kind))
+        return items, loose_count, chd_count
+
     @classmethod
     def execute(
         cls,
@@ -146,46 +166,16 @@ class ReconstructionService:
         destination.mkdir(parents=True, exist_ok=True)
         if not plan.items:
             raise ReconstructionError("O plano não contém arquivos físicos para reconstruir.")
-        archive_groups: OrderedDict[tuple[str, str], list[str]] = OrderedDict()
-        loose_items: list[ReconstructionItem] = []
-        for item in plan.items:
-            if item.kind == "archive":
-                archive_groups.setdefault((item.source_path, item.output_path), []).append(
-                    item.archive_member or ""
-                )
-            else:
-                loose_items.append(item)
+        archive_groups, loose_items = cls._group_execution_items(plan.items)
         total = len(archive_groups) + len(loose_items)
-        done = 0
         created: list[str] = []
         errors: list[str] = []
-        for (source_text, output_text), members in archive_groups.items():
-            if cancel_callback and cancel_callback():
-                raise ReconstructionError("Reconstrução cancelada pelo usuário.")
-            try:
-                cls._rebuild_archive(Path(source_text), Path(output_text), members)
-                created.append(output_text)
-            except Exception as exc:  # noqa: BLE001
-                errors.append(f"{source_text}: {type(exc).__name__}: {exc}")
-            done += 1
-            if progress_callback:
-                progress_callback(done, total)
-        for item in loose_items:
-            if cancel_callback and cancel_callback():
-                raise ReconstructionError("Reconstrução cancelada pelo usuário.")
-            try:
-                source = Path(item.source_path)
-                output = Path(item.output_path)
-                if not source.is_file():
-                    raise FileNotFoundError(source)
-                output.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(source, output)
-                created.append(str(output))
-            except Exception as exc:  # noqa: BLE001
-                errors.append(f"{item.source_path}: {type(exc).__name__}: {exc}")
-            done += 1
-            if progress_callback:
-                progress_callback(done, total)
+        done = cls._execute_archives(
+            archive_groups, created, errors, total, progress_callback, cancel_callback
+        )
+        cls._execute_loose_items(
+            loose_items, created, errors, done, total, progress_callback, cancel_callback
+        )
         if errors:
             raise ReconstructionError(
                 "Reconstrução concluída com erros:\n" + "\n".join(errors[:20])
@@ -197,6 +187,81 @@ class ReconstructionService:
             "created_count": len(created),
             "created": created,
         }
+
+    @staticmethod
+    def _group_execution_items(
+        items: tuple[ReconstructionItem, ...],
+    ) -> tuple[OrderedDict[tuple[str, str], list[str]], list[ReconstructionItem]]:
+        archives: OrderedDict[tuple[str, str], list[str]] = OrderedDict()
+        loose: list[ReconstructionItem] = []
+        for item in items:
+            if item.kind == "archive":
+                archives.setdefault((item.source_path, item.output_path), []).append(
+                    item.archive_member or ""
+                )
+            else:
+                loose.append(item)
+        return archives, loose
+
+    @classmethod
+    def _execute_archives(
+        cls,
+        groups: OrderedDict[tuple[str, str], list[str]],
+        created: list[str],
+        errors: list[str],
+        total: int,
+        progress_callback: Callable[[int, int], None] | None,
+        cancel_callback: Callable[[], bool] | None,
+    ) -> int:
+        done = 0
+        for (source_text, output_text), members in groups.items():
+            cls._raise_if_cancelled(cancel_callback)
+            try:
+                cls._rebuild_archive(Path(source_text), Path(output_text), members)
+                created.append(output_text)
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"{source_text}: {type(exc).__name__}: {exc}")
+            done += 1
+            cls._report_progress(progress_callback, done, total)
+        return done
+
+    @classmethod
+    def _execute_loose_items(
+        cls,
+        items: list[ReconstructionItem],
+        created: list[str],
+        errors: list[str],
+        done: int,
+        total: int,
+        progress_callback: Callable[[int, int], None] | None,
+        cancel_callback: Callable[[], bool] | None,
+    ) -> None:
+        for item in items:
+            cls._raise_if_cancelled(cancel_callback)
+            try:
+                source = Path(item.source_path)
+                output = Path(item.output_path)
+                if not source.is_file():
+                    raise FileNotFoundError(source)
+                output.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, output)
+                created.append(str(output))
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"{item.source_path}: {type(exc).__name__}: {exc}")
+            done += 1
+            cls._report_progress(progress_callback, done, total)
+
+    @staticmethod
+    def _raise_if_cancelled(cancel_callback: Callable[[], bool] | None) -> None:
+        if cancel_callback and cancel_callback():
+            raise ReconstructionError("Reconstrução cancelada pelo usuário.")
+
+    @staticmethod
+    def _report_progress(
+        progress_callback: Callable[[int, int], None] | None, done: int, total: int
+    ) -> None:
+        if progress_callback:
+            progress_callback(done, total)
 
     @staticmethod
     def _rebuild_archive(source: Path, output: Path, members: list[str]) -> None:

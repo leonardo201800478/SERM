@@ -83,7 +83,7 @@ class LaunchBoxIntegration:
                 data = json.loads(self.CONFIG_PATH.read_text(encoding="utf-8"))
                 value = data.get("executable")
                 return Path(value) if value else None
-        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        except (OSError, ValueError, TypeError):
             pass
         return None
 

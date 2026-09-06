@@ -288,31 +288,37 @@ class EmulatorHomePage(QWidget):
         paths = self._load_paths()
         channel = paths.get("retroarch_channel")
         self._retro_channel = str(channel) if channel else "stable"
-        if hasattr(self, "retro_stable"):
-            self.retro_stable.blockSignals(True)
-            self.retro_nightly.blockSignals(True)
-            self.retro_stable.setChecked(self._retro_channel == "stable")
-            self.retro_nightly.setChecked(self._retro_channel == "nightly")
-            self.retro_stable.blockSignals(False)
-            self.retro_nightly.blockSignals(False)
+        self._refresh_retro_channel_controls()
+        self._refresh_emulator_cards()
+        self.seven_zip.setText(f"7-Zip: {self.manager.find_7zip() or 'não encontrado'}")
+        self._refresh_retroarch()
 
+    def _refresh_retro_channel_controls(self) -> None:
+        if not hasattr(self, "retro_stable"):
+            return
+        self.retro_stable.blockSignals(True)
+        self.retro_nightly.blockSignals(True)
+        self.retro_stable.setChecked(self._retro_channel == "stable")
+        self.retro_nightly.setChecked(self._retro_channel == "nightly")
+        self.retro_stable.blockSignals(False)
+        self.retro_nightly.blockSignals(False)
+
+    def _refresh_emulator_cards(self) -> None:
         for key, status in self.manager.discover().items():
             card = self.cards[key]
             stored_version = self.manager.roots.get(f"{key}_version")
             version = status.version or (str(stored_version) if stored_version else None)
-            if status.state == "ready":
-                text, color = "● Pronto", "#55d66b"
-            elif status.state == "configured":
-                text, color = "● Diretório configurado; executável ausente", "#e5c454"
-            else:
-                text, color = "● Não configurado", "#999"
+            text, color = {
+                "ready": ("● Pronto", "#55d66b"),
+                "configured": ("● Diretório configurado; executável ausente", "#e5c454"),
+            }.get(status.state, ("● Não configurado", "#999"))
             card[0].setText(text)
             card[0].setStyleSheet(f"color:{color};font-weight:bold;")
             card[1].setText(f"Versão instalada: {version or 'não detectada'}")
             card[2].setText(f"Instalação: {status.root or 'não configurada'}")
             card[4].setEnabled(self.worker is None)
 
-        self.seven_zip.setText(f"7-Zip: {self.manager.find_7zip() or 'não encontrado'}")
+    def _refresh_retroarch(self) -> None:
         executable, root, cores = self.retroarch.discover()
         version = self.retroarch.detect_version(executable)
         self.retro_status.setText("● Pronto" if executable else "● Não configurado")
@@ -536,13 +542,12 @@ class EmulatorHomePage(QWidget):
                     installed_count += 1
                 if state == "update":
                     update_count += 1
-                marker = (
-                    "[ATUALIZADO]"
-                    if state == "current"
-                    else "[ATUALIZAÇÃO]"
-                    if state == "update"
-                    else "[NOVO]"
-                )
+                if state == "current":
+                    marker = "[ATUALIZADO]"
+                elif state == "update":
+                    marker = "[ATUALIZAÇÃO]"
+                else:
+                    marker = "[NOVO]"
                 item = QListWidgetItem(
                     f"{marker} {core.core_name} | {core.date} | CRC {core.crc32}"
                 )

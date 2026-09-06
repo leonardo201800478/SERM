@@ -31,6 +31,8 @@ from ..services.scan_filter_service import ScanFilterService
 from ..services.scan_repository import ScanRepository
 from .filter_profiles_page import FilterProfileData
 
+NO_SCAN_SELECTED_TEXT = "Nenhum scan selecionado."
+
 
 class _GenericFilterTab(QWidget):
     """Filtro mínimo e seguro para fontes sem regras específicas ainda definidas."""
@@ -56,7 +58,7 @@ class _GenericFilterTab(QWidget):
         self.scan_combo = QComboBox()
         self.scan_combo.currentIndexChanged.connect(self._changed)
         form.addWidget(self.scan_combo)
-        self.info = QLabel("Nenhum scan selecionado.")
+        self.info = QLabel(NO_SCAN_SELECTED_TEXT)
         self.info.setWordWrap(True)
         form.addWidget(self.info)
         layout.addWidget(box)
@@ -118,7 +120,7 @@ class _GenericFilterTab(QWidget):
     def _counts(data: dict) -> dict:
         try:
             return json.loads(data.get("status_counts_json") or "{}")
-        except (TypeError, ValueError, json.JSONDecodeError):
+        except (TypeError, ValueError):
             return {}
 
     def _preview(self) -> None:
@@ -136,7 +138,7 @@ class _GenericFilterTab(QWidget):
             self.preview.setText(
                 f"Preview: entrada={len(evidence):,} | saída={len(selected):,} | excluídas={len(evidence) - len(selected):,}"
             )
-        except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        except (OSError, ValueError, TypeError) as exc:
             self.preview.setText(f"Preview indisponível: {exc}")
 
     def _keep(self, evidence: dict) -> bool:
@@ -199,7 +201,7 @@ class _GenericFilterTab(QWidget):
             self.result.setText(
                 f"ARQUIVO FILTRADO GERADO\n{out}\nentrada={source_count:,} | saída={len(evidence):,}"
             )
-        except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        except (OSError, ValueError, TypeError) as exc:
             QMessageBox.critical(self, "Filtragem", f"Falha ao gerar arquivo filtrado:\n{exc}")
 
 
@@ -227,7 +229,7 @@ class _MameFilterTab(QWidget):
         self.scan_combo = QComboBox()
         self.scan_combo.currentIndexChanged.connect(self._scan_changed)
         v.addWidget(self.scan_combo)
-        self.scan_info = QLabel("Nenhum scan selecionado.")
+        self.scan_info = QLabel(NO_SCAN_SELECTED_TEXT)
         self.scan_info.setWordWrap(True)
         v.addWidget(self.scan_info)
         layout.addWidget(box)
@@ -321,7 +323,7 @@ class _MameFilterTab(QWidget):
                             )
                         except (TypeError, ValueError):
                             pass
-        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        except (OSError, ValueError, TypeError):
             pass
         self.profile_combo.blockSignals(True)
         self.profile_combo.clear()
@@ -335,7 +337,7 @@ class _MameFilterTab(QWidget):
     def _status_count(data: dict, status: str) -> int:
         try:
             return int(json.loads(data.get("status_counts_json") or "{}").get(status, 0))
-        except (TypeError, ValueError, json.JSONDecodeError):
+        except (TypeError, ValueError):
             return 0
 
     def _scan_changed(self, *_args) -> None:
@@ -412,7 +414,7 @@ class _MameFilterTab(QWidget):
                             )
                         except (TypeError, ValueError):
                             pass
-        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        except (OSError, ValueError, TypeError):
             pass
         profiles = [item for item in profiles if item.profile_id != profile.profile_id]
         profiles.append(profile)

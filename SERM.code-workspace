@@ -9,6 +9,7 @@
 		"python.defaultInterpreterPath": "${workspaceFolder}\\v2\\.venv\\Scripts\\python.exe",
 		"python.terminal.activateEnvironment": true,
 		"terminal.integrated.cwd": "${workspaceFolder}\\v2",
-		"python.testing.cwd": "${workspaceFolder}\\v2"
+		"python.testing.cwd": "${workspaceFolder}\\v2",
+		"wolf.disableHotModeWarning": true
 	}
 }

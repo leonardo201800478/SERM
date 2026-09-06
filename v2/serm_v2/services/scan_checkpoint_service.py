@@ -28,7 +28,7 @@ class ScanCheckpointService:
         try:
             with path.open("r", encoding="utf-8") as stream:
                 header = json.loads(stream.readline())
-        except (OSError, ValueError, UnicodeDecodeError):
+        except (OSError, ValueError):
             return False
         if header.get("record_type") != "header":
             return False
@@ -83,24 +83,25 @@ class ScanCheckpointService:
         return None
 
     @classmethod
-    def summary(cls, profile) -> dict[str, object] | None:
-        path = cls.latest(profile)
-        if path is None:
-            return None
+    def _checkpoint_summary(cls, path: Path) -> dict[str, object] | None:
         checkpoint = cls._checkpoint_path(path)
-        if checkpoint.is_file():
-            try:
-                payload = json.loads(checkpoint.read_text(encoding="utf-8"))
-                if payload.get("format") == "SERM-SCAN-CHECKPOINT-V2":
-                    return {
-                        "path": path,
-                        "completed": int(payload.get("completed_count", 0)),
-                        "last_machine": str((payload.get("completed_machines") or [""])[-1]),
-                        "status": "cancelado" if payload.get("cancelled") else "incompleto",
-                    }
-            except (OSError, ValueError, TypeError, IndexError):
-                pass
+        if not checkpoint.is_file():
+            return None
+        try:
+            payload = json.loads(checkpoint.read_text(encoding="utf-8"))
+            if payload.get("format") != "SERM-SCAN-CHECKPOINT-V2":
+                return None
+            return {
+                "path": path,
+                "completed": int(payload.get("completed_count", 0)),
+                "last_machine": str((payload.get("completed_machines") or [""])[-1]),
+                "status": "cancelado" if payload.get("cancelled") else "incompleto",
+            }
+        except (OSError, ValueError, TypeError, IndexError):
+            return None
 
+    @staticmethod
+    def _legacy_summary(path: Path) -> dict[str, object] | None:
         completed = 0
         last_machine = ""
         status = "incompleto"
@@ -125,6 +126,13 @@ class ScanCheckpointService:
             "last_machine": last_machine,
             "status": status,
         }
+
+    @classmethod
+    def summary(cls, profile) -> dict[str, object] | None:
+        path = cls.latest(profile)
+        if path is None:
+            return None
+        return cls._checkpoint_summary(path) or cls._legacy_summary(path)
 
     @classmethod
     def archive_latest(cls, profile) -> Path | None:

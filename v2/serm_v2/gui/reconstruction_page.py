@@ -26,6 +26,8 @@ from ..services.reconstruction_service import (
     ReconstructionService,
 )
 
+_RECONSTRUCTION_TITLE = "Reconstrução"
+
 
 class _ReconstructionWorker(QThread):
     progress = Signal(int, int)
@@ -154,7 +156,7 @@ class ReconstructionPage(QWidget):
         try:
             payload = ReconstructionService.load_filter(path)
         except ReconstructionError as exc:
-            QMessageBox.warning(self, "Reconstrução", str(exc))
+            QMessageBox.warning(self, _RECONSTRUCTION_TITLE, str(exc))
             return
         self._filter_path = Path(path).resolve()
         self.filter_label.setText(str(self._filter_path))
@@ -181,17 +183,19 @@ class ReconstructionPage(QWidget):
 
     def generate_plan(self) -> None:
         if self._filter_path is None:
-            QMessageBox.information(self, "Reconstrução", "Selecione um arquivo filtrado primeiro.")
+            QMessageBox.information(
+                self, _RECONSTRUCTION_TITLE, "Selecione um arquivo filtrado primeiro."
+            )
             return
         if self._destination is None:
             QMessageBox.information(
-                self, "Reconstrução", "Escolha o diretório de destino primeiro."
+                self, _RECONSTRUCTION_TITLE, "Escolha o diretório de destino primeiro."
             )
             return
         try:
             self._plan = ReconstructionService.plan(self._filter_path, self._destination)
         except ReconstructionError as exc:
-            QMessageBox.warning(self, "Reconstrução", str(exc))
+            QMessageBox.warning(self, _RECONSTRUCTION_TITLE, str(exc))
             return
         self.plan_list.clear()
         for item in self._plan.items[:500]:

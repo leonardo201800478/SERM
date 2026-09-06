@@ -69,7 +69,9 @@ class StableRomScanService(RomScanService):
 
     def _hash_stream(self, stream):
         crc = 0
-        digest = hashlib.sha1()
+        # SHA1 is used here as a content fingerprint for scan/cache integrity,
+        # not for security-sensitive validation.
+        digest = hashlib.sha1(usedforsecurity=False)
         total = 0
         while True:
             self._checkpoint_control()
@@ -190,7 +192,7 @@ class StableRomScanService(RomScanService):
             stream.flush()
         target.replace(path)
 
-    def _scan_mame_resumable(self, profile, db_path, resume=True):
+    def _scan_mame_resumable(self, profile, db_path, resume=True):  # NOSONAR - orchestration is intentionally kept in one transactional workflow
         with sqlite3.connect(db_path) as c:
             latest = c.execute(
                 "SELECT id,source_hash,mame_build FROM mame_listxml_import ORDER BY imported_at DESC,id DESC LIMIT 1"
@@ -399,25 +401,8 @@ class StableRomScanService(RomScanService):
         for path in sorted(
             root.glob("scan_*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True
         ):
-            try:
-                with path.open("r", encoding="utf-8") as s:
-                    header = json.loads(s.readline())
-            except (OSError, ValueError, UnicodeDecodeError):
-                continue
-            if header.get("record_type") != "header":
-                continue
-            if (
-                str(header.get("profile_id")) != str(profile.profile_id)
-                or str(header.get("source")).casefold() != str(profile.source).casefold()
-                or str(header.get("system")) != str(profile.system)
-            ):
-                continue
-            if (
-                str(header.get("scan_type")) != str(result.scan_type)
-                or str(header.get("catalog_hash")) != str(result.catalog_hash)
-                or str(header.get("catalog_label")) != str(result.catalog_label)
-                or header.get("source_paths") != wanted
-            ):
+            header = self._read_stream_header(path)
+            if not header or not self._resume_header_matches(header, result, profile, wanted):
                 continue
             completed = self._read_checkpoint(path, machines)
             if not completed:
@@ -434,6 +419,27 @@ class StableRomScanService(RomScanService):
             )
             return path, completed
         return self._create_new_stream(result, profile, sources, machines)
+
+    @staticmethod
+    def _read_stream_header(path):
+        try:
+            with path.open("r", encoding="utf-8") as stream:
+                return json.loads(stream.readline())
+        except (OSError, ValueError):
+            return None
+
+    @staticmethod
+    def _resume_header_matches(header, result, profile, wanted):
+        return (
+            header.get("record_type") == "header"
+            and str(header.get("profile_id")) == str(profile.profile_id)
+            and str(header.get("source")).casefold() == str(profile.source).casefold()
+            and str(header.get("system")) == str(profile.system)
+            and str(header.get("scan_type")) == str(result.scan_type)
+            and str(header.get("catalog_hash")) == str(result.catalog_hash)
+            and str(header.get("catalog_label")) == str(result.catalog_label)
+            and header.get("source_paths") == wanted
+        )
 
     @classmethod
     def _read_checkpoint(cls, path: Path, machines) -> set[str]:

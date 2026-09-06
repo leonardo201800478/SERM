@@ -16,7 +16,7 @@ class MameCatalogIngestor:
         self.db_path = db_path or database_path()
         self.service = MameCatalogService(logger=logger)
 
-    def ingest(self, executable: str | Path, **kwargs) -> dict[str, object]:
+    def ingest(self, **kwargs) -> dict[str, object]:
         """Importa o ListXML completo sem gerar profiles."""
         return self.service.ingest(
             timeout=float(kwargs.get("timeout", 180.0)), force=bool(kwargs.get("force", False))

@@ -314,50 +314,8 @@ class MameCatalogNormalizer:
         totals: dict[str, int | float],
     ) -> None:
         """Persiste configurações, portas, drivers, slots, devices e listas de software."""
-        for element in machine.findall("dipswitch"):
-            a = element.attrib
-            cur = db.execute(
-                "INSERT INTO mame_dipswitch(machine_id,name,tag,mask,value,default_value) VALUES(?,?,?,?,?,?)",
-                (
-                    machine_id,
-                    a.get("name"),
-                    a.get("tag"),
-                    a.get("mask"),
-                    a.get("value"),
-                    a.get("default"),
-                ),
-            )
-            did = require_lastrowid(cur.lastrowid)
-            totals["dipswitches"] += 1
-            for value in element.findall("dipvalue"):
-                v = value.attrib
-                db.execute(
-                    "INSERT INTO mame_dipvalue(dipswitch_id,name,value,description) VALUES(?,?,?,?)",
-                    (did, v.get("name"), v.get("value"), v.get("description")),
-                )
-                totals["dipvalues"] += 1
-        for element in machine.findall("configuration"):
-            a = element.attrib
-            cur = db.execute(
-                "INSERT INTO mame_configuration(machine_id,name,tag,mask,value,default_value) VALUES(?,?,?,?,?,?)",
-                (
-                    machine_id,
-                    a.get("name"),
-                    a.get("tag"),
-                    a.get("mask"),
-                    a.get("value"),
-                    a.get("default"),
-                ),
-            )
-            cid = require_lastrowid(cur.lastrowid)
-            totals["configurations"] += 1
-            for value in element.findall("confsetting"):
-                v = value.attrib
-                db.execute(
-                    "INSERT INTO mame_confsetting(configuration_id,name,value) VALUES(?,?,?)",
-                    (cid, v.get("name"), v.get("value")),
-                )
-                totals["confsettings"] += 1
+        self._insert_dipswitches(db, machine_id, machine, totals)
+        self._insert_configurations(db, machine_id, machine, totals)
         for element in machine.findall("port"):
             a = element.attrib
             db.execute(
@@ -445,6 +403,68 @@ class MameCatalogNormalizer:
                 (machine_id, a.get("name"), a.get("default")),
             )
             totals["ramoptions"] += 1
+
+    def _insert_dipswitches(
+        self,
+        db: sqlite3.Connection,
+        machine_id: int,
+        machine: ET.Element,
+        totals: dict[str, int | float],
+    ) -> None:
+        """Persiste dipswitches e seus valores."""
+        for element in machine.findall("dipswitch"):
+            a = element.attrib
+            cur = db.execute(
+                "INSERT INTO mame_dipswitch(machine_id,name,tag,mask,value,default_value) VALUES(?,?,?,?,?,?)",
+                (
+                    machine_id,
+                    a.get("name"),
+                    a.get("tag"),
+                    a.get("mask"),
+                    a.get("value"),
+                    a.get("default"),
+                ),
+            )
+            did = require_lastrowid(cur.lastrowid)
+            totals["dipswitches"] += 1
+            for value in element.findall("dipvalue"):
+                v = value.attrib
+                db.execute(
+                    "INSERT INTO mame_dipvalue(dipswitch_id,name,value,description) VALUES(?,?,?,?)",
+                    (did, v.get("name"), v.get("value"), v.get("description")),
+                )
+                totals["dipvalues"] += 1
+
+    def _insert_configurations(
+        self,
+        db: sqlite3.Connection,
+        machine_id: int,
+        machine: ET.Element,
+        totals: dict[str, int | float],
+    ) -> None:
+        """Persiste configurações e seus valores."""
+        for element in machine.findall("configuration"):
+            a = element.attrib
+            cur = db.execute(
+                "INSERT INTO mame_configuration(machine_id,name,tag,mask,value,default_value) VALUES(?,?,?,?,?,?)",
+                (
+                    machine_id,
+                    a.get("name"),
+                    a.get("tag"),
+                    a.get("mask"),
+                    a.get("value"),
+                    a.get("default"),
+                ),
+            )
+            cid = require_lastrowid(cur.lastrowid)
+            totals["configurations"] += 1
+            for value in element.findall("confsetting"):
+                v = value.attrib
+                db.execute(
+                    "INSERT INTO mame_confsetting(configuration_id,name,value) VALUES(?,?,?)",
+                    (cid, v.get("name"), v.get("value")),
+                )
+                totals["confsettings"] += 1
 
     @staticmethod
     def _int(value: str | None) -> int | None:

@@ -53,10 +53,46 @@ class NoIntroScanService:
 
     def scan(self, profile) -> ScanResult:
         started = time.time()
+        dat_path = self._resolve_dat_path(profile)
+        sources = self._resolve_sources(profile)
+        expected, header = self._load_dat(dat_path)
+        if not expected:
+            raise NoIntroScanError(f"Nenhuma ROM encontrada no DAT: {dat_path}")
+
+        result = self._build_result(profile, dat_path, header, started)
+        stream_path = scans_root() / "streaming" / f"{result.scan_id}.jsonl"
+        stream_path.parent.mkdir(parents=True, exist_ok=True)
+        result.evidence_stream_path = str(stream_path)
+
+        games = self._group_by_game(expected)
+        total = len(expected)
+        completed = 0
+        with stream_path.open("w", encoding="utf-8", newline="\n") as stream:
+            self._write_scan_header(stream, result, dat_path, sources, started, len(games), total)
+            for game_name, items in games.items():
+                if self._cancelled:
+                    break
+                self._scan_game(game_name, items, sources, result, stream)
+                completed += len(items)
+                self._report_progress(completed, total)
+                if completed == total or completed % 250 == 0:
+                    stream.flush()
+
+            self._write_scan_end(stream, result)
+            stream.flush()
+
+        result.finished_at = time.time()
+        return result
+
+    @staticmethod
+    def _resolve_dat_path(profile) -> Path:
         dat_path = Path(profile.dat_path).expanduser().resolve() if profile.dat_path else None
         if dat_path is None or not dat_path.is_file():
             raise NoIntroScanError("O perfil No-Intro nao possui um DAT local valido.")
+        return dat_path
 
+    @staticmethod
+    def _resolve_sources(profile) -> list[Path]:
         sources = [Path(p).expanduser().resolve() for p in profile.source_directories]
         if not sources:
             raise NoIntroScanError(
@@ -65,11 +101,9 @@ class NoIntroScanService:
         for source in sources:
             if not source.is_dir():
                 raise NoIntroScanError(f"Diretorio de origem nao encontrado: {source}")
+        return sources
 
-        expected, header = self._load_dat(dat_path)
-        if not expected:
-            raise NoIntroScanError(f"Nenhuma ROM encontrada no DAT: {dat_path}")
-
+    def _build_result(self, profile, dat_path: Path, header: dict[str, str], started: float) -> ScanResult:
         date_label = self._catalog_label(dat_path, header)
         result = ScanResult(
             scan_id=self._make_scan_id(profile),
@@ -81,67 +115,62 @@ class NoIntroScanService:
             scan_type="full",
         )
         result.catalog_hash = self._sha256(dat_path)
-
-        stream_path = scans_root() / "streaming" / f"{result.scan_id}.jsonl"
-        stream_path.parent.mkdir(parents=True, exist_ok=True)
-        result.evidence_stream_path = str(stream_path)
-
-        games = self._group_by_game(expected)
-        total = len(expected)
-        completed = 0
-        with stream_path.open("w", encoding="utf-8", newline="\n") as stream:
-            self._write_jsonl(
-                stream,
-                {
-                    "record_type": "header",
-                    "format": "SERM-SCAN-V1",
-                    "scan_id": result.scan_id,
-                    "profile_id": result.profile_id,
-                    "source": result.source,
-                    "system": result.system,
-                    "scan_type": result.scan_type,
-                    "catalog_label": result.catalog_label,
-                    "catalog_hash": result.catalog_hash,
-                    "dat_path": str(dat_path),
-                    "started_at": started,
-                    "source_paths": [str(path) for path in sources],
-                    "machine_count_expected": len(games),
-                    "item_count_expected": total,
-                    "metadata": {
-                        "validation": "expected_driven",
-                        "persist_mode": "streaming",
-                        "filters_applied": False,
-                        "variant_selection": "selected_dat_is_authoritative",
-                    },
-                },
-            )
-            for game_name, items in games.items():
-                if self._cancelled:
-                    break
-                self._scan_game(game_name, items, sources, result, stream)
-                completed += len(items)
-                if self.progress_callback:
-                    self.progress_callback(completed, total)
-                if completed == total or completed % 250 == 0:
-                    stream.flush()
-
-            self._write_jsonl(
-                stream,
-                {
-                    "record_type": "scan_end",
-                    "status": "cancelled" if self._cancelled else "completed",
-                    "finished_at": time.time(),
-                    "status_counts": dict(result.status_counts),
-                    "files_examined": result.files_examined,
-                    "archives_examined": result.archives_examined,
-                    "items_examined": result.items_examined,
-                    "errors": result.errors,
-                },
-            )
-            stream.flush()
-
-        result.finished_at = time.time()
         return result
+
+    def _write_scan_header(
+        self,
+        stream,
+        result: ScanResult,
+        dat_path: Path,
+        sources: list[Path],
+        started: float,
+        machine_count_expected: int,
+        item_count_expected: int,
+    ) -> None:
+        self._write_jsonl(
+            stream,
+            {
+                "record_type": "header",
+                "format": "SERM-SCAN-V1",
+                "scan_id": result.scan_id,
+                "profile_id": result.profile_id,
+                "source": result.source,
+                "system": result.system,
+                "scan_type": result.scan_type,
+                "catalog_label": result.catalog_label,
+                "catalog_hash": result.catalog_hash,
+                "dat_path": str(dat_path),
+                "started_at": started,
+                "source_paths": [str(path) for path in sources],
+                "machine_count_expected": machine_count_expected,
+                "item_count_expected": item_count_expected,
+                "metadata": {
+                    "validation": "expected_driven",
+                    "persist_mode": "streaming",
+                    "filters_applied": False,
+                    "variant_selection": "selected_dat_is_authoritative",
+                },
+            },
+        )
+
+    def _write_scan_end(self, stream, result: ScanResult) -> None:
+        self._write_jsonl(
+            stream,
+            {
+                "record_type": "scan_end",
+                "status": "cancelled" if self._cancelled else "completed",
+                "finished_at": time.time(),
+                "status_counts": dict(result.status_counts),
+                "files_examined": result.files_examined,
+                "archives_examined": result.archives_examined,
+                "items_examined": result.items_examined,
+                "errors": result.errors,
+            },
+        )
+
+    def _report_progress(self, completed: int, total: int) -> None:
+        if self.progress_callback:
+            self.progress_callback(completed, total)
 
     def _scan_game(
         self,
@@ -307,8 +336,8 @@ class NoIntroScanService:
 
     @classmethod
     def _hash_zip_member(cls, zf, info) -> tuple[str, str]:
-        md5 = hashlib.md5()
-        sha1 = hashlib.sha1()
+        md5 = hashlib.new("md5", usedforsecurity=False)
+        sha1 = hashlib.new("sha1", usedforsecurity=False)
         with zf.open(info, "r") as handle:
             for chunk in iter(lambda: handle.read(cls.CHUNK_SIZE), b""):
                 md5.update(chunk)
@@ -318,8 +347,8 @@ class NoIntroScanService:
     @classmethod
     def _hash_file(cls, path: Path) -> tuple[int, str, str, str]:
         crc = 0
-        md5 = hashlib.md5()
-        sha1 = hashlib.sha1()
+        md5 = hashlib.new("md5", usedforsecurity=False)
+        sha1 = hashlib.new("sha1", usedforsecurity=False)
         size = 0
         with path.open("rb") as handle:
             for chunk in iter(lambda: handle.read(cls.CHUNK_SIZE), b""):
@@ -344,38 +373,48 @@ class NoIntroScanService:
         except (OSError, ElementTree.ParseError) as exc:
             raise NoIntroScanError(f"DAT No-Intro invalido: {path}: {exc}") from exc
 
-        header_node = root.find("header")
-        header: dict[str, str] = {}
-        if header_node is not None:
-            for child in header_node:
-                header[child.tag] = (child.text or "").strip()
-
-        expected: list[_ExpectedRom] = []
-        for game in root.findall(".//game"):
-            game_name = str(game.attrib.get("name") or "").strip()
-            if not game_name:
-                continue
-            for rom in game.findall("rom"):
-                rom_name = str(rom.attrib.get("name") or "").strip()
-                if not rom_name:
-                    continue
-                try:
-                    size = int(rom.attrib.get("size") or 0)
-                except ValueError:
-                    size = 0
-                expected.append(
-                    _ExpectedRom(
-                        game_name=game_name,
-                        rom_name=rom_name,
-                        size=size,
-                        crc=str(rom.attrib.get("crc") or "").casefold(),
-                        md5=str(rom.attrib.get("md5") or "").casefold(),
-                        sha1=str(rom.attrib.get("sha1") or "").casefold(),
-                        status=str(rom.attrib.get("status") or "").casefold(),
-                        fmt=str(rom.attrib.get("format") or "").strip(),
-                    )
-                )
+        header = NoIntroScanService._parse_dat_header(root)
+        expected = [
+            expected_rom
+            for game in root.findall(".//game")
+            for expected_rom in NoIntroScanService._parse_game_roms(game)
+        ]
         return expected, header
+
+    @staticmethod
+    def _parse_dat_header(root) -> dict[str, str]:
+        header_node = root.find("header")
+        if header_node is None:
+            return {}
+        return {child.tag: (child.text or "").strip() for child in header_node}
+
+    @staticmethod
+    def _parse_game_roms(game) -> list[_ExpectedRom]:
+        game_name = str(game.attrib.get("name") or "").strip()
+        if not game_name:
+            return []
+        return [
+            NoIntroScanService._parse_rom(game_name, rom)
+            for rom in game.findall("rom")
+            if str(rom.attrib.get("name") or "").strip()
+        ]
+
+    @staticmethod
+    def _parse_rom(game_name: str, rom) -> _ExpectedRom:
+        try:
+            size = int(rom.attrib.get("size") or 0)
+        except ValueError:
+            size = 0
+        return _ExpectedRom(
+            game_name=game_name,
+            rom_name=str(rom.attrib.get("name") or "").strip(),
+            size=size,
+            crc=str(rom.attrib.get("crc") or "").casefold(),
+            md5=str(rom.attrib.get("md5") or "").casefold(),
+            sha1=str(rom.attrib.get("sha1") or "").casefold(),
+            status=str(rom.attrib.get("status") or "").casefold(),
+            fmt=str(rom.attrib.get("format") or "").strip(),
+        )
 
     @staticmethod
     def _catalog_label(path: Path, header: dict[str, str]) -> str:

@@ -142,20 +142,32 @@ class ScanFilterService:
         status = str(item.get("status") or "").upper()
         if status not in cls.VALID_STATUSES:
             return status.lower() or "invalid_status"
+
         machine_name = str(
             item.get("machine_name") or item.get("machine") or item.get("name") or ""
         )
         if machine_name in category_names:
             return "catlist"
+
         categories = tuple(item.get("categories") or ())
-        if "mechanical" in enabled and (
-            str(item.get("ismechanical") or "").casefold() in {"yes", "true", "1"}
-            or cls._matches(categories, CATEGORY_PATTERNS["mechanical"])
-        ):
+        reason = cls._fundamental_reason(item, categories, enabled)
+        if reason:
+            return reason
+
+        return cls._profile_reason(item, profile)
+
+    @classmethod
+    def _fundamental_reason(cls, item: dict, categories: tuple[str, ...], enabled: set[str]) -> str | None:
+        if "mechanical" in enabled and cls._is_mechanical(item, categories):
             return "mechanical"
+
         for key in ("dance", "console", "handheld", "fruit_machines"):
             if key in enabled and cls._matches(categories, CATEGORY_PATTERNS[key]):
                 return key
+        return None
+
+    @classmethod
+    def _profile_reason(cls, item: dict, profile) -> str | None:
         if (
             not bool(getattr(profile, "mame_include_bios", False))
             and str(item.get("isbios") or "").casefold() == "yes"
@@ -179,6 +191,12 @@ class ScanFilterService:
         ):
             return "clone"
         return None
+
+    @classmethod
+    def _is_mechanical(cls, item: dict, categories: tuple[str, ...]) -> bool:
+        return str(item.get("ismechanical") or "").casefold() in {"yes", "true", "1"} or cls._matches(
+            categories, CATEGORY_PATTERNS["mechanical"]
+        )
 
 
 __all__ = ["ScanFilterService"]

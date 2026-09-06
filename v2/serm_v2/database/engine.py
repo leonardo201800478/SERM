@@ -7,8 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from sqlalchemy import create_engine
-from sqlalchemy.engine import Engine
+from sqlalchemy import Engine, create_engine  # type: ignore[import-not-found]
 
 
 def create_sqlite_engine(database_path: Path) -> Engine:

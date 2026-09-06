@@ -115,7 +115,7 @@ class LaunchBoxProvider:
             "Platform",
             *(column for column in optional_columns if column in columns),
         ]
-        query = f'SELECT {", ".join(fchr for fchr in (f'"{column}"' for column in selected))} FROM "Games" ORDER BY "DatabaseID"'
+        query = f'SELECT {", ".join(f'"{column}"' for column in selected)} FROM "Games" ORDER BY "DatabaseID"'
         parameters: tuple[Any, ...] = ()
         if limit is not None:
             if limit < 1:

@@ -90,7 +90,7 @@ def scrape_mame_dat(
     except ET.ParseError as exc:
         raise MameDatError("MAME -listxml returned invalid XML") from exc
 
-    machine_count = sum(1 for element in root if element.tag == "machine")
+    machine_count = sum(element.tag == "machine" for element in root)
     return MameDat(
         executable=executable_path,
         xml_text=xml_text,

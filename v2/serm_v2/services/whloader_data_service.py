@@ -97,6 +97,30 @@ class WHLoaderDataService:
         valid = [game for game in games if isinstance(game, dict)]
         return document, valid
 
+    def _merge_game_slaves(self, existing: dict[str, Any], incoming: dict[str, Any]) -> None:
+        """Mescla slaves do registro duplicado sem perder entradas válidas."""
+        existing_slaves = existing.get("slaves")
+        if not isinstance(existing_slaves, list):
+            existing_slaves = []
+            existing["slaves"] = existing_slaves
+
+        incoming_slaves = incoming.get("slaves")
+        if not isinstance(incoming_slaves, list):
+            incoming_slaves = []
+
+        known_slaves = {
+            self._text(slave.get("filename"))
+            for slave in existing_slaves
+            if isinstance(slave, dict) and self._text(slave.get("filename"))
+        }
+        for slave in incoming_slaves:
+            if not isinstance(slave, dict):
+                continue
+            slave_name = self._text(slave.get("filename"))
+            if slave_name and slave_name not in known_slaves:
+                existing_slaves.append(slave)
+                known_slaves.add(slave_name)
+
     def _deduplicate_games(self, games: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
         """Remove duplicatas da fonte sem perder slaves presentes em outra ocorrência.
 
@@ -112,6 +136,7 @@ class WHLoaderDataService:
             filename = self._text(game.get("filename"))
             if not filename:
                 continue
+
             key = (filename, self._text(game.get("sha1")))
             existing = unique.get(key)
             if existing is None:
@@ -119,29 +144,59 @@ class WHLoaderDataService:
                 continue
 
             duplicates += 1
-            existing_slaves = existing.get("slaves")
-            if not isinstance(existing_slaves, list):
-                existing_slaves = []
-                existing["slaves"] = existing_slaves
-
-            incoming_slaves = game.get("slaves")
-            if not isinstance(incoming_slaves, list):
-                incoming_slaves = []
-
-            known_slaves = {
-                self._text(slave.get("filename"))
-                for slave in existing_slaves
-                if isinstance(slave, dict) and self._text(slave.get("filename"))
-            }
-            for slave in incoming_slaves:
-                if not isinstance(slave, dict):
-                    continue
-                slave_name = self._text(slave.get("filename"))
-                if slave_name and slave_name not in known_slaves:
-                    existing_slaves.append(slave)
-                    known_slaves.add(slave_name)
+            self._merge_game_slaves(existing, game)
 
         return list(unique.values()), duplicates
+
+    def _insert_game(self, connection: sqlite3.Connection, game: dict[str, Any], now: str) -> tuple[int | None, list[Any]]:
+        hardware_raw = game.get("hardware")
+        hardware: dict[str, Any] = hardware_raw if isinstance(hardware_raw, dict) else {}
+        filename = self._text(game.get("filename")) or ""
+        if not filename:
+            return None, []
+        slaves = game.get("slaves")
+        if not isinstance(slaves, list):
+            slaves = []
+        values = (
+            filename, self._text(game.get("sha1")), self._text(game.get("name")) or filename,
+            self._text(game.get("subpath")), self._text(game.get("slave_default")), len(slaves),
+            self._text(hardware.get("primary_control")), self._text(hardware.get("port0")),
+            self._text(hardware.get("port1")), self._text(hardware.get("chipset")),
+            self._text(hardware.get("cpu")), self._bool(hardware.get("fast_copper")),
+            self._bool(hardware.get("cpu_compatible")), self._bool(hardware.get("jit")),
+            self._bool(hardware.get("screen_autoheight")), self._text(hardware.get("screen_centerh")),
+            self._text(hardware.get("screen_centerv")), self._int(hardware.get("screen_height")),
+            self._int(hardware.get("screen_y_offset")), self._bool(hardware.get("line_doubling")),
+            self._bool(hardware.get("ntsc")), self._text(hardware.get("sprites")),
+            json.dumps(game, ensure_ascii=False, separators=(",", ":")), now,
+        )
+        cursor = connection.execute(
+            """INSERT INTO whloader_game (
+                filename, sha1, name, subpath, slave_default, slave_count,
+                primary_control, port0, port1, chipset, cpu, fast_copper,
+                cpu_compatible, jit, screen_autoheight, screen_centerh,
+                screen_centerv, screen_height, screen_y_offset, line_doubling,
+                ntsc, sprites, source_json, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            values,
+        )
+        return require_lastrowid(cursor.lastrowid), slaves
+
+    def _insert_slaves(self, connection: sqlite3.Connection, game_id: int, slaves: list[Any]) -> int:
+        total = 0
+        for slave in slaves:
+            if not isinstance(slave, dict):
+                continue
+            filename = self._text(slave.get("filename"))
+            if not filename:
+                continue
+            connection.execute(
+                "INSERT OR IGNORE INTO whloader_slave(game_id, filename, datapath, custom_json) VALUES (?, ?, ?, ?)",
+                (game_id, filename, self._text(slave.get("datapath")),
+                 json.dumps(slave.get("custom_fields", []), ensure_ascii=False, separators=(",", ":"))),
+            )
+            total += 1
+        return total
 
     def _replace_database(
         self,
@@ -162,72 +217,9 @@ class WHLoaderDataService:
             connection.execute("DELETE FROM whloader_game")
             slave_total = 0
             for game in games:
-                hardware_value = game.get("hardware")
-                hardware: dict[str, Any] = hardware_value if isinstance(hardware_value, dict) else {}
-                filename = self._text(game.get("filename")) or ""
-                name = self._text(game.get("name")) or filename or "Unknown"
-                if not filename:
-                    continue
-                slaves = game.get("slaves")
-                if not isinstance(slaves, list):
-                    slaves = []
-
-                cursor = connection.execute(
-                    """INSERT INTO whloader_game (
-                        filename, sha1, name, subpath, slave_default, slave_count,
-                        primary_control, port0, port1, chipset, cpu, fast_copper,
-                        cpu_compatible, jit, screen_autoheight, screen_centerh,
-                        screen_centerv, screen_height, screen_y_offset, line_doubling,
-                        ntsc, sprites, source_json, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (
-                        filename,
-                        self._text(game.get("sha1")),
-                        name,
-                        self._text(game.get("subpath")),
-                        self._text(game.get("slave_default")),
-                        len(slaves),
-                        self._text(hardware.get("primary_control")),
-                        self._text(hardware.get("port0")),
-                        self._text(hardware.get("port1")),
-                        self._text(hardware.get("chipset")),
-                        self._text(hardware.get("cpu")),
-                        self._bool(hardware.get("fast_copper")),
-                        self._bool(hardware.get("cpu_compatible")),
-                        self._bool(hardware.get("jit")),
-                        self._bool(hardware.get("screen_autoheight")),
-                        self._text(hardware.get("screen_centerh")),
-                        self._text(hardware.get("screen_centerv")),
-                        self._int(hardware.get("screen_height")),
-                        self._int(hardware.get("screen_y_offset")),
-                        self._bool(hardware.get("line_doubling")),
-                        self._bool(hardware.get("ntsc")),
-                        self._text(hardware.get("sprites")),
-                        json.dumps(game, ensure_ascii=False, separators=(",", ":")),
-                        now,
-                    ),
-                )
-                game_id = require_lastrowid(cursor.lastrowid)
-                for slave in slaves:
-                    if not isinstance(slave, dict):
-                        continue
-                    slave_name = self._text(slave.get("filename"))
-                    if not slave_name:
-                        continue
-                    connection.execute(
-                        "INSERT OR IGNORE INTO whloader_slave(game_id, filename, datapath, custom_json) VALUES (?, ?, ?, ?)",
-                        (
-                            game_id,
-                            slave_name,
-                            self._text(slave.get("datapath")),
-                            json.dumps(
-                                slave.get("custom_fields", []),
-                                ensure_ascii=False,
-                                separators=(",", ":"),
-                            ),
-                        ),
-                    )
-                    slave_total += 1
+                game_id, slaves = self._insert_game(connection, game, now)
+                if game_id is not None:
+                    slave_total += self._insert_slaves(connection, game_id, slaves)
             connection.execute(
                 """INSERT INTO whloader_database_meta(id, source_url, source_hash, schema_version, game_count, scanned_at, raw_path)
                    VALUES (1, ?, ?, ?, ?, ?, ?)

@@ -10,9 +10,12 @@ import urllib.request
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.error import HTTPError, URLError
+from urllib.error import URLError
 
 logger = logging.getLogger(__name__)
+
+SEGA_MEGA_DRIVE_GENESIS = "sega mega drive genesis"
+SONY_PLAYSTATION = "sony playstation"
 
 
 class NoIntroArchiveError(RuntimeError):
@@ -137,7 +140,7 @@ class NoIntroArchiveProvider:
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
                 data = response.read()
-        except (HTTPError, URLError, OSError) as exc:
+        except URLError as exc:
             raise NoIntroArchiveError(f"Falha ao baixar o arquivo No-Intro: {exc}") from exc
         if not data.startswith(b"PK\x03\x04"):
             preview = data[:160].decode("utf-8", errors="replace").replace("\n", " ")
@@ -224,8 +227,14 @@ class NoIntroArchiveProvider:
     def _normalize(value: str) -> str:
         """Normalize a platform/DAT name for deterministic matching."""
         value = Path(value).stem
-        value = re.sub(r"\s*\([^)]*\d{8}-\d{6}\)\s*$", "", value)
-        value = re.sub(r"\s*\(Parent-Clone\)\s*$", "", value, flags=re.IGNORECASE)
+        timestamp = re.search(r"\d{8}-\d{6}\)\s*$", value)
+        if timestamp:
+            opening = value.rfind("(", 0, timestamp.start())
+            if opening >= 0:
+                value = value[:opening].rstrip()
+        suffix = "(Parent-Clone)"
+        if value.casefold().endswith(suffix.casefold()):
+            value = value[:-len(suffix)].rstrip()
         value = re.sub(r"\s+", " ", value)
         value = value.casefold().replace("&", "and")
         return re.sub(r"[^a-z0-9]+", " ", value).strip()
@@ -272,13 +281,13 @@ class NoIntroArchiveProvider:
                 "super nintendo entertainment system",
                 "nintendo super nintendo entertainment system",
             },
-            "genesis": {"mega drive genesis", "sega mega drive genesis"},
-            "sega genesis": {"mega drive genesis", "sega mega drive genesis"},
+            "genesis": {"mega drive genesis", SEGA_MEGA_DRIVE_GENESIS},
+            "sega genesis": {"mega drive genesis", SEGA_MEGA_DRIVE_GENESIS},
             "sms": {"master system mark iii", "sega master system mark iii"},
             "master system": {"master system mark iii", "sega master system mark iii"},
-            "playstation": {"sony playstation"},
-            "psx": {"sony playstation"},
-            "ps1": {"sony playstation"},
+            "playstation": {SONY_PLAYSTATION},
+            "psx": {SONY_PLAYSTATION},
+            "ps1": {SONY_PLAYSTATION},
             "playstation 2": {"sony playstation 2"},
             "ps2": {"sony playstation 2"},
             "playstation portable": {"sony playstation portable"},
@@ -287,7 +296,7 @@ class NoIntroArchiveProvider:
             "game boy": {"game boy"},
             "game boy color": {"game boy color"},
             "game boy advance": {"game boy advance"},
-            "mega drive": {"sega mega drive genesis"},
+            "mega drive": {SEGA_MEGA_DRIVE_GENESIS},
             "sega cd": {"sega mega cd sega cd"},
         }.get(value, set())
 

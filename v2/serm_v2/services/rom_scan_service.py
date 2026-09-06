@@ -258,16 +258,54 @@ class RomScanService:
         stream_path.parent.mkdir(parents=True, exist_ok=True)
         result.evidence_stream_path = str(stream_path)
         if is_mame:
-            self._scan_mame(result, profile, database or database_path(), sources, stream_path)
+            self._scan_mame(result, database or database_path(), sources, stream_path)
         else:
-            self._scan_generic_physical(result, profile, sources, stream_path, catalog_items)
+            self._scan_generic_physical(result, sources, stream_path, catalog_items)
         result.finished_at = time.time()
         self._log_summary(result)
         return result
 
     def _scan_mame(
-        self, result: ScanResult, profile, db_path: Path, sources: list[Path], stream_path: Path
+        self, result: ScanResult, db_path: Path, sources: list[Path], stream_path: Path
     ) -> None:
+        machine_names, classification_columns = self._prepare_mame_scan(result, db_path)
+        workers = min(self.DEFAULT_WORKERS, max(1, len(machine_names)))
+        batch_size = max(workers * self.DEFAULT_BATCH_MULTIPLIER, 16)
+        total = len(machine_names)
+        self._log(
+            "INFO",
+            f"CATALOGO | MAME | build={result.catalog_label} | machines={total:,} | workers={workers} | lote={batch_size}",
+        )
+        with stream_path.open("w", encoding="utf-8", newline="\n") as stream:
+            self._write_mame_header(stream, result, sources, total)
+            self._scan_mame_batches(
+                stream,
+                result,
+                machine_names,
+                db_path,
+                int(self._mame_import_id),
+                sources,
+                classification_columns,
+                workers,
+                batch_size,
+                total,
+            )
+            self._write_jsonl(
+                stream,
+                {
+                    "record_type": "scan_end",
+                    "status": "cancelled" if self._cancelled else "completed",
+                    "finished_at": time.time(),
+                    "status_counts": dict(result.status_counts),
+                    "files_examined": result.files_examined,
+                    "archives_examined": result.archives_examined,
+                    "items_examined": result.items_examined,
+                    "errors": result.errors,
+                },
+            )
+            stream.flush()
+
+    def _prepare_mame_scan(self, result: ScanResult, db_path: Path):
         if not db_path.is_file():
             raise RuntimeError(f"Banco do catálogo MAME não encontrado: {db_path}")
         with sqlite3.connect(db_path) as connection:
@@ -304,38 +342,30 @@ class RomScanService:
             classification_columns = {
                 str(row[1]) for row in connection.execute("PRAGMA table_info(mame_classification)")
             }
-        workers = min(self.DEFAULT_WORKERS, max(1, len(machine_names)))
-        batch_size = max(workers * self.DEFAULT_BATCH_MULTIPLIER, 16)
-        total = len(machine_names)
-        completed = 0
-        self._log(
-            "INFO",
-            f"CATALOGO | MAME | build={result.catalog_label} | machines={total:,} | workers={workers} | lote={batch_size}",
+            self._mame_import_id = import_id
+        return machine_names, classification_columns
+
+    def _write_mame_header(self, stream, result, sources, total):
+        self._write_jsonl(
+            stream,
+            {
+                "record_type": "header", "format": "SERM-SCAN-V1",
+                "scan_id": result.scan_id, "profile_id": result.profile_id,
+                "source": result.source, "system": result.system,
+                "scan_type": result.scan_type, "catalog_label": result.catalog_label,
+                "catalog_hash": result.catalog_hash, "started_at": result.started_at,
+                "source_paths": [str(path) for path in sources],
+                "machine_count_expected": total,
+                "metadata": {"validation": "expected_driven", "persist_mode": "streaming", "filters_applied": False},
+            },
         )
-        with stream_path.open("w", encoding="utf-8", newline="\n") as stream:
-            self._write_jsonl(
-                stream,
-                {
-                    "record_type": "header",
-                    "format": "SERM-SCAN-V1",
-                    "scan_id": result.scan_id,
-                    "profile_id": result.profile_id,
-                    "source": result.source,
-                    "system": result.system,
-                    "scan_type": result.scan_type,
-                    "catalog_label": result.catalog_label,
-                    "catalog_hash": result.catalog_hash,
-                    "started_at": result.started_at,
-                    "source_paths": [str(path) for path in sources],
-                    "machine_count_expected": total,
-                    "metadata": {
-                        "validation": "expected_driven",
-                        "persist_mode": "streaming",
-                        "filters_applied": False,
-                    },
-                },
-            )
-            for offset in range(0, total, batch_size):
+
+    def _scan_mame_batches(
+        self, stream, result, machine_names, db_path, import_id, sources,
+        classification_columns, workers, batch_size, total,
+    ):
+        completed = 0
+        for offset in range(0, total, batch_size):
                 if self._cancelled:
                     break
                 batch = machine_names[offset : offset + batch_size]
@@ -368,20 +398,6 @@ class RomScanService:
                                 "INFO", self._progress_message(result, machine, completed, total)
                             )
                 stream.flush()
-            self._write_jsonl(
-                stream,
-                {
-                    "record_type": "scan_end",
-                    "status": "cancelled" if self._cancelled else "completed",
-                    "finished_at": time.time(),
-                    "status_counts": dict(result.status_counts),
-                    "files_examined": result.files_examined,
-                    "archives_examined": result.archives_examined,
-                    "items_examined": result.items_examined,
-                    "errors": result.errors,
-                },
-            )
-            stream.flush()
 
     def _scan_machine(
         self,
@@ -392,6 +408,24 @@ class RomScanService:
         classification_columns: set[str],
     ) -> _MachineResult:
         unit = _MachineResult(machine)
+        rows, categories = self._load_machine_rows(
+            db_path, import_id, machine, classification_columns
+        )
+        expected = self._build_expected_roms(machine, rows, categories)
+        expected_by_name: dict[str, list[_ExpectedRom]] = {}
+        for item in expected:
+            expected_by_name.setdefault(Path(item.rom_name).name.casefold(), []).append(item)
+        self._scan_machine_sources(machine, sources, expected_by_name, unit)
+        self._append_missing_roms(expected, unit)
+        return unit
+
+    def _load_machine_rows(
+        self,
+        db_path: Path,
+        import_id: int,
+        machine: str,
+        classification_columns: set[str],
+    ) -> tuple[list[sqlite3.Row], tuple[str, ...]]:
         with sqlite3.connect(db_path) as connection:
             connection.row_factory = sqlite3.Row
             rows = connection.execute(
@@ -414,7 +448,13 @@ class RomScanService:
                     if value
                 }
                 categories = tuple(sorted(values))
-        expected = [
+        return rows, categories
+
+    @staticmethod
+    def _build_expected_roms(
+        machine: str, rows: list[sqlite3.Row], categories: tuple[str, ...]
+    ) -> list[_ExpectedRom]:
+        return [
             _ExpectedRom(
                 rom_id=hash(str(row["rom_name"] or "").casefold()),
                 machine_name=machine,
@@ -434,9 +474,14 @@ class RomScanService:
             )
             for row in rows
         ]
-        expected_by_name: dict[str, list[_ExpectedRom]] = {}
-        for item in expected:
-            expected_by_name.setdefault(Path(item.rom_name).name.casefold(), []).append(item)
+
+    def _scan_machine_sources(
+        self,
+        machine: str,
+        sources: list[Path],
+        expected_by_name: dict[str, list[_ExpectedRom]],
+        unit: _MachineResult,
+    ) -> None:
         for base in sources:
             if self._cancelled:
                 break
@@ -448,13 +493,16 @@ class RomScanService:
             machine_dir = base / machine
             if machine_dir.is_dir():
                 self._scan_loose(machine_dir, expected_by_name, unit)
+
+    def _append_missing_roms(
+        self, expected: list[_ExpectedRom], unit: _MachineResult
+    ) -> None:
         found_names = {
             e.rom_name.casefold() for e in unit.records if e.status != "MISSING" and e.rom_name
         }
         for item in expected:
             if item.rom_name.casefold() not in found_names:
                 unit.records.append(self._missing(item))
-        return unit
 
     def _scan_zip(
         self, path: Path, expected_by_name: dict[str, list[_ExpectedRom]], unit: _MachineResult
@@ -472,38 +520,7 @@ class RomScanService:
                     info = infos.get(name)
                     if info is None:
                         continue
-                    unit.items_examined += 1
-                    for item in candidates:
-                        crc = f"{info.CRC & 0xFFFFFFFF:08x}"
-                        size = int(info.file_size)
-                        size_ok = item.size <= 0 or size == item.size
-                        crc_ok = not item.crc or crc == item.crc
-                        status = "CURRENT" if size_ok and crc_ok else "WRONG"
-                        actual_sha1 = ""
-                        bytes_read = 0
-                        if status == "CURRENT" and item.sha1:
-                            with archive.open(info, "r") as stream:
-                                actual_size, _, actual_sha1 = self._hash_stream(stream)
-                            bytes_read = actual_size
-                            unit.bytes_read += actual_size
-                            if actual_sha1 != item.sha1:
-                                status = "WRONG"
-                        unit.records.append(
-                            self._evidence(
-                                item,
-                                status,
-                                size,
-                                crc,
-                                actual_sha1,
-                                path,
-                                path,
-                                info.filename,
-                                bytes_read,
-                                "nome encontrado, mas tamanho/CRC diverge"
-                                if status == "WRONG"
-                                else "hash/tamanho correspondentes",
-                            )
-                        )
+                    self._scan_zip_entry(path, archive, info, candidates, unit)
         except (OSError, zipfile.BadZipFile, RuntimeError) as exc:
             unit.errors += 1
             unit.records.append(
@@ -515,6 +532,93 @@ class RomScanService:
                     message="Falha ao abrir ZIP",
                     error=str(exc),
                 )
+            )
+
+    def _scan_zip_entry(
+        self,
+        path: Path,
+        archive: zipfile.ZipFile,
+        info: zipfile.ZipInfo,
+        candidates: list[_ExpectedRom],
+        unit: _MachineResult,
+    ) -> None:
+        unit.items_examined += 1
+        crc = f"{info.CRC & 0xFFFFFFFF:08x}"
+        size = int(info.file_size)
+        for item in candidates:
+            status = self._zip_status(item, size, crc)
+            actual_sha1 = ""
+            bytes_read = 0
+            if status == "CURRENT" and item.sha1:
+                with archive.open(info, "r") as stream:
+                    actual_size, _, actual_sha1 = self._hash_stream(stream)
+                bytes_read = actual_size
+                unit.bytes_read += actual_size
+                if actual_sha1 != item.sha1:
+                    status = "WRONG"
+            unit.records.append(
+                self._evidence(
+                    item,
+                    status,
+                    size,
+                    crc,
+                    actual_sha1,
+                    path,
+                    path,
+                    info.filename,
+                    bytes_read,
+                    "nome encontrado, mas tamanho/CRC diverge"
+                    if status == "WRONG"
+                    else "hash/tamanho correspondentes",
+                )
+            )
+
+    @staticmethod
+    def _zip_status(item: _ExpectedRom, size: int, crc: str) -> str:
+        size_ok = item.size <= 0 or size == item.size
+        crc_ok = not item.crc or crc == item.crc
+        return "CURRENT" if size_ok and crc_ok else "WRONG"
+
+    @staticmethod
+    def _loose_status(item: _ExpectedRom, size: int, crc: str) -> str:
+        size_ok = item.size <= 0 or size == item.size
+        crc_ok = True
+        if item.crc:
+            crc_ok = crc.lower() == item.crc.lower()
+        return "CURRENT" if size_ok and crc_ok else "WRONG"
+
+    def _scan_loose_item(self, path: Path, item: _ExpectedRom, unit: _MachineResult) -> None:
+        try:
+            unit.items_examined += 1
+            size = int(path.stat().st_size)
+            crc = self._crc32(path)
+            status = self._loose_status(item, size, crc)
+            actual_sha1 = ""
+            if status == "CURRENT" and item.sha1:
+                actual_sha1 = self._sha1(path)
+                if actual_sha1 != item.sha1:
+                    status = "WRONG"
+            unit.bytes_read += size
+            unit.records.append(
+                self._evidence(
+                    item,
+                    status,
+                    size,
+                    crc,
+                    actual_sha1,
+                    path,
+                    None,
+                    None,
+                    size,
+                    "nome encontrado, mas tamanho/CRC diverge"
+                    if status == "WRONG"
+                    else "hash/tamanho correspondentes",
+                )
+            )
+        except OSError as exc:
+            unit.errors += 1
+            unit.records.append(
+                self._evidence(item, "ERROR", 0, "", "", path, None, None, 0, str(exc))
             )
 
     def _scan_loose(
@@ -530,43 +634,7 @@ class RomScanService:
             if not path.is_file():
                 continue
             for item in candidates:
-                try:
-                    unit.items_examined += 1
-                    size = int(path.stat().st_size)
-                    crc = self._crc32(path)
-                    status = (
-                        "CURRENT"
-                        if (item.size <= 0 or size == item.size)
-                        and (not item.crc or crc == item.crc)
-                        else "WRONG"
-                    )
-                    actual_sha1 = ""
-                    if status == "CURRENT" and item.sha1:
-                        actual_sha1 = self._sha1(path)
-                        if actual_sha1 != item.sha1:
-                            status = "WRONG"
-                    unit.bytes_read += size
-                    unit.records.append(
-                        self._evidence(
-                            item,
-                            status,
-                            size,
-                            crc,
-                            actual_sha1,
-                            path,
-                            None,
-                            None,
-                            size,
-                            "nome encontrado, mas tamanho/CRC diverge"
-                            if status == "WRONG"
-                            else "hash/tamanho correspondentes",
-                        )
-                    )
-                except OSError as exc:
-                    unit.errors += 1
-                    unit.records.append(
-                        self._evidence(item, "ERROR", 0, "", "", path, None, None, 0, str(exc))
-                    )
+                self._scan_loose_item(path, item, unit)
 
     @staticmethod
     def _evidence(
@@ -629,7 +697,7 @@ class RomScanService:
 
     def _hash_stream(self, stream) -> tuple[int, str, str]:
         crc = 0
-        digest = hashlib.sha1()
+        digest = hashlib.sha1(usedforsecurity=False)
         total = 0
         while True:
             chunk = stream.read(self.CHUNK_SIZE)
@@ -651,7 +719,7 @@ class RomScanService:
         return f"{crc & 0xFFFFFFFF:08x}"
 
     def _sha1(self, path: Path) -> str:
-        digest = hashlib.sha1()
+        digest = hashlib.sha1(usedforsecurity=False)
         with path.open("rb") as stream:
             while True:
                 chunk = stream.read(self.CHUNK_SIZE)
@@ -734,7 +802,6 @@ class RomScanService:
     def _scan_generic_physical(
         self,
         result: ScanResult,
-        profile,
         sources: list[Path],
         stream_path: Path,
         catalog_items: Iterable[ScanItem],

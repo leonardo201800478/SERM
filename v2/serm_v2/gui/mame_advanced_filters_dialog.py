@@ -159,22 +159,21 @@ class MameAdvancedFiltersDialog(QDialog):
         self.tree.blockSignals(True)
         for i in range(self.tree.topLevelItemCount()):
             parent = self.tree.topLevelItem(i)
-            if parent is None:
-                continue
-            if not parent.isHidden():
-                if self.search.text().casefold() in parent.text(0).casefold():
-                    parent.setCheckState(0, Qt.CheckState.Checked)
-                    self._categories.add(str(parent.data(0, Qt.ItemDataRole.UserRole)[1]))
-                for j in range(parent.childCount()):
-                    child = parent.child(j)
-                    if child is None:
-                        continue
-                    if not child.isHidden():
-                        child.setCheckState(0, Qt.CheckState.Checked)
-                        self._subcategories.add(str(child.data(0, Qt.ItemDataRole.UserRole)[1]))
+            if parent is not None and not parent.isHidden():
+                self._select_visible_parent(parent)
         self.tree.blockSignals(False)
         self._refresh_selected_list()
         self._refresh_summary()
+
+    def _select_visible_parent(self, parent: QTreeWidgetItem) -> None:
+        if self.search.text().casefold() in parent.text(0).casefold():
+            parent.setCheckState(0, Qt.CheckState.Checked)
+            self._categories.add(str(parent.data(0, Qt.ItemDataRole.UserRole)[1]))
+        for j in range(parent.childCount()):
+            child = parent.child(j)
+            if child is not None and not child.isHidden():
+                child.setCheckState(0, Qt.CheckState.Checked)
+                self._subcategories.add(str(child.data(0, Qt.ItemDataRole.UserRole)[1]))
 
     def _clear(self) -> None:
         self._categories.clear()

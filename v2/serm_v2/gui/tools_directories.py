@@ -82,7 +82,7 @@ class ToolsDirectoriesPage(QWidget):
             return {}
         try:
             return json.loads(self.CONFIG_PATH.read_text(encoding="utf-8"))
-        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        except (OSError, ValueError, TypeError):
             return {}
 
     def refresh(self) -> None:

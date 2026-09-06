@@ -166,25 +166,31 @@ class RedumpProvider:
     # LaunchBox names are not identical to Redump's official names. Keep
     # explicit aliases here for systems where vendor prefixes or naming differ.
     # Keys and values are normalized through PublicDatCatalogProvider._normalize.
+    _SONY_PLAYSTATION_PORTABLE = "sony playstation portable"
+    _COMMODORE_AMIGA_CDTV = "commodore amiga cdtv"
+    _NEC_PC_ENGINE_CD = "nec pc engine cd and turbografx cd"
+    _SEGA_MEGA_CD = "sega mega cd and sega cd"
+    _NEC_PC_FX = "nec pc fx and pc fxga"
+
     LAUNCHBOX_ALIASES: dict[str, str] = {
-        "sony psp": "sony playstation portable",
-        "psp": "sony playstation portable",
-        "playstation portable": "sony playstation portable",
-        "ps portable": "sony playstation portable",
-        "commodore amiga cdtv": "commodore amiga cdtv",
-        "amiga cdtv": "commodore amiga cdtv",
-        "cdtv": "commodore amiga cdtv",
-        "nec pc engine cd": "nec pc engine cd and turbografx cd",
-        "pc engine cd": "nec pc engine cd and turbografx cd",
-        "turbo grafx cd": "nec pc engine cd and turbografx cd",
-        "turbografx cd": "nec pc engine cd and turbografx cd",
-        "nec turbografx cd": "nec pc engine cd and turbografx cd",
-        "sega mega cd": "sega mega cd and sega cd",
-        "sega cd": "sega mega cd and sega cd",
-        "mega cd": "sega mega cd and sega cd",
-        "pc fx": "nec pc fx and pc fxga",
-        "nec pc fx": "nec pc fx and pc fxga",
-        "pc fxga": "nec pc fx and pc fxga",
+        "sony psp": _SONY_PLAYSTATION_PORTABLE,
+        "psp": _SONY_PLAYSTATION_PORTABLE,
+        "playstation portable": _SONY_PLAYSTATION_PORTABLE,
+        "ps portable": _SONY_PLAYSTATION_PORTABLE,
+        _COMMODORE_AMIGA_CDTV: _COMMODORE_AMIGA_CDTV,
+        "amiga cdtv": _COMMODORE_AMIGA_CDTV,
+        "cdtv": _COMMODORE_AMIGA_CDTV,
+        "nec pc engine cd": _NEC_PC_ENGINE_CD,
+        "pc engine cd": _NEC_PC_ENGINE_CD,
+        "turbo grafx cd": _NEC_PC_ENGINE_CD,
+        "turbografx cd": _NEC_PC_ENGINE_CD,
+        "nec turbografx cd": _NEC_PC_ENGINE_CD,
+        "sega mega cd": _SEGA_MEGA_CD,
+        "sega cd": _SEGA_MEGA_CD,
+        "mega cd": _SEGA_MEGA_CD,
+        "pc fx": _NEC_PC_FX,
+        "nec pc fx": _NEC_PC_FX,
+        "pc fxga": _NEC_PC_FX,
         "atari jaguar cd": "atari jaguar cd interactive multimedia system",
         "jaguar cd": "atari jaguar cd interactive multimedia system",
     }

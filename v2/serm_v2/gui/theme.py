@@ -125,15 +125,15 @@ def apply_theme(app: QApplication) -> None:
     app.setStyleSheet(PIXEL_THEME)
 
 
-def refine_dashboard(root) -> dict[str, int]:
-    """Refina a composição das telas, incluindo a guia de diretórios."""
-    panels = titles = sections = 0
-    root_layout = root.layout()
-    if root_layout is not None:
-        root_layout.setContentsMargins(10, 8, 10, 6)
-        root_layout.setSpacing(6)
-    for layout in root.findChildren(QLayout):
-        layout.setSpacing(6)
+def _refresh_style(widget, property_name: str | None = None, value=None) -> None:
+    if property_name is not None:
+        widget.setProperty(property_name, value)
+    widget.style().unpolish(widget)
+    widget.style().polish(widget)
+
+
+def _refine_frames(root) -> int:
+    panels = 0
     for frame in root.findChildren(QFrame):
         if frame.objectName() == "navigationSidebar":
             continue
@@ -141,43 +141,65 @@ def refine_dashboard(root) -> dict[str, int]:
             frame.setStyleSheet("")
         frame.setObjectName("panel")
         panels += 1
+    return panels
+
+
+def _refine_labels(root) -> tuple[int, int]:
+    titles = sections = 0
     for label in root.findChildren(QLabel):
         text = label.text().strip()
         if text in {"SERM V2", "SERM V2 — Home"} or text.startswith("SERM V2 —"):
             label.setStyleSheet("")
-            label.setProperty("role", "title")
-            label.style().unpolish(label)
-            label.style().polish(label)
+            _refresh_style(label, "role", "title")
             titles += 1
         elif text in {"Log RetroArch", "Log detalhado da instalação"}:
             label.setStyleSheet("")
-            label.setProperty("role", "section")
-            label.style().unpolish(label)
-            label.style().polish(label)
+            _refresh_style(label, "role", "section")
             sections += 1
+    return titles, sections
+
+
+def _refine_buttons(root) -> None:
     for button in root.findChildren(QPushButton):
         button.setMinimumHeight(max(button.minimumHeight(), 30))
         text = button.text().strip().casefold()
-        if any(
-            token in text
-            for token in ("selecionar pasta", "adicionar pasta", "selecionar diretório")
-        ):
-            button.setProperty("role", "folder")
+        role = None
+        if any(token in text for token in ("selecionar pasta", "adicionar pasta", "selecionar diretório")):
+            role = "folder"
         elif "remover selecionada" in text:
-            button.setProperty("role", "danger")
+            role = "danger"
         elif "salvar diretórios" in text or "instalar selecionados" in text:
-            button.setProperty("role", "primary")
-        button.style().unpolish(button)
-        button.style().polish(button)
+            role = "primary"
+        if role:
+            _refresh_style(button, "role", role)
+        else:
+            _refresh_style(button)
+
+
+def _refine_lists(root) -> None:
     for widget in root.findChildren(QListWidget):
-        parent_name = widget.parentWidget().__class__.__name__ if widget.parentWidget() else ""
         if widget.objectName() == "navigationList":
             continue
-        if parent_name == "PathListWidget":
+        parent = widget.parentWidget()
+        if parent and parent.__class__.__name__ == "PathListWidget":
             widget.setMinimumHeight(82)
             widget.setMaximumHeight(130)
         else:
             widget.setMinimumHeight(max(widget.minimumHeight(), 140))
+
+
+def refine_dashboard(root) -> dict[str, int]:
+    """Refina a composição das telas, incluindo a guia de diretórios."""
+    root_layout = root.layout()
+    if root_layout is not None:
+        root_layout.setContentsMargins(10, 8, 10, 6)
+        root_layout.setSpacing(6)
+    for layout in root.findChildren(QLayout):
+        layout.setSpacing(6)
+    panels = _refine_frames(root)
+    titles, sections = _refine_labels(root)
+    _refine_buttons(root)
+    _refine_lists(root)
     for widget in root.findChildren(QPlainTextEdit):
         widget.setMinimumHeight(max(widget.minimumHeight(), 150))
     for widget in root.findChildren(QProgressBar):

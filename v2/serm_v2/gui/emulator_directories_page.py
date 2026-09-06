@@ -26,6 +26,8 @@ from .directories_guide_page import DirectoryGuidePage
 # editing/persistence logic.
 directories_guide_page.QLineEdit = QLineEdit
 
+MAME_EXECUTABLE_TITLE = "Executável do MAME"
+
 
 class DirectoriesPage(DirectoryGuidePage):
     """Expose the directory guide and keep MAME root/executable independent.
@@ -43,7 +45,7 @@ class DirectoriesPage(DirectoryGuidePage):
         if not isinstance(layout, QBoxLayout):
             return
 
-        group = QGroupBox("Executável do MAME")
+        group = QGroupBox(MAME_EXECUTABLE_TITLE)
         form = QFormLayout(group)
         self.mame_executable_edit = QLineEdit()
         self.mame_executable_edit.setReadOnly(True)
@@ -87,7 +89,7 @@ class DirectoriesPage(DirectoryGuidePage):
         if executable.suffix.casefold() != ".exe" or not executable.is_file():
             QMessageBox.warning(
                 self,
-                "Executável do MAME",
+                MAME_EXECUTABLE_TITLE,
                 "Selecione um arquivo executável válido.",
             )
             return
@@ -109,10 +111,10 @@ class DirectoriesPage(DirectoryGuidePage):
                 timeout=5,
                 check=False,
             )
-        except (OSError, subprocess.SubprocessError, subprocess.TimeoutExpired) as exc:
+        except (OSError, subprocess.SubprocessError) as exc:
             QMessageBox.warning(
                 self,
-                "Executável do MAME",
+                MAME_EXECUTABLE_TITLE,
                 f"Não foi possível consultar o executável selecionado.\n\n{exc}",
             )
             return

@@ -58,6 +58,52 @@ class MameVsyncService:
                     continue
                 yield line
 
+    @staticmethod
+    def _reused_result(connection, source_id: int, log) -> dict[str, int | str]:
+        row = connection.execute(
+            """SELECT COUNT(*), SUM(resolved_status='resolved'), SUM(resolved_status='unresolved')
+               FROM mame_vsync WHERE source_document_id=?""",
+            (source_id,),
+        ).fetchone()
+        entries, resolved, unresolved = int(row[0] or 0), int(row[1] or 0), int(row[2] or 0)
+        log(f"MAME | VSYNC | REUSE | source_id={source_id} | mesmo SHA-256 | entradas={entries:,}")
+        return {
+            "source_id": source_id,
+            "entries": entries,
+            "resolved": resolved,
+            "unresolved": unresolved,
+            "status": "reused",
+        }
+
+    def _insert_entries(self, connection, source_id: int, path: Path, machines: dict, now: str, log):
+        entries = resolved = unresolved = duplicates = 0
+        seen: set[str] = set()
+        for machine_name in self._entries(path):
+            if machine_name in seen:
+                duplicates += 1
+                continue
+            seen.add(machine_name)
+            machine_id = machines.get(machine_name)
+            status = "resolved" if machine_id is not None else "unresolved"
+            connection.execute(
+                """INSERT INTO mame_vsync
+                   (source_document_id, machine_id, machine_name, vsync_enabled, value_raw, resolved_status, imported_at)
+                   VALUES (?, ?, ?, 1, '1', ?, ?)""",
+                (source_id, machine_id, machine_name, status, now),
+            )
+            entries += 1
+            if machine_id is None:
+                unresolved += 1
+            else:
+                resolved += 1
+            if entries % 5000 == 0:
+                log(
+                    f"MAME | VSYNC | PROGRESS | entradas={entries:,} "
+                    f"| resolvidas={resolved:,} | não_resolvidas={unresolved:,} "
+                    f"| duplicadas={duplicates:,}"
+                )
+        return entries, resolved, unresolved, duplicates
+
     def ingest(self, logger=None) -> dict[str, int | str]:
         """Importa Vsync.ini de forma idempotente, descartando nomes duplicados."""
         path = self.locate_vsync_ini()
@@ -74,23 +120,7 @@ class MameVsyncService:
                 (self.SOURCE_TYPE, source_hash),
             ).fetchone()
             if previous and previous[1] == "completed":
-                source_id = int(previous[0])
-                row = connection.execute(
-                    """SELECT COUNT(*), SUM(resolved_status='resolved'), SUM(resolved_status='unresolved')
-                       FROM mame_vsync WHERE source_document_id=?""",
-                    (source_id,),
-                ).fetchone()
-                entries, resolved, unresolved = int(row[0] or 0), int(row[1] or 0), int(row[2] or 0)
-                log(
-                    f"MAME | VSYNC | REUSE | source_id={source_id} | mesmo SHA-256 | entradas={entries:,}"
-                )
-                return {
-                    "source_id": source_id,
-                    "entries": entries,
-                    "resolved": resolved,
-                    "unresolved": unresolved,
-                    "status": "reused",
-                }
+                return self._reused_result(connection, int(previous[0]), log)
 
             connection.execute("BEGIN")
             cursor = connection.execute(
@@ -104,38 +134,9 @@ class MameVsyncService:
                 row[1]: row[0] for row in connection.execute("SELECT id, name FROM mame_machine")
             }
 
-            entries = resolved = unresolved = duplicates = 0
-            seen: set[str] = set()
-
-            for machine_name in self._entries(path):
-                # O arquivo pode conter o mesmo driver/máquina mais de uma vez.
-                # A tabela possui UNIQUE(source_document_id, machine_name), portanto
-                # a duplicidade deve ser tratada antes do INSERT.
-                if machine_name in seen:
-                    duplicates += 1
-                    continue
-                seen.add(machine_name)
-
-                machine_id = machines.get(machine_name)
-                status = "resolved" if machine_id is not None else "unresolved"
-                connection.execute(
-                    """INSERT INTO mame_vsync
-                       (source_document_id, machine_id, machine_name, vsync_enabled, value_raw, resolved_status, imported_at)
-                       VALUES (?, ?, ?, 1, '1', ?, ?)""",
-                    (source_id, machine_id, machine_name, status, now),
-                )
-                entries += 1
-                if machine_id is None:
-                    unresolved += 1
-                else:
-                    resolved += 1
-
-                if entries % 5000 == 0:
-                    log(
-                        f"MAME | VSYNC | PROGRESS | entradas={entries:,} "
-                        f"| resolvidas={resolved:,} | não_resolvidas={unresolved:,} "
-                        f"| duplicadas={duplicates:,}"
-                    )
+            entries, resolved, unresolved, duplicates = self._insert_entries(
+                connection, source_id, path, machines, now, log
+            )
 
             connection.execute(
                 "UPDATE mame_source_document SET status='completed' WHERE id=?",

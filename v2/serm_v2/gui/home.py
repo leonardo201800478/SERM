@@ -44,25 +44,24 @@ class HomePage(EmulatorHomePage):
         """Adiciona filtros locais ao catálogo sem alterar o canal do RetroArch."""
         page = super()._retroarch_tab()
         layout = page.layout()
-        if not isinstance(layout, QVBoxLayout):
-            return page
-        filters = QGroupBox("Filtro do catálogo de cores")
-        row = QHBoxLayout(filters)
-        self.core_include_beta = QCheckBox("Incluir Beta / Nightly")
-        self.core_current_only = QCheckBox("Somente cores atuais")
-        self.core_hide_games = QCheckBox("Ocultar jogos / game engines")
+        if isinstance(layout, QVBoxLayout):
+            filters = QGroupBox("Filtro do catálogo de cores")
+            row = QHBoxLayout(filters)
+            self.core_include_beta = QCheckBox("Incluir Beta / Nightly")
+            self.core_current_only = QCheckBox("Somente cores atuais")
+            self.core_hide_games = QCheckBox("Ocultar jogos / game engines")
 
-        # Restaura as últimas seleções feitas nesta sessão antes de conectar os
-        # sinais, evitando que a restauração seja tratada como uma alteração.
-        self.core_include_beta.setChecked(self._core_filter_state["include_beta"])
-        self.core_current_only.setChecked(self._core_filter_state["current_only"])
-        self.core_hide_games.setChecked(self._core_filter_state["hide_games"])
+            # Restaura as últimas seleções feitas nesta sessão antes de conectar os
+            # sinais, evitando que a restauração seja tratada como uma alteração.
+            self.core_include_beta.setChecked(self._core_filter_state["include_beta"])
+            self.core_current_only.setChecked(self._core_filter_state["current_only"])
+            self.core_hide_games.setChecked(self._core_filter_state["hide_games"])
 
-        for widget in (self.core_include_beta, self.core_current_only, self.core_hide_games):
-            row.addWidget(widget)
-            widget.stateChanged.connect(self._core_filters_changed)
-        row.addStretch()
-        layout.insertWidget(7, filters)
+            for widget in (self.core_include_beta, self.core_current_only, self.core_hide_games):
+                row.addWidget(widget)
+                widget.stateChanged.connect(self._core_filters_changed)
+            row.addStretch()
+            layout.insertWidget(7, filters)
         return page
 
     def _save_core_filter_state(self) -> None:
@@ -142,13 +141,12 @@ class HomePage(EmulatorHomePage):
             state = state_map.get(key, "new")
             installed_count += key in installed_names
             update_count += state == "update"
-            marker = (
-                "[ATUALIZADO]"
-                if state == "current"
-                else "[ATUALIZAÇÃO]"
-                if state == "update"
-                else "[NOVO]"
-            )
+            if state == "current":
+                marker = "[ATUALIZADO]"
+            elif state == "update":
+                marker = "[ATUALIZAÇÃO]"
+            else:
+                marker = "[NOVO]"
             beta = " | BETA/NIGHTLY" if core.channel == "nightly" else ""
             item = QListWidgetItem(
                 f"{marker}{beta} {core.core_name} | {core.date} | CRC {core.crc32}"

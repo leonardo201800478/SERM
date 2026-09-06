@@ -50,6 +50,7 @@ class LayerSpec:
 class EmulatorShadersBezelsPage(QWidget):
     """Exibe cada emulador no nível 2 e Shaders/Bezels no nível 3."""
 
+    PAGE_TITLE = "Shaders / Bezels"
     PATHS_FILE = data_root() / "emulator_paths.json"
     ASSETS_FILE = data_root() / "emulator_visual_assets.json"
     CONFIG_KEYS = {
@@ -248,7 +249,7 @@ class EmulatorShadersBezelsPage(QWidget):
     def _build_ui(self) -> None:
         """Cria nível 2 por emulador e nível 3 por camada visual."""
         root = QVBoxLayout(self)
-        title = QLabel("Shaders / Bezels")
+        title = QLabel(self.PAGE_TITLE)
         title.setProperty("role", "title")
         root.addWidget(title)
         info = QLabel(
@@ -388,7 +389,7 @@ class EmulatorShadersBezelsPage(QWidget):
         if editor is None:
             QMessageBox.warning(
                 self,
-                "Shaders / Bezels",
+                self.PAGE_TITLE,
                 "Arquivo de configuração não encontrado. Configure-o primeiro na guia Diretórios.",
             )
             return
@@ -405,7 +406,7 @@ class EmulatorShadersBezelsPage(QWidget):
                     editor.set_value(spec.key, new_value)
                     changed += 1
             if not changed:
-                QMessageBox.information(self, "Shaders / Bezels", "Nenhuma alteração pendente.")
+                QMessageBox.information(self, self.PAGE_TITLE, "Nenhuma alteração pendente.")
                 return
             backup = editor.save()
         except Exception as exc:

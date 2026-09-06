@@ -58,18 +58,8 @@ def _configure_splitter(splitter: QSplitter, object_name: str, sizes: list[int])
     splitter.setSizes(sizes)
 
 
-def _replace_arcade_cards(home) -> bool:
-    """Converte a grade fixa de emuladores em divisórias horizontal/vertical ajustáveis."""
-    tabs = getattr(home, "home_tabs", None)
-    if tabs is None or tabs.count() == 0:
-        return False
-    page = tabs.widget(0)
-    if page is None or page.property("arcade_refined"):
-        return False
-    layout = page.layout()
-    if layout is None:
-        return False
-
+def _collect_emulator_cards(home) -> list[QWidget]:
+    """Obtém os cartões dos emuladores visíveis e remove seus indicadores locais."""
     cards: list[QWidget] = []
     for key in getattr(home, "EMULATORS", ()):
         entry = home.cards.get(key)
@@ -78,24 +68,19 @@ def _replace_arcade_cards(home) -> bool:
         card = entry[0].parentWidget()
         if card is not None and card not in cards:
             cards.append(card)
+
         old_progress = entry[3]
-        if old_progress is not None:
-            old_progress.hide()
-            card_layout = card.layout() if card is not None else None
-            if card_layout is not None:
-                card_layout.removeWidget(old_progress)
+        if old_progress is None:
+            continue
+        old_progress.hide()
+        card_layout = card.layout() if card is not None else None
+        if card_layout is not None:
+            card_layout.removeWidget(old_progress)
+    return cards
 
-    if len(cards) != 4:
-        return False
 
-    frame = next((w for w in page.findChildren(QFrame) if w.layout() is not None), None)
-    if frame is None:
-        return False
-    index = layout.indexOf(frame)
-    if index < 0:
-        return False
-    layout.removeWidget(frame)
-
+def _build_arcade_splitter(cards: list[QWidget]) -> QSplitter:
+    """Cria a divisória principal com as colunas de emuladores."""
     left = QSplitter(Qt.Orientation.Vertical)
     right = QSplitter(Qt.Orientation.Vertical)
     left.addWidget(cards[0])
@@ -109,17 +94,11 @@ def _replace_arcade_cards(home) -> bool:
     outer.addWidget(left)
     outer.addWidget(right)
     _configure_splitter(outer, "splitterEmulatorsColumns", [1, 1])
+    return outer
 
-    container = QWidget(page)
-    container.setObjectName("emulatorCardsContainer")
-    container_layout = QVBoxLayout(container)
-    container_layout.setContentsMargins(0, 0, 0, 0)
-    container_layout.addWidget(outer)
-    layout.insertWidget(index, container, 1)
 
-    frame.setParent(None)
-    frame.deleteLater()
-
+def _build_progress_row(page: QWidget) -> tuple[QProgressBar, QLabel, QWidget]:
+    """Cria a linha de progresso e o rótulo para o painel de emuladores."""
     progress = QProgressBar(page)
     progress.setObjectName("xpProgress")
     progress.setProperty("busy", False)
@@ -138,6 +117,49 @@ def _replace_arcade_cards(home) -> bool:
     status_label.setObjectName("homeProgressLabel")
     status_layout.addWidget(status_label)
     status_layout.addWidget(progress, 1)
+    return progress, status_label, status_row
+
+
+def _replace_arcade_cards(home) -> bool:
+    """Converte a grade fixa de emuladores em divisórias horizontal/vertical ajustáveis."""
+    tabs = getattr(home, "home_tabs", None)
+    if tabs is None or tabs.count() == 0:
+        return False
+
+    page = tabs.widget(0)
+    if page is None or page.property("arcade_refined"):
+        return False
+
+    layout = page.layout()
+    if layout is None:
+        return False
+
+    cards = _collect_emulator_cards(home)
+    if len(cards) != 4:
+        return False
+
+    frame = next((w for w in page.findChildren(QFrame) if w.layout() is not None), None)
+    if frame is None:
+        return False
+
+    index = layout.indexOf(frame)
+    if index < 0:
+        return False
+
+    layout.removeWidget(frame)
+    splitter = _build_arcade_splitter(cards)
+
+    container = QWidget(page)
+    container.setObjectName("emulatorCardsContainer")
+    container_layout = QVBoxLayout(container)
+    container_layout.setContentsMargins(0, 0, 0, 0)
+    container_layout.addWidget(splitter)
+    layout.insertWidget(index, container, 1)
+
+    frame.setParent(None)
+    frame.deleteLater()
+
+    progress, status_label, status_row = _build_progress_row(page)
     layout.insertWidget(index + 1, status_row)
 
     home.home_progress = progress

@@ -84,7 +84,7 @@ class MameConfigurationCatalog:
     }
 
     BOOL_RE = re.compile(r"^\[no\](.+)$")
-    OPTION_RE = re.compile(r"^\s*-{1,2}([^\s]+)(?:\s+(.*))?$")
+    OPTION_RE = re.compile(r"^\s*--?(\S+)(?:[^\S\r\n]+(.*))?$")
     CHOICE_RE = re.compile(r"[<(]([^>)]*)[>)]")
 
     def configured_executable(self) -> Path:
@@ -184,34 +184,18 @@ class MameConfigurationCatalog:
 
         def flush() -> None:
             nonlocal pending_key, pending_spec, pending_description, pending_boolean
-            if pending_key is None:
-                return
-            canonical = pending_key.lstrip("-")
-            value = current.get(canonical, defaults.get(canonical))
-            if canonical and canonical not in seen:
-                choices = cls._extract_choices(pending_spec)
-                if pending_boolean:
-                    value_type, control = "bool", "checkbox"
-                elif choices:
-                    value_type, control = "enum", "combobox"
-                elif canonical.endswith("path") or canonical.endswith("_directory"):
-                    value_type, control = "path", "path"
-                elif value is not None and cls._is_number(value):
-                    value_type, control = "number", "spinbox"
-                else:
-                    value_type, control = "string", "text"
-                result.append(
-                    MameOption(
-                        key=canonical,
-                        description=" ".join(pending_description).strip(),
-                        category=current_category,
-                        value_type=value_type,
-                        control_type=control,
-                        default_value=defaults.get(canonical, value),
-                        choices=choices,
-                    )
-                )
-                seen.add(canonical)
+            option = cls._usage_option(
+                pending_key,
+                pending_spec,
+                pending_description,
+                pending_boolean,
+                current_category,
+                current,
+                defaults,
+                seen,
+            )
+            if option is not None:
+                result.append(option)
             pending_key = None
             pending_spec = ""
             pending_description = []
@@ -221,9 +205,10 @@ class MameConfigurationCatalog:
             stripped = line.strip()
             if not stripped:
                 continue
-            if not line.startswith((" ", "\t")) and stripped.endswith("Options"):
+            category = cls._usage_category(line, stripped)
+            if category is not None:
                 flush()
-                current_category = stripped
+                current_category = category
                 continue
             match = cls.OPTION_RE.match(line)
             if match:
@@ -232,15 +217,61 @@ class MameConfigurationCatalog:
                 spec = match.group(2) or ""
                 token = token.split("/", 1)[0]
                 pending_boolean = token.startswith("[no]")
-                if pending_boolean:
-                    token = token[4:]
-                pending_key = token
+                pending_key = token[4:] if pending_boolean else token
                 pending_spec = spec
                 continue
             if pending_key is not None:
                 pending_description.append(stripped)
         flush()
         return result
+
+    @staticmethod
+    def _usage_category(line: str, stripped: str) -> str | None:
+        """Retorna a categoria declarada em uma linha de uso, se houver."""
+        if not line.startswith((" ", "\t")) and stripped.endswith("Options"):
+            return stripped
+        return None
+
+    @classmethod
+    def _usage_option(
+        cls,
+        key: str | None,
+        spec: str,
+        description: list[str],
+        boolean: bool,
+        category: str,
+        current: dict[str, str],
+        defaults: dict[str, str],
+        seen: set[str],
+    ) -> MameOption | None:
+        """Constrói uma opção pendente, ignorando chaves duplicadas."""
+        if key is None:
+            return None
+        canonical = key.lstrip("-")
+        if not canonical or canonical in seen:
+            return None
+        value = current.get(canonical, defaults.get(canonical))
+        choices = cls._extract_choices(spec)
+        if boolean:
+            value_type, control = "bool", "checkbox"
+        elif choices:
+            value_type, control = "enum", "combobox"
+        elif canonical.endswith(("path", "_directory")):
+            value_type, control = "path", "path"
+        elif value is not None and cls._is_number(value):
+            value_type, control = "number", "spinbox"
+        else:
+            value_type, control = "string", "text"
+        seen.add(canonical)
+        return MameOption(
+            key=canonical,
+            description=" ".join(description).strip(),
+            category=category,
+            value_type=value_type,
+            control_type=control,
+            default_value=defaults.get(canonical, value),
+            choices=choices,
+        )
 
     @classmethod
     def _extract_choices(cls, spec: str) -> tuple[str, ...]:

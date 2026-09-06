@@ -79,7 +79,7 @@ class MainWindow(QMainWindow):
         return QSettings("SERM", "SERM V2")
 
     @staticmethod
-    def _screen_key(screen) -> str:
+    def _get_screen_key(screen) -> str:
         geometry = screen.geometry()
         return f"{screen.name().strip()}|{geometry.x()},{geometry.y()},{geometry.width()},{geometry.height()}"
 
@@ -87,6 +87,32 @@ class MainWindow(QMainWindow):
     def _intersection_area(first, second) -> int:
         intersection = first.intersected(second)
         return max(0, intersection.width()) * max(0, intersection.height())
+
+    def _find_restore_screen(self, screens, saved_screen, rect):
+        target = next(
+            (screen for screen in screens if self._get_screen_key(screen) == saved_screen), None
+        )
+        if target is None and saved_screen:
+            name = saved_screen.split("|", 1)[0]
+            target = next((screen for screen in screens if screen.name().strip() == name), None)
+        if target is not None:
+            return target
+        best = max(
+            screens,
+            key=lambda screen: self._intersection_area(rect, screen.availableGeometry()),
+        )
+        if self._intersection_area(rect, best.availableGeometry()) > 0:
+            return best
+        return self.screen() or QApplication.primaryScreen() or screens[0]
+
+    def _fit_window_to_screen(self, screen) -> None:
+        available = screen.availableGeometry()
+        rect = self.frameGeometry()
+        width = min(max(rect.width(), self.minimumWidth()), available.width())
+        height = min(max(rect.height(), self.minimumHeight()), available.height())
+        x = min(max(rect.x(), available.left()), available.right() - width + 1)
+        y = min(max(rect.y(), available.top()), available.bottom() - height + 1)
+        self.setGeometry(x, y, width, height)
 
     def _restore_window_layout(self) -> None:
         settings = self._qt_settings()
@@ -100,30 +126,9 @@ class MainWindow(QMainWindow):
         screens = QApplication.screens()
         if not screens:
             return
-        current = self.screen()
-        target = next(
-            (screen for screen in screens if self._screen_key(screen) == saved_screen), None
-        )
-        if target is None and saved_screen:
-            name = saved_screen.split("|", 1)[0]
-            target = next((screen for screen in screens if screen.name().strip() == name), None)
-        rect = self.frameGeometry()
-        if target is None:
-            best = 0
-            for screen in screens:
-                area = self._intersection_area(rect, screen.availableGeometry())
-                if area > best:
-                    best, target = area, screen
-            if best == 0:
-                target = current or QApplication.primaryScreen() or screens[0]
-        if target is None:
-            return
-        available = target.availableGeometry()
-        width = min(max(rect.width(), self.minimumWidth()), available.width())
-        height = min(max(rect.height(), self.minimumHeight()), available.height())
-        x = min(max(rect.x(), available.left()), available.right() - width + 1)
-        y = min(max(rect.y(), available.top()), available.bottom() - height + 1)
-        self.setGeometry(x, y, width, height)
+        target = self._find_restore_screen(screens, saved_screen, self.frameGeometry())
+        if target is not None:
+            self._fit_window_to_screen(target)
 
     def _save_window_layout(self) -> None:
         settings = self._qt_settings()
@@ -131,7 +136,7 @@ class MainWindow(QMainWindow):
         settings.setValue(self._GEOMETRY_KEY, self.saveGeometry())
         settings.setValue(self._STATE_KEY, self.saveState())
         if screen is not None:
-            settings.setValue(self._SCREEN_KEY, self._screen_key(screen))
+            settings.setValue(self._SCREEN_KEY, self._get_screen_key(screen))
             geometry = screen.geometry()
             settings.setValue(
                 self._SCREEN_GEOMETRY_KEY,

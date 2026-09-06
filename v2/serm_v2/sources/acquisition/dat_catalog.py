@@ -90,7 +90,7 @@ class PublicDatCatalogProvider:
         try:
             with self._opener.open(request, timeout=self.timeout) as response:
                 payload = response.read()
-        except (HTTPError, URLError, OSError) as exc:
+        except URLError as exc:
             raise DatCatalogError(f"Falha ao obter índice {category}: {exc}") from exc
         entries = self._parse_index(payload.decode("utf-8-sig"), category=category)
         logger.info("[DAT-CATALOG][CATALOG] %s DATs disponíveis=%d", category, len(entries))
@@ -111,21 +111,42 @@ class PublicDatCatalogProvider:
             if kind == "DIRECTORY":
                 current_directory = name
                 continue
-            if kind != "FILE" or not name.lower().endswith(".dat"):
-                continue
-            if is_no_intro and current_directory != "No-Intro":
-                continue
-            url = (row.get("URL") or "").strip()
-            if not url:
-                continue
-            try:
-                crc32 = int((row.get("CRC") or "0").strip())
-                size = int((row.get("Size") or "0").strip())
-            except ValueError:
-                logger.warning("[DAT-CATALOG][CATALOG] metadados inválidos: %s", name)
-                continue
-            entries.append(DatCatalogEntry(name, cls._normalize_url(url), crc32, size, category))
+            entry = cls._parse_dat_row(
+                row,
+                name=name,
+                category=category,
+                is_no_intro=is_no_intro,
+                current_directory=current_directory,
+            )
+            if entry is not None:
+                entries.append(entry)
         return tuple(entries)
+
+    @classmethod
+    def _parse_dat_row(
+        cls,
+        row: dict[str, str | None],
+        *,
+        name: str,
+        category: str,
+        is_no_intro: bool,
+        current_directory: str | None,
+    ) -> DatCatalogEntry | None:
+        """Parse one eligible DAT file row from the catalog index."""
+        if not name.lower().endswith(".dat"):
+            return None
+        if is_no_intro and current_directory != "No-Intro":
+            return None
+        url = (row.get("URL") or "").strip()
+        if not url:
+            return None
+        try:
+            crc32 = int((row.get("CRC") or "0").strip())
+            size = int((row.get("Size") or "0").strip())
+        except ValueError:
+            logger.warning("[DAT-CATALOG][CATALOG] metadados inválidos: %s", name)
+            return None
+        return DatCatalogEntry(name, cls._normalize_url(url), crc32, size, category)
 
     def match(
         self, systems: tuple[str, ...], entries: tuple[DatCatalogEntry, ...] | None = None
@@ -249,7 +270,7 @@ class PublicDatCatalogProvider:
                         f"HTTP {exc.code} {exc.reason} ao baixar URL: {current_url}"
                     ) from exc
                 last_error = exc
-            except (URLError, OSError) as exc:
+            except OSError as exc:
                 elapsed = time.perf_counter() - started
                 logger.warning(
                     "[DAT-CATALOG][HTTP] transport-error attempt=%d elapsed=%.3fs url=%s error=%r",
@@ -281,9 +302,7 @@ class PublicDatCatalogProvider:
             and "\n" not in value
             and "\r" not in value
             and value.lower().endswith(".dat")
-            and (
-                value.startswith("../") or value.startswith("./") or value.startswith("normalized/")
-            )
+            and value.startswith(("../", "./", "normalized/"))
         )
 
     @staticmethod
@@ -438,6 +457,10 @@ class PublicDatCatalogProvider:
     @classmethod
     def _aliases(cls, value: str) -> set[str]:
         """Return normalized aliases for common LaunchBox platform names."""
+        sony_playstation = "sony playstation"
+        pc_engine_cd_and_turbografx_cd = "nec pc engine cd and turbografx cd"
+        pc_fx_and_pc_fxga = "nec pc fx and pc fxga"
+        mega_cd_and_sega_cd = "sega mega cd and sega cd"
         aliases = {
             "nes": {"nintendo entertainment system", "nintendo nintendo entertainment system"},
             "famicom": {"nintendo entertainment system", "nintendo nintendo entertainment system"},
@@ -453,9 +476,9 @@ class PublicDatCatalogProvider:
             "sega genesis": {"mega drive genesis", "sega mega drive genesis"},
             "sms": {"master system mark iii", "sega master system mark iii"},
             "master system": {"master system mark iii", "sega master system mark iii"},
-            "playstation": {"sony playstation"},
-            "psx": {"sony playstation"},
-            "ps1": {"sony playstation"},
+            "playstation": {sony_playstation},
+            "psx": {sony_playstation},
+            "ps1": {sony_playstation},
             "playstation 2": {"sony playstation 2"},
             "ps2": {"sony playstation 2"},
             "playstation 3": {"sony playstation 3"},
@@ -471,15 +494,15 @@ class PublicDatCatalogProvider:
             "amiga cd": {"commodore amiga cd"},
             "amiga cd32": {"commodore amiga cd32"},
             "amiga cdtv": {"commodore amiga cdtv"},
-            "pc engine cd": {"nec pc engine cd and turbografx cd"},
-            "turbografx cd": {"nec pc engine cd and turbografx cd"},
-            "pc engine cd and turbografx cd": {"nec pc engine cd and turbografx cd"},
-            "pc fx": {"nec pc fx and pc fxga"},
-            "pc fxga": {"nec pc fx and pc fxga"},
-            "nec pc fx": {"nec pc fx and pc fxga"},
-            "mega cd": {"sega mega cd and sega cd"},
-            "sega cd": {"sega mega cd and sega cd"},
-            "mega cd and sega cd": {"sega mega cd and sega cd"},
+            "pc engine cd": {pc_engine_cd_and_turbografx_cd},
+            "turbografx cd": {pc_engine_cd_and_turbografx_cd},
+            "pc engine cd and turbografx cd": {pc_engine_cd_and_turbografx_cd},
+            "pc fx": {pc_fx_and_pc_fxga},
+            "pc fxga": {pc_fx_and_pc_fxga},
+            "nec pc fx": {pc_fx_and_pc_fxga},
+            "mega cd": {mega_cd_and_sega_cd},
+            "sega cd": {mega_cd_and_sega_cd},
+            "mega cd and sega cd": {mega_cd_and_sega_cd},
             "cdi": {"philips cd i"},
             "cd i": {"philips cd i"},
             "xbox": {"microsoft xbox"},

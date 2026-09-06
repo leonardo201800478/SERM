@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -67,8 +68,7 @@ class ConfigFileEditor:
         result: list[str] = []
         pattern = self._key_pattern(key, indexed=indexed)
         for line in self._text.splitlines():
-            match = pattern.match(line)
-            if match:
+            if match := pattern.match(line):
                 result.append(match.group("value").strip().strip('"'))
         return result
 
@@ -128,10 +128,8 @@ class ConfigFileEditor:
                 os.fsync(handle.fileno())
             os.replace(tmp_name, self.path)
         except Exception:
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(tmp_name)
-            except OSError:
-                pass
             raise
         return backup
 
@@ -183,12 +181,11 @@ class PathListWidget(QWidget):
 
     def add_folder(self) -> None:
         """Select and append one directory."""
-        selected = QFileDialog.getExistingDirectory(
+        if selected := QFileDialog.getExistingDirectory(
             self,
             "Selecionar diretório",
             str(Path.home()),
-        )
-        if selected:
+        ):
             self.list.addItem(str(Path(selected).resolve()))
 
     def remove_selected(self) -> None:
@@ -201,6 +198,9 @@ class PathListWidget(QWidget):
 class DirectoryGuidePage(QWidget):
     """Configure emulator directories through safe, format-preserving edits."""
 
+    DIRECTORY_GROUP_TITLE = "Diretórios"
+    FBNEO_ROMS_STORAGE = "fbneo:roms"
+    SUPERMODEL_ROMS_STORAGE = "supermodel:roms"
     PATHS_FILE = data_root() / "emulator_paths.json"
     TOOLS_FILE = integrations_root() / "tools.json"
     EXECUTABLES = EmulatorManager.EXECUTABLES
@@ -313,10 +313,8 @@ class DirectoryGuidePage(QWidget):
                 os.fsync(handle.fileno())
             os.replace(tmp_name, path)
         except Exception:
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(tmp_name)
-            except OSError:
-                pass
             raise
 
     @staticmethod
@@ -346,9 +344,7 @@ class DirectoryGuidePage(QWidget):
             suffix = value[2:].lstrip("\\/")
             return str((base / suffix).resolve()) if suffix else str(base)
         path = Path(value).expanduser()
-        if path.is_absolute():
-            return str(path)
-        return str((base / path).resolve())
+        return str(path) if path.is_absolute() else str((base / path).resolve())
 
     @classmethod
     def _encode_path(
@@ -447,7 +443,7 @@ class DirectoryGuidePage(QWidget):
         """Build MAME's directory fields, including multi-root search paths."""
         layout = QVBoxLayout(page)
         self._config_header(layout, "mame", "mame.ini")
-        group = QGroupBox("Diretórios")
+        group = QGroupBox(self.DIRECTORY_GROUP_TITLE)
         form = QFormLayout(group)
         for key, label, _ in self.MAME_KEYS:
             storage = f"mame:{key}"
@@ -466,9 +462,9 @@ class DirectoryGuidePage(QWidget):
         """Build FBNeo's indexed ROM paths and support directories."""
         layout = QVBoxLayout(page)
         self._config_header(layout, "fbneo", "fbneo64.ini")
-        group = QGroupBox("Diretórios")
+        group = QGroupBox(self.DIRECTORY_GROUP_TITLE)
         form = QFormLayout(group)
-        self._add_list(form, "fbneo:roms", "ROMs")
+        self._add_list(form, self.FBNEO_ROMS_STORAGE, "ROMs")
         for key, label, _ in self.FBNEO_KEYS:
             self._add_single(form, f"fbneo:{key}", label)
         layout.addWidget(group)
@@ -482,7 +478,7 @@ class DirectoryGuidePage(QWidget):
         """Build Flycast scalar and vector directory options."""
         layout = QVBoxLayout(page)
         self._config_header(layout, "flycast", "emu.cfg")
-        group = QGroupBox("Diretórios")
+        group = QGroupBox(self.DIRECTORY_GROUP_TITLE)
         form = QFormLayout(group)
         for key, label, _, multi in self.FLYCAST_KEYS:
             storage = f"flycast:{key}"
@@ -501,9 +497,9 @@ class DirectoryGuidePage(QWidget):
         """Build Supermodel's ROM directory field."""
         layout = QVBoxLayout(page)
         self._config_header(layout, "supermodel", "Supermodel.ini")
-        group = QGroupBox("Diretórios")
+        group = QGroupBox(self.DIRECTORY_GROUP_TITLE)
         form = QFormLayout(group)
-        self._add_single(form, "supermodel:roms", "ROMs")
+        self._add_single(form, self.SUPERMODEL_ROMS_STORAGE, "ROMs")
         layout.addWidget(group)
         note = QLabel("GameXMLFile e InitStateFile são arquivos e não são editados nesta guia.")
         note.setWordWrap(True)
@@ -513,7 +509,7 @@ class DirectoryGuidePage(QWidget):
         """Build RetroArch directory fields using native configuration keys."""
         layout = QVBoxLayout(page)
         self._config_header(layout, "retroarch", "retroarch.cfg")
-        group = QGroupBox("Diretórios")
+        group = QGroupBox(self.DIRECTORY_GROUP_TITLE)
         form = QFormLayout(group)
         for key, label, _ in self.RETROARCH_KEYS:
             self._add_single(form, f"retroarch:{key}", label)
@@ -719,7 +715,7 @@ class DirectoryGuidePage(QWidget):
     def _save_fbneo(self, editor: ConfigFileEditor, config: Path) -> None:
         """Write FBNeo indexed ROM paths and scalar support directories."""
         current_roms = editor.values("szAppRomPaths", indexed=True)
-        selected = self._path_lists["fbneo:roms"].paths()
+        selected = self._path_lists[self.FBNEO_ROMS_STORAGE].paths()
         for index, old in enumerate(current_roms):
             value = selected[index] if index < len(selected) else ""
             encoded = self._encode_path(value, config, old, emulator="fbneo") if value else ""
@@ -764,7 +760,7 @@ class DirectoryGuidePage(QWidget):
     def _save_supermodel(self, editor: ConfigFileEditor, config: Path) -> None:
         """Write only Supermodel's ROM directory setting."""
         current = editor.values("RomsDirectory")
-        value = self._path_edits["supermodel:roms"].text().strip()
+        value = self._path_edits[self.SUPERMODEL_ROMS_STORAGE].text().strip()
         if current and value:
             editor.set_value(
                 "RomsDirectory",
@@ -840,7 +836,7 @@ class DirectoryGuidePage(QWidget):
     def _refresh_fbneo(self, editor: ConfigFileEditor, config: Path) -> None:
         """Load FBNeo indexed ROM paths and support directories."""
         values = editor.values("szAppRomPaths", indexed=True)
-        self._path_lists["fbneo:roms"].set_paths(
+        self._path_lists[self.FBNEO_ROMS_STORAGE].set_paths(
             [
                 self._resolve_path(value, config, emulator="fbneo")
                 for value in values
@@ -848,8 +844,7 @@ class DirectoryGuidePage(QWidget):
             ]
         )
         for key, _, cfg_key in self.FBNEO_KEYS:
-            values = editor.values(cfg_key)
-            if values:
+            if values := editor.values(cfg_key):
                 self._path_edits[f"fbneo:{key}"].setText(
                     self._resolve_path(values[0], config, emulator="fbneo")
                 )
@@ -875,7 +870,7 @@ class DirectoryGuidePage(QWidget):
         """Load Supermodel's ROM directory."""
         values = editor.values("RomsDirectory")
         if values:
-            self._path_edits["supermodel:roms"].setText(
+            self._path_edits[self.SUPERMODEL_ROMS_STORAGE].setText(
                 self._resolve_path(values[0], config, emulator="supermodel")
             )
 

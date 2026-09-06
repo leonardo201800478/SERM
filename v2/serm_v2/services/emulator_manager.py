@@ -14,10 +14,12 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from urllib.error import HTTPError, URLError
+from urllib.error import URLError
 from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
+USER_AGENT = "SERM/2.0"
+VERSION_MARKER = ".serm-version"
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,12 +101,17 @@ class EmulatorManager:
             if executable:
                 root = executable.parent
             version = self._read_version(key, root, executable)
-            state = "ready" if executable else "configured" if root else "not_found"
+            if executable:
+                state = "ready"
+            elif root:
+                state = "configured"
+            else:
+                state = "not_found"
             result[key] = EmulatorStatus(key, label, executable, root, version, state)
         return result
 
     def install(
-        self, key: str, destination: Path, *, nightly: bool = False, progress=None, log=None
+        self, key: str, destination: Path, *, progress=None, log=None
     ) -> DownloadResult:
         """Baixa e instala o pacote Windows x64 oficial."""
         key = key.casefold()
@@ -112,7 +119,7 @@ class EmulatorManager:
             raise ValueError(f"Emulador não suportado: {key}")
         destination = Path(destination).expanduser().resolve()
         destination.mkdir(parents=True, exist_ok=True)
-        release = self._release(key, nightly=nightly)
+        release = self._release(key)
         assets_value = release.get("assets")
         assets: list[object] = assets_value if isinstance(assets_value, list) else []
         asset = self._select_asset(key, assets)
@@ -140,7 +147,7 @@ class EmulatorManager:
             )
         return DownloadResult(key, version, executable, str(asset["name"]))
 
-    def _release(self, key: str, *, nightly: bool) -> dict[str, Any]:
+    def _release(self, key: str) -> dict[str, Any]:
         """Consulta o release oficial do GitHub."""
         return self._json(f"https://api.github.com/repos/{self.REPOSITORIES[key]}/releases/latest")
 
@@ -148,7 +155,7 @@ class EmulatorManager:
     def _json(url: str) -> dict[str, Any]:
         """Obtém um objeto JSON público."""
         request = Request(
-            url, headers={"Accept": "application/vnd.github+json", "User-Agent": "SERM/2.0"}
+            url, headers={"Accept": "application/vnd.github+json", "User-Agent": USER_AGENT}
         )
         with urlopen(request, timeout=30) as response:
             value = json.loads(response.read().decode("utf-8"))
@@ -163,54 +170,41 @@ class EmulatorManager:
         for raw in assets:
             if not isinstance(raw, dict) or not raw.get("browser_download_url"):
                 continue
-            name = str(raw.get("name", "")).casefold()
-            score = 0
-            if any(
-                t in name for t in ("windows", "win64", "win-x64", "win_x64", "mingw", "x86_64")
-            ):
-                score += 50
-            if any(t in name for t in ("x64", "x86_64", "amd64", "64bit", "64-bit")):
-                score += 40
-            if any(
-                t in name
-                for t in (
-                    "linux",
-                    "macos",
-                    "osx",
-                    "android",
-                    "ios",
-                    "arm64",
-                    "aarch64",
-                    "win32",
-                    "i386",
-                    "source",
-                    "src",
-                )
-            ):
-                score -= 100
-            if name.endswith(".zip"):
-                score += 20
-            elif name.endswith((".7z", ".7zip")):
-                score += 10
-            elif name.endswith(".exe"):
-                score += 15
-            if key == "mame" and re.search(r"_x64\.exe$", name):
-                score += 140
-            if key == "flycast" and "flycast-win64" in name:
-                score += 150
-            if key == "supermodel" and "supermodel" in name and "win" in name:
-                score += 140
-            if key == "fbneo" and name == "windows-x86_64.zip":
-                score += 220
+            score = cls._asset_score(key, str(raw.get("name", "")).casefold())
             if score >= 70:
                 candidates.append((score, raw))
         candidates.sort(key=lambda item: (item[0], int(item[1].get("size") or 0)), reverse=True)
         return candidates[0][1] if candidates else None
 
     @staticmethod
+    def _asset_score(key: str, name: str) -> int:
+        score = 0
+        if any(t in name for t in ("windows", "win64", "win-x64", "win_x64", "mingw", "x86_64")):
+            score += 50
+        if any(t in name for t in ("x64", "x86_64", "amd64", "64bit", "64-bit")):
+            score += 40
+        if any(t in name for t in ("linux", "macos", "osx", "android", "ios", "arm64", "aarch64", "win32", "i386", "source", "src")):
+            score -= 100
+        if name.endswith(".zip"):
+            score += 20
+        elif name.endswith((".7z", ".7zip")):
+            score += 10
+        elif name.endswith(".exe"):
+            score += 15
+        if key == "mame" and re.search(r"_x64\.exe$", name):
+            score += 140
+        if key == "flycast" and "flycast-win64" in name:
+            score += 150
+        if key == "supermodel" and "supermodel" in name and "win" in name:
+            score += 140
+        if key == "fbneo" and name == "windows-x86_64.zip":
+            score += 220
+        return score
+
+    @staticmethod
     def _download(url: str, target: Path, expected: int, progress=None, log=None) -> None:
         """Baixa um arquivo com progresso."""
-        request = Request(url, headers={"User-Agent": "SERM/2.0", "Accept-Encoding": "identity"})
+        request = Request(url, headers={"User-Agent": USER_AGENT, "Accept-Encoding": "identity"})
         received = 0
         with urlopen(request, timeout=120) as response, target.open("wb") as output:
             total = int(response.headers.get("Content-Length") or expected or 0)
@@ -271,24 +265,36 @@ class EmulatorManager:
     @staticmethod
     def _read_version(key: str, root: Path | None, executable: Path | None) -> str | None:
         """Detecta a versão instalada."""
-        if root:
-            for filename in (".serm-version", "VERSION", "version.txt", "build.txt"):
-                path = root / filename
-                if path.is_file():
-                    try:
-                        text = path.read_text(encoding="utf-8-sig", errors="ignore").strip()
-                    except OSError:
-                        continue
-                    match = re.search(
-                        r"(?:v|version\s*)?([0-9]+\.[0-9]+(?:\.[0-9]+)?(?:[a-z]-[0-9]{8})?)",
-                        text,
-                        re.I,
-                    )
-                    if match:
-                        return match.group(1)
+        version = EmulatorManager._read_version_file(root) if root else None
+        if version:
+            return version
         if key == "mame" and executable:
             return EmulatorManager._probe_mame_version(executable)
         return None
+
+    @staticmethod
+    def _read_version_file(root: Path) -> str | None:
+        """Lê a versão a partir dos arquivos de versão conhecidos."""
+        for filename in (VERSION_MARKER, "VERSION", "version.txt", "build.txt"):
+            version = EmulatorManager._parse_version_file(root / filename)
+            if version:
+                return version
+        return None
+
+    @staticmethod
+    def _parse_version_file(path: Path) -> str | None:
+        if not path.is_file():
+            return None
+        try:
+            text = path.read_text(encoding="utf-8-sig", errors="ignore").strip()
+        except OSError:
+            return None
+        match = re.search(
+            r"(\d+\.\d+(?:\.\d+|[a-z]-\d{8})?)",
+            text,
+            re.I,
+        )
+        return match.group(1) if match else None
 
     @staticmethod
     def _probe_mame_version(executable: Path) -> str | None:
@@ -308,9 +314,9 @@ class EmulatorManager:
                 timeout=4,
                 check=False,
             )
-            match = re.search(r"\b(?:v)?([0-9]+\.[0-9]+)\b", (result.stdout or "").strip())
+            match = re.search(r"\b(?:v)?(\d+\.\d+)\b", (result.stdout or "").strip())
             return match.group(1) if match else None
-        except (OSError, subprocess.SubprocessError, subprocess.TimeoutExpired):
+        except (OSError, subprocess.SubprocessError):
             return None
 
 
@@ -321,7 +327,7 @@ class RetroArchManager:
     WINDOWS_ARCH = "x86_64"
     NIGHTLY_ROOT = f"{BUILD_ROOT}/nightly/windows/{WINDOWS_ARCH}/latest/"
     RETROARCH_ARCHIVE = "RetroArch.7z"
-    VERSION_MARKER = ".serm-version"
+    VERSION_MARKER = VERSION_MARKER
     CHUNK_SIZE = 1024 * 1024
     TIMEOUT = 60
     RETRIES = 3
@@ -394,7 +400,7 @@ class RetroArchManager:
         """Detecta a versão do RetroArch sem abrir janela."""
         if executable is None or not executable.is_file():
             return None
-        marker = executable.parent / ".serm-version"
+        marker = executable.parent / VERSION_MARKER
         if marker.is_file():
             try:
                 return marker.read_text(encoding="utf-8-sig", errors="ignore").strip() or None
@@ -416,10 +422,10 @@ class RetroArchManager:
                 check=False,
             )
             match = re.search(
-                r"RetroArch\s+([0-9]+\.[0-9]+(?:\.[0-9]+)?)", result.stdout or "", re.I
+                r"RetroArch\s+(\d+\.\d+(?:\.\d+)?)", result.stdout or "", re.I
             )
             return match.group(1) if match else None
-        except (OSError, subprocess.SubprocessError, subprocess.TimeoutExpired):
+        except (OSError, subprocess.SubprocessError):
             return None
 
     @classmethod
@@ -429,11 +435,11 @@ class RetroArchManager:
         for _ in range(cls.RETRIES):
             try:
                 request = Request(
-                    url, headers={"User-Agent": "SERM/2.0", "Accept-Encoding": "identity"}
+                    url, headers={"User-Agent": USER_AGENT, "Accept-Encoding": "identity"}
                 )
                 with urlopen(request, timeout=cls.TIMEOUT) as response:
                     return response.read().decode("utf-8", errors="replace")
-            except (HTTPError, URLError, TimeoutError, OSError) as exc:
+            except URLError as exc:
                 last = exc
         raise RuntimeError(f"Falha ao consultar Buildbot: {url} | {last}") from last
 
@@ -617,13 +623,12 @@ class RetroArchManager:
         for path in self.installed_cores(cores_dir):
             remote_core = remote.get(path.name.casefold())
             local_crc = self._crc32(path)
-            state = (
-                "unknown"
-                if remote_core is None
-                else "current"
-                if local_crc == remote_core.crc32
-                else "update"
-            )
+            if remote_core is None:
+                state = "unknown"
+            elif local_crc == remote_core.crc32:
+                state = "current"
+            else:
+                state = "update"
             result.append((path, remote_core, state))
         return result
 
@@ -638,13 +643,8 @@ class RetroArchManager:
         log=None,
     ) -> Path:
         """Baixa e instala um core individual do Buildbot Nightly."""
-        if channel.casefold() == "stable":
-            raise RuntimeError(
-                "O Buildbot Stable não publica cores individuais; o snapshot Stable é RetroArch_cores.7z. Use Nightly para instalação individual."
-            )
-        filename = Path(filename).name
-        if not filename or not filename.casefold().endswith("_libretro.dll.zip"):
-            raise ValueError(f"Nome de core inválido para download: {filename!r}")
+        self._validate_core_channel(channel)
+        filename = self._validate_core_filename(filename)
         url = f"{self.NIGHTLY_ROOT}{filename}"
         destination = Path(destination).expanduser().resolve()
         destination.mkdir(parents=True, exist_ok=True)
@@ -657,35 +657,14 @@ class RetroArchManager:
             if log:
                 log(f"DOWNLOAD | core={filename} | temporário={archive}")
             self._download_file(url, archive, progress, log)
-            with zipfile.ZipFile(archive) as package:
-                bad = package.testzip()
-                if bad:
-                    raise RuntimeError(f"ZIP corrompido do core: {bad}")
-                dll_names = [
-                    name for name in package.namelist() if name.casefold().endswith("_libretro.dll")
-                ]
-                if not dll_names:
-                    raise RuntimeError(f"ZIP sem DLL libretro: {filename}")
-                data = package.read(dll_names[0])
-            target = (destination / Path(dll_names[0]).name).resolve()
-            if destination not in target.parents:
-                raise RuntimeError("Caminho inseguro no core.")
+            dll_name, data = self._read_core_archive(archive, filename)
+            target = (destination / Path(dll_name).name).resolve()
+            self._validate_core_target(destination, target)
             temp_dll = target.with_suffix(target.suffix + ".tmp")
             temp_dll.write_bytes(data)
             actual_crc = self._crc32(temp_dll)
-            remote = next(
-                (
-                    core
-                    for core in self.list_cores("nightly", stable_version)
-                    if core.filename.casefold() == filename.casefold()
-                ),
-                None,
-            )
-            if remote is None or remote.crc32 != actual_crc:
-                temp_dll.unlink(missing_ok=True)
-                raise RuntimeError(
-                    f"CRC32 inválido para {target.name}: recebido={actual_crc}, esperado={remote.crc32 if remote else 'desconhecido'}"
-                )
+            remote = self._find_core(filename, stable_version)
+            self._validate_core_crc(temp_dll, target, actual_crc, remote)
             temp_dll.replace(target)
         finally:
             if archive is not None:
@@ -700,6 +679,47 @@ class RetroArchManager:
         if log:
             log(f"CORE INSTALADO | {target} | CRC32={actual_crc}")
         return target
+
+    @staticmethod
+    def _validate_core_channel(channel: str) -> None:
+        if channel.casefold() == "stable":
+            raise RuntimeError(
+                "O Buildbot Stable não publica cores individuais; o snapshot Stable é RetroArch_cores.7z. Use Nightly para instalação individual."
+            )
+
+    @staticmethod
+    def _validate_core_filename(filename: str) -> str:
+        filename = Path(filename).name
+        if not filename or not filename.casefold().endswith("_libretro.dll.zip"):
+            raise ValueError(f"Nome de core inválido para download: {filename!r}")
+        return filename
+
+    @staticmethod
+    def _read_core_archive(archive: Path, filename: str) -> tuple[str, bytes]:
+        with zipfile.ZipFile(archive) as package:
+            bad = package.testzip()
+            if bad:
+                raise RuntimeError(f"ZIP corrompido do core: {bad}")
+            dll_names = [name for name in package.namelist() if name.casefold().endswith("_libretro.dll")]
+            if not dll_names:
+                raise RuntimeError(f"ZIP sem DLL libretro: {filename}")
+            return dll_names[0], package.read(dll_names[0])
+
+    @staticmethod
+    def _validate_core_target(destination: Path, target: Path) -> None:
+        if destination not in target.parents:
+            raise RuntimeError("Caminho inseguro no core.")
+
+    def _find_core(self, filename: str, stable_version: str | None) -> CoreInfo | None:
+        return next((core for core in self.list_cores("nightly", stable_version)
+                     if core.filename.casefold() == filename.casefold()), None)
+
+    @staticmethod
+    def _validate_core_crc(temp_dll: Path, target: Path, actual_crc: str, remote: CoreInfo | None) -> None:
+        if remote is None or remote.crc32 != actual_crc:
+            temp_dll.unlink(missing_ok=True)
+            expected = remote.crc32 if remote else "desconhecido"
+            raise RuntimeError(f"CRC32 inválido para {target.name}: recebido={actual_crc}, esperado={expected}")
 
     def install_frontend(self, destination: Path, *, channel: str = "stable", progress=None, log=None) -> DownloadResult:
         """Baixa e instala o frontend RetroArch x64 Stable ou Nightly."""
@@ -736,6 +756,43 @@ class RetroArchManager:
         return DownloadResult("retroarch", version_label, executable, archive_name)
 
     @classmethod
+    def _extract(cls, archive: Path, destination: Path, log=None) -> None:
+        """Extrai um ZIP internamente ou usa o 7-Zip instalado."""
+        if archive.suffix.casefold() == ".zip":
+            with zipfile.ZipFile(archive) as package:
+                package.extractall(destination)
+            return
+        seven_zip = cls.detect_7zip()
+        if seven_zip is None:
+            raise RuntimeError("7z.exe não foi encontrado.")
+        result = subprocess.run(
+            [str(seven_zip), "x", "-y", f"-o{destination}", str(archive)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            shell=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            timeout=300,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"7-Zip falhou ({result.returncode}): {(result.stdout or '').strip()}"
+            )
+
+    @staticmethod
+    def _merge(source: Path, destination: Path) -> None:
+        """Mescla a árvore extraída no diretório de instalação."""
+        for item in source.iterdir():
+            target = destination / item.name
+            if item.is_dir():
+                shutil.copytree(item, target, dirs_exist_ok=True)
+            else:
+                shutil.copy2(item, target)
+
+    @classmethod
     def detect_7zip(cls) -> Path | None:
         """Localiza 7-Zip."""
         for command in ("7z.exe", "7z", "7za.exe", "7za"):
@@ -760,36 +817,44 @@ class RetroArchManager:
     def _download_file(cls, url: str, target: Path, progress=None, log=None) -> None:
         """Baixa um arquivo em blocos com retry."""
         target = Path(target)
-        if target.exists() and target.is_dir():
+        if target.is_dir():
             raise IsADirectoryError(f"Destino do download é um diretório, não um arquivo: {target}")
         target.parent.mkdir(parents=True, exist_ok=True)
         last: Exception | None = None
         for attempt in range(1, cls.RETRIES + 1):
             try:
-                if target.exists():
-                    target.unlink()
-                request = Request(
-                    url, headers={"User-Agent": "SERM/2.0", "Accept-Encoding": "identity"}
-                )
-                with urlopen(request, timeout=cls.TIMEOUT) as response, target.open("wb") as output:
-                    total = int(response.headers.get("Content-Length") or 0)
-                    received = 0
-                    while chunk := response.read(cls.CHUNK_SIZE):
-                        output.write(chunk)
-                        received += len(chunk)
-                        if progress:
-                            progress(received, total)
-                if received <= 0:
-                    raise RuntimeError("Download retornou zero bytes.")
+                received = cls._download_attempt(url, target, progress)
                 if log:
                     log(f"DOWNLOAD | {received:,} bytes | tentativa={attempt}")
                 return
-            except (HTTPError, URLError, TimeoutError, OSError, RuntimeError) as exc:
+            except (OSError, RuntimeError) as exc:
                 last = exc
-                try:
-                    target.unlink(missing_ok=True)
-                except OSError:
-                    pass
+                cls._remove_partial_download(target)
                 if log:
                     log(f"DOWNLOAD ERRO | tentativa={attempt}/{cls.RETRIES} | {exc}")
         raise RuntimeError(f"Falha no download: {url} | {last}") from last
+
+    @classmethod
+    def _download_attempt(cls, url: str, target: Path, progress=None) -> int:
+        """Executa uma tentativa de download e retorna o total recebido."""
+        if target.exists():
+            target.unlink()
+        request = Request(url, headers={"User-Agent": USER_AGENT, "Accept-Encoding": "identity"})
+        with urlopen(request, timeout=cls.TIMEOUT) as response, target.open("wb") as output:
+            total = int(response.headers.get("Content-Length") or 0)
+            received = 0
+            while chunk := response.read(cls.CHUNK_SIZE):
+                output.write(chunk)
+                received += len(chunk)
+                if progress:
+                    progress(received, total)
+        if received <= 0:
+            raise RuntimeError("Download retornou zero bytes.")
+        return received
+
+    @staticmethod
+    def _remove_partial_download(target: Path) -> None:
+        try:
+            target.unlink(missing_ok=True)
+        except OSError:
+            pass

@@ -33,6 +33,15 @@ from PySide6.QtWidgets import (
 from ..runtime.paths import data_root
 from .directories_guide_page import ConfigFileEditor
 
+VIDEO_CATEGORY = "Vídeo"
+AUDIO_CATEGORY = "Áudio"
+AUTO_OPTION_LABEL = "Automático"
+ADVANCED_CATEGORY = "Avançado"
+SAMPLE_RATE_22050_LABEL = "22.05 kHz"
+SAMPLE_RATE_44100_LABEL = "44.1 kHz"
+SAMPLE_RATE_48000_LABEL = "48 kHz"
+SAMPLE_RATE_96000_LABEL = "96 kHz"
+
 
 @dataclass(frozen=True, slots=True)
 class SettingSpec:
@@ -66,7 +75,7 @@ class EmulatorSettingsPage(QWidget):
                 "video",
                 "Driver de vídeo",
                 "combo",
-                "Vídeo",
+                VIDEO_CATEGORY,
                 (
                     ("bgfx", "BGFX"),
                     ("d3d", "Direct3D 9"),
@@ -81,9 +90,9 @@ class EmulatorSettingsPage(QWidget):
                 "bgfx_backend",
                 "Backend BGFX",
                 "combo",
-                "Vídeo",
+                VIDEO_CATEGORY,
                 (
-                    ("auto", "Automático"),
+                    ("auto", AUTO_OPTION_LABEL),
                     ("d3d9", "Direct3D 9"),
                     ("d3d11", "Direct3D 11"),
                     ("d3d12", "Direct3D 12"),
@@ -91,25 +100,25 @@ class EmulatorSettingsPage(QWidget):
                     ("vulkan", "Vulkan"),
                 ),
             ),
-            SettingSpec("filter", "Filtragem bilinear", "bool", "Vídeo"),
-            SettingSpec("prescale", "Prescale", "slider", "Vídeo", minimum=1, maximum=5),
-            SettingSpec("waitvsync", "VSync", "bool", "Vídeo"),
+            SettingSpec("filter", "Filtragem bilinear", "bool", VIDEO_CATEGORY),
+            SettingSpec("prescale", "Prescale", "slider", VIDEO_CATEGORY, minimum=1, maximum=5),
+            SettingSpec("waitvsync", "VSync", "bool", VIDEO_CATEGORY),
             SettingSpec(
                 "samplerate",
                 "Taxa de amostragem",
                 "combo",
-                "Áudio",
+                AUDIO_CATEGORY,
                 (
-                    ("22050", "22.05 kHz"),
+                    ("22050", SAMPLE_RATE_22050_LABEL),
                     ("32000", "32 kHz"),
-                    ("44100", "44.1 kHz"),
-                    ("48000", "48 kHz"),
-                    ("96000", "96 kHz"),
+                    ("44100", SAMPLE_RATE_44100_LABEL),
+                    ("48000", SAMPLE_RATE_48000_LABEL),
+                    ("96000", SAMPLE_RATE_96000_LABEL),
                 ),
             ),
-            SettingSpec("samples", "Samples", "bool", "Áudio"),
-            SettingSpec("volume", "Volume inicial (dB)", "slider", "Áudio", minimum=-32, maximum=0),
-            SettingSpec("sound", "Backend de som", "text", "Áudio"),
+            SettingSpec("samples", "Samples", "bool", AUDIO_CATEGORY),
+            SettingSpec("volume", "Volume inicial (dB)", "slider", AUDIO_CATEGORY, minimum=-32, maximum=0),
+            SettingSpec("sound", "Backend de som", "text", AUDIO_CATEGORY),
             SettingSpec("joystick", "Joystick", "bool", "Controles"),
             SettingSpec("mouse", "Mouse", "bool", "Controles"),
             SettingSpec("lightgun", "Lightgun", "bool", "Controles"),
@@ -120,7 +129,7 @@ class EmulatorSettingsPage(QWidget):
                 "Driver de joystick",
                 "combo",
                 "Controles",
-                (("auto", "Automático"), ("dinput", "DirectInput"), ("sdl", "SDL")),
+                (("auto", AUTO_OPTION_LABEL), ("dinput", "DirectInput"), ("sdl", "SDL")),
             ),
             SettingSpec("language", "Diretório de idiomas", "text", "Sistema"),
             SettingSpec(
@@ -128,63 +137,63 @@ class EmulatorSettingsPage(QWidget):
             ),
             SettingSpec("triplebuffer", "Triple buffering", "bool", "Desempenho"),
             SettingSpec("syncrefresh", "Sincronizar refresh", "bool", "Desempenho"),
-            SettingSpec("unevenstretch", "Escala não inteira", "bool", "Vídeo"),
-            SettingSpec("switchres", "Trocar resolução em fullscreen", "bool", "Vídeo"),
-            SettingSpec("artwork_crop", "Cortar artwork", "bool", "Vídeo"),
-            SettingSpec("gl_glsl", "GLSL", "bool", "Avançado"),
+            SettingSpec("unevenstretch", "Escala não inteira", "bool", VIDEO_CATEGORY),
+            SettingSpec("switchres", "Trocar resolução em fullscreen", "bool", VIDEO_CATEGORY),
+            SettingSpec("artwork_crop", "Cortar artwork", "bool", VIDEO_CATEGORY),
+            SettingSpec("gl_glsl", "GLSL", "bool", ADVANCED_CATEGORY),
             SettingSpec(
                 "gl_glsl_filter",
                 "Filtro GLSL",
                 "combo",
-                "Avançado",
+                ADVANCED_CATEGORY,
                 (("0", "Plain"), ("1", "Bilinear"), ("2", "Bicubic")),
             ),
         ),
         "fbneo": (
-            SettingSpec("nVidSelect", "Blitter de vídeo", "slider", "Vídeo", minimum=0, maximum=6),
-            SettingSpec("bVidBilinear", "Filtragem bilinear", "bool", "Vídeo"),
-            SettingSpec("bVidScanlines", "Scanlines", "bool", "Vídeo"),
-            SettingSpec("bVidScanDelay", "Fósforo lento", "bool", "Vídeo"),
-            SettingSpec("nVidDX9HardFX", "HardFX", "slider", "Vídeo", minimum=0, maximum=20),
-            SettingSpec("bVidHardwareVertex", "Hardware vertex", "bool", "Vídeo"),
-            SettingSpec("bVidMotionBlur", "Motion blur", "bool", "Vídeo"),
-            SettingSpec("bForce60Hz", "Forçar 60 Hz", "bool", "Vídeo"),
+            SettingSpec("nVidSelect", "Blitter de vídeo", "slider", VIDEO_CATEGORY, minimum=0, maximum=6),
+            SettingSpec("bVidBilinear", "Filtragem bilinear", "bool", VIDEO_CATEGORY),
+            SettingSpec("bVidScanlines", "Scanlines", "bool", VIDEO_CATEGORY),
+            SettingSpec("bVidScanDelay", "Fósforo lento", "bool", VIDEO_CATEGORY),
+            SettingSpec("nVidDX9HardFX", "HardFX", "slider", VIDEO_CATEGORY, minimum=0, maximum=20),
+            SettingSpec("bVidHardwareVertex", "Hardware vertex", "bool", VIDEO_CATEGORY),
+            SettingSpec("bVidMotionBlur", "Motion blur", "bool", VIDEO_CATEGORY),
+            SettingSpec("bForce60Hz", "Forçar 60 Hz", "bool", VIDEO_CATEGORY),
             SettingSpec("bAlwaysDrawFrames", "Sempre desenhar frames", "bool", "Desempenho"),
             SettingSpec("bRunAhead", "Run-ahead", "bool", "Desempenho"),
-            SettingSpec("nAudSelect", "Plugin de áudio", "slider", "Áudio", minimum=0, maximum=8),
-            SettingSpec("nAudVolume", "Volume", "slider", "Áudio", minimum=0, maximum=10000),
+            SettingSpec("nAudSelect", "Plugin de áudio", "slider", AUDIO_CATEGORY, minimum=0, maximum=8),
+            SettingSpec("nAudVolume", "Volume", "slider", AUDIO_CATEGORY, minimum=0, maximum=10000),
             SettingSpec(
-                "nAudSegCount", "Buffer de áudio", "slider", "Áudio", minimum=2, maximum=20
+                "nAudSegCount", "Buffer de áudio", "slider", AUDIO_CATEGORY, minimum=2, maximum=20
             ),
             SettingSpec(
                 "nAudSampleRate[0]",
                 "Sample rate DirectSound",
                 "combo",
-                "Áudio",
+                AUDIO_CATEGORY,
                 (
-                    ("22050", "22.05 kHz"),
-                    ("44100", "44.1 kHz"),
-                    ("48000", "48 kHz"),
-                    ("96000", "96 kHz"),
+                    ("22050", SAMPLE_RATE_22050_LABEL),
+                    ("44100", SAMPLE_RATE_44100_LABEL),
+                    ("48000", SAMPLE_RATE_48000_LABEL),
+                    ("96000", SAMPLE_RATE_96000_LABEL),
                 ),
             ),
             SettingSpec(
                 "nAudSampleRate[1]",
                 "Sample rate XAudio2",
                 "combo",
-                "Áudio",
+                AUDIO_CATEGORY,
                 (
-                    ("22050", "22.05 kHz"),
-                    ("44100", "44.1 kHz"),
-                    ("48000", "48 kHz"),
-                    ("96000", "96 kHz"),
+                    ("22050", SAMPLE_RATE_22050_LABEL),
+                    ("44100", SAMPLE_RATE_44100_LABEL),
+                    ("48000", SAMPLE_RATE_48000_LABEL),
+                    ("96000", SAMPLE_RATE_96000_LABEL),
                 ),
             ),
             SettingSpec(
-                "nInterpolation", "Interpolação PCM", "slider", "Áudio", minimum=0, maximum=3
+                "nInterpolation", "Interpolação PCM", "slider", AUDIO_CATEGORY, minimum=0, maximum=3
             ),
             SettingSpec(
-                "nFMInterpolation", "Interpolação FM", "slider", "Áudio", minimum=0, maximum=3
+                "nFMInterpolation", "Interpolação FM", "slider", AUDIO_CATEGORY, minimum=0, maximum=3
             ),
             SettingSpec("bAutoPause", "Pausar ao perder foco", "bool", "Controles"),
             SettingSpec(
@@ -212,7 +221,7 @@ class EmulatorSettingsPage(QWidget):
                 "Dreamcast.Cable",
                 "Saída de vídeo",
                 "combo",
-                "Vídeo",
+                VIDEO_CATEGORY,
                 (("0", "VGA"), ("1", "RGB"), ("2", "VGA Box"), ("3", "TV Composite")),
             ),
             SettingSpec(
@@ -220,10 +229,10 @@ class EmulatorSettingsPage(QWidget):
                 "Região",
                 "combo",
                 "Sistema",
-                (("0", "Japão"), ("1", "USA"), ("2", "Europa"), ("3", "Automática")),
+                (("0", "Japão"), ("1", "USA"), ("2", "Europa"), ("3", AUTO_OPTION_LABEL)),
             ),
             SettingSpec(
-                "Dreamcast.Broadcast", "Broadcast", "slider", "Vídeo", minimum=0, maximum=4
+                "Dreamcast.Broadcast", "Broadcast", "slider", VIDEO_CATEGORY, minimum=0, maximum=4
             ),
             SettingSpec(
                 "Dreamcast.Language",
@@ -237,34 +246,34 @@ class EmulatorSettingsPage(QWidget):
                     ("3", "Francês"),
                     ("4", "Espanhol"),
                     ("5", "Italiano"),
-                    ("6", "Automático"),
+                    ("6", AUTO_OPTION_LABEL),
                 ),
             ),
             SettingSpec("Dynarec.Enabled", "Dynamic recompiler", "bool", "Desempenho"),
             SettingSpec("Dynarec.idleskip", "Idle skip", "bool", "Desempenho"),
             SettingSpec("Dynarec.unstable-opt", "Otimizações instáveis", "bool", "Desempenho"),
             SettingSpec("Dynarec.safe-mode", "Safe mode", "bool", "Desempenho"),
-            SettingSpec("aica.DSPEnabled", "DSP", "bool", "Áudio"),
-            SettingSpec("aica.LimitFPS", "Limitar FPS", "bool", "Áudio"),
-            SettingSpec("aica.NoSound", "Sem som", "bool", "Áudio"),
+            SettingSpec("aica.DSPEnabled", "DSP", "bool", AUDIO_CATEGORY),
+            SettingSpec("aica.LimitFPS", "Limitar FPS", "bool", AUDIO_CATEGORY),
+            SettingSpec("aica.NoSound", "Sem som", "bool", AUDIO_CATEGORY),
             SettingSpec(
-                "aica.BufferSize", "Buffer de áudio", "slider", "Áudio", minimum=512, maximum=8192
+                "aica.BufferSize", "Buffer de áudio", "slider", AUDIO_CATEGORY, minimum=512, maximum=8192
             ),
             SettingSpec(
                 "backend",
                 "Backend de áudio",
                 "combo",
-                "Áudio",
-                (("auto", "Automático"), ("wasapi", "WASAPI"), ("sdl2", "SDL2"), ("null", "Nulo")),
+                AUDIO_CATEGORY,
+                (("auto", AUTO_OPTION_LABEL), ("wasapi", "WASAPI"), ("sdl2", "SDL2"), ("null", "Nulo")),
             ),
-            SettingSpec("rend.UseMipmaps", "Mipmaps", "bool", "Vídeo"),
-            SettingSpec("rend.WideScreen", "Widescreen", "bool", "Vídeo"),
-            SettingSpec("rend.ShowFPS", "Mostrar FPS", "bool", "Vídeo"),
+            SettingSpec("rend.UseMipmaps", "Mipmaps", "bool", VIDEO_CATEGORY),
+            SettingSpec("rend.WideScreen", "Widescreen", "bool", VIDEO_CATEGORY),
+            SettingSpec("rend.ShowFPS", "Mostrar FPS", "bool", VIDEO_CATEGORY),
             SettingSpec(
                 "rend.TextureUpscale",
                 "Upscale de texturas",
                 "slider",
-                "Vídeo",
+                VIDEO_CATEGORY,
                 minimum=1,
                 maximum=8,
             ),
@@ -272,20 +281,20 @@ class EmulatorSettingsPage(QWidget):
                 "rend.MaxFilteredTextureSize",
                 "Tamanho máximo filtrado",
                 "slider",
-                "Vídeo",
+                VIDEO_CATEGORY,
                 minimum=64,
                 maximum=4096,
             ),
             SettingSpec(
-                "rend.ScreenScaling", "Escala da tela", "slider", "Vídeo", minimum=1, maximum=800
+                "rend.ScreenScaling", "Escala da tela", "slider", VIDEO_CATEGORY, minimum=1, maximum=800
             ),
             SettingSpec(
-                "rend.ScreenStretching", "Alongamento", "slider", "Vídeo", minimum=1, maximum=200
+                "rend.ScreenStretching", "Alongamento", "slider", VIDEO_CATEGORY, minimum=1, maximum=200
             ),
-            SettingSpec("rend.Fog", "Fog", "bool", "Vídeo"),
-            SettingSpec("rend.Rotate90", "Rotacionar 90°", "bool", "Vídeo"),
-            SettingSpec("rend.WidescreenGameHacks", "Widescreen game hacks", "bool", "Avançado"),
-            SettingSpec("pvr.rend", "Renderer PVR", "slider", "Avançado", minimum=0, maximum=8),
+            SettingSpec("rend.Fog", "Fog", "bool", VIDEO_CATEGORY),
+            SettingSpec("rend.Rotate90", "Rotacionar 90°", "bool", VIDEO_CATEGORY),
+            SettingSpec("rend.WidescreenGameHacks", "Widescreen game hacks", "bool", ADVANCED_CATEGORY),
+            SettingSpec("pvr.rend", "Renderer PVR", "slider", ADVANCED_CATEGORY, minimum=0, maximum=8),
             SettingSpec(
                 "pvr.MaxThreads", "Threads do PVR", "slider", "Desempenho", minimum=1, maximum=16
             ),
@@ -300,17 +309,17 @@ class EmulatorSettingsPage(QWidget):
             SettingSpec("input.JammaSetup", "JAMMA", "slider", "Controles", minimum=0, maximum=20),
         ),
         "supermodel": (
-            SettingSpec("New3DEngine", "Novo motor 3D", "bool", "Vídeo"),
-            SettingSpec("WideScreen", "Widescreen", "bool", "Vídeo"),
-            SettingSpec("FullScreen", "Fullscreen", "bool", "Vídeo"),
-            SettingSpec("VSync", "VSync", "bool", "Vídeo"),
-            SettingSpec("ShowStats", "Mostrar estatísticas", "bool", "Vídeo"),
-            SettingSpec("Stretch", "Stretch", "bool", "Vídeo"),
-            SettingSpec("XResolution", "Resolução X", "slider", "Vídeo", minimum=320, maximum=7680),
-            SettingSpec("YResolution", "Resolução Y", "slider", "Vídeo", minimum=240, maximum=4320),
-            SettingSpec("SoundVolume", "Volume de som", "slider", "Áudio", minimum=0, maximum=200),
+            SettingSpec("New3DEngine", "Novo motor 3D", "bool", VIDEO_CATEGORY),
+            SettingSpec("WideScreen", "Widescreen", "bool", VIDEO_CATEGORY),
+            SettingSpec("FullScreen", "Fullscreen", "bool", VIDEO_CATEGORY),
+            SettingSpec("VSync", "VSync", "bool", VIDEO_CATEGORY),
+            SettingSpec("ShowStats", "Mostrar estatísticas", "bool", VIDEO_CATEGORY),
+            SettingSpec("Stretch", "Stretch", "bool", VIDEO_CATEGORY),
+            SettingSpec("XResolution", "Resolução X", "slider", VIDEO_CATEGORY, minimum=320, maximum=7680),
+            SettingSpec("YResolution", "Resolução Y", "slider", VIDEO_CATEGORY, minimum=240, maximum=4320),
+            SettingSpec("SoundVolume", "Volume de som", "slider", AUDIO_CATEGORY, minimum=0, maximum=200),
             SettingSpec(
-                "MusicVolume", "Volume de música", "slider", "Áudio", minimum=0, maximum=200
+                "MusicVolume", "Volume de música", "slider", AUDIO_CATEGORY, minimum=0, maximum=200
             ),
             SettingSpec("Balance", "Balanço", "slider", "Áudio", minimum=-100, maximum=100),
             SettingSpec(
@@ -331,15 +340,15 @@ class EmulatorSettingsPage(QWidget):
             SettingSpec("InputJoyDown", "Joystick baixo", "text", "Controles"),
             SettingSpec("InputJoyLeft", "Joystick esquerda", "text", "Controles"),
             SettingSpec("InputJoyRight", "Joystick direita", "text", "Controles"),
-            SettingSpec("Network", "Network board", "bool", "Avançado"),
-            SettingSpec("SimulateNet", "Simular rede", "bool", "Avançado"),
+            SettingSpec("Network", "Network board", "bool", ADVANCED_CATEGORY),
+            SettingSpec("SimulateNet", "Simular rede", "bool", ADVANCED_CATEGORY),
         ),
         "retroarch": (
             SettingSpec(
                 "video_driver",
                 "Driver de vídeo",
                 "combo",
-                "Vídeo",
+                VIDEO_CATEGORY,
                 (
                     ("gl", "OpenGL"),
                     ("d3d11", "Direct3D 11"),
@@ -348,45 +357,45 @@ class EmulatorSettingsPage(QWidget):
                     ("sdl2", "SDL2"),
                 ),
             ),
-            SettingSpec("video_fullscreen", "Fullscreen", "bool", "Vídeo"),
-            SettingSpec("video_windowed_fullscreen", "Fullscreen em janela", "bool", "Vídeo"),
-            SettingSpec("video_vsync", "VSync", "bool", "Vídeo"),
-            SettingSpec("video_smooth", "Filtragem suave", "bool", "Vídeo"),
-            SettingSpec("video_scale_integer", "Escala inteira", "bool", "Vídeo"),
-            SettingSpec("video_allow_rotate", "Permitir rotação do core", "bool", "Vídeo"),
+            SettingSpec("video_fullscreen", "Fullscreen", "bool", VIDEO_CATEGORY),
+            SettingSpec("video_windowed_fullscreen", "Fullscreen em janela", "bool", VIDEO_CATEGORY),
+            SettingSpec("video_vsync", "VSync", "bool", VIDEO_CATEGORY),
+            SettingSpec("video_smooth", "Filtragem suave", "bool", VIDEO_CATEGORY),
+            SettingSpec("video_scale_integer", "Escala inteira", "bool", VIDEO_CATEGORY),
+            SettingSpec("video_allow_rotate", "Permitir rotação do core", "bool", VIDEO_CATEGORY),
             SettingSpec(
-                "video_fullscreen_x", "Resolução X", "slider", "Vídeo", minimum=0, maximum=7680
+                "video_fullscreen_x", "Resolução X", "slider", VIDEO_CATEGORY, minimum=0, maximum=7680
             ),
             SettingSpec(
-                "video_fullscreen_y", "Resolução Y", "slider", "Vídeo", minimum=0, maximum=4320
+                "video_fullscreen_y", "Resolução Y", "slider", VIDEO_CATEGORY, minimum=0, maximum=4320
             ),
-            SettingSpec("video_monitor_index", "Monitor", "slider", "Vídeo", minimum=0, maximum=8),
-            SettingSpec("audio_enable", "Áudio", "bool", "Áudio"),
+            SettingSpec("video_monitor_index", "Monitor", "slider", VIDEO_CATEGORY, minimum=0, maximum=8),
+            SettingSpec("audio_enable", AUDIO_CATEGORY, "bool", AUDIO_CATEGORY),
             SettingSpec(
                 "audio_driver",
                 "Driver de áudio",
                 "combo",
-                "Áudio",
+                AUDIO_CATEGORY,
                 (("wasapi", "WASAPI"), ("xaudio", "XAudio"), ("sdl", "SDL"), ("null", "Nulo")),
             ),
             SettingSpec(
                 "audio_out_rate",
                 "Sample rate",
                 "combo",
-                "Áudio",
+                AUDIO_CATEGORY,
                 (
                     ("32000", "32 kHz"),
-                    ("44100", "44.1 kHz"),
-                    ("48000", "48 kHz"),
-                    ("96000", "96 kHz"),
+                    ("44100", SAMPLE_RATE_44100_LABEL),
+                    ("48000", SAMPLE_RATE_48000_LABEL),
+                    ("96000", SAMPLE_RATE_96000_LABEL),
                 ),
             ),
-            SettingSpec("audio_sync", "Sincronizar áudio", "bool", "Áudio"),
+            SettingSpec("audio_sync", "Sincronizar áudio", "bool", AUDIO_CATEGORY),
             SettingSpec(
-                "audio_latency", "Latência (ms)", "slider", "Áudio", minimum=1, maximum=256
+                "audio_latency", "Latência (ms)", "slider", AUDIO_CATEGORY, minimum=1, maximum=256
             ),
-            SettingSpec("audio_rate_control", "Rate control", "bool", "Áudio"),
-            SettingSpec("audio_volume", "Volume (dB)", "slider", "Áudio", minimum=-40, maximum=12),
+            SettingSpec("audio_rate_control", "Rate control", "bool", AUDIO_CATEGORY),
+            SettingSpec("audio_volume", "Volume (dB)", "slider", AUDIO_CATEGORY, minimum=-40, maximum=12),
             SettingSpec(
                 "input_driver",
                 "Driver de input",
@@ -452,7 +461,7 @@ class EmulatorSettingsPage(QWidget):
         outer = QVBoxLayout(page)
         tabs = QTabWidget()
         categories = sorted(
-            {s.category for s in self.SPECS[emulator]}, key=lambda x: (x == "Avançado", x)
+            {s.category for s in self.SPECS[emulator]}, key=lambda x: (x == ADVANCED_CATEGORY, x)
         )
         for category in categories:
             cat_page = QWidget()
@@ -508,8 +517,8 @@ class EmulatorSettingsPage(QWidget):
             spin.valueChanged.connect(slider.setValue)
             box.addWidget(slider, 1)
             box.addWidget(spin)
-            widget._serm_slider = slider
-            widget._serm_spin = spin
+            setattr(widget, "_serm_slider", slider)
+            setattr(widget, "_serm_spin", spin)
             return widget
         return QLineEdit()
 
@@ -584,25 +593,32 @@ class EmulatorSettingsPage(QWidget):
             return str(spin.value()) if isinstance(spin, QSpinBox) else "0"
         return control.text().strip()  # type: ignore[attr-defined]
 
+    def _disable_emulator_controls(self, emulator: str) -> None:
+        for spec in self.SPECS[emulator]:
+            self.controls[(emulator, spec.key)].setEnabled(False)
+
+    def _refresh_emulator(self, emulator: str, editor) -> None:
+        status = self.findChild(QLabel, f"settings_status_{emulator}")
+        if status:
+            status.setText(f"Arquivo: {editor.path}")
+        for spec in self.SPECS[emulator]:
+            control = self.controls[(emulator, spec.key)]
+            values = editor.values(spec.key)
+            control.setEnabled(bool(values))
+            if values:
+                self._set_control(control, spec, values[0])
+
     def refresh(self) -> None:
         """Lê os arquivos e atualiza todos os controles sem gravar nada."""
         for emulator in self.SPECS:
             editor = self._editor(emulator)
-            status = self.findChild(QLabel, f"settings_status_{emulator}")
             if editor is None:
+                status = self.findChild(QLabel, f"settings_status_{emulator}")
                 if status:
                     status.setText("Arquivo: não configurado / não encontrado")
-                for spec in self.SPECS[emulator]:
-                    self.controls[(emulator, spec.key)].setEnabled(False)
+                self._disable_emulator_controls(emulator)
                 continue
-            if status:
-                status.setText(f"Arquivo: {editor.path}")
-            for spec in self.SPECS[emulator]:
-                control = self.controls[(emulator, spec.key)]
-                values = editor.values(spec.key)
-                control.setEnabled(bool(values))
-                if values:
-                    self._set_control(control, spec, values[0])
+            self._refresh_emulator(emulator, editor)
 
     def save(self, emulator: str) -> None:
         """Grava somente chaves existentes, com backup atômico."""
