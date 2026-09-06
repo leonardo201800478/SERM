@@ -12,6 +12,7 @@ from pathlib import Path
 from ..runtime.paths import database_path, scans_root
 from .mame_scan_settings_service import MameScanSettingsService
 from .rom_scan_service import RomScanService, ScanResult, ScanEvidence, _MachineResult
+from .rom_scan_cache_service import RomScanCacheService
 from .scan_resilience import HEARTBEAT_SECONDS
 
 _ORIGINAL_SCAN = RomScanService.scan
@@ -29,6 +30,7 @@ class StableRomScanService(RomScanService):
         self._heartbeat_at = 0.0
         self._heartbeat_machine = ""
         self._heartbeat_rom = ""
+        self._scan_catalog_hash = ""
 
     def _heartbeat(self, message):
         now = time.monotonic()
@@ -87,7 +89,28 @@ class StableRomScanService(RomScanService):
     def _scan_machine_with_heartbeat(self, machine, *args, **kwargs):
         self._heartbeat_machine = machine
         self._heartbeat_rom = ""
-        return _ORIGINAL_SCAN_MACHINE(self, machine, *args, **kwargs)
+        sources = args[2] if len(args) > 2 else kwargs.get("sources", [])
+
+        # O cache é deliberadamente conservador: uma única fonte e apenas
+        # machine.zip. Com múltiplas fontes ou diretório solto, a validação
+        # original continua sendo usada para preservar a semântica do scan.
+        if self._scan_catalog_hash and len(sources) == 1:
+            source = Path(sources[0])
+            zip_path = source / f"{machine}.zip"
+            machine_dir = source / machine
+            if zip_path.is_file() and not machine_dir.is_dir():
+                cached = RomScanCacheService.load(machine, self._scan_catalog_hash, zip_path)
+                if cached is not None:
+                    return cached
+
+        result = _ORIGINAL_SCAN_MACHINE(self, machine, *args, **kwargs)
+        if self._scan_catalog_hash and len(sources) == 1 and result.errors == 0:
+            source = Path(sources[0])
+            zip_path = source / f"{machine}.zip"
+            machine_dir = source / machine
+            if zip_path.is_file() and not machine_dir.is_dir():
+                RomScanCacheService.save(machine, self._scan_catalog_hash, zip_path, result)
+        return result
 
     def _machine_error(self, machine, exc):
         return _MachineResult(
@@ -110,11 +133,6 @@ class StableRomScanService(RomScanService):
 
     @staticmethod
     def _write_checkpoint(path: Path, header: dict[str, object], completed: set[str], *, cancelled: bool = False) -> None:
-        """Grava o checkpoint em arquivo separado e atômico.
-
-        O checkpoint não disputa o handle do JSONL principal com os workers. Isso
-        permite que a persistência ocorra em paralelo sem corromper o stream.
-        """
         target = path.with_suffix(path.suffix + ".tmp")
         payload = {
             "format": "SERM-SCAN-CHECKPOINT-V2",
@@ -169,6 +187,7 @@ class StableRomScanService(RomScanService):
             catalog_hash=str(source_hash),
             catalog_label=str(build or source_hash[:12]),
         )
+        self._scan_catalog_hash = result.catalog_hash or ""
         sources = [Path(p).expanduser().resolve() for p in profile.source_directories]
         if not sources:
             raise RuntimeError("Nenhum diretório de origem foi configurado para o scan.")
@@ -185,7 +204,8 @@ class StableRomScanService(RomScanService):
         self._log(
             "INFO",
             f"SCAN | MAME | modo={'retomada' if resume else 'novo'} | "
-            f"concluídas={len(completed):,}/{len(machines):,} | pendentes={len(pending):,} | workers=6 | checkpoint={CHECKPOINT_INTERVAL}",
+            f"concluídas={len(completed):,}/{len(machines):,} | pendentes={len(pending):,} | "
+            f"workers=6 | checkpoint={CHECKPOINT_INTERVAL} | cache=ativo",
         )
 
         workers = min(6, max(1, len(pending)))
@@ -204,8 +224,6 @@ class StableRomScanService(RomScanService):
         completed_for_checkpoint = set(completed)
         last_checkpoint_done = len(completed)
 
-        # Um único writer de checkpoint mantém as gravações fora do caminho crítico
-        # e evita concorrência de escrita no mesmo arquivo.
         with path.open("a", encoding="utf-8", newline="\n") as stream, ThreadPoolExecutor(
             max_workers=workers, thread_name_prefix="mame-scan"
         ) as executor, ThreadPoolExecutor(max_workers=1, thread_name_prefix="mame-checkpoint") as checkpoint_executor:
@@ -242,8 +260,6 @@ class StableRomScanService(RomScanService):
                 if done == 1 or done % 100 == 0 or done == len(machines):
                     self._log("INFO", self._progress_message(result, machine, done, len(machines)))
 
-                # Checkpoint lógico a cada 500 machines. A gravação do sidecar ocorre
-                # em paralelo; o stream principal só é sincronizado no checkpoint.
                 if done - last_checkpoint_done >= CHECKPOINT_INTERVAL:
                     stream.flush()
                     snapshot = set(completed_for_checkpoint)
@@ -257,8 +273,6 @@ class StableRomScanService(RomScanService):
                 if self._cancelled:
                     break
 
-            # Cancelamento tem prioridade: sincroniza tudo que já foi processado e
-            # gera um checkpoint imediato, sem esperar o próximo bloco de 500.
             stream.flush()
             if self._cancelled:
                 snapshot = set(completed_for_checkpoint)
@@ -323,6 +337,7 @@ class StableRomScanService(RomScanService):
                         "resumable": True,
                         "checkpoint_interval": CHECKPOINT_INTERVAL,
                         "checkpoint_storage": "sidecar",
+                        "hash_cache": "physical_zip_stat",
                     },
                 },
             )
