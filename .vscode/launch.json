@@ -6,11 +6,25 @@
       "type": "debugpy",
       "request": "launch",
       "module": "serm_v2.main",
-      "cwd": "${workspaceFolder}",
+      "cwd": "${workspaceFolder}/v2",
       "console": "integratedTerminal",
       "justMyCode": true,
       "env": {
-        "PYTHONUTF8": "1"
+        "PYTHONUTF8": "1",
+        "PYTHONPATH": "${workspaceFolder}/v2"
+      }
+    },
+    {
+      "name": "SERM V2 — módulo atual",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "${fileBasenameNoExtension}",
+      "cwd": "${workspaceFolder}/v2",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": {
+        "PYTHONUTF8": "1",
+        "PYTHONPATH": "${workspaceFolder}/v2"
       }
     },
     {
@@ -22,11 +36,12 @@
         "${file}",
         "-ra"
       ],
-      "cwd": "${workspaceFolder}",
+      "cwd": "${workspaceFolder}/v2",
       "console": "integratedTerminal",
       "justMyCode": true,
       "env": {
-        "PYTHONUTF8": "1"
+        "PYTHONUTF8": "1",
+        "PYTHONPATH": "${workspaceFolder}/v2"
       }
     }
   ]
