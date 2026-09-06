@@ -20,6 +20,7 @@ from .home import HomePage
 from .log_handler import LogViewer
 from .mame_filter_page import MameFilterPage
 from .mame_scan_page import MameScanPage
+from .no_intro_filter_page import NoIntroFilterPage
 from .reconstruction_phase_page import ReconstructionPhasePage
 from .scan_phase_page import ScanPhasePage
 from .tools_directories import ToolsDirectoriesPage
@@ -36,6 +37,7 @@ class MainWindow(QMainWindow):
         ("MAME — Scans", "Novo scan, histórico e exclusão de scans MAME", "SP_DriveHDIcon"),
         ("2 — Filtragem", "Aplicar filtros sobre um scan já concluído", "SP_FileDialogDetailedView"),
         ("MAME — Filtros", "Filtros MAME separados por tipo de jogo e tipo de SET", "SP_FileDialogDetailedView"),
+        ("No-Intro — Filtros", "Conteúdo, regiões, clones, hacks, traduções e 1G1R", "SP_FileDialogDetailedView"),
         ("3 — Reconstrução", "Montar o set a partir do arquivo filtrado", "SP_FileDialogInfoView"),
         ("Scraper de DATs", "Importação e processamento de DATs", "SP_FileIcon"),
     )
@@ -102,120 +104,48 @@ class MainWindow(QMainWindow):
         geometry = settings.value(self._GEOMETRY_KEY, QByteArray())
         state = settings.value(self._STATE_KEY, QByteArray())
         saved_screen = str(settings.value(self._SCREEN_KEY, ""))
-        if isinstance(geometry, QByteArray) and not geometry.isEmpty():
-            self.restoreGeometry(geometry)
-        if isinstance(state, QByteArray) and not state.isEmpty():
-            self.restoreState(state)
+        if isinstance(geometry, QByteArray) and not geometry.isEmpty(): self.restoreGeometry(geometry)
+        if isinstance(state, QByteArray) and not state.isEmpty(): self.restoreState(state)
         screens = QApplication.screens()
-        if not screens:
-            return
+        if not screens: return
         target = self._find_restore_screen(screens, saved_screen, self.frameGeometry())
-        if target is not None:
-            self._fit_window_to_screen(target)
+        if target is not None: self._fit_window_to_screen(target)
 
     def _save_window_layout(self) -> None:
-        settings = self._qt_settings()
-        screen = self.screen() or QApplication.primaryScreen()
-        settings.setValue(self._GEOMETRY_KEY, self.saveGeometry())
-        settings.setValue(self._STATE_KEY, self.saveState())
+        settings = self._qt_settings(); screen = self.screen() or QApplication.primaryScreen()
+        settings.setValue(self._GEOMETRY_KEY, self.saveGeometry()); settings.setValue(self._STATE_KEY, self.saveState())
         if screen is not None:
-            settings.setValue(self._SCREEN_KEY, self._get_screen_key(screen))
-            geometry = screen.geometry()
+            settings.setValue(self._SCREEN_KEY, self._get_screen_key(screen)); geometry = screen.geometry()
             settings.setValue(self._SCREEN_GEOMETRY_KEY, f"{geometry.x()},{geometry.y()},{geometry.width()},{geometry.height()}")
         settings.sync()
 
     def _build_ui(self) -> None:
-        root = QWidget(self)
-        root_layout = QHBoxLayout(root)
-        root_layout.setContentsMargins(10, 10, 10, 10)
-        root_layout.setSpacing(10)
-        sidebar = QFrame()
-        sidebar.setObjectName("navigationSidebar")
-        sidebar.setMinimumWidth(205)
-        sidebar.setMaximumWidth(235)
-        sidebar_layout = QVBoxLayout(sidebar)
-        sidebar_layout.setContentsMargins(10, 12, 10, 12)
-        sidebar_layout.setSpacing(6)
-        brand = QLabel("SERM")
-        brand.setObjectName("navigationBrand")
-        brand.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        sidebar_layout.addWidget(brand)
-        version = QLabel("V2 • EMULATION MANAGER")
-        version.setObjectName("navigationVersion")
-        version.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        sidebar_layout.addWidget(version)
-        sidebar_layout.addSpacing(10)
-        self.navigation = QListWidget()
-        self.navigation.setObjectName("navigationList")
-        self.navigation.setIconSize(QSize(20, 20))
-        self.navigation.setSpacing(3)
-        self.navigation.setFrameShape(QFrame.Shape.NoFrame)
-        self.navigation.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.navigation.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
+        root = QWidget(self); root_layout = QHBoxLayout(root); root_layout.setContentsMargins(10,10,10,10); root_layout.setSpacing(10)
+        sidebar = QFrame(); sidebar.setObjectName("navigationSidebar"); sidebar.setMinimumWidth(205); sidebar.setMaximumWidth(235)
+        sidebar_layout = QVBoxLayout(sidebar); sidebar_layout.setContentsMargins(10,12,10,12); sidebar_layout.setSpacing(6)
+        brand = QLabel("SERM"); brand.setObjectName("navigationBrand"); brand.setAlignment(Qt.AlignmentFlag.AlignCenter); sidebar_layout.addWidget(brand)
+        version = QLabel("V2 • EMULATION MANAGER"); version.setObjectName("navigationVersion"); version.setAlignment(Qt.AlignmentFlag.AlignCenter); sidebar_layout.addWidget(version); sidebar_layout.addSpacing(10)
+        self.navigation = QListWidget(); self.navigation.setObjectName("navigationList"); self.navigation.setIconSize(QSize(20,20)); self.navigation.setSpacing(3); self.navigation.setFrameShape(QFrame.Shape.NoFrame); self.navigation.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff); self.navigation.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
         for label, description, style_icon in self.NAV_ITEMS:
-            item = QListWidgetItem(self.style().standardIcon(getattr(QStyle, style_icon)), label)
-            item.setToolTip(description)
-            item.setData(Qt.ItemDataRole.UserRole, description)
-            item.setSizeHint(QSize(0, 46))
-            self.navigation.addItem(item)
-        sidebar_layout.addWidget(self.navigation, 1)
-        footer = QLabel("SERM V2\nSistema de Emulação e ROM Management")
-        footer.setObjectName("navigationFooter")
-        footer.setWordWrap(True)
-        sidebar_layout.addWidget(footer)
+            item = QListWidgetItem(self.style().standardIcon(getattr(QStyle, style_icon)), label); item.setToolTip(description); item.setData(Qt.ItemDataRole.UserRole, description); item.setSizeHint(QSize(0,46)); self.navigation.addItem(item)
+        sidebar_layout.addWidget(self.navigation,1)
+        footer = QLabel("SERM V2\nSistema de Emulação e ROM Management"); footer.setObjectName("navigationFooter"); footer.setWordWrap(True); sidebar_layout.addWidget(footer)
 
-        self.page_stack = QStackedWidget()
-        self.page_stack.setObjectName("pageStack")
-        self.home_section = HomePage(self)
-        self.directories_tab = DirectoriesPage(self)
-        self.tools_tab = ToolsDirectoriesPage(self)
-        self.settings_tab = EmulatorSettingsPage(self)
-        self.visuals_tab = EmulatorShadersBezelsPage(self)
-        self.scan_tab = ScanPhasePage(self)
-        self.mame_scan_tab = MameScanPage(self)
-        self.filter_tab = FilteringPhasePage(self)
-        self.mame_filter_tab = MameFilterPage(self)
-        self.reconstruction_tab = ReconstructionPhasePage(self)
-        self.dat_scraper_tab = DatScraperPage(self)
-        self.pages = (
-            self.home_section,
-            self.directories_tab,
-            self.tools_tab,
-            self.settings_tab,
-            self.visuals_tab,
-            self.scan_tab,
-            self.mame_scan_tab,
-            self.filter_tab,
-            self.mame_filter_tab,
-            self.reconstruction_tab,
-            self.dat_scraper_tab,
-        )
-        for page in self.pages:
-            self.page_stack.addWidget(page)
-        root_layout.addWidget(sidebar)
-        root_layout.addWidget(self.page_stack, 1)
-        self.setCentralWidget(root)
-        self.navigation.currentRowChanged.connect(self._on_navigation_changed)
-        self.navigation.setCurrentRow(0)
+        self.page_stack = QStackedWidget(); self.page_stack.setObjectName("pageStack")
+        self.home_section = HomePage(self); self.directories_tab = DirectoriesPage(self); self.tools_tab = ToolsDirectoriesPage(self); self.settings_tab = EmulatorSettingsPage(self); self.visuals_tab = EmulatorShadersBezelsPage(self); self.scan_tab = ScanPhasePage(self); self.mame_scan_tab = MameScanPage(self); self.filter_tab = FilteringPhasePage(self); self.mame_filter_tab = MameFilterPage(self); self.no_intro_filter_tab = NoIntroFilterPage(self); self.reconstruction_tab = ReconstructionPhasePage(self); self.dat_scraper_tab = DatScraperPage(self)
+        self.pages = (self.home_section,self.directories_tab,self.tools_tab,self.settings_tab,self.visuals_tab,self.scan_tab,self.mame_scan_tab,self.filter_tab,self.mame_filter_tab,self.no_intro_filter_tab,self.reconstruction_tab,self.dat_scraper_tab)
+        for page in self.pages: self.page_stack.addWidget(page)
+        root_layout.addWidget(sidebar); root_layout.addWidget(self.page_stack,1); self.setCentralWidget(root)
+        self.navigation.currentRowChanged.connect(self._on_navigation_changed); self.navigation.setCurrentRow(0)
 
     def _on_navigation_changed(self, index: int) -> None:
         if 0 <= index < len(self.pages):
-            self.page_stack.setCurrentIndex(index)
-            self._refresh_page(index)
-            item = self.navigation.item(index)
+            self.page_stack.setCurrentIndex(index); self._refresh_page(index); item = self.navigation.item(index)
             self.status_bar.showMessage((item.data(Qt.ItemDataRole.UserRole) or item.text()) if item else "Pronto")
 
     def _refresh_page(self, index: int) -> None:
-        page = self.pages[index]
-        refresh = getattr(page, "refresh", None)
-        if callable(refresh):
-            refresh()
+        page = self.pages[index]; refresh = getattr(page, "refresh", None)
+        if callable(refresh): refresh()
 
     def closeEvent(self, event) -> None:
-        self._save_window_layout()
-        self.log_viewer.close()
-        self.database.dispose()
-        super().closeEvent(event)
-
-
-__all__ = ["MainWindow"]
+        self._save_window_layout(); self.log_viewer.close(); self.database.dispose(); super().closeEvent(event)
