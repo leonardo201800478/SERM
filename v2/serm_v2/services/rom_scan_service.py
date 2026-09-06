@@ -104,6 +104,79 @@ class RomScanService:
         self._cancelled = True
         self._log("INFO", "CANCELAMENTO | solicitação recebida; encerrando no próximo checkpoint")
 
+    def estimate_mame(self, profile, *, database: Path | None = None) -> dict[str, int | str | None]:
+        """Calcula rapidamente o universo MAME que os filtros atuais selecionam.
+
+        A estimativa usa exclusivamente o catálogo SQLite já importado pelo
+        SERM. Não acessa as fontes físicas e, portanto, não inicia um scan.
+        """
+        db_path = database or database_path()
+        if not db_path.is_file():
+            return {"machines": 0, "roms": 0, "optional_roms": 0, "disks": 0,
+                    "catalog_roms": 0, "catalog_hash": None, "error": str(db_path)}
+        query = """
+            SELECT m.id, m.name AS machine_name, m.cloneof, m.isbios, m.isdevice,
+                   m.runnable, r.optional
+            FROM mame_machine m
+            JOIN mame_rom r ON r.machine_id=m.id
+            JOIN mame_listxml_import i ON i.id=m.import_id
+            WHERE i.id=(SELECT id FROM mame_listxml_import ORDER BY imported_at DESC, id DESC LIMIT 1)
+        """
+        try:
+            with sqlite3.connect(db_path) as connection:
+                rows = connection.execute(query).fetchall()
+                source = connection.execute(
+                    "SELECT source_hash FROM mame_listxml_import WHERE id=(SELECT id FROM mame_listxml_import ORDER BY imported_at DESC,id DESC LIMIT 1)"
+                ).fetchone()
+                disks = connection.execute(
+                    """
+                    SELECT COUNT(*) FROM mame_disk d
+                    JOIN mame_machine m ON m.id=d.machine_id
+                    JOIN mame_listxml_import i ON i.id=m.import_id
+                    WHERE i.id=(SELECT id FROM mame_listxml_import ORDER BY imported_at DESC, id DESC LIMIT 1)
+                    """
+                ).fetchone()[0]
+        except sqlite3.Error as exc:
+            return {"machines": 0, "roms": 0, "optional_roms": 0, "disks": 0,
+                    "catalog_roms": 0, "catalog_hash": None, "error": str(exc)}
+
+        machine_ids: set[int] = set()
+        roms = 0
+        optional_roms = 0
+        included_ids: set[int] = set()
+        for machine_id, _name, cloneof, isbios, isdevice, runnable, optional in rows:
+            if not getattr(profile, "mame_include_bios", False) and str(isbios or "").casefold() == "yes":
+                continue
+            if not getattr(profile, "mame_include_devices", False) and str(isdevice or "").casefold() == "yes":
+                continue
+            if getattr(profile, "mame_working_only", False) and str(runnable or "").casefold() not in {"yes", "true"}:
+                continue
+            if getattr(profile, "mame_clone_policy", "with_clones") == "parents_only" and cloneof:
+                continue
+            if not getattr(profile, "mame_include_optional", True) and str(optional or "").casefold() in {"yes", "true", "1"}:
+                continue
+            included_ids.add(int(machine_id))
+            machine_ids.add(int(machine_id))
+            roms += 1
+            if str(optional or "").casefold() in {"yes", "true", "1"}:
+                optional_roms += 1
+
+        # Split/Non-Merged/Full-Merged affect the physical package plan more
+        # than the logical catalog universe. The estimate therefore exposes
+        # the selected set type while keeping the ROM universe deterministic.
+        set_type = str(getattr(profile, "mame_set_type", "split"))
+        hash_value = str(source[0]) if source else None
+        return {
+            "machines": len(machine_ids),
+            "roms": roms,
+            "optional_roms": optional_roms,
+            "disks": int(disks or 0) if getattr(profile, "mame_include_chd", True) else 0,
+            "catalog_roms": len(rows),
+            "catalog_hash": hash_value,
+            "set_type": set_type,
+            "error": None,
+        }
+
     def scan(self, profile, *, catalog_items: Iterable[ScanItem] = (), database: Path | None = None) -> ScanResult:
         scan_id = self._make_scan_id(profile)
         started = time.time()
