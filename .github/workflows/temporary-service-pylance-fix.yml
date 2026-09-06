@@ -26,7 +26,6 @@ jobs:
                   raise SystemExit(f"pattern not found: {path}: {old!r}")
               p.write_text(text.replace(old, new), encoding="utf-8")
 
-          # Replace every SQLite lastrowid conversion with a checked helper.
           sqlite_files = [
               "v2/serm_v2/services/mame_catalog_normalizer.py",
               "v2/serm_v2/services/mame_catalog_service.py",
@@ -41,60 +40,57 @@ jobs:
           for name in sqlite_files:
               p = Path(name)
               text = p.read_text(encoding="utf-8")
-              text = re.sub(
-                  r'int\((cur|cursor|row|import_row)\.lastrowid\)',
-                  r'require_lastrowid(\1.lastrowid)',
-                  text,
-              )
+              text = re.sub(r'int\((cur|cursor|row|import_row)\.lastrowid\)', r'require_lastrowid(\1.lastrowid)', text)
               if "from .sqlite_utils import require_lastrowid" not in text:
-                  lines = text.splitlines()
-                  insert_at = 0
-                  while insert_at < len(lines) and (lines[insert_at].startswith("\"") or lines[insert_at].startswith("from __future__")):
-                      insert_at += 1
-                  while insert_at < len(lines) and lines[insert_at].startswith(("import ", "from ")):
-                      insert_at += 1
-                  lines.insert(insert_at, "from .sqlite_utils import require_lastrowid")
-                  text = "\n".join(lines) + "\n"
+                  marker = "from __future__ import annotations\n"
+                  if marker not in text:
+                      raise SystemExit(f"future import not found: {name}")
+                  text = text.replace(marker, marker + "\nfrom .sqlite_utils import require_lastrowid\n", 1)
               p.write_text(text, encoding="utf-8")
 
-          # Normalizer totals are intentionally heterogeneous numeric values.
-          replace("v2/serm_v2/services/mame_catalog_normalizer.py",
-              '        totals = {\n',
-              '        totals: dict[str, int | float] = {\n')
-          replace("v2/serm_v2/services/mame_catalog_normalizer.py",
-              'def _insert_children(\n        self,\n        db: sqlite3.Connection,\n        machine_id: int,\n        machine: ET.Element,\n        totals: dict[str, int | float],\n',
-              'def _insert_children(\n        self,\n        db: sqlite3.Connection,\n        machine_id: int,\n        machine: ET.Element,\n        totals: dict[str, int | float],\n') if 'def _insert_children(\n        self,\n        db: sqlite3.Connection,\n        machine_id: int,\n        machine: ET.Element,\n        totals: dict[str, int | float],\n' in Path("v2/serm_v2/services/mame_catalog_normalizer.py").read_text(encoding="utf-8") else None
+          # Normalizer totals are heterogeneous numeric values.
+          p = Path("v2/serm_v2/services/mame_catalog_normalizer.py")
+          text = p.read_text(encoding="utf-8")
+          text = text.replace('        totals = {\n', '        totals: dict[str, int | float] = {\n')
+          p.write_text(text, encoding="utf-8")
 
           # Catalog orchestration result dictionaries are heterogeneous.
-          replace("v2/serm_v2/services/mame_catalog_service.py",
-              '            results.append((name, service.ingest(logger=self._log)))\n',
-              '            results.append((name, dict(service.ingest(logger=self._log))))\n')
+          p = Path("v2/serm_v2/services/mame_catalog_service.py")
+          text = p.read_text(encoding="utf-8")
+          text = text.replace('            results.append((name, service.ingest(logger=self._log)))\n', '            results.append((name, dict(service.ingest(logger=self._log))))\n')
+          p.write_text(text, encoding="utf-8")
 
           # WHDLoad JSON can contain null/non-dict hardware metadata.
-          replace("v2/serm_v2/services/whloader_data_service.py",
-              '                hardware = game.get("hardware") if isinstance(game.get("hardware"), dict) else {}\n',
-              '                hardware_value = game.get("hardware")\n                hardware: dict[str, Any] = hardware_value if isinstance(hardware_value, dict) else {}\n') if '                hardware = game.get("hardware") if isinstance(game.get("hardware"), dict) else {}\n' in Path("v2/serm_v2/services/whloader_data_service.py").read_text(encoding="utf-8") else None
+          p = Path("v2/serm_v2/services/whloader_data_service.py")
+          text = p.read_text(encoding="utf-8")
+          old = '                hardware = game.get("hardware") if isinstance(game.get("hardware"), dict) else {}\n'
+          if old in text:
+              text = text.replace(old, '                hardware_value = game.get("hardware")\n                hardware: dict[str, Any] = hardware_value if isinstance(hardware_value, dict) else {}\n')
+          p.write_text(text, encoding="utf-8")
 
           # Dynamic display line metadata must be narrowed to int | None.
-          replace("v2/serm_v2/services/mame_display_resolver.py",
-              '            result.append(\n                ExternalDisplayFact(\n                    machine, width, height, refresh, orientation, ax, ay, raw, payload.get("line")\n                )\n            )\n',
-              '            line_value = payload.get("line")\n            line_number = line_value if isinstance(line_value, int) else None\n            result.append(\n                ExternalDisplayFact(\n                    machine, width, height, refresh, orientation, ax, ay, raw, line_number\n                )\n            )\n') if '            result.append(\n                ExternalDisplayFact(\n                    machine, width, height, refresh, orientation, ax, ay, raw, payload.get("line")\n                )\n            )\n' in Path("v2/serm_v2/services/mame_display_resolver.py").read_text(encoding="utf-8") else None
+          p = Path("v2/serm_v2/services/mame_display_resolver.py")
+          text = p.read_text(encoding="utf-8")
+          old = '            result.append(\n                ExternalDisplayFact(\n                    machine, width, height, refresh, orientation, ax, ay, raw, payload.get("line")\n                )\n            )\n'
+          if old in text:
+              text = text.replace(old, '            line_value = payload.get("line")\n            line_number = line_value if isinstance(line_value, int) else None\n            result.append(\n                ExternalDisplayFact(\n                    machine, width, height, refresh, orientation, ax, ay, raw, line_number\n                )\n            )\n')
+          p.write_text(text, encoding="utf-8")
 
-          # Avoid an unused boolean expression in the emulator progress path.
-          replace("v2/serm_v2/services/emulator_manager.py",
-              '                progress and progress(received, total)\n',
-              '                if progress:\n                    progress(received, total)\n') if '                progress and progress(received, total)\n' in Path("v2/serm_v2/services/emulator_manager.py").read_text(encoding="utf-8") else None
+          # Avoid unused boolean expression in emulator progress.
+          p = Path("v2/serm_v2/services/emulator_manager.py")
+          text = p.read_text(encoding="utf-8")
+          text = text.replace('                progress and progress(received, total)\n', '                if progress:\n                    progress(received, total)\n')
+          p.write_text(text, encoding="utf-8")
 
-          # The resilient scanner overrides instance hashing hooks because they
-          # need cooperative cancellation/heartbeat state.
-          replace("v2/serm_v2/services/rom_scan_service.py",
-              '    @staticmethod\n    def _hash_stream(stream) -> tuple[int, str, str]:\n',
-              '    def _hash_stream(self, stream) -> tuple[int, str, str]:\n') if '    @staticmethod\n    def _hash_stream(stream) -> tuple[int, str, str]:\n' in Path("v2/serm_v2/services/rom_scan_service.py").read_text(encoding="utf-8") else None
-          text = Path("v2/serm_v2/services/rom_scan_service.py").read_text(encoding="utf-8")
+          # Resilient scanner overrides instance hashing hooks because they use
+          # cooperative cancellation/heartbeat state.
+          p = Path("v2/serm_v2/services/rom_scan_service.py")
+          text = p.read_text(encoding="utf-8")
+          text = text.replace('    @staticmethod\n    def _hash_stream(stream) -> tuple[int, str, str]:\n', '    def _hash_stream(self, stream) -> tuple[int, str, str]:\n')
           text = text.replace('stream.read(RomScanService.CHUNK_SIZE)', 'stream.read(self.CHUNK_SIZE)')
           text = text.replace('    @staticmethod\n    def _crc32(path: Path) -> str:\n', '    def _crc32(self, path: Path) -> str:\n')
           text = text.replace('    @staticmethod\n    def _sha1(path: Path) -> str:\n', '    def _sha1(self, path: Path) -> str:\n')
-          Path("v2/serm_v2/services/rom_scan_service.py").write_text(text, encoding="utf-8")
+          p.write_text(text, encoding="utf-8")
 
           # Display fallback parser: effective section key is always str.
           p = Path("v2/serm_v2/services/mame_display_pipeline.py")
