@@ -1,0 +1,73 @@
+# ============================================================
+# SERM repository-wide ignore rules
+# ============================================================
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Test / lint / coverage caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Build / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# IDE / editor
+.vscode/*.log
+.idea/
+*.code-workspace.user
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.local
+secrets.*
+
+# SERM runtime and user data
+**/data/
+**/.data/
+**/runtime-data/
+**/logs/
+**/cache/
+**/staging/
+**/exports/
+**/backups/
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite-shm
+*.sqlite-wal
+
+# Generated scan / reconstruction artifacts
+current_scan.jsonl
+current_scan.jsonl.tmp
+reconstruction-decisions.json
+*.json.partial
+
+# OS generated files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Python bytecode / compiled artifacts, including nested V1/V2 trees
+*.pyc
+*.pyd
