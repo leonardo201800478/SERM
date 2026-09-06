@@ -1,4 +1,4 @@
-"""Persistência dos metadados e resultados dos scans V2."""
+"""Persistência dos metadados, evidências e snapshot bruto dos scans V2."""
 from __future__ import annotations
 
 import json
@@ -6,10 +6,11 @@ import sqlite3
 from pathlib import Path
 
 from .rom_scan_service import ScanResult
+from .scan_file_repository import ScanFileRepository
 
 
 class ScanRepository:
-    """Persiste histórico e evidências dos scans sem acoplar o serviço ao Qt."""
+    """Persiste o scan bruto como histórico imutável e consultável."""
 
     def __init__(self, database_path: Path) -> None:
         self.database_path = Path(database_path).expanduser().resolve()
@@ -27,13 +28,19 @@ class ScanRepository:
             connection.execute("""CREATE TABLE IF NOT EXISTS scan_runs (
                 scan_id TEXT PRIMARY KEY, profile_id TEXT NOT NULL, profile_schema_version INTEGER NOT NULL DEFAULT 1,
                 source TEXT NOT NULL, system TEXT NOT NULL, dat_path TEXT, catalog_hash TEXT,
+                catalog_label TEXT, scan_type TEXT NOT NULL DEFAULT 'full', scan_file_path TEXT,
                 status TEXT NOT NULL, started_at REAL NOT NULL, finished_at REAL,
                 files_examined INTEGER NOT NULL DEFAULT 0, archives_examined INTEGER NOT NULL DEFAULT 0,
                 items_examined INTEGER NOT NULL DEFAULT 0, errors INTEGER NOT NULL DEFAULT 0,
                 status_counts_json TEXT NOT NULL DEFAULT '{}')""")
             columns = {row[1] for row in connection.execute("PRAGMA table_info(scan_runs)")}
             additions = {
-                "profile_schema_version": "INTEGER NOT NULL DEFAULT 1", "dat_path": "TEXT", "catalog_hash": "TEXT",
+                "profile_schema_version": "INTEGER NOT NULL DEFAULT 1",
+                "dat_path": "TEXT",
+                "catalog_hash": "TEXT",
+                "catalog_label": "TEXT",
+                "scan_type": "TEXT NOT NULL DEFAULT 'full'",
+                "scan_file_path": "TEXT",
             }
             for name, definition in additions.items():
                 if name not in columns:
@@ -49,16 +56,18 @@ class ScanRepository:
 
     def save(self, result: ScanResult, *, status: str = "completed", dat_path: str | None = None,
              profile_schema_version: int = 1) -> None:
+        scan_file = ScanFileRepository.save(result)
         with self._connect() as connection:
             connection.execute(
                 """INSERT OR REPLACE INTO scan_runs (
                     scan_id, profile_id, profile_schema_version, source, system, dat_path, catalog_hash,
-                    status, started_at, finished_at, files_examined, archives_examined, items_examined, errors, status_counts_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    catalog_label, scan_type, scan_file_path, status, started_at, finished_at,
+                    files_examined, archives_examined, items_examined, errors, status_counts_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (result.scan_id, result.profile_id, profile_schema_version, result.source, result.system, dat_path,
-                 result.catalog_hash, status, result.started_at, result.finished_at or None, result.files_examined,
-                 result.archives_examined, result.items_examined, result.errors,
-                 json.dumps(dict(result.status_counts), ensure_ascii=False)),
+                 result.catalog_hash, result.catalog_label, result.scan_type, str(scan_file), status,
+                 result.started_at, result.finished_at or None, result.files_examined, result.archives_examined,
+                 result.items_examined, result.errors, json.dumps(dict(result.status_counts), ensure_ascii=False)),
             )
             connection.execute("DELETE FROM scan_items WHERE scan_id=?", (result.scan_id,))
             connection.executemany(
@@ -81,6 +90,11 @@ class ScanRepository:
         data["status_counts"] = json.loads(data.pop("status_counts_json") or "{}")
         return data
 
+    def get(self, scan_id: str) -> dict | None:
+        with self._connect() as connection:
+            row = connection.execute("SELECT * FROM scan_runs WHERE scan_id=?", (scan_id,)).fetchone()
+        return dict(row) if row else None
+
     def evidence(self, scan_id: str, *, status: str | None = None) -> list[dict]:
         with self._connect() as connection:
             query = "SELECT * FROM scan_items WHERE scan_id=?"
@@ -89,6 +103,13 @@ class ScanRepository:
                 query += " AND status=?"; params.append(status)
             query += " ORDER BY machine_name, rom_name"
             return [dict(row) for row in connection.execute(query, params)]
+
+    def raw_file(self, scan_id: str) -> Path | None:
+        record = self.get(scan_id)
+        if not record or not record.get("scan_file_path"):
+            return ScanFileRepository.latest_path(scan_id)
+        path = Path(str(record["scan_file_path"]))
+        return path if path.is_file() else ScanFileRepository.latest_path(scan_id)
 
 
 __all__ = ["ScanRepository"]
