@@ -16,12 +16,29 @@ class ScanFileRepository:
         value = re.sub(r"[^A-Za-z0-9._-]+", "_", str(value).strip())
         return value.strip("._-") or "unknown"
 
+    @staticmethod
+    def _mame_type_label(scan_type: str) -> str:
+        return {"arcade": "Arcade", "software": "Software", "both": "Completa"}.get(str(scan_type).casefold(), str(scan_type))
+
     @classmethod
     def build_path(cls, result) -> Path:
-        root = scans_root() / cls._safe(result.source.casefold())
+        source = str(result.source)
+        scan_type = str(getattr(result, "scan_type", "full"))
+        if source.casefold() == "mame":
+            root = scans_root() / "mame"
+            version = cls._safe(result.catalog_label)
+            type_label = cls._mame_type_label(scan_type)
+            base = root / f"MAME - {version} - {type_label}.json"
+            if not base.exists():
+                return base
+            existing = cls.load(base)
+            if str(existing.get("scan_id", "")) == str(result.scan_id):
+                return base
+            return root / f"MAME - {version} - {type_label} - {cls._safe(result.scan_id)}.json"
+        root = scans_root() / cls._safe(source.casefold())
         label = cls._safe(result.catalog_label)
-        scan_type = cls._safe(getattr(result, "scan_type", "full"))
-        return root / f"{cls._safe(result.source)}_{label}_{scan_type}_{cls._safe(result.scan_id)}.json"
+        safe_type = cls._safe(scan_type)
+        return root / f"{cls._safe(source)}_{label}_{safe_type}_{cls._safe(result.scan_id)}.json"
 
     @staticmethod
     def _evidence_payload(item) -> dict:
@@ -69,8 +86,6 @@ class ScanFileRepository:
         }
         stream_path = getattr(result, "evidence_stream_path", None)
         if stream_path and Path(stream_path).is_file():
-            # O scanner escreve JSONL enquanto trabalha. Aqui apenas o convertemos
-            # sequencialmente para o formato JSON histórico consumido pelos filtros.
             with path.open("w", encoding="utf-8", newline="\n") as output:
                 prefix = json.dumps({k: v for k, v in header.items() if k != "evidence"}, ensure_ascii=False, separators=(",", ":"))
                 output.write(prefix[:-1] + ',"evidence":[\n')
