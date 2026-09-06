@@ -18,11 +18,20 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ..services.mame_fundamental_filter_service import (
+    DEFAULT_FILTERS,
+    MameFundamentalFilterService,
+)
 from .filter_profiles_page import FilterProfilesPage as _BaseFilterProfilesPage
+from .mame_fundamental_filters_dialog import MameFundamentalFiltersDialog
 
 
 class FilterProfilesPage(_BaseFilterProfilesPage):
     """Tela de filtros/scan com todas as seções verticalmente redimensionáveis."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        self._fundamental_filters = dict(DEFAULT_FILTERS)
+        super().__init__(parent)
 
     def _catalog_panel(self) -> QWidget:
         box = QGroupBox("Catálogos")
@@ -157,6 +166,77 @@ class FilterProfilesPage(_BaseFilterProfilesPage):
         outer.addWidget(sections, 1)
         return page
 
+    def _build_mame_controls(self) -> None:
+        super()._build_mame_controls()
+        self.mame_fundamental_button = QPushButton("FILTROS FUNDAMENTAIS…")
+        self.mame_fundamental_button.setToolTip(
+            "Abrir em uma janela separada as exclusões fundamentais da V1."
+        )
+        self.mame_fundamental_button.clicked.connect(self._open_fundamental_filters)
+        self.mame_fundamental_summary = QLabel()
+        self.mame_fundamental_summary.setWordWrap(True)
+        layout = self.mame_box.layout()
+        if layout is not None:
+            layout.addRow(self.mame_fundamental_button)
+            layout.addRow(self.mame_fundamental_summary)
+        self._update_fundamental_summary()
+
+    def _open_fundamental_filters(self) -> None:
+        profile_id = self._current_saved_profile.profile_id if self._current_saved_profile else ""
+        values = (
+            MameFundamentalFilterService.load(profile_id)
+            if profile_id
+            else dict(self._fundamental_filters)
+        )
+        dialog = MameFundamentalFiltersDialog(values, self)
+        if dialog.exec() != dialog.DialogCode.Accepted:
+            return
+        self._fundamental_filters = dialog.values()
+        if profile_id:
+            MameFundamentalFilterService.save(profile_id, self._fundamental_filters)
+        self._update_fundamental_summary()
+        self._schedule_catalog_estimate()
+        self.scan_progress.setText(
+            "Filtros fundamentais atualizados. Salve o perfil antes de iniciar o scan."
+        )
+
+    def _update_fundamental_summary(self) -> None:
+        if not hasattr(self, "mame_fundamental_summary"):
+            return
+        active = [key for key, enabled in self._fundamental_filters.items() if enabled]
+        if active:
+            self.mame_fundamental_summary.setText(
+                f"{len(active)} exclusões fundamentais ativas"
+            )
+        else:
+            self.mame_fundamental_summary.setText("Nenhuma exclusão fundamental ativa")
+
+    def _load_profile(self, profile) -> None:
+        super()._load_profile(profile)
+        self._fundamental_filters = MameFundamentalFilterService.load(profile.profile_id)
+        self._update_fundamental_summary()
+
+    def _save_profile(self):
+        profile = super()._save_profile()
+        if profile is not None and str(profile.source).casefold() == "mame":
+            MameFundamentalFilterService.save(profile.profile_id, self._fundamental_filters)
+            self._update_fundamental_summary()
+        return profile
+
+    def _new_profile(self) -> None:
+        super()._new_profile()
+        self._fundamental_filters = dict(DEFAULT_FILTERS)
+        self._update_fundamental_summary()
+
+    def _delete_selected_profile(self) -> None:
+        selected = self.profile_list.selectedItems()
+        current = self.profile_list.currentItem()
+        item = selected[0] if selected else current
+        profile_id = item.data(Qt.ItemDataRole.UserRole) if item is not None else None
+        super()._delete_selected_profile()
+        if profile_id:
+            MameFundamentalFilterService.delete(str(profile_id))
+
     def _refresh_profile_list(self, *_args):
         selected_id = None
         current = self.profile_list.currentItem() if hasattr(self, "profile_list") else None
@@ -184,40 +264,6 @@ class FilterProfilesPage(_BaseFilterProfilesPage):
     def _update_delete_button(self, *_args):
         if hasattr(self, "profile_delete_button"):
             self.profile_delete_button.setEnabled(self.profile_list.currentItem() is not None)
-
-    def _delete_selected_profile(self) -> None:
-        selected = self.profile_list.selectedItems()
-        current = self.profile_list.currentItem()
-        if not selected and current is not None:
-            selected = [current]
-        if not selected:
-            QMessageBox.information(self, "Perfis", "Selecione um perfil para excluir.")
-            return
-
-        profile_id = selected[0].data(Qt.ItemDataRole.UserRole)
-        profiles = self._read_profiles()
-        profile = next((item for item in profiles if item.profile_id == profile_id), None)
-        if profile is None:
-            self._refresh_profile_list()
-            return
-
-        answer = QMessageBox.question(
-            self,
-            "Excluir perfil",
-            f"Excluir o perfil '{profile.name}'?\n\nO histórico dos scans já gravados será preservado.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if answer != QMessageBox.StandardButton.Yes:
-            return
-
-        self._write_profiles([item for item in profiles if item.profile_id != profile_id])
-        if self._current_saved_profile and self._current_saved_profile.profile_id == profile_id:
-            self._current_saved_profile = None
-            self._last_scan_result = None
-        self._refresh_profile_list()
-        self.scan_progress.setText("Perfil excluído. O histórico dos scans foi preservado.")
-        self._update_delete_button()
 
 
 __all__ = ["FilterProfilesPage"]
