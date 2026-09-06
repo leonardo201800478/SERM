@@ -2,7 +2,9 @@
   "recommendations": [
     "ms-python.python",
     "ms-python.vscode-pylance",
-    "charliermarsh.ruff"
+    "charliermarsh.ruff",
+    "pkief.material-icon-theme",
+    "qwtel.sqlite-viewer"
   ],
   "unwantedRecommendations": []
 }

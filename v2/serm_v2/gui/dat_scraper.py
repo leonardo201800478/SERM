@@ -652,8 +652,8 @@ class _MameTab(QWidget):
         self._log("DONE", "Ingestão encerrada com erro; dados anteriores foram preservados")
 
     def _finished(self) -> None:
-        self._set_mame_busy(False)
         self.refresh()
+        self._set_mame_busy(False)
 
 
 class DatScraperPage(QWidget):
