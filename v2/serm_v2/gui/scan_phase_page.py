@@ -1,11 +1,12 @@
 """Fase 1 do pipeline: auditoria completa das fontes contra DAT/catalogo."""
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import QThread, Signal, Qt
 from PySide6.QtWidgets import (
     QComboBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel,
     QListWidget, QMessageBox, QProgressBar, QPushButton, QTabWidget,
@@ -45,7 +46,10 @@ class _PhaseScanWorker(QThread):
                 self.service = NoIntroScanService(progress_callback=self.progress.emit)
                 result = self.service.scan(self.profile)
             else:
-                self.service = RomScanService(progress_callback=self.progress.emit, log_callback=self._log)
+                self.service = RomScanService(
+                    progress_callback=self.progress.emit,
+                    log_callback=self._log,
+                )
                 result = self.service.scan(self.profile, database=database_path())
             ScanRepository(database_path()).save(result, dat_path=self.target.dat_path)
             self.completed.emit(result)
@@ -61,7 +65,9 @@ class _PhaseScanWorker(QThread):
 
 
 class _SystemScanTab(QWidget):
-    """Editor comum para uma fonte de scan."""
+    """Interface completa de uma fonte de scan, sem filtros."""
+
+    MAX_SOURCES = 3
 
     def __init__(self, source: str, parent=None) -> None:
         super().__init__(parent)
@@ -72,12 +78,13 @@ class _SystemScanTab(QWidget):
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
+
         title = QLabel(f"{self.source} — SCAN COMPLETO")
         title.setProperty("role", "title")
         layout.addWidget(title)
         explanation = QLabel(
-            "Esta etapa audita o catálogo completo. Filtros, 1G1R, regiões, traduções, "
-            "hacks e seleção de set não participam do scan."
+            "Esta etapa audita o catálogo/DAT completo. Nenhum filtro, 1G1R, região, "
+            "tradução, hack, clone ou seleção de set interfere no resultado."
         )
         explanation.setWordWrap(True)
         layout.addWidget(explanation)
@@ -86,9 +93,11 @@ class _SystemScanTab(QWidget):
         form = QFormLayout(config)
         self.system_combo = QComboBox()
         form.addRow("Sistema:", self.system_combo)
+
         self.dat_combo = QComboBox()
         self.dat_combo.setVisible(self.source == "No-Intro")
         form.addRow("DAT:", self.dat_combo)
+
         self.scan_type = QComboBox()
         self.scan_type.addItem("Arcade", "arcade")
         self.scan_type.addItem("Software", "software")
@@ -100,47 +109,67 @@ class _SystemScanTab(QWidget):
         source_box = QGroupBox("Diretórios de origem")
         source_layout = QVBoxLayout(source_box)
         self.source_list = QListWidget()
-        self.source_list.setMinimumHeight(80)
+        self.source_list.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
+        self.source_list.setMinimumHeight(90)
         source_layout.addWidget(self.source_list)
+
         buttons = QHBoxLayout()
-        add = QPushButton("+ ADICIONAR")
-        remove = QPushButton("REMOVER")
-        add.clicked.connect(self._add_source)
-        remove.clicked.connect(self._remove_source)
-        buttons.addWidget(add)
-        buttons.addWidget(remove)
+        self.add_source_button = QPushButton("+ ADICIONAR DIRETÓRIO")
+        self.remove_source_button = QPushButton("REMOVER DIRETÓRIO")
+        self.clear_sources_button = QPushButton("LIMPAR")
+        self.add_source_button.clicked.connect(self._add_source)
+        self.remove_source_button.clicked.connect(self._remove_source)
+        self.clear_sources_button.clicked.connect(self._clear_sources)
+        buttons.addWidget(self.add_source_button)
+        buttons.addWidget(self.remove_source_button)
+        buttons.addWidget(self.clear_sources_button)
         buttons.addStretch()
         source_layout.addLayout(buttons)
+        self.source_hint = QLabel(f"0/{self.MAX_SOURCES} diretórios configurados")
+        source_layout.addWidget(self.source_hint)
         layout.addWidget(source_box)
 
         actions = QHBoxLayout()
         self.scan_button = QPushButton("INICIAR SCAN COMPLETO")
         self.cancel_button = QPushButton("CANCELAR")
-        self.cancel_button.setEnabled(False)
         self.scan_button.clicked.connect(self.start_scan)
         self.cancel_button.clicked.connect(self.cancel_scan)
+        self.cancel_button.setEnabled(False)
         actions.addWidget(self.scan_button)
         actions.addWidget(self.cancel_button)
         actions.addStretch()
         layout.addLayout(actions)
+
         self.progress = QProgressBar()
+        self.progress.setTextVisible(True)
         layout.addWidget(self.progress)
         self.status = QLabel("Nenhum scan executado.")
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
+
         self.log = QListWidget()
         self.log.setMinimumHeight(120)
         layout.addWidget(self.log, 1)
+
+        self.system_combo.currentIndexChanged.connect(self._selection_changed)
+        self.dat_combo.currentIndexChanged.connect(self._dat_changed)
+        self.scan_type.currentIndexChanged.connect(self._scan_type_changed)
 
     def refresh(self) -> None:
         if self.source == "No-Intro":
             self._refresh_no_intro()
         elif self.source == "MAME":
+            self.system_combo.blockSignals(True)
             self.system_combo.clear()
             self.system_combo.addItem("MAME")
+            self.system_combo.blockSignals(False)
+            self._restore_mame_scan_type()
         else:
+            self.system_combo.blockSignals(True)
             self.system_combo.clear()
             self.system_combo.addItem(self.source)
+            self.system_combo.blockSignals(False)
+        self._update_source_controls()
 
     def _refresh_no_intro(self) -> None:
         dat_root = data_root() / "sources" / "no_intro" / "dats"
@@ -152,20 +181,17 @@ class _SystemScanTab(QWidget):
             self.dat_combo.addItem(path.name, str(path))
             systems.append(self._system_from_dat(path.name))
         self.dat_combo.blockSignals(False)
+
+        self.system_combo.blockSignals(True)
         self.system_combo.clear()
         for system in sorted(set(systems), key=str.casefold):
             self.system_combo.addItem(system)
-        try:
-            self.dat_combo.currentIndexChanged.disconnect(self._dat_changed)
-        except (TypeError, RuntimeError):
-            pass
-        self.dat_combo.currentIndexChanged.connect(self._dat_changed)
+        self.system_combo.blockSignals(False)
         self._dat_changed()
 
     @staticmethod
     def _system_from_dat(name: str) -> str:
         text = Path(name).stem
-        import re
         text = re.sub(r" \(Parent-Clone\)$", "", text)
         text = re.sub(r" \(\d{8}-\d{6}\)$", "", text)
         return text
@@ -180,16 +206,62 @@ class _SystemScanTab(QWidget):
         match = self.system_combo.findText(system)
         if match >= 0:
             self.system_combo.setCurrentIndex(match)
+        self._selection_changed()
+
+    def _selection_changed(self, *_args) -> None:
+        self._update_source_controls()
+
+    def _scan_type_changed(self, *_args) -> None:
+        if self.source == "MAME":
+            value = str(self.scan_type.currentData() or "arcade")
+            MameScanSettingsService.save(self._settings_profile_id(), value)
+            self.status.setText(f"Tipo de scan MAME selecionado: {self.scan_type.currentText()}.")
+
+    def _settings_profile_id(self) -> str:
+        return "scan-mame-mame"
+
+    def _restore_mame_scan_type(self) -> None:
+        value = MameScanSettingsService.load(self._settings_profile_id())
+        index = self.scan_type.findData(value)
+        if index < 0:
+            index = self.scan_type.findData("arcade")
+        self.scan_type.blockSignals(True)
+        self.scan_type.setCurrentIndex(max(index, 0))
+        self.scan_type.blockSignals(False)
+
+    def _update_source_controls(self) -> None:
+        count = self.source_list.count()
+        self.source_hint.setText(f"{count}/{self.MAX_SOURCES} diretórios configurados")
+        self.add_source_button.setEnabled(count < self.MAX_SOURCES and not (self.worker and self.worker.isRunning()))
+        self.remove_source_button.setEnabled(count > 0 and not (self.worker and self.worker.isRunning()))
+        self.clear_sources_button.setEnabled(count > 0 and not (self.worker and self.worker.isRunning()))
 
     def _add_source(self) -> None:
+        if self.source_list.count() >= self.MAX_SOURCES:
+            QMessageBox.information(self, "Diretórios", f"O limite é de {self.MAX_SOURCES} diretórios por scan.")
+            return
         path = QFileDialog.getExistingDirectory(self, "Selecionar diretório de ROMs")
-        if path and not self.source_list.findItems(path, 0) and self.source_list.count() < 3:
-            self.source_list.addItem(path)
+        if not path:
+            return
+        path = str(Path(path).expanduser().resolve())
+        for index in range(self.source_list.count()):
+            if Path(self.source_list.item(index).text()).resolve() == Path(path):
+                QMessageBox.information(self, "Diretórios", "Esse diretório já está configurado.")
+                return
+        self.source_list.addItem(path)
+        self._update_source_controls()
 
     def _remove_source(self) -> None:
         row = self.source_list.currentRow()
-        if row >= 0:
-            self.source_list.takeItem(row)
+        if row < 0:
+            QMessageBox.information(self, "Diretórios", "Selecione um diretório para remover.")
+            return
+        self.source_list.takeItem(row)
+        self._update_source_controls()
+
+    def _clear_sources(self) -> None:
+        self.source_list.clear()
+        self._update_source_controls()
 
     def _profile(self) -> Any:
         target = ScanTarget(
@@ -215,7 +287,6 @@ class _SystemScanTab(QWidget):
             profile.mame_include_chd = True
             profile.mame_include_optional = True
             profile.mame_working_only = False
-            MameScanSettingsService.save(profile.profile_id, target.scan_type)
         return profile
 
     def start_scan(self) -> None:
@@ -227,14 +298,20 @@ class _SystemScanTab(QWidget):
         if self.source == "No-Intro" and self.dat_combo.currentData() is None:
             QMessageBox.information(self, "Scan", "Selecione um DAT No-Intro.")
             return
+
         profile = self._profile()
-        target = ScanTarget(self.source, profile.system, profile.dat_path, str(self.scan_type.currentData()) if self.source == "MAME" else "full")
-        self.worker = _PhaseScanWorker(target, profile, self)
+        self.worker = _PhaseScanWorker(
+            ScanTarget(self.source, profile.system, profile.dat_path, profile.scan_type),
+            profile,
+            self,
+        )
         self.scan_button.setEnabled(False)
         self.cancel_button.setEnabled(True)
+        self.progress.setMaximum(0)
         self.progress.setValue(0)
         self.log.clear()
-        self.log.addItem(f"SCAN COMPLETO iniciado — filtros desativados | tipo={target.scan_type}")
+        self.log.addItem("SCAN COMPLETO iniciado — filtros desativados")
+        self._update_source_controls()
         self.worker.progress.connect(self._progress)
         self.worker.message.connect(self.log_message)
         self.worker.completed.connect(self._completed)
@@ -244,7 +321,7 @@ class _SystemScanTab(QWidget):
 
     def _progress(self, done: int, total: int) -> None:
         self.progress.setMaximum(max(total, 1))
-        self.progress.setValue(done)
+        self.progress.setValue(min(done, max(total, 1)))
         self.status.setText(f"Processando {done:,}/{total:,} itens do catálogo…")
 
     def log_message(self, message: str) -> None:
@@ -252,10 +329,16 @@ class _SystemScanTab(QWidget):
         self.log.scrollToBottom()
 
     def _completed(self, result: object) -> None:
+        self.progress.setMaximum(max(self.progress.maximum(), 1))
         self.progress.setValue(self.progress.maximum())
-        counts = getattr(result, "status_counts", {})
-        self.status.setText(f"SCAN CONCLUÍDO | {getattr(result, 'catalog_label', 'catálogo')} | CURRENT={counts.get('CURRENT', 0):,} | MISSING={counts.get('MISSING', 0):,} | WRONG={counts.get('WRONG', 0):,}")
-        self.log_message(f"ARQUIVO DE SCAN | {ScanRepository(database_path()).raw_file(getattr(result, 'scan_id', ''))}")
+        self.status.setText(
+            f"SCAN CONCLUÍDO | {getattr(result, 'catalog_label', 'catálogo')} | "
+            f"CURRENT={getattr(result, 'status_counts', {}).get('CURRENT', 0):,} | "
+            f"MISSING={getattr(result, 'status_counts', {}).get('MISSING', 0):,} | "
+            f"WRONG={getattr(result, 'status_counts', {}).get('WRONG', 0):,}"
+        )
+        path = ScanRepository(database_path()).raw_file(result.scan_id)
+        self.log_message(f"ARQUIVO DE SCAN | {path or 'não localizado'}")
 
     def _failed(self, message: str) -> None:
         self.status.setText(f"Falha: {message}")
@@ -264,10 +347,12 @@ class _SystemScanTab(QWidget):
     def _finished(self) -> None:
         self.scan_button.setEnabled(True)
         self.cancel_button.setEnabled(False)
+        self._update_source_controls()
 
     def cancel_scan(self) -> None:
         if self.worker and self.worker.isRunning():
             self.worker.cancel()
+            self.status.setText("Cancelamento solicitado; aguardando o checkpoint do scanner…")
 
 
 class ScanPhasePage(QWidget):
@@ -281,7 +366,10 @@ class ScanPhasePage(QWidget):
         title = QLabel("1 — SCAN | AUDITORIA COMPLETA")
         title.setProperty("role", "title")
         layout.addWidget(title)
-        description = QLabel("O scan confronta o DAT/catalogo completo com os diretórios de origem e gera um snapshot bruto. Este arquivo é a entrada oficial da fase de filtragem.")
+        description = QLabel(
+            "O scan confronta o DAT/catalogo completo com os diretórios de origem e gera "
+            "um snapshot bruto. Este arquivo é a entrada oficial da fase de filtragem."
+        )
         description.setWordWrap(True)
         layout.addWidget(description)
         self.tabs = QTabWidget()
