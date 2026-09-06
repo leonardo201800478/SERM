@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from ..runtime.paths import database_path, scans_root
+from .mame_chd_scan_service import MameChdScanService
 from .mame_scan_settings_service import MameScanSettingsService
 from .rom_scan_cache_service import RomScanCacheService
 from .rom_scan_service import RomScanService, ScanEvidence, ScanResult, _MachineResult
@@ -33,6 +34,7 @@ class StableRomScanService(RomScanService):
         self._heartbeat_machine = ""
         self._heartbeat_rom = ""
         self._scan_catalog_hash = ""
+        self._chd_scanner = MameChdScanService()
 
     def pause(self) -> None:
         self.control.pause()
@@ -131,6 +133,22 @@ class StableRomScanService(RomScanService):
                     return cached
         result = _ORIGINAL_SCAN_MACHINE(self, machine, *args, **kwargs)
         self._checkpoint_control()
+
+        # CHDs are physical disk assets stored under the machine directory.
+        # They are deliberately validated independently from ROM ZIPs using
+        # only the SHA1/MD5 values from mame_disk.
+        if args and len(args) >= 3:
+            db_path = Path(args[0])
+            import_id = int(args[1])
+            self._chd_scanner.scan_machine(
+                machine=machine,
+                database=db_path,
+                import_id=import_id,
+                sources=[Path(p) for p in sources],
+                unit=result,
+            )
+        self._checkpoint_control()
+
         if self._scan_catalog_hash and len(sources) == 1 and result.errors == 0:
             source = Path(sources[0])
             zip_path = source / f"{machine}.zip"
@@ -192,7 +210,7 @@ class StableRomScanService(RomScanService):
             stream.flush()
         target.replace(path)
 
-    def _scan_mame_resumable(self, profile, db_path, resume=True):  # NOSONAR - orchestration is intentionally kept in one transactional workflow
+    def _scan_mame_resumable(self, profile, db_path, resume=True):
         with sqlite3.connect(db_path) as c:
             latest = c.execute(
                 "SELECT id,source_hash,mame_build FROM mame_listxml_import ORDER BY imported_at DESC,id DESC LIMIT 1"
