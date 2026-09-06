@@ -15,10 +15,10 @@
       }
     },
     {
-      "name": "SERM V2 — módulo atual",
+      "name": "SERM V2 — arquivo atual",
       "type": "debugpy",
       "request": "launch",
-      "module": "${fileBasenameNoExtension}",
+      "program": "${file}",
       "cwd": "${workspaceFolder}/v2",
       "console": "integratedTerminal",
       "justMyCode": true,
