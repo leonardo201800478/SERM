@@ -10,6 +10,7 @@ Uso:
 Ou, a partir de v2:
     python tests/mame/test_listxml_catalog_integrity.py
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -37,9 +38,10 @@ COUNTS = {
 
 def _db_table_exists(db: sqlite3.Connection, table: str) -> bool:
     """Retorna se uma tabela existe no SQLite."""
-    return db.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)
-    ).fetchone() is not None
+    return (
+        db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone()
+        is not None
+    )
 
 
 def _db_count(db: sqlite3.Connection, table: str) -> int | None:
@@ -101,9 +103,7 @@ def _sample_machine_names(db: sqlite3.Connection, limit: int = 10) -> list[str]:
     """Obtém uma amostra determinística pequena de nomes de máquinas."""
     if not _db_table_exists(db, "mame_machine"):
         return []
-    rows = db.execute(
-        "SELECT name FROM mame_machine ORDER BY name LIMIT ?", (limit,)
-    ).fetchall()
+    rows = db.execute("SELECT name FROM mame_machine ORDER BY name LIMIT ?", (limit,)).fetchall()
     return [str(row[0]) for row in rows]
 
 
@@ -117,7 +117,7 @@ def _validate_sample_identity(db: sqlite3.Connection, xml_path: Path) -> tuple[i
         return 0, 0
 
     found = set()
-    for event, elem in ET.iterparse(xml_path, events=("end",)):
+    for _event, elem in ET.iterparse(xml_path, events=("end",)):
         if elem.tag == "machine":
             name = elem.attrib.get("name")
             if name in sample:
