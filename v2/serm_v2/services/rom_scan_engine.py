@@ -180,9 +180,6 @@ class StableRomScanService(RomScanService):
                         f"SCAN | machine={machine} | falha isolada: {type(exc).__name__}: {exc} | continuará",
                     )
                 self._write_machine(stream, unit)
-                # Uma machine só entra no conjunto de retomada depois de um
-                # marcador explícito. Erros nunca podem ser confundidos com
-                # uma machine concluída, inclusive quando ela possui 0 ROMs.
                 if unit.errors == 0:
                     self._write_jsonl(
                         stream,
@@ -199,12 +196,11 @@ class StableRomScanService(RomScanService):
                     self.progress_callback(done, len(machines))
                 self._log("INFO", self._progress_message(result, machine, done, len(machines)))
 
-            cancelled = self._cancelled
             self._write_jsonl(
                 stream,
                 {
                     "record_type": "scan_end",
-                    "status": "cancelled" if cancelled else "completed",
+                    "status": "cancelled" if self._cancelled else "completed",
                     "finished_at": time.time(),
                     "status_counts": dict(result.status_counts),
                     "files_examined": result.files_examined,
@@ -276,6 +272,9 @@ class StableRomScanService(RomScanService):
             ):
                 continue
             completed = self._completed_machines(path, machines, db_path)
+            if not completed:
+                self._log("WARNING", f"RESUME | ignorando stream legado/incompleto sem machine_complete: {path.name}")
+                continue
             result.scan_id = str(header.get("scan_id") or result.scan_id)
             self._log(
                 "INFO",
@@ -290,52 +289,23 @@ class StableRomScanService(RomScanService):
         valid = set(machines)
         if not valid:
             return set()
-        expected = {}
-        ph = ",".join("?" for _ in machines)
-        with sqlite3.connect(db_path) as c:
-            expected = {
-                str(name): int(count)
-                for name, count in c.execute(
-                    f"SELECT m.name,COUNT(r.id) FROM mame_machine m "
-                    f"LEFT JOIN mame_rom r ON r.machine_id=m.id "
-                    f"WHERE m.name IN ({ph}) GROUP BY m.name",
-                    tuple(machines),
-                )
-            }
-
-        completed_markers = set()
-        has_markers = False
-        current = None
-        count = 0
+        completed = set()
         try:
-            with path.open("r", encoding="utf-8") as s:
-                next(s, None)
-                for raw in s:
+            with path.open("r", encoding="utf-8") as stream:
+                next(stream, None)
+                for raw in stream:
                     try:
                         record = json.loads(raw)
                     except ValueError:
-                        # Um arquivo interrompido pode terminar em uma linha
-                        # parcial. O trabalho anterior permanece válido e a
-                        # retomada continua a partir do último marcador.
                         break
-                    kind = record.get("record_type")
-                    if kind == "machine_complete":
-                        has_markers = True
-                        machine = str(record.get("machine") or "")
-                        if machine in valid:
-                            completed_markers.add(machine)
-                    elif not has_markers and kind == "machine":
-                        if current in valid and count >= expected.get(current, 0):
-                            completed_markers.add(current)
-                        current = str(record.get("machine") or "")
-                        count = 0
-                    elif not has_markers and kind == "evidence" and current and record.get("machine_name") == current and record.get("rom_name"):
-                        count += 1
-            if not has_markers and current in valid and count >= expected.get(current, 0):
-                completed_markers.add(current)
+                    if record.get("record_type") != "machine_complete":
+                        continue
+                    machine = str(record.get("machine") or "")
+                    if machine in valid:
+                        completed.add(machine)
         except OSError:
             return set()
-        return completed_markers
+        return completed
 
     @staticmethod
     def _last_completed(completed, ordered):
