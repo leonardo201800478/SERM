@@ -17,6 +17,8 @@ from .scan_file_repository import ScanFileRepository
 class ScanFilterService:
     """Nunca toca no scan bruto; produz somente um resultado filtrado novo."""
 
+    VALID_STATUSES = frozenset({"CURRENT", "DUPLICATE"})
+
     @staticmethod
     def _matches(categories: list[str] | tuple[str, ...], patterns: tuple[str, ...]) -> bool:
         values = [str(value).casefold() for value in categories]
@@ -85,19 +87,28 @@ class ScanFilterService:
 
     @classmethod
     def _selection_reason(cls, item: dict, profile, enabled: set[str], category_names: set[str]) -> str | None:
-        machine_name = str(item.get("machine") or item.get("name") or "")
+        status = str(item.get("status") or "").upper()
+        if status not in cls.VALID_STATUSES:
+            return status.lower() or "invalid_status"
+        machine_name = str(item.get("machine_name") or item.get("machine") or item.get("name") or "")
         if machine_name in category_names:
             return "catlist"
         categories = tuple(item.get("categories") or ())
         if "mechanical" in enabled and (str(item.get("ismechanical") or "").casefold() in {"yes", "true", "1"} or cls._matches(categories, CATEGORY_PATTERNS["mechanical"])):
             return "mechanical"
         for key in ("dance", "console", "handheld", "fruit_machines"):
-            if key in enabled and cls._matches(categories, CATEGORY_PATTERNS[key]): return key
-        if not bool(getattr(profile, "mame_include_bios", False)) and str(item.get("isbios") or "").casefold() == "yes": return "bios"
-        if not bool(getattr(profile, "mame_include_devices", False)) and str(item.get("isdevice") or "").casefold() == "yes": return "device"
-        if not bool(getattr(profile, "mame_include_optional", True)) and str(item.get("optional") or "").casefold() in {"yes", "true", "1"}: return "optional"
-        if bool(getattr(profile, "mame_working_only", False)) and str(item.get("runnable") or "").casefold() not in {"yes", "true", "1"}: return "not_working"
-        if str(getattr(profile, "mame_clone_policy", "with_clones")) == "parents_only" and item.get("cloneof"): return "clone"
+            if key in enabled and cls._matches(categories, CATEGORY_PATTERNS[key]):
+                return key
+        if not bool(getattr(profile, "mame_include_bios", False)) and str(item.get("isbios") or "").casefold() == "yes":
+            return "bios"
+        if not bool(getattr(profile, "mame_include_devices", False)) and str(item.get("isdevice") or "").casefold() == "yes":
+            return "device"
+        if not bool(getattr(profile, "mame_include_optional", True)) and str(item.get("optional") or "").casefold() in {"yes", "true", "1"}:
+            return "optional"
+        if bool(getattr(profile, "mame_working_only", False)) and str(item.get("runnable") or "").casefold() not in {"yes", "true", "1"}:
+            return "not_working"
+        if str(getattr(profile, "mame_clone_policy", "with_clones")) == "parents_only" and item.get("cloneof"):
+            return "clone"
         return None
 
 
