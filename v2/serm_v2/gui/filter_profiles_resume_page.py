@@ -1,13 +1,14 @@
-"""Controles de retomada, reinício e filtros avançados do scan MAME."""
+"""Controles de retomada, reinício e filtros avançados do scan MAME/No-Intro."""
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import QDialog, QLabel, QMessageBox, QPushButton
 
 from ..services.mame_category_filter_service import MameCategoryFilterService
+from ..services.no_intro_scan_service import NoIntroScanService
 from ..services.scan_checkpoint_service import ScanCheckpointService
 from ..services.scan_file_repository import ScanFileRepository
 from ..services.scan_filter_service import ScanFilterService
@@ -16,11 +17,39 @@ from .filter_profiles_layout import FilterProfilesPage as _FilterProfilesPage
 from .mame_advanced_filters_dialog import MameAdvancedFiltersDialog
 
 
+class _NoIntroScanWorker(QThread):
+    """Executa o scan No-Intro fora da thread da interface."""
+
+    progress = Signal(int, int)
+    completed = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, profile, database_path, parent=None) -> None:
+        super().__init__(parent)
+        self.profile = profile
+        self.database_path = database_path
+        self.service: NoIntroScanService | None = None
+
+    def run(self) -> None:
+        try:
+            self.service = NoIntroScanService(progress_callback=self.progress.emit)
+            result = self.service.scan(self.profile)
+            ScanRepository(self.database_path).save(result, dat_path=self.profile.dat_path)
+            self.completed.emit(result)
+        except Exception as exc:  # noqa: BLE001
+            self.failed.emit(f"{type(exc).__name__}: {exc}")
+
+    def cancel(self) -> None:
+        if self.service is not None:
+            self.service.cancel()
+
+
 class FilterProfilesPage(_FilterProfilesPage):
-    """Adiciona checkpoint e uma camada de filtragem CATLIST sobre o snapshot bruto."""
+    """Adiciona checkpoint/filtros MAME e o scanner bruto No-Intro."""
 
     def __init__(self, parent=None) -> None:
         self._category_filters = {"categories": [], "subcategories": []}
+        self._no_intro_worker: _NoIntroScanWorker | None = None
         super().__init__(parent)
         self._install_checkpoint_controls()
         self._install_advanced_filter_controls()
@@ -96,7 +125,8 @@ class FilterProfilesPage(_FilterProfilesPage):
 
     def _scan_is_running(self) -> bool:
         worker = getattr(self, "_scan_worker", None)
-        return worker is not None and worker.isRunning()
+        no_intro = getattr(self, "_no_intro_worker", None)
+        return (worker is not None and worker.isRunning()) or (no_intro is not None and no_intro.isRunning())
 
     def _resume_checkpoint_scan(self) -> None:
         profile = self._save_profile()
@@ -126,10 +156,40 @@ class FilterProfilesPage(_FilterProfilesPage):
         self._start_scan(profile)
 
     def _start_scan(self, profile):
-        if hasattr(self, "resume_checkpoint_button"):
-            self.resume_checkpoint_button.setEnabled(False)
-            self.new_scan_button.setEnabled(False)
-        super()._start_scan(profile)
+        if self._scan_is_running():
+            return
+        if str(profile.source).casefold() != "no-intro":
+            if hasattr(self, "resume_checkpoint_button"):
+                self.resume_checkpoint_button.setEnabled(False)
+                self.new_scan_button.setEnabled(False)
+            super()._start_scan(profile)
+            return
+
+        self._start_no_intro_scan(profile)
+
+    def _start_no_intro_scan(self, profile) -> None:
+        self._last_scan_result = None
+        self.scan_button.setEnabled(False)
+        self.save_button.setEnabled(False)
+        self.cancel_button.setEnabled(True)
+        self.reconstruction_button.setEnabled(False)
+        self.log_view.clear()
+        self.scan_progress.setText(
+            f"SCAN BRUTO | No-Intro | {profile.system} | DAT={Path(profile.dat_path).name if profile.dat_path else '—'}"
+        )
+        self._no_intro_worker = _NoIntroScanWorker(profile, self._database_path(), self)
+        self._no_intro_worker.progress.connect(self._scan_progress)
+        self._no_intro_worker.completed.connect(self._scan_completed)
+        self._no_intro_worker.failed.connect(self._scan_failed)
+        self._no_intro_worker.finished.connect(self._no_intro_scan_finished)
+        self.scan_requested.emit(profile)
+        self._no_intro_worker.start()
+
+    def _no_intro_scan_finished(self) -> None:
+        self.scan_button.setEnabled(True)
+        self.save_button.setEnabled(True)
+        self.cancel_button.setEnabled(False)
+        self._no_intro_worker = None
 
     def _load_profile(self, profile) -> None:
         super()._load_profile(profile)
@@ -160,9 +220,12 @@ class FilterProfilesPage(_FilterProfilesPage):
 
     def _scan_completed(self, result):
         self._last_scan_result = result
-        self.apply_filter_button.setEnabled(True)
-        self.reconstruction_button.setEnabled(False)
-        self.scan_progress.setText(f"SCAN BRUTO | concluído | scan_id={result.scan_id} | catálogo={result.catalog_label} | tipo={result.scan_type} | arquivos={result.files_examined} | itens={result.items_examined}")
+        self.reconstruction_button.setEnabled(True)
+        self.scan_progress.setText(
+            f"SCAN BRUTO | concluído | scan_id={result.scan_id} | catálogo={result.catalog_label} | tipo={result.scan_type} | "
+            f"arquivos={result.files_examined} | itens={result.items_examined} | "
+            + " | ".join(f"{key}={value:,}" for key, value in result.status_counts.items())
+        )
         self._schedule_catalog_estimate()
         self._update_checkpoint_controls()
 
