@@ -11,8 +11,8 @@ from pathlib import Path
 
 from ..runtime.paths import database_path, scans_root
 from .mame_scan_settings_service import MameScanSettingsService
-from .rom_scan_service import RomScanService, ScanResult, ScanEvidence, _MachineResult
 from .rom_scan_cache_service import RomScanCacheService
+from .rom_scan_service import RomScanService, ScanEvidence, ScanResult, _MachineResult
 from .scan_resilience import HEARTBEAT_SECONDS, ScanControl
 
 _ORIGINAL_SCAN = RomScanService.scan

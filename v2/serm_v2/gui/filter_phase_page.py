@@ -4,17 +4,28 @@ from __future__ import annotations
 import json
 import sqlite3
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QGroupBox, QHBoxLayout, QLabel, QListWidget,
-    QMessageBox, QPushButton, QTabWidget, QVBoxLayout, QWidget,
+    QCheckBox,
+    QComboBox,
+    QGroupBox,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
 )
 
 from ..runtime.paths import data_root, database_path, scans_root
-from ..services.mame_fundamental_filter_service import DEFAULT_FILTERS, FILTER_DEFINITIONS, MameFundamentalFilterService
+from ..services.mame_fundamental_filter_service import (
+    DEFAULT_FILTERS,
+    FILTER_DEFINITIONS,
+    MameFundamentalFilterService,
+)
 from ..services.scan_filter_service import ScanFilterService
 from ..services.scan_repository import ScanRepository
 from .filter_profiles_page import FilterProfileData
@@ -142,7 +153,7 @@ class _GenericFilterTab(QWidget):
                 "format": "SERM-FILTER-V1", "filter_run_id": run_id, "scan_id": payload.get("scan_id"),
                 "profile_id": f"generic-{self.source.casefold()}", "source": payload.get("source"), "system": payload.get("system"),
                 "scan_type": payload.get("scan_type", "full"), "catalog_label": payload.get("catalog_label"), "catalog_hash": payload.get("catalog_hash"),
-                "source_scan_file": str(source_path.resolve()), "created_at": datetime.now(timezone.utc).timestamp(),
+                "source_scan_file": str(source_path.resolve()), "created_at": datetime.now(UTC).timestamp(),
                 "input_count": source_count, "output_count": len(evidence), "filtered_count": source_count - len(evidence),
                 "filter_counts": {"status": "current_or_duplicate" if self.keep_duplicates.isChecked() else "current_only"},
                 "filters": {"current_only": self.current_only.isChecked(), "keep_duplicates": self.keep_duplicates.isChecked()}, "evidence": evidence,
@@ -283,7 +294,7 @@ class _MameFilterTab(QWidget):
         existing = self.profile_combo.currentData()
         if isinstance(existing, FilterProfileData): profile = existing
         else:
-            now = datetime.now(timezone.utc).isoformat()
+            now = datetime.now(UTC).isoformat()
             profile = FilterProfileData(source="MAME", system=str(data.get("system", "MAME")), dat_path=data.get("dat_path"), profile_id=uuid4().hex, name=f"MAME — {data.get('system', 'MAME')} — filtro", created_at=now, updated_at=now)
         profile.mame_clone_policy = str(self.clone_policy.currentData()); profile.mame_include_bios = self.include_bios.isChecked()
         profile.mame_include_devices = self.include_devices.isChecked(); profile.mame_include_optional = self.include_optional.isChecked(); profile.mame_working_only = self.working_only.isChecked()

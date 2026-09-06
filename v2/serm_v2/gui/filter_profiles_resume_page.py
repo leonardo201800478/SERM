@@ -10,7 +10,6 @@ from PySide6.QtWidgets import QDialog, QLabel, QMessageBox, QPushButton
 from ..services.mame_category_filter_service import MameCategoryFilterService
 from ..services.no_intro_scan_service import NoIntroScanService
 from ..services.scan_checkpoint_service import ScanCheckpointService
-from ..services.scan_file_repository import ScanFileRepository
 from ..services.scan_filter_service import ScanFilterService
 from ..services.scan_repository import ScanRepository
 from .filter_profiles_layout import FilterProfilesPage as _FilterProfilesPage

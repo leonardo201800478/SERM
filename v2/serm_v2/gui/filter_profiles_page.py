@@ -3,15 +3,30 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout,
-    QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton,
-    QScrollArea, QSplitter, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QCheckBox,
+    QComboBox,
+    QFileDialog,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
+    QSplitter,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
 )
 
 from ..runtime.paths import data_root
@@ -440,7 +455,7 @@ class FilterProfilesPage(QWidget):
         self.content_box.setVisible(not is_mame)
 
     def _new_default_profile(self, source, system, dat_path):
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         profile = FilterProfileData(source=source, system=system, dat_path=dat_path, profile_id=str(uuid4()), name=f"{source} — {system}", created_at=now, updated_at=now)
         if source == "MAME":
             profile.one_game_one_region = False
@@ -494,7 +509,7 @@ class FilterProfilesPage(QWidget):
         if not profile.name:
             profile.name = f"{profile.source} — {profile.system}"
         if not profile.created_at:
-            profile.created_at = profile.updated_at or datetime.now(timezone.utc).isoformat()
+            profile.created_at = profile.updated_at or datetime.now(UTC).isoformat()
         if not profile.updated_at:
             profile.updated_at = profile.created_at
         return profile
@@ -606,7 +621,7 @@ class FilterProfilesPage(QWidget):
             return None
         source, system, dat_path = selected
         previous = self._current_saved_profile
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         name = self.profile_name.text().strip() or (previous.name if previous else self._next_profile_name(source, system))
         return FilterProfileData(
             source=source, system=system, dat_path=dat_path,

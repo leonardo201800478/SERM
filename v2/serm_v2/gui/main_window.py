@@ -5,7 +5,19 @@ import logging
 from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QSettings, QSize, Qt
-from PySide6.QtWidgets import QApplication, QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMainWindow, QStackedWidget, QStyle, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QApplication,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QMainWindow,
+    QStackedWidget,
+    QStyle,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ..config.settings import Settings
 from ..database.bootstrap import apply_migrations

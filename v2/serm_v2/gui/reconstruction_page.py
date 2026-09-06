@@ -2,16 +2,28 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (
-    QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QListWidget,
-    QMessageBox, QProgressBar, QPushButton, QVBoxLayout, QWidget,
+    QFileDialog,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QMessageBox,
+    QProgressBar,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
 )
 
 from ..runtime.paths import scans_root
-from ..services.reconstruction_service import ReconstructionError, ReconstructionPlan, ReconstructionService
+from ..services.reconstruction_service import (
+    ReconstructionError,
+    ReconstructionPlan,
+    ReconstructionService,
+)
 
 
 class _ReconstructionWorker(QThread):

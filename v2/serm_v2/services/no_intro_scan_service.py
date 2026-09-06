@@ -13,9 +13,9 @@ import time
 import zipfile
 import zlib
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 from xml.etree import ElementTree
 
 from ..runtime.paths import scans_root

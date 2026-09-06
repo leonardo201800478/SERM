@@ -8,9 +8,9 @@ from collections import Counter
 from pathlib import Path
 from uuid import uuid4
 
-from ..runtime.paths import scans_root, database_path
-from .mame_fundamental_filter_service import CATEGORY_PATTERNS, DEFAULT_FILTERS
+from ..runtime.paths import database_path, scans_root
 from .mame_category_filter_service import MameCategoryFilterService
+from .mame_fundamental_filter_service import CATEGORY_PATTERNS, DEFAULT_FILTERS
 from .scan_file_repository import ScanFileRepository
 
 

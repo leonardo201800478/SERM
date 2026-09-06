@@ -18,11 +18,11 @@ import time
 import zipfile
 import zlib
 from collections import Counter
+from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Callable, Iterable
 
 from ..runtime.paths import database_path, scans_root
 from .mame_scan_settings_service import MameScanSettingsService
@@ -389,7 +389,7 @@ class RomScanService:
 
     @staticmethod
     def _make_scan_id(profile) -> str:
-        return datetime.now(timezone.utc).strftime("scan_%Y%m%d_%H%M%S_%f") + "_" + str(profile.profile_id)[:8]
+        return datetime.now(UTC).strftime("scan_%Y%m%d_%H%M%S_%f") + "_" + str(profile.profile_id)[:8]
 
     @staticmethod
     def _has_software_catalog(connection: sqlite3.Connection) -> bool:

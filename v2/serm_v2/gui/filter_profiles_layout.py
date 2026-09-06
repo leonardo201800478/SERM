@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..services.mame_fundamental_filter_service import DEFAULT_FILTERS, MameFundamentalFilterService
-from ..services.mame_scan_settings_service import MameScanSettingsService, SCAN_TYPES
+from ..services.mame_scan_settings_service import SCAN_TYPES, MameScanSettingsService
 from ..services.scan_file_repository import ScanFileRepository
 from ..services.scan_filter_service import ScanFilterService
 from ..services.scan_repository import ScanRepository

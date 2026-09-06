@@ -1,6 +1,8 @@
 from __future__ import annotations
+
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QHBoxLayout,QLabel,QPushButton,QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
+
 
 class ScanModeControls(QWidget):
     """Controls explícitos para escolher retomada ou novo scan."""
