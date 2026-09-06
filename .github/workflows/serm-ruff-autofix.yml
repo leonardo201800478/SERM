@@ -1,0 +1,84 @@
+name: SERM Ruff autofix
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  ruff-fix:
+    if: ${{ !startsWith(github.event.head_commit.message, 'chore(ruff):') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Ruff
+        run: python -m pip install ruff
+
+      - name: Format affected files
+        working-directory: v2
+        run: >-
+          ruff format
+          serm_v2/services/emulator_manager.py
+          serm_v2/services/mame_catalog_normalizer.py
+          serm_v2/services/mame_classification_service.py
+          serm_v2/services/mame_display_pipeline.py
+          serm_v2/services/rom_scan_engine.py
+          serm_v2/services/scan_filter_service.py
+          serm_v2/services/scan_repository.py
+          tests/mame/test_listxml_catalog_integrity.py
+
+      - name: Fix Ruff diagnostics
+        working-directory: v2
+        run: >-
+          ruff check --fix --unsafe-fixes
+          serm_v2/services/emulator_manager.py
+          serm_v2/services/mame_catalog_normalizer.py
+          serm_v2/services/mame_classification_service.py
+          serm_v2/services/mame_display_pipeline.py
+          serm_v2/services/rom_scan_engine.py
+          serm_v2/services/scan_filter_service.py
+          serm_v2/services/scan_repository.py
+          tests/mame/test_listxml_catalog_integrity.py
+
+      - name: Validate affected files
+        working-directory: v2
+        run: >-
+          ruff check
+          serm_v2/services/emulator_manager.py
+          serm_v2/services/mame_catalog_normalizer.py
+          serm_v2/services/mame_classification_service.py
+          serm_v2/services/mame_display_pipeline.py
+          serm_v2/services/rom_scan_engine.py
+          serm_v2/services/scan_filter_service.py
+          serm_v2/services/scan_repository.py
+          tests/mame/test_listxml_catalog_integrity.py
+
+      - name: Commit fixes
+        run: |
+          if git diff --quiet; then
+            echo "No Ruff changes required."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add v2/serm_v2/services/emulator_manager.py \
+            v2/serm_v2/services/mame_catalog_normalizer.py \
+            v2/serm_v2/services/mame_classification_service.py \
+            v2/serm_v2/services/mame_display_pipeline.py \
+            v2/serm_v2/services/rom_scan_engine.py \
+            v2/serm_v2/services/scan_filter_service.py \
+            v2/serm_v2/services/scan_repository.py \
+            v2/tests/mame/test_listxml_catalog_integrity.py
+          git commit -m "chore(ruff): corrigir diagnósticos dos serviços V2"
+          git push
