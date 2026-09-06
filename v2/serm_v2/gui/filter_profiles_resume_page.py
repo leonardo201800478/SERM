@@ -1,11 +1,15 @@
 """Controles de retomada, reinício e filtros avançados do scan MAME."""
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QDialog, QMessageBox, QPushButton
+from PySide6.QtWidgets import QDialog, QLabel, QMessageBox, QPushButton
 
 from ..services.mame_category_filter_service import MameCategoryFilterService
 from ..services.scan_checkpoint_service import ScanCheckpointService
+from ..services.scan_file_repository import ScanFileRepository
 from ..services.scan_filter_service import ScanFilterService
 from ..services.scan_repository import ScanRepository
 from .filter_profiles_layout import FilterProfilesPage as _FilterProfilesPage
@@ -47,7 +51,9 @@ class FilterProfilesPage(_FilterProfilesPage):
         self.mame_catlist_button.setToolTip("Abrir o catálogo completo de categorias e subcategorias importadas do CATLIST.")
         self.mame_catlist_button.clicked.connect(self._open_catlist_filters)
         layout.insertRow(layout.rowCount(), self.mame_catlist_button)
-        self.mame_catlist_summary = getattr(self, "mame_fundamental_summary", None)
+        self.mame_catlist_summary = QLabel()
+        self.mame_catlist_summary.setWordWrap(True)
+        layout.insertRow(layout.rowCount(), self.mame_catlist_summary)
         self._update_catlist_summary()
 
     def _open_catlist_filters(self) -> None:
@@ -160,17 +166,22 @@ class FilterProfilesPage(_FilterProfilesPage):
         self._schedule_catalog_estimate()
         self._update_checkpoint_controls()
 
+    def _raw_scan_path(self):
+        profile = self._current_profile()
+        if profile is None:
+            return None
+        latest = ScanRepository(self._database_path()).latest_for_profile(profile.profile_id)
+        if not latest:
+            return None
+        path = ScanRepository(self._database_path()).raw_file(str(latest["scan_id"]))
+        return path if path is not None and path.is_file() else None
+
     def _apply_filters_to_scan(self) -> None:
         profile = self._save_profile()
         if profile is None:
             return
-        repository = ScanRepository(self._database_path())
-        latest = repository.latest_for_profile(profile.profile_id)
-        if not latest:
-            QMessageBox.information(self, "Filtros", "Nenhum scan bruto foi encontrado para este perfil.")
-            return
-        raw_path = repository.raw_file(str(latest["scan_id"]))
-        if raw_path is None or not raw_path.is_file():
+        raw_path = self._raw_scan_path()
+        if raw_path is None:
             QMessageBox.warning(self, "Filtros", "O arquivo bruto do scan não foi encontrado.")
             return
         try:
@@ -183,10 +194,35 @@ class FilterProfilesPage(_FilterProfilesPage):
         self.reconstruction_button.setEnabled(True)
         self.scan_progress.setText(f"FILTRO | concluído | bruto={result['input_count']:,} | mantidas={result['output_count']:,} | excluídas={result['filtered_count']:,}")
         self._append_log("INFO", f"FILTRO | arquivo={result['filtered_file_path']}")
+        if result.get("filter_counts"):
+            self._append_log("INFO", "FILTRO | " + " | ".join(f"{key}={value:,}" for key, value in result["filter_counts"].items()))
 
     def _update_catalog_estimate(self) -> None:
-        super()._update_catalog_estimate()
-        self._update_catlist_summary()
+        selected = self._selected_item_data()
+        if selected is None or selected[0] != "MAME":
+            return super()._update_catalog_estimate()
+        profile = self._current_profile()
+        raw_path = self._raw_scan_path()
+        if profile is None or raw_path is None:
+            return super()._update_catalog_estimate()
+        try:
+            preview = ScanFilterService.preview_mame(raw_path, profile, self._fundamental_filters, self._category_filters)
+        except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
+            self.catalog_estimate.setText("Não foi possível calcular o filtro sobre o scan.")
+            self.catalog_estimate_detail.setText(str(exc))
+            return
+        self.catalog_estimate.setText(
+            f"SCAN BRUTO: {int(preview['input_count']):,} ROMs  →  APÓS FILTROS: {int(preview['output_count']):,} ROMs  →  EXCLUÍDAS: {int(preview['filtered_count']):,}"
+        )
+        counts = preview.get("filter_counts", {})
+        details = " • ".join(f"{key}={int(value):,}" for key, value in counts.items()) or "Nenhuma ROM excluída"
+        status = preview.get("status_counts", {})
+        self.catalog_estimate_detail.setText(
+            f"Catálogo: {preview.get('catalog_label')} | tipo: {preview.get('scan_type')} | "
+            f"CURRENT={status.get('CURRENT', 0):,} | MISSING={status.get('MISSING', 0):,} | "
+            f"WRONG={status.get('WRONG', 0):,} | DUPLICATE={status.get('DUPLICATE', 0):,}\n"
+            f"Filtros: {details}"
+        )
 
 
 __all__ = ["FilterProfilesPage"]
