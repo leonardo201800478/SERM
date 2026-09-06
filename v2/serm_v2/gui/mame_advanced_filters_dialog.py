@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
@@ -99,7 +97,7 @@ class MameAdvancedFiltersDialog(QDialog):
         self.tree.clear()
         for category, children in grouped.items():
             category_item = QTreeWidgetItem(
-                [category, str(sum(int(c["machines"]) for c in children))]
+                [category, str(sum(int(str(c["machines"])) for c in children))]
             )
             category_item.setData(0, Qt.ItemDataRole.UserRole, ("category", category))
             category_item.setFlags(category_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
