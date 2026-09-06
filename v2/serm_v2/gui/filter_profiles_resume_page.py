@@ -1,11 +1,13 @@
 """Controles de retomada, reinício e filtros avançados do scan MAME."""
 from __future__ import annotations
 
-from PySide6.QtWidgets import QMessageBox, QPushButton, QDialog
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QDialog, QMessageBox, QPushButton
 
 from ..services.mame_category_filter_service import MameCategoryFilterService
 from ..services.scan_checkpoint_service import ScanCheckpointService
 from ..services.scan_filter_service import ScanFilterService
+from ..services.scan_repository import ScanRepository
 from .filter_profiles_layout import FilterProfilesPage as _FilterProfilesPage
 from .mame_advanced_filters_dialog import MameAdvancedFiltersDialog
 
@@ -145,7 +147,7 @@ class FilterProfilesPage(_FilterProfilesPage):
         selected = self.profile_list.selectedItems()
         current = self.profile_list.currentItem()
         item = selected[0] if selected else current
-        profile_id = item.data(256) if item is not None else None
+        profile_id = item.data(Qt.ItemDataRole.UserRole) if item is not None else None
         super()._delete_selected_profile()
         if profile_id:
             MameCategoryFilterService.delete(str(profile_id))
@@ -162,12 +164,12 @@ class FilterProfilesPage(_FilterProfilesPage):
         profile = self._save_profile()
         if profile is None:
             return
-        repository = self._database_path()
-        latest = __import__("serm_v2.services.scan_repository", fromlist=["ScanRepository"]).ScanRepository(repository).latest_for_profile(profile.profile_id)
+        repository = ScanRepository(self._database_path())
+        latest = repository.latest_for_profile(profile.profile_id)
         if not latest:
             QMessageBox.information(self, "Filtros", "Nenhum scan bruto foi encontrado para este perfil.")
             return
-        raw_path = __import__("serm_v2.services.scan_repository", fromlist=["ScanRepository"]).ScanRepository(repository).raw_file(str(latest["scan_id"]))
+        raw_path = repository.raw_file(str(latest["scan_id"]))
         if raw_path is None or not raw_path.is_file():
             QMessageBox.warning(self, "Filtros", "O arquivo bruto do scan não foi encontrado.")
             return
@@ -184,7 +186,6 @@ class FilterProfilesPage(_FilterProfilesPage):
 
     def _update_catalog_estimate(self) -> None:
         super()._update_catalog_estimate()
-        # A estimativa base já considera o snapshot; esta linha mantém o resumo CATLIST visível.
         self._update_catlist_summary()
 
 
