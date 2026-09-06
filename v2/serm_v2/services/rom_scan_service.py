@@ -145,19 +145,13 @@ class RomScanService:
     def estimate_mame(self, profile, *, database: Path | None = None) -> dict[str, int | str | None]:
         db_path = database or database_path()
         if not db_path.is_file():
-            return {"machines": 0, "roms": 0, "optional_roms": 0, "disks": 0,
-                    "catalog_roms": 0, "catalog_hash": None, "error": str(db_path)}
+            return {"machines": 0, "roms": 0, "optional_roms": 0, "disks": 0, "catalog_roms": 0, "catalog_hash": None, "error": str(db_path)}
         scan_type = MameScanSettingsService.load(str(profile.profile_id))
         try:
             with sqlite3.connect(db_path) as connection:
-                latest = connection.execute(
-                    "SELECT id, source_hash, mame_build FROM mame_listxml_import "
-                    "ORDER BY imported_at DESC, id DESC LIMIT 1"
-                ).fetchone()
+                latest = connection.execute("SELECT id, source_hash, mame_build FROM mame_listxml_import ORDER BY imported_at DESC, id DESC LIMIT 1").fetchone()
                 if latest is None:
-                    return {"machines": 0, "roms": 0, "optional_roms": 0, "disks": 0,
-                            "catalog_roms": 0, "catalog_hash": None,
-                            "error": "Nenhum ListXML MAME importado."}
+                    return {"machines": 0, "roms": 0, "optional_roms": 0, "disks": 0, "catalog_roms": 0, "catalog_hash": None, "error": "Nenhum ListXML MAME importado."}
                 import_id, source_hash, build = latest
                 machines = connection.execute("SELECT COUNT(*) FROM mame_machine WHERE import_id=?", (import_id,)).fetchone()[0]
                 roms = connection.execute("SELECT COUNT(*) FROM mame_rom WHERE machine_id IN (SELECT id FROM mame_machine WHERE import_id=?)", (import_id,)).fetchone()[0]
@@ -200,6 +194,7 @@ class RomScanService:
         if not db_path.is_file():
             raise RuntimeError(f"Banco do catálogo MAME não encontrado: {db_path}")
         with sqlite3.connect(db_path) as connection:
+            connection.row_factory = sqlite3.Row
             latest = connection.execute("SELECT id, source_hash, mame_build FROM mame_listxml_import ORDER BY imported_at DESC, id DESC LIMIT 1").fetchone()
             if latest is None:
                 raise RuntimeError("Nenhum ListXML MAME importado.")
@@ -254,7 +249,7 @@ class RomScanService:
                 category_rows = connection.execute("SELECT category, subcategory FROM mame_classification WHERE machine_id=?", (machine_id,)).fetchall()
                 values = {str(value).strip().casefold() for row in category_rows for value in (row["category"], row["subcategory"]) if value}
                 categories = tuple(sorted(values))
-        expected = [_ExpectedRom(rom_id=int(row["rom_id"]), machine_name=machine, rom_name=str(row["rom_name"] or ""), size=int(row["size"] or 0), crc=str(row["expected_crc"] or ""), sha1=str(row["expected_sha1"] or ""), md5=str(row["expected_md5"] or ""), merge=row["merge"], optional=str(row["optional"] or "").casefold() in {"yes", "true", "1"}, categories=categories, cloneof=row["cloneof"], isbios=row["isbios"], isdevice=row["isdevice"], ismechanical=row["ismechanical"], runnable=row["runnable"]) for row in rows]
+        expected = [_ExpectedRom(rom_id=hash(str(row["rom_name"] or "").casefold()), machine_name=machine, rom_name=str(row["rom_name"] or ""), size=int(row["size"] or 0), crc=str(row["expected_crc"] or ""), sha1=str(row["expected_sha1"] or ""), md5=str(row["expected_md5"] or ""), merge=row["merge"], optional=str(row["optional"] or "").casefold() in {"yes", "true", "1"}, categories=categories, cloneof=row["cloneof"], isbios=row["isbios"], isdevice=row["isdevice"], ismechanical=row["ismechanical"], runnable=row["runnable"]) for row in rows]
         expected_by_name: dict[str, list[_ExpectedRom]] = {}
         for item in expected:
             expected_by_name.setdefault(Path(item.rom_name).name.casefold(), []).append(item)
@@ -269,9 +264,9 @@ class RomScanService:
             machine_dir = base / machine
             if machine_dir.is_dir():
                 self._scan_loose(machine_dir, expected_by_name, unit)
-        found = {e.rom_name.casefold() for e in unit.records if e.status != "MISSING" and e.rom_name}
+        found_names = {e.rom_name.casefold() for e in unit.records if e.status != "MISSING" and e.rom_name}
         for item in expected:
-            if item.rom_name.casefold() not in found:
+            if item.rom_name.casefold() not in found_names:
                 unit.records.append(self._missing(item))
         return unit
 
@@ -301,8 +296,7 @@ class RomScanService:
                             unit.bytes_read += actual_size
                             if actual_sha1 != item.sha1:
                                 status = "WRONG"
-                        unit.records.append(self._evidence(item, status, size, crc, actual_sha1, path, path, info.filename, bytes_read,
-                                                           "nome encontrado, mas tamanho/CRC diverge" if status == "WRONG" else "hash/tamanho correspondentes"))
+                        unit.records.append(self._evidence(item, status, size, crc, actual_sha1, path, path, info.filename, bytes_read, "nome encontrado, mas tamanho/CRC diverge" if status == "WRONG" else "hash/tamanho correspondentes"))
         except (OSError, zipfile.BadZipFile, RuntimeError) as exc:
             unit.errors += 1
             unit.records.append(ScanEvidence(machine_name=unit.machine, rom_name="", status="ERROR", path=str(path), message="Falha ao abrir ZIP", error=str(exc)))
@@ -326,32 +320,18 @@ class RomScanService:
                         if actual_sha1 != item.sha1:
                             status = "WRONG"
                     unit.bytes_read += size
-                    unit.records.append(self._evidence(item, status, size, crc, actual_sha1, path, None, None, size,
-                                                       "nome encontrado, mas tamanho/CRC diverge" if status == "WRONG" else "hash/tamanho correspondentes"))
+                    unit.records.append(self._evidence(item, status, size, crc, actual_sha1, path, None, None, size, "nome encontrado, mas tamanho/CRC diverge" if status == "WRONG" else "hash/tamanho correspondentes"))
                 except OSError as exc:
                     unit.errors += 1
                     unit.records.append(self._evidence(item, "ERROR", 0, "", "", path, None, None, 0, str(exc)))
 
     @staticmethod
-    def _evidence(item: _ExpectedRom, status: str, actual_size: int, actual_crc: str, actual_sha1: str,
-                  path: Path, archive_path: Path | None, archive_member: str | None, bytes_read: int,
-                  message: str) -> ScanEvidence:
-        return ScanEvidence(machine_name=item.machine_name, rom_name=item.rom_name, status=status,
-                             expected_size=item.size, actual_size=actual_size, expected_crc=item.crc,
-                             actual_crc=actual_crc, expected_sha1=item.sha1, actual_sha1=actual_sha1,
-                             expected_md5=item.md5, path=str(path), archive_path=str(archive_path) if archive_path else None,
-                             archive_member=archive_member, merge_name=item.merge, optional=item.optional,
-                             message=message, categories=item.categories, cloneof=item.cloneof, isbios=item.isbios,
-                             isdevice=item.isdevice, ismechanical=item.ismechanical, runnable=item.runnable)
+    def _evidence(item: _ExpectedRom, status: str, actual_size: int, actual_crc: str, actual_sha1: str, path: Path, archive_path: Path | None, archive_member: str | None, bytes_read: int, message: str) -> ScanEvidence:
+        return ScanEvidence(machine_name=item.machine_name, rom_name=item.rom_name, status=status, expected_size=item.size, actual_size=actual_size, expected_crc=item.crc, actual_crc=actual_crc, expected_sha1=item.sha1, actual_sha1=actual_sha1, expected_md5=item.md5, path=str(path), archive_path=str(archive_path) if archive_path else None, archive_member=archive_member, merge_name=item.merge, optional=item.optional, message=message, categories=item.categories, cloneof=item.cloneof, isbios=item.isbios, isdevice=item.isdevice, ismechanical=item.ismechanical, runnable=item.runnable)
 
     @staticmethod
     def _missing(item: _ExpectedRom) -> ScanEvidence:
-        return ScanEvidence(machine_name=item.machine_name, rom_name=item.rom_name, status="MISSING",
-                            expected_size=item.size, expected_crc=item.crc, expected_sha1=item.sha1,
-                            expected_md5=item.md5, merge_name=item.merge, optional=item.optional,
-                            message="ROM não encontrada em machine.zip nem na pasta da machine",
-                            categories=item.categories, cloneof=item.cloneof, isbios=item.isbios,
-                            isdevice=item.isdevice, ismechanical=item.ismechanical, runnable=item.runnable)
+        return ScanEvidence(machine_name=item.machine_name, rom_name=item.rom_name, status="MISSING", expected_size=item.size, expected_crc=item.crc, expected_sha1=item.sha1, expected_md5=item.md5, merge_name=item.merge, optional=item.optional, message="ROM não encontrada em machine.zip nem na pasta da machine", categories=item.categories, cloneof=item.cloneof, isbios=item.isbios, isdevice=item.isdevice, ismechanical=item.ismechanical, runnable=item.runnable)
 
     @staticmethod
     def _hash_stream(stream) -> tuple[int, str, str]:
@@ -417,8 +397,6 @@ class RomScanService:
         return bool({"mame_software", "mame_software_rom", "mame_software_item"} & names)
 
     def _scan_generic_physical(self, result: ScanResult, profile, sources: list[Path], stream_path: Path, catalog_items: Iterable[ScanItem]) -> None:
-        # Caminho provisório para DATs externos: mantém o contrato de snapshot
-        # streaming sem voltar a indexar o HDD inteiro.
         with stream_path.open("w", encoding="utf-8", newline="\n") as stream:
             self._write_jsonl(stream, {"record_type": "header", "format": "SERM-SCAN-V1", "scan_id": result.scan_id, "profile_id": result.profile_id, "source": result.source, "system": result.system, "scan_type": result.scan_type, "catalog_label": result.catalog_label, "source_paths": [str(p) for p in sources], "metadata": {"validation": "expected_driven", "persist_mode": "streaming", "filters_applied": False}})
             for item in catalog_items:
@@ -431,8 +409,7 @@ class RomScanService:
 
     def _progress_message(self, result: ScanResult, machine: str, completed: int, total: int) -> str:
         percent = completed / total * 100 if total else 100.0
-        return (f"SCAN | machine={machine} | progresso={completed:,}/{total:,} ({percent:.1f}%) | "
-                f"CURRENT={result.status_counts['CURRENT']:,} | MISSING={result.status_counts['MISSING']:,} | WRONG={result.status_counts['WRONG']:,}")
+        return (f"SCAN | machine={machine} | progresso={completed:,}/{total:,} ({percent:.1f}%) | CURRENT={result.status_counts['CURRENT']:,} | MISSING={result.status_counts['MISSING']:,} | WRONG={result.status_counts['WRONG']:,}")
 
     def _log_summary(self, result: ScanResult) -> None:
         self._log("INFO", f"SCAN | fim | status={dict(result.status_counts)} | arquivos={result.files_examined} | itens={result.items_examined} | duração={result.elapsed_seconds:.2f}s | stream={result.evidence_stream_path}")
