@@ -489,7 +489,7 @@ class MameDisplayPipeline:
                 continue
             parts = line.split("=", 1) if "=" in line else line.split(None, 1)
             if len(parts) == 2:
-                key: str = section if section is not None else "__global__"
+                key: str = str(section) if section else "__global__"
                 result.setdefault(key, {})[parts[0].strip()] = parts[1].strip()
         return result
 
