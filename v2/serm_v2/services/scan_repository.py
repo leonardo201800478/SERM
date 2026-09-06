@@ -10,7 +10,7 @@ from .scan_file_repository import ScanFileRepository
 
 
 class ScanRepository:
-    """Persiste o scan bruto como histórico imutável e os resultados filtrados separadamente."""
+    """Persiste scans sem reconstruir uma lista gigante de evidências."""
 
     def __init__(self, database_path: Path) -> None:
         self.database_path = Path(database_path).expanduser().resolve()
@@ -34,10 +34,7 @@ class ScanRepository:
                 items_examined INTEGER NOT NULL DEFAULT 0, errors INTEGER NOT NULL DEFAULT 0,
                 status_counts_json TEXT NOT NULL DEFAULT '{}')""")
             columns = {row[1] for row in connection.execute("PRAGMA table_info(scan_runs)")}
-            additions = {
-                "profile_schema_version": "INTEGER NOT NULL DEFAULT 1", "dat_path": "TEXT", "catalog_hash": "TEXT",
-                "catalog_label": "TEXT", "scan_type": "TEXT NOT NULL DEFAULT 'full'", "scan_file_path": "TEXT",
-            }
+            additions = {"profile_schema_version": "INTEGER NOT NULL DEFAULT 1", "dat_path": "TEXT", "catalog_hash": "TEXT", "catalog_label": "TEXT", "scan_type": "TEXT NOT NULL DEFAULT 'full'", "scan_file_path": "TEXT"}
             for name, definition in additions.items():
                 if name not in columns:
                     connection.execute(f"ALTER TABLE scan_runs ADD COLUMN {name} {definition}")
@@ -57,45 +54,61 @@ class ScanRepository:
             connection.execute("CREATE INDEX IF NOT EXISTS ix_filter_runs_scan ON filter_runs(scan_id,created_at DESC)")
             connection.execute("CREATE INDEX IF NOT EXISTS ix_filter_runs_profile ON filter_runs(profile_id,created_at DESC)")
 
+    @staticmethod
+    def _iter_stream_evidence(stream_path: Path):
+        with stream_path.open("r", encoding="utf-8") as stream:
+            for line in stream:
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if record.get("record_type") == "evidence":
+                    yield record
+
     def save(self, result: ScanResult, *, status: str = "completed", dat_path: str | None = None,
              profile_schema_version: int = 1) -> None:
         scan_file = ScanFileRepository.save(result)
         with self._connect() as connection:
-            connection.execute(
-                """INSERT OR REPLACE INTO scan_runs (
-                    scan_id, profile_id, profile_schema_version, source, system, dat_path, catalog_hash,
-                    catalog_label, scan_type, scan_file_path, status, started_at, finished_at,
-                    files_examined, archives_examined, items_examined, errors, status_counts_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (result.scan_id, result.profile_id, profile_schema_version, result.source, result.system, dat_path,
-                 result.catalog_hash, result.catalog_label, result.scan_type, str(scan_file), status,
-                 result.started_at, result.finished_at or None, result.files_examined, result.archives_examined,
-                 result.items_examined, result.errors, json.dumps(dict(result.status_counts), ensure_ascii=False)),
-            )
+            connection.execute("""INSERT OR REPLACE INTO scan_runs (
+                scan_id, profile_id, profile_schema_version, source, system, dat_path, catalog_hash,
+                catalog_label, scan_type, scan_file_path, status, started_at, finished_at,
+                files_examined, archives_examined, items_examined, errors, status_counts_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (result.scan_id, result.profile_id, profile_schema_version, result.source, result.system, dat_path,
+             result.catalog_hash, result.catalog_label, result.scan_type, str(scan_file), status,
+             result.started_at, result.finished_at or None, result.files_examined, result.archives_examined,
+             result.items_examined, result.errors, json.dumps(dict(result.status_counts), ensure_ascii=False)))
             connection.execute("DELETE FROM scan_items WHERE scan_id=?", (result.scan_id,))
-            connection.executemany(
-                """INSERT INTO scan_items (
-                    scan_id,machine_name,rom_name,item_type,status,expected_size,actual_size,expected_crc,actual_crc,
-                    expected_sha1,actual_sha1,expected_md5,actual_md5,path,archive_path,archive_member,merge_name,optional,message,error
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                [(result.scan_id, e.machine_name, e.rom_name, "ROM", e.status, e.expected_size, e.actual_size,
-                  e.expected_crc, e.actual_crc, e.expected_sha1, e.actual_sha1, e.expected_md5, e.actual_md5,
-                  e.path, e.archive_path, e.archive_member, e.merge_name, int(e.optional), e.message, e.error)
-                 for e in result.evidence],
-            )
+            stream_path = Path(result.evidence_stream_path) if result.evidence_stream_path else None
+            if stream_path and stream_path.is_file():
+                batch: list[tuple] = []
+                for e in self._iter_stream_evidence(stream_path):
+                    batch.append((result.scan_id, e.get("machine_name"), e.get("rom_name"), "ROM", e.get("status", "ERROR"),
+                                  e.get("expected_size"), e.get("actual_size"), e.get("expected_crc", ""), e.get("actual_crc", ""),
+                                  e.get("expected_sha1", ""), e.get("actual_sha1", ""), e.get("expected_md5", ""), e.get("actual_md5", ""),
+                                  e.get("path"), e.get("archive_path"), e.get("archive_member"), e.get("merge_name"),
+                                  int(bool(e.get("optional"))), e.get("message", ""), e.get("error")))
+                    if len(batch) >= 1000:
+                        connection.executemany("""INSERT INTO scan_items (
+                            scan_id,machine_name,rom_name,item_type,status,expected_size,actual_size,expected_crc,actual_crc,
+                            expected_sha1,actual_sha1,expected_md5,actual_md5,path,archive_path,archive_member,merge_name,optional,message,error
+                        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", batch)
+                        batch.clear()
+                if batch:
+                    connection.executemany("""INSERT INTO scan_items (
+                        scan_id,machine_name,rom_name,item_type,status,expected_size,actual_size,expected_crc,actual_crc,
+                        expected_sha1,actual_sha1,expected_md5,actual_md5,path,archive_path,archive_member,merge_name,optional,message,error
+                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", batch)
 
     def save_filter_result(self, result: dict) -> None:
         with self._connect() as connection:
-            connection.execute(
-                """INSERT OR REPLACE INTO filter_runs (
-                    filter_run_id, scan_id, profile_id, created_at, filtered_file_path,
-                    input_count, output_count, status_counts_json, filters_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (result["filter_run_id"], result["scan_id"], result["profile_id"], result["created_at"],
-                 result["filtered_file_path"], result["input_count"], result["output_count"],
-                 json.dumps(result.get("filter_counts", {}), ensure_ascii=False),
-                 json.dumps(result.get("filters", {}), ensure_ascii=False)),
-            )
+            connection.execute("""INSERT OR REPLACE INTO filter_runs (
+                filter_run_id, scan_id, profile_id, created_at, filtered_file_path,
+                input_count, output_count, status_counts_json, filters_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (result["filter_run_id"], result["scan_id"], result["profile_id"], result["created_at"],
+             result["filtered_file_path"], result["input_count"], result["output_count"],
+             json.dumps(result.get("filter_counts", {}), ensure_ascii=False), json.dumps(result.get("filters", {}), ensure_ascii=False)))
 
     def latest_for_profile(self, profile_id: str) -> dict | None:
         with self._connect() as connection:
