@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from .sqlite_utils import require_lastrowid
-
 import hashlib
 import json
 import re
@@ -16,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from ..runtime.paths import data_root, database_path
+from .sqlite_utils import require_lastrowid
 
 
 class MameDisplayPipelineError(RuntimeError):

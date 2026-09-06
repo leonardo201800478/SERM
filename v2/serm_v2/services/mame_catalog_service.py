@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from .sqlite_utils import require_lastrowid
-
 import hashlib
 import json
 import logging
@@ -20,6 +18,7 @@ from .mame_catalog_normalizer import MameCatalogNormalizer
 from .mame_classification_service import MameClassificationService
 from .mame_resolution_service import MameResolutionService
 from .mame_vsync_service import MameVsyncService
+from .sqlite_utils import require_lastrowid
 
 
 class MameCatalogError(RuntimeError):

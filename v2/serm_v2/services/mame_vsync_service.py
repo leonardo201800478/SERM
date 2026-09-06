@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from .sqlite_utils import require_lastrowid
-
 import hashlib
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
+
+from .sqlite_utils import require_lastrowid
 
 
 class MameVsyncError(RuntimeError):

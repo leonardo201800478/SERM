@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from .sqlite_utils import require_lastrowid
-
 import hashlib
 import re
 import sqlite3

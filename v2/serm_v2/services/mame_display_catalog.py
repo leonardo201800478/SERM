@@ -8,8 +8,6 @@ permitindo suportar novos campos do MAME sem perda de informação.
 
 from __future__ import annotations
 
-from .sqlite_utils import require_lastrowid
-
 import hashlib
 import json
 import sqlite3
@@ -20,6 +18,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from ..runtime.paths import data_root, database_path
+from .sqlite_utils import require_lastrowid
 
 
 class MameDisplayCatalogError(RuntimeError):

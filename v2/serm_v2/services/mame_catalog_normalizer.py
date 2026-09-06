@@ -7,12 +7,12 @@ sets, evitando a tabela genérica de milhões de nós XML.
 
 from __future__ import annotations
 
-from .sqlite_utils import require_lastrowid
-
 import sqlite3
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from time import perf_counter
+
+from .sqlite_utils import require_lastrowid
 
 
 class MameCatalogNormalizationError(RuntimeError):

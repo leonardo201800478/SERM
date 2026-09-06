@@ -6,7 +6,6 @@ import json
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 from uuid import uuid4
 
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
