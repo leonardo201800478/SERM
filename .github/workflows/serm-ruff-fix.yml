@@ -1,0 +1,47 @@
+name: SERM Ruff Fix
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  ruff-fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Ruff
+        run: python -m pip install "ruff>=0.12,<1"
+
+      - name: Format V2
+        working-directory: v2
+        run: ruff format serm_v2 tests
+
+      - name: Fix lint V2
+        working-directory: v2
+        run: ruff check serm_v2 tests --fix --unsafe-fixes
+
+      - name: Validate V2
+        working-directory: v2
+        run: ruff check serm_v2 tests
+
+      - name: Commit fixes
+        run: |
+          if git diff --quiet; then
+            echo "Nenhuma correção Ruff necessária."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add v2/serm_v2 v2/tests
+          git commit -m "fix(v2): corrigir problemas reportados pelo Ruff"
+          git push
