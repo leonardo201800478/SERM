@@ -14,7 +14,7 @@ from .dat_scraper import DatScraperPage
 from .emulator_directories_page import DirectoriesPage
 from .emulator_settings_page import EmulatorSettingsPage
 from .emulator_shaders_bezels_page import EmulatorShadersBezelsPage
-from .filter_profiles_layout import FilterProfilesPage
+from .filter_profiles_resume_page import FilterProfilesPage
 from .home import HomePage
 from .log_handler import LogViewer
 from .reconstruction_page import ReconstructionPage
