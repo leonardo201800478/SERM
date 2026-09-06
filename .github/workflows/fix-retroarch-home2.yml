@@ -1,0 +1,53 @@
+name: Fix RetroArch Home 2
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Aplicar correção
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          p = Path('v2/serm_v2/services/emulator_manager.py')
+          s = p.read_text(encoding='utf-8')
+          if '    def install_frontend(' not in s:
+              marker = '    @classmethod\n    def detect_7zip(cls) -> Path | None:\n'
+              method = '''    def install_frontend(self, destination: Path, *, channel: str = "stable", progress=None, log=None) -> DownloadResult:\n        """Baixa e instala o frontend RetroArch x64 Stable ou Nightly."""\n        channel = channel.casefold().strip()\n        if channel not in {"stable", "nightly"}:\n            raise ValueError(f"Canal RetroArch inválido: {channel!r}")\n        destination = Path(destination).expanduser().resolve()\n        destination.mkdir(parents=True, exist_ok=True)\n        if channel == "stable":\n            version = self.latest_stable_version()\n            root, _ = self.buildroot("stable", version)\n            archive_name = self.RETROARCH_ARCHIVE\n            url = f"{root}{archive_name}"\n            version_label = version\n        else:\n            archive_name, url = self.discover_nightly_archive()\n            version_label = f"nightly-{archive_name[:10]}"\n        temp_dir = Path(tempfile.mkdtemp(prefix="serm-retroarch-"))\n        archive = temp_dir / archive_name\n        extracted = temp_dir / "extracted"\n        extracted.mkdir()\n        try:\n            if log:\n                log(f"RETROARCH | canal={channel} | versão={version_label} | arquivo={archive_name}")\n                log(f"DOWNLOAD | {url}")\n            self._download_file(url, archive, progress, log)\n            self._extract(archive, extracted, log)\n            self._merge(extracted, destination)\n        finally:\n            shutil.rmtree(temp_dir, ignore_errors=True)\n        executable = next((x.resolve() for x in destination.rglob("retroarch.exe") if x.is_file()), None)\n        if executable is None:\n            raise RuntimeError(f"Download concluído, mas retroarch.exe não foi encontrado em {destination}.")\n        return DownloadResult("retroarch", version_label, executable, archive_name)\n\n'''
+              if marker not in s:
+                  raise SystemExit('marker manager não encontrado')
+              p.write_text(s.replace(marker, method + marker, 1), encoding='utf-8')
+
+          p = Path('v2/serm_v2/gui/emulator_home.py')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace('(\"⬇ Instalar / atualizar\", self.install_retroarch),', '(\"⬇ Baixar / atualizar Stable\", lambda: self.install_retroarch(\"stable\")),\n            (\"⬇ Baixar / atualizar Nightly\", lambda: self.install_retroarch(\"nightly\")),', 1)
+          old = '''    def install_retroarch(self) -> None:\n        """Instala/atualiza RetroArch no canal Stable ou Nightly selecionado."""\n'''
+          if old in s:
+              start = s.index(old)
+              end = s.index('\n    def refresh_cores', start)
+              new = '''    def install_retroarch(self, channel: str | None = None) -> None:\n        """Instala/atualiza o frontend RetroArch Stable ou Nightly."""\n        channel = (channel or self._retro_channel).casefold()\n        if channel not in {"stable", "nightly"}:\n            raise ValueError(f"Canal RetroArch inválido: {channel!r}")\n        if self.worker is not None:\n            self._append_retro_log("AVISO | já existe uma operação do RetroArch em execução.")\n            return\n        destination = self.manager.roots.get("retroarch")\n        if not destination:\n            selected = QFileDialog.getExistingDirectory(self, f"Instalar RetroArch {channel.title()} em", str(Path.home()))\n            if not selected:\n                return\n            destination = Path(selected).resolve()\n        paths = self._load_paths()\n        paths["retroarch"] = Path(destination).resolve()\n        paths["retroarch_channel"] = Path(channel)\n        self._save_paths(paths)\n        self.manager.roots = paths\n        self.retroarch = RetroArchManager(Path(destination))\n        self._retro_channel = channel\n        self._append_retro_log(f"DOWNLOAD | RetroArch | canal={channel} | destino={Path(destination).resolve()}")\n        self._start_retro(lambda progress, log, c=channel, d=Path(destination): self.retroarch.install_frontend(d, channel=c, progress=progress, log=log))\n'''
+              s = s[:start] + new + s[end:]
+          old = '''    def _retro_done(self, result) -> None:\n        """Registra sucesso da operação RetroArch."""\n        self._append_retro_log(f"OK | {result}")\n'''
+          new = '''    def _retro_done(self, result) -> None:\n        """Registra sucesso da operação RetroArch e persiste a instalação."""\n        executable = getattr(result, "executable", None)\n        version = getattr(result, "version", None)\n        archive = getattr(result, "archive", None)\n        if executable and version:\n            executable_path = Path(executable).resolve()\n            paths = self._load_paths()\n            paths["retroarch"] = executable_path.parent\n            paths["retroarch_exe"] = executable_path\n            paths["retroarch_version"] = Path(str(version))\n            if archive:\n                paths["retroarch_archive"] = Path(str(archive))\n            self._save_paths(paths)\n            self._persist_version_marker(executable_path, str(version), str(archive or ""))\n        self._append_retro_log(f"OK | {result}")\n'''
+          s = s.replace(old, new, 1)
+          p.write_text(s, encoding='utf-8')
+          PY
+      - name: Validar sintaxe
+        run: python3 -m compileall -q v2/serm_v2
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add v2/serm_v2/services/emulator_manager.py v2/serm_v2/gui/emulator_home.py
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "fix(gui): disponibilizar downloads Stable e Nightly do RetroArch"
+          git push
