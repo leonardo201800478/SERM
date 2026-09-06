@@ -42,33 +42,33 @@ class NoIntroFilterPage(QWidget):
         sv.addWidget(self.scan_info)
         layout.addWidget(scan_box)
 
-        content_box = QGroupBox("2. Conteúdo — marque o que DEVE SER INCLUÍDO")
+        content_box = QGroupBox("2. Conteúdo")
         cv = QVBoxLayout(content_box)
         self.checks: dict[str, QCheckBox] = {}
         options = (
             ("include_bios", "BIOS"),
-            ("include_programs", "Program"),
-            ("include_betas", "Beta"),
-            ("include_prototypes", "Proto / Prototype"),
-            ("include_demos", "Demo"),
+            ("include_programs", "Programs"),
+            ("include_betas", "Betas"),
+            ("include_prototypes", "Proto / Prototypes"),
+            ("include_demos", "Demos"),
             ("include_tech_demos", "Tech Demo"),
             ("include_np", "NP / Nintendo Power"),
-            ("include_samples", "Sample"),
+            ("include_samples", "Samples"),
             ("include_aftermarket", "Aftermarket"),
-            ("include_unlicensed", "Unlicensed"),
             ("include_pirates", "Pirate"),
             ("include_enhancement_chips", "Enhancement Chip"),
+            ("include_unlicensed", "Unlicensed"),
             ("include_bad_dumps", "Bad Dump [b]"),
             ("include_clones", "Clones"),
         )
         for key, label in options:
             box = QCheckBox(label)
             box.stateChanged.connect(self._preview)
-            box.setChecked(key == "include_clones")
+            box.setChecked(False if key not in {"include_clones", "include_aftermarket"} else True)
             self.checks[key] = box
             cv.addWidget(box)
 
-        self.include_translations = QCheckBox("Traduções / Translated (inclui PT-BR, BR, Brazil, Brasil, T-PT-BR, Trad PT-BR etc.)")
+        self.include_translations = QCheckBox("Traduções / Translated")
         self.include_hacks = QCheckBox("Hacks / ROM hacks")
         self.keep_unverified = QCheckBox("Manter variantes sem hash como UNVERIFIED_VARIANT")
         self.include_translations.stateChanged.connect(self._preview)
@@ -81,6 +81,10 @@ class NoIntroFilterPage(QWidget):
 
         region_box = QGroupBox("3. Regiões e 1G1R")
         rv = QVBoxLayout(region_box)
+        self.include_unl_regions = QCheckBox("Incluir região Unl / Unlicensed regional")
+        self.include_unl_regions.setChecked(True)
+        self.include_unl_regions.stateChanged.connect(self._preview)
+        rv.addWidget(self.include_unl_regions)
         self.one_g1r = QCheckBox("Gerar 1G1R — somente uma variante por família de jogo")
         self.one_g1r.setChecked(True)
         self.one_g1r.stateChanged.connect(self._preview)
@@ -146,7 +150,17 @@ class NoIntroFilterPage(QWidget):
     def _config(self):
         priority = [self.region_list.item(i).text() for i in range(self.region_list.count())]
         values = {key: box.isChecked() for key, box in self.checks.items()}
-        return SimpleNamespace(profile_id="no-intro-filter", region_priority=priority, one_game_one_region=self.one_g1r.isChecked(), include_translations=self.include_translations.isChecked(), include_hacks=self.include_hacks.isChecked(), keep_unverified_variants=self.keep_unverified.isChecked(), remove_previous_versions=True, **values)
+        return SimpleNamespace(
+            profile_id="no-intro-filter",
+            region_priority=priority,
+            one_game_one_region=self.one_g1r.isChecked(),
+            include_unl_regions=self.include_unl_regions.isChecked(),
+            include_translations=self.include_translations.isChecked(),
+            include_hacks=self.include_hacks.isChecked(),
+            keep_unverified_variants=self.keep_unverified.isChecked(),
+            remove_previous_versions=True,
+            **values,
+        )
 
     def _preview(self, *_args) -> None:
         data = self.scan_combo.currentData()
@@ -157,7 +171,10 @@ class NoIntroFilterPage(QWidget):
             return
         try:
             result = NoIntroFilterService.preview(path, self._config())
-            self.preview.setText(f"Preview: entrada={result['input_count']:,} | saída={result['output_count']:,} | excluídas={result['filtered_count']:,}\n" + " | ".join(f"{k}={v:,}" for k, v in result['filter_counts'].items()))
+            self.preview.setText(
+                f"Preview: entrada={result['input_count']:,} | saída={result['output_count']:,} | excluídas={result['filtered_count']:,}\n"
+                + " | ".join(f"{k}={v:,}" for k, v in result['filter_counts'].items())
+            )
         except Exception as exc:
             self.preview.setText(f"Preview indisponível: {exc}")
 
@@ -186,11 +203,12 @@ class NoIntroFilterPage(QWidget):
             raw = json.loads(self.SETTINGS_PATH.read_text(encoding="utf-8"))
             if isinstance(raw, dict) and isinstance(raw.get("region_priority"), list):
                 priority = [str(x) for x in raw["region_priority"]]
+            for key, box in self.checks.items():
+                if key in raw:
+                    box.setChecked(bool(raw[key]))
             if isinstance(raw, dict):
-                for key, box in self.checks.items():
-                    if key in raw:
-                        box.setChecked(bool(raw[key]))
                 self.one_g1r.setChecked(bool(raw.get("one_game_one_region", True)))
+                self.include_unl_regions.setChecked(bool(raw.get("include_unl_regions", True)))
                 self.include_translations.setChecked(bool(raw.get("include_translations", False)))
                 self.include_hacks.setChecked(bool(raw.get("include_hacks", False)))
                 self.keep_unverified.setChecked(bool(raw.get("keep_unverified_variants", True)))
