@@ -18,6 +18,10 @@ class ScanCheckpointService:
         root.mkdir(parents=True, exist_ok=True)
         return root
 
+    @staticmethod
+    def _checkpoint_path(path: Path) -> Path:
+        return path.with_suffix(".checkpoint.json")
+
     @classmethod
     def _matches(cls, path: Path, profile) -> bool:
         try:
@@ -39,6 +43,15 @@ class ScanCheckpointService:
 
     @classmethod
     def _has_checkpoint(cls, path: Path) -> bool:
+        checkpoint = cls._checkpoint_path(path)
+        try:
+            if checkpoint.is_file():
+                payload = json.loads(checkpoint.read_text(encoding="utf-8"))
+                if payload.get("format") == "SERM-SCAN-CHECKPOINT-V2" and int(payload.get("completed_count", 0)) > 0:
+                    return True
+        except (OSError, ValueError, TypeError):
+            pass
+        # Compatibilidade com streams antigos que gravavam machine_complete.
         try:
             with path.open("r", encoding="utf-8") as stream:
                 next(stream, None)
@@ -70,6 +83,20 @@ class ScanCheckpointService:
         path = cls.latest(profile)
         if path is None:
             return None
+        checkpoint = cls._checkpoint_path(path)
+        if checkpoint.is_file():
+            try:
+                payload = json.loads(checkpoint.read_text(encoding="utf-8"))
+                if payload.get("format") == "SERM-SCAN-CHECKPOINT-V2":
+                    return {
+                        "path": path,
+                        "completed": int(payload.get("completed_count", 0)),
+                        "last_machine": str((payload.get("completed_machines") or [""])[-1]),
+                        "status": "cancelado" if payload.get("cancelled") else "incompleto",
+                    }
+            except (OSError, ValueError, TypeError, IndexError):
+                pass
+
         completed = 0
         last_machine = ""
         status = "incompleto"
@@ -98,6 +125,9 @@ class ScanCheckpointService:
         stamp = time.strftime("%Y%m%d_%H%M%S")
         target = path.with_name(f"checkpoint_{stamp}_{path.name}")
         path.rename(target)
+        sidecar = cls._checkpoint_path(path)
+        if sidecar.is_file():
+            sidecar.rename(cls._checkpoint_path(target))
         return target
 
 
