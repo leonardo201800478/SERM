@@ -88,7 +88,7 @@ class StableRomScanService(RomScanService):
 
         result = ScanResult(scan_id=self._make_scan_id(profile), profile_id=str(profile.profile_id), source=str(profile.source), system=str(profile.system), started_at=time.time(), scan_type=scan_type, catalog_hash=str(source_hash), catalog_label=str(build or source_hash[:12]))
         sources = [Path(p).expanduser().resolve() for p in profile.source_directories]
-        stream_path, completed = self._find_resume_stream(result, profile, sources, machine_names)
+        stream_path, completed = self._find_resume_stream(result, profile, sources, machine_names, db_path)
         result.evidence_stream_path = str(stream_path)
         pending = [m for m in machine_names if m not in completed]
         self._log("INFO", f"SCAN | MAME | retomada={bool(completed)} | concluídas={len(completed):,}/{len(machine_names):,} | pendentes={len(pending):,}")
@@ -117,7 +117,7 @@ class StableRomScanService(RomScanService):
         self._log_summary(result)
         return result
 
-    def _find_resume_stream(self, result, profile, sources, machine_names):
+    def _find_resume_stream(self, result, profile, sources, machine_names, db_path):
         root = scans_root() / "streaming"
         root.mkdir(parents=True, exist_ok=True)
         wanted_paths = [str(p) for p in sources]
@@ -135,7 +135,7 @@ class StableRomScanService(RomScanService):
                 continue
             if header.get("source_paths") != wanted_paths:
                 continue
-            completed = self._completed_machines(path, machine_names)
+            completed = self._completed_machines(path, machine_names, db_path)
             result.scan_id = str(header.get("scan_id") or result.scan_id)
             self._log("INFO", f"RESUME | {path.name} | última machine={self._last_completed(completed, machine_names) or 'nenhuma'}")
             return path, completed
@@ -145,10 +145,14 @@ class StableRomScanService(RomScanService):
         return path, set()
 
     @staticmethod
-    def _completed_machines(path, machine_names):
+    def _completed_machines(path, machine_names, db_path):
         valid = set(machine_names)
+        placeholders = ",".join("?" for _ in machine_names)
+        with sqlite3.connect(db_path) as connection:
+            expected = {str(name): int(count) for name, count in connection.execute(f"SELECT m.name, COUNT(r.id) FROM mame_machine m LEFT JOIN mame_rom r ON r.machine_id=m.id WHERE m.name IN ({placeholders}) GROUP BY m.name", tuple(machine_names))}
         completed = set()
         current = None
+        evidence_count = 0
         try:
             with path.open("r", encoding="utf-8") as stream:
                 next(stream, None)
@@ -158,11 +162,16 @@ class StableRomScanService(RomScanService):
                     except ValueError:
                         break
                     if record.get("record_type") == "machine":
-                        if current in valid:
+                        if current in valid and evidence_count >= expected.get(current, 0):
                             completed.add(current)
                         current = str(record.get("machine") or "")
-                    elif record.get("record_type") == "scan_end" and current in valid:
+                        evidence_count = 0
+                    elif record.get("record_type") == "evidence" and current and record.get("machine_name") == current and record.get("rom_name"):
+                        evidence_count += 1
+                    elif record.get("record_type") == "scan_end" and current in valid and evidence_count >= expected.get(current, 0):
                         completed.add(current)
+            if current in valid and evidence_count >= expected.get(current, 0):
+                completed.add(current)
             return completed
         except OSError:
             return set()
@@ -175,7 +184,6 @@ class StableRomScanService(RomScanService):
         return None
 
 
-# Ativa a implementação resiliente na API pública já usada pela GUI.
 _base_scan = RomScanService
 _base_scan.scan = StableRomScanService.scan
 _base_scan._hash_stream = StableRomScanService._hash_stream
