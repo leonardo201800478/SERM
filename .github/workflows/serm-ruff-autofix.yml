@@ -83,4 +83,4 @@ jobs:
           git commit -m "chore(ruff): corrigir diagnósticos dos serviços V2"
           git push
 
-# Trigger validation after installation of this workflow.
+# Execute Ruff after the current repository state has been validated.
