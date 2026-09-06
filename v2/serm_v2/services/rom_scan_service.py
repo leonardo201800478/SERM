@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Callable, Iterable
 
 from ..runtime.paths import database_path
+from .mame_fundamental_filter_service import MameFundamentalFilterService
 
 LogCallback = Callable[[str, str], None]
 ProgressCallback = Callable[[int, int], None]
@@ -105,11 +106,7 @@ class RomScanService:
         self._log("INFO", "CANCELAMENTO | solicitação recebida; encerrando no próximo checkpoint")
 
     def estimate_mame(self, profile, *, database: Path | None = None) -> dict[str, int | str | None]:
-        """Calcula rapidamente o universo MAME que os filtros atuais selecionam.
-
-        A estimativa usa exclusivamente o catálogo SQLite já importado pelo
-        SERM. Não acessa as fontes físicas e, portanto, não inicia um scan.
-        """
+        """Calcula rapidamente o universo MAME que os filtros atuais selecionam."""
         db_path = database or database_path()
         if not db_path.is_file():
             return {"machines": 0, "roms": 0, "optional_roms": 0, "disks": 0,
@@ -140,11 +137,15 @@ class RomScanService:
             return {"machines": 0, "roms": 0, "optional_roms": 0, "disks": 0,
                     "catalog_roms": 0, "catalog_hash": None, "error": str(exc)}
 
+        excluded = MameFundamentalFilterService.excluded_machine_names(
+            db_path, MameFundamentalFilterService.load(str(profile.profile_id))
+        )
         machine_ids: set[int] = set()
         roms = 0
         optional_roms = 0
-        included_ids: set[int] = set()
-        for machine_id, _name, cloneof, isbios, isdevice, runnable, optional in rows:
+        for machine_id, name, cloneof, isbios, isdevice, runnable, optional in rows:
+            if str(name) in excluded:
+                continue
             if not getattr(profile, "mame_include_bios", False) and str(isbios or "").casefold() == "yes":
                 continue
             if not getattr(profile, "mame_include_devices", False) and str(isdevice or "").casefold() == "yes":
@@ -155,15 +156,11 @@ class RomScanService:
                 continue
             if not getattr(profile, "mame_include_optional", True) and str(optional or "").casefold() in {"yes", "true", "1"}:
                 continue
-            included_ids.add(int(machine_id))
             machine_ids.add(int(machine_id))
             roms += 1
             if str(optional or "").casefold() in {"yes", "true", "1"}:
                 optional_roms += 1
 
-        # Split/Non-Merged/Full-Merged affect the physical package plan more
-        # than the logical catalog universe. The estimate therefore exposes
-        # the selected set type while keeping the ROM universe deterministic.
         set_type = str(getattr(profile, "mame_set_type", "split"))
         hash_value = str(source[0]) if source else None
         return {
@@ -259,12 +256,19 @@ class RomScanService:
             source = connection.execute("SELECT source_hash FROM mame_listxml_import WHERE id=(SELECT id FROM mame_listxml_import ORDER BY imported_at DESC,id DESC LIMIT 1)").fetchone()
         result.catalog_hash = str(source[0]) if source else None
         self._log("INFO", f"CATALOGO | MAME | ROMs={len(rows):,} | hash={result.catalog_hash[:16] if result.catalog_hash else 'desconhecido'}")
-        return self._filter_mame_rows(rows, profile)
+        values = MameFundamentalFilterService.load(str(profile.profile_id))
+        excluded = MameFundamentalFilterService.excluded_machine_names(db_path, values)
+        if excluded:
+            self._log("INFO", f"FILTROS FUNDAMENTAIS | máquinas excluídas={len(excluded):,}")
+        return self._filter_mame_rows(rows, profile, excluded)
 
     @staticmethod
-    def _filter_mame_rows(rows: list[dict], profile) -> list[dict]:
+    def _filter_mame_rows(rows: list[dict], profile, excluded_names: set[str] | None = None) -> list[dict]:
+        excluded_names = excluded_names or set()
         filtered = []
         for row in rows:
+            if str(row.get("machine_name") or "") in excluded_names:
+                continue
             if not getattr(profile, "mame_include_bios", False) and str(row.get("isbios") or "").casefold() == "yes":
                 continue
             if not getattr(profile, "mame_include_devices", False) and str(row.get("isdevice") or "").casefold() == "yes":
