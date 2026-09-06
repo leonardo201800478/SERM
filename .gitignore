@@ -39,3 +39,5 @@ htmlcov/
 build/
 dist/
 *.egg-info/
+*,pyc
+*.pyo   
