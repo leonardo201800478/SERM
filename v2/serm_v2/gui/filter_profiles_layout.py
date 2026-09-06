@@ -183,6 +183,12 @@ class FilterProfilesPage(_BaseFilterProfilesPage):
             layout.addRow(self.mame_fundamental_summary)
         self._update_fundamental_summary()
 
+    def _configure_source_controls(self, source: str) -> None:
+        super()._configure_source_controls(source)
+        is_mame = str(source).casefold() == "mame"
+        self.mame_scan_type_label.setVisible(is_mame)
+        self.mame_scan_type.setVisible(is_mame)
+
     def _scan_type_changed(self, *_args) -> None:
         self._last_filter_result = None
         self.apply_filter_button.setEnabled(False)
