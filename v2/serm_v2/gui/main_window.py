@@ -18,6 +18,8 @@ from .emulator_shaders_bezels_page import EmulatorShadersBezelsPage
 from .filter_phase_page import FilteringPhasePage
 from .home import HomePage
 from .log_handler import LogViewer
+from .mame_filter_page import MameFilterPage
+from .mame_scan_page import MameScanPage
 from .reconstruction_phase_page import ReconstructionPhasePage
 from .scan_phase_page import ScanPhasePage
 from .tools_directories import ToolsDirectoriesPage
@@ -31,7 +33,9 @@ class MainWindow(QMainWindow):
         ("Configurações", "Configurações dos emuladores", "SP_FileDialogDetailedView"),
         ("Shaders / Bezels", "Aparência, shaders e bezels", "SP_ComputerIcon"),
         ("1 — Scan", "Auditoria completa contra DAT/catalogo", "SP_DriveHDIcon"),
+        ("MAME — Scans", "Novo scan, histórico e exclusão de scans MAME", "SP_DriveHDIcon"),
         ("2 — Filtragem", "Aplicar filtros sobre um scan já concluído", "SP_FileDialogDetailedView"),
+        ("MAME — Filtros", "Filtros MAME separados por tipo de jogo e tipo de SET", "SP_FileDialogDetailedView"),
         ("3 — Reconstrução", "Montar o set a partir do arquivo filtrado", "SP_FileDialogInfoView"),
         ("Scraper de DATs", "Importação e processamento de DATs", "SP_FileIcon"),
     )
@@ -168,7 +172,9 @@ class MainWindow(QMainWindow):
         self.settings_tab = EmulatorSettingsPage(self)
         self.visuals_tab = EmulatorShadersBezelsPage(self)
         self.scan_tab = ScanPhasePage(self)
+        self.mame_scan_tab = MameScanPage(self)
         self.filter_tab = FilteringPhasePage(self)
+        self.mame_filter_tab = MameFilterPage(self)
         self.reconstruction_tab = ReconstructionPhasePage(self)
         self.dat_scraper_tab = DatScraperPage(self)
         self.pages = (
@@ -178,7 +184,9 @@ class MainWindow(QMainWindow):
             self.settings_tab,
             self.visuals_tab,
             self.scan_tab,
+            self.mame_scan_tab,
             self.filter_tab,
+            self.mame_filter_tab,
             self.reconstruction_tab,
             self.dat_scraper_tab,
         )
