@@ -13,10 +13,10 @@ from ..runtime.paths import database_path, scans_root
 from .mame_scan_settings_service import MameScanSettingsService
 from .rom_scan_service import RomScanService, ScanResult
 
+_ORIGINAL_SCAN = RomScanService.scan
+
 
 class StableRomScanService(RomScanService):
-    """Mantém o motor expected-driven e adiciona retomada segura."""
-
     HEARTBEAT_SECONDS = 5.0
 
     def __init__(self, *args, **kwargs):
@@ -63,15 +63,15 @@ class StableRomScanService(RomScanService):
         with Path(path).open("rb") as stream:
             return self._hash_stream(stream)[2]
 
-    def _scan_machine(self, machine, *args, **kwargs):
+    def scan(self, profile, *, catalog_items=(), database=None):
+        if str(profile.source).casefold() != "mame":
+            return _ORIGINAL_SCAN(self, profile, catalog_items=catalog_items, database=database)
+        return self._scan_mame_resumable(profile, database or database_path())
+
+    def _scan_machine_with_heartbeat(self, machine, *args, **kwargs):
         self._heartbeat_machine = machine
         self._heartbeat_rom = ""
         return super()._scan_machine(machine, *args, **kwargs)
-
-    def scan(self, profile, *, catalog_items=(), database=None):
-        if str(profile.source).casefold() != "mame":
-            return super().scan(profile, catalog_items=catalog_items, database=database)
-        return self._scan_mame_resumable(profile, database or database_path())
 
     def _scan_mame_resumable(self, profile, db_path):
         with sqlite3.connect(db_path) as connection:
@@ -92,11 +92,11 @@ class StableRomScanService(RomScanService):
         result.evidence_stream_path = str(stream_path)
         pending = [m for m in machine_names if m not in completed]
         self._log("INFO", f"SCAN | MAME | retomada={bool(completed)} | concluídas={len(completed):,}/{len(machine_names):,} | pendentes={len(pending):,}")
-
         workers = min(self.DEFAULT_WORKERS, max(1, len(pending)))
+        worker_scan = self._scan_machine_with_heartbeat
         with stream_path.open("a", encoding="utf-8", newline="\n") as stream:
             with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="mame-scan") as executor:
-                futures = {executor.submit(self._scan_machine, name, db_path, int(import_id), sources, classification_columns): name for name in pending}
+                futures = {executor.submit(worker_scan, name, db_path, int(import_id), sources, classification_columns): name for name in pending}
                 done = len(completed)
                 for future in as_completed(futures):
                     if self._cancelled:
@@ -139,7 +139,6 @@ class StableRomScanService(RomScanService):
             result.scan_id = str(header.get("scan_id") or result.scan_id)
             self._log("INFO", f"RESUME | {path.name} | última machine={self._last_completed(completed, machine_names) or 'nenhuma'}")
             return path, completed
-
         path = root / f"{result.scan_id}.jsonl"
         with path.open("w", encoding="utf-8", newline="\n") as stream:
             self._write_jsonl(stream, {"record_type":"header", "format":"SERM-SCAN-V2", "scan_id":result.scan_id, "profile_id":result.profile_id, "source":result.source, "system":result.system, "scan_type":result.scan_type, "catalog_label":result.catalog_label, "catalog_hash":result.catalog_hash, "started_at":result.started_at, "source_paths":wanted_paths, "machine_count_expected":len(machine_names), "metadata":{"validation":"expected_driven","persist_mode":"streaming","filters_applied":False,"resumable":True}})
@@ -176,12 +175,9 @@ class StableRomScanService(RomScanService):
         return None
 
 
-# Bootstrap: filter_profiles_page já importa ScanFileRepository depois do motor
-# base. O import abaixo ativa a versão estável sem alterar a API pública usada
-# pelo restante da GUI.
+# Ativa a implementação resiliente na API pública já usada pela GUI.
 _base_scan = RomScanService
 _base_scan.scan = StableRomScanService.scan
-_base_scan._scan_machine = StableRomScanService._scan_machine
 _base_scan._hash_stream = StableRomScanService._hash_stream
 _base_scan._crc32 = StableRomScanService._crc32
 _base_scan._sha1 = StableRomScanService._sha1
