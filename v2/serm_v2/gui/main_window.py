@@ -14,10 +14,10 @@ from .dat_scraper import DatScraperPage
 from .emulator_directories_page import DirectoriesPage
 from .emulator_settings_page import EmulatorSettingsPage
 from .emulator_shaders_bezels_page import EmulatorShadersBezelsPage
-from .filter_profiles_resume_page import FilterProfilesPage
 from .home import HomePage
 from .log_handler import LogViewer
-from .reconstruction_page import ReconstructionPage
+from .process_pipeline_page import FilteringPhasePage, ReconstructionPhasePage
+from .scan_phase_page import ScanPhasePage
 
 
 class MainWindow(QMainWindow):
@@ -26,8 +26,9 @@ class MainWindow(QMainWindow):
         ("Diretórios", "Gerenciar diretórios dos emuladores", "SP_DirIcon"),
         ("Configurações", "Configurações dos emuladores", "SP_FileDialogDetailedView"),
         ("Shaders / Bezels", "Aparência, shaders e bezels", "SP_ComputerIcon"),
-        ("Filtros e Scan", "Definir o set, salvar o perfil e executar o scan", "SP_DriveHDIcon"),
-        ("Reconstrução", "Planejar e executar a reconstrução das ROMs", "SP_FileDialogInfoView"),
+        ("1 — Scan", "Auditoria completa contra DAT/catalogo", "SP_DriveHDIcon"),
+        ("2 — Filtragem", "Aplicar filtros sobre um scan já concluído", "SP_FileDialogDetailedView"),
+        ("3 — Reconstrução", "Montar o set a partir do arquivo filtrado", "SP_FileDialogInfoView"),
         ("Scraper de DATs", "Importação e processamento de DATs", "SP_FileIcon"),
     )
     _GEOMETRY_KEY = "main_window/geometry"
@@ -159,12 +160,11 @@ class MainWindow(QMainWindow):
         self.directories_tab = DirectoriesPage(self)
         self.settings_tab = EmulatorSettingsPage(self)
         self.visuals_tab = EmulatorShadersBezelsPage(self)
-        self.filters_tab = FilterProfilesPage(self)
-        self.reconstruction_tab = ReconstructionPage(self)
+        self.scan_tab = ScanPhasePage(self)
+        self.filter_tab = FilteringPhasePage(self)
+        self.reconstruction_tab = ReconstructionPhasePage(self)
         self.dat_scraper_tab = DatScraperPage(self)
-        self.filters_tab.scan_requested.connect(self._on_scan_requested)
-        self.filters_tab.reconstruction_requested.connect(self._on_reconstruction_requested)
-        self.pages = (self.home_section, self.directories_tab, self.settings_tab, self.visuals_tab, self.filters_tab, self.reconstruction_tab, self.dat_scraper_tab)
+        self.pages = (self.home_section, self.directories_tab, self.settings_tab, self.visuals_tab, self.scan_tab, self.filter_tab, self.reconstruction_tab, self.dat_scraper_tab)
         for page in self.pages:
             self.page_stack.addWidget(page)
         root_layout.addWidget(sidebar)
@@ -172,22 +172,6 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(root)
         self.navigation.currentRowChanged.connect(self._on_navigation_changed)
         self.navigation.setCurrentRow(0)
-
-    def _on_scan_requested(self, profile) -> None:
-        """Registra o contexto do perfil sem trocar de guia durante a execução."""
-        self.reconstruction_tab.set_scan_context(profile)
-        self.status_bar.showMessage(f"Scan iniciado: {getattr(profile, 'name', 'Perfil')} | profile_id={getattr(profile, 'profile_id', '')}")
-
-    def _on_reconstruction_requested(self, context) -> None:
-        if isinstance(context, dict):
-            profile = context.get("profile")
-            result = context.get("scan_result")
-        else:
-            profile = context
-            result = None
-        if profile is not None:
-            self.reconstruction_tab.set_scan_context(profile, result)
-        self.navigation.setCurrentRow(5)
 
     def _on_navigation_changed(self, index: int) -> None:
         if 0 <= index < len(self.pages):
@@ -206,8 +190,10 @@ class MainWindow(QMainWindow):
             self.settings_tab.refresh()
         elif page is self.visuals_tab:
             self.visuals_tab.refresh()
-        elif page is self.filters_tab:
-            self.filters_tab.refresh()
+        elif page is self.scan_tab:
+            self.scan_tab.refresh()
+        elif page is self.filter_tab:
+            self.filter_tab.mame.refresh()
         elif page is self.reconstruction_tab:
             self.reconstruction_tab.refresh()
         elif page is self.dat_scraper_tab:
