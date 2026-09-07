@@ -35,7 +35,7 @@ class QtLogHandler(logging.Handler):
 
 
 class LogConsole(QWidget):
-    """Console de diagnóstico sem clipping e com rolagem automática."""
+    """Console de diagnóstico sem clipping horizontal e com rolagem automática."""
 
     def __init__(self, handler: QtLogHandler, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -45,7 +45,6 @@ class LogConsole(QWidget):
         self.view.setObjectName("logConsole")
         self.view.setReadOnly(True)
         self.view.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
-        self.view.setWordWrapMode(None)
         self.view.setMaximumBlockCount(1000)
         self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
@@ -72,8 +71,7 @@ class LogViewer(QObject):
         super().__init__()
         self.handler = QtLogHandler()
         self.handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
-        root = logging.getLogger()
-        root.addHandler(self.handler)
+        logging.getLogger().addHandler(self.handler)
 
     def create_console(self, parent: QWidget | None = None) -> LogConsole:
         return LogConsole(self.handler, parent)
