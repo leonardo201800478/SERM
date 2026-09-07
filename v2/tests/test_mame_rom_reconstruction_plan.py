@@ -23,9 +23,8 @@ def game(
 ) -> ArcadeGame:
     return ArcadeGame(
         machine_name=machine,
-        description=machine,
-        year=None,
-        manufacturer=None,
+        display_name=machine,
+        platform="mame",
         parent_name=parent_name,
         metadata=metadata or {},
         roms=tuple(roms or ()),
