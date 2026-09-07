@@ -138,12 +138,6 @@ class ArcadeStudioPage(QWidget):
         title = QLabel("ARCADE STUDIO")
         title.setProperty("role", "title")
         layout.addWidget(title)
-        intro = QLabel(
-            "ListXML MAME = conteúdo esperado. Scan JSON = inventário físico. "
-            "O Studio concentra catálogo, comparação, filtros, auditoria CHD e reconstrução V2."
-        )
-        intro.setWordWrap(True)
-        layout.addWidget(intro)
         self.tabs = QTabWidget()
         self.tabs.addTab(self._catalog_tab(), "Catálogo / Comparação")
         self.mame_filter_tab = MameFiltersPanel(self)
