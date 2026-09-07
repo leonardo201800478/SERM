@@ -1,12 +1,10 @@
 """Reconstrucao logica de ROMs para o Arcade Studio.
 
-O engine nao conhece filesystem, RomVault ou qualquer ferramenta externa.
-Ele recebe a definicao catalogada das ROMs e um inventario fisico fornecido
-pelo SERM e decide quais arquivos podem satisfazer cada componente.
+O engine nao conhece filesystem ou qualquer ferramenta externa. Ele recebe a
+definicao catalogada das ROMs e um inventario fisico fornecido pelo SERM.
 
-A primeira camada trabalha por identidade criptografica forte (SHA1/MD5)
-e por CRC+size como fallback explicitamente marcado. A materializacao fisica
-fica para uma camada posterior.
+A resolucao fisica usa primeiro o plano logico de origem (merge, romof,
+parent ou self) e somente depois procura o arquivo por identidade criptografica.
 """
 
 from __future__ import annotations
@@ -16,6 +14,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from ...models.arcade import ArcadeGame, ArcadeRom, RomStatus
+from .rom_reconstruction_plan import ArcadeRomReconstructionPlanner, RomSourceKind
 
 
 class RomMatchKind(StrEnum):
@@ -48,6 +47,9 @@ class RomReconstruction:
     match: PhysicalRom | None
     kind: RomMatchKind
     candidates: tuple[PhysicalRom, ...] = ()
+    source_machine: str | None = None
+    source_rom_name: str | None = None
+    source_kind: RomSourceKind = RomSourceKind.SELF
 
     @property
     def is_resolved(self) -> bool:
@@ -78,20 +80,44 @@ class ReconstructionResult:
 
 
 class ArcadeRomReconstructionEngine:
-    """Resolve componentes de jogos contra o inventario fisico do SERM."""
+    """Resolve componentes catalogados contra o inventario fisico do SERM."""
 
     def reconstruct(
         self,
         games: Iterable[ArcadeGame],
         inventory: Iterable[PhysicalRom],
     ) -> ReconstructionResult:
+        catalog_games = tuple(games)
         physical = tuple(inventory)
         index = self._build_index(physical)
+        plans = ArcadeRomReconstructionPlanner().plan(catalog_games)
         results: list[RomReconstruction] = []
 
-        for game in games:
-            for rom in game.roms:
-                results.append(self._resolve(game.machine_name, rom, index))
+        for plan in plans.items:
+            game = next(game for game in catalog_games if game.machine_name == plan.machine_name)
+            rom = next(rom for rom in game.roms if rom.machine_name == plan.rom_name)
+            source_rom = rom
+            if plan.source_machine and plan.source_machine != game.machine_name:
+                source_game = next(
+                    (item for item in catalog_games if item.machine_name == plan.source_machine),
+                    None,
+                )
+                if source_game is not None:
+                    source_rom = next(
+                        (item for item in source_game.roms if item.machine_name == plan.source_rom_name),
+                        rom,
+                    )
+            results.append(
+                self._resolve(
+                    plan.machine_name,
+                    rom,
+                    index,
+                    source_machine=plan.source_machine,
+                    source_rom_name=plan.source_rom_name,
+                    source_kind=plan.source_kind,
+                    source_rom=source_rom,
+                )
+            )
 
         return ReconstructionResult(items=tuple(results))
 
@@ -112,8 +138,13 @@ class ArcadeRomReconstructionEngine:
         machine_name: str,
         rom: ArcadeRom,
         index: Mapping[str, tuple[PhysicalRom, ...]],
+        *,
+        source_machine: str | None,
+        source_rom_name: str | None,
+        source_kind: RomSourceKind,
+        source_rom: ArcadeRom,
     ) -> RomReconstruction:
-        metadata = rom.metadata
+        metadata = source_rom.metadata
         sha1 = ArcadeRomReconstructionEngine._text(metadata.get("sha1"))
         md5 = ArcadeRomReconstructionEngine._text(metadata.get("md5"))
         crc = ArcadeRomReconstructionEngine._text(metadata.get("crc"))
@@ -128,17 +159,20 @@ class ArcadeRomReconstructionEngine:
                 continue
             candidates = index.get(key, ())
             if len(candidates) == 1:
-                return RomReconstruction(machine_name, rom.machine_name, candidates[0], kind)
+                return RomReconstruction(
+                    machine_name, rom.machine_name, candidates[0], kind, (),
+                    source_machine, source_rom_name, source_kind,
+                )
             if len(candidates) > 1:
                 return RomReconstruction(
-                    machine_name,
-                    rom.machine_name,
-                    None,
-                    RomMatchKind.AMBIGUOUS,
-                    candidates,
+                    machine_name, rom.machine_name, None, RomMatchKind.AMBIGUOUS,
+                    candidates, source_machine, source_rom_name, source_kind,
                 )
 
-        return RomReconstruction(machine_name, rom.machine_name, None, RomMatchKind.MISSING)
+        return RomReconstruction(
+            machine_name, rom.machine_name, None, RomMatchKind.MISSING, (),
+            source_machine, source_rom_name, source_kind,
+        )
 
     @staticmethod
     def _text(value: object) -> str | None:
