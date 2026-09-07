@@ -1,7 +1,7 @@
 """Painel de filtros MAME V2 do Arcade Studio.
 
-As opções de classificação são descobertas no snapshot selecionado. O painel
-não reproduz a tela legada nem executa novo scan.
+A interface usa somente as opções descobertas no snapshot selecionado e
+aplica as regras pelo motor V2. Nenhum novo scan é executado.
 """
 
 from __future__ import annotations
@@ -12,9 +12,9 @@ from pathlib import Path
 
 from PySide6.QtCore import QTimer, Qt, QThread, Signal
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QFormLayout, QGroupBox, QHBoxLayout, QLabel,
-    QListWidget, QListWidgetItem, QMessageBox, QPushButton, QTabWidget,
-    QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout,
+    QLabel, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QScrollArea,
+    QTabWidget, QVBoxLayout, QWidget,
 )
 
 from ..models.arcade_classification import (
@@ -82,7 +82,7 @@ class _FilterWorker(QThread):
 
 
 class MameFiltersPanel(QWidget):
-    """Editor MAME V2 com facetas reais, preview assíncrono e estado explícito."""
+    """Editor MAME V2 compacto, responsivo e orientado a facetas reais."""
 
     _LABELS = {
         "playability": {
@@ -94,26 +94,11 @@ class MameFiltersPanel(QWidget):
             "unplayable": "Não jogável",
             "unknown": "Não classificado",
         },
-        "content": {
-            item.value: item.value.replace("_", " ").title()
-            for item in ArcadeContentType
-        },
-        "genre": {
-            item.value: item.value.replace("_", " ").title()
-            for item in ArcadeGenre
-        },
-        "hardware": {
-            item.value: item.value.replace("_", " ").upper()
-            for item in ArcadeHardwareFamily
-        },
-        "input": {
-            item.value: item.value.replace("_", " ").title()
-            for item in ArcadeInputType
-        },
-        "wheel": {
-            item.value: f"{item.value}°"
-            for item in WheelAngleClass
-        },
+        "content": {item.value: item.value.replace("_", " ").title() for item in ArcadeContentType},
+        "genre": {item.value: item.value.replace("_", " ").title() for item in ArcadeGenre},
+        "hardware": {item.value: item.value.replace("_", " ").upper() for item in ArcadeHardwareFamily},
+        "input": {item.value: item.value.replace("_", " ").title() for item in ArcadeInputType},
+        "wheel": {item.value: f"{item.value}°" for item in WheelAngleClass},
     }
 
     def __init__(self, parent=None) -> None:
@@ -121,9 +106,8 @@ class MameFiltersPanel(QWidget):
         self._scan_path: Path | None = None
         self._worker: _FilterWorker | None = None
         self._facets_loaded = False
-        # Must exist before _build_ui(), because the classification and
-        # technical tabs register their QListWidget instances during creation.
         self._facet_widgets: dict[str, QListWidget] = {}
+        self._facet_info: dict[str, QLabel] = {}
         self._preview_timer = QTimer(self)
         self._preview_timer.setSingleShot(True)
         self._preview_timer.setInterval(180)
@@ -133,18 +117,18 @@ class MameFiltersPanel(QWidget):
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
+        root.setContentsMargins(6, 4, 6, 6)
+        root.setSpacing(5)
+
         title = QLabel("MAME — FILTROS V2")
         title.setProperty("role", "title")
         root.addWidget(title)
-        intro = QLabel(
-            "Selecione um snapshot já escaneado. O SERM descobre as opções "
-            "existentes e aplica as regras no motor V2. Nenhum novo scan é executado."
-        )
-        intro.setWordWrap(True)
-        root.addWidget(intro)
 
-        source = QGroupBox("Entrada")
+        source = QGroupBox("Snapshot")
+        source.setMaximumHeight(70)
         form = QFormLayout(source)
+        form.setContentsMargins(8, 5, 8, 5)
+        form.setVerticalSpacing(3)
         row = QHBoxLayout()
         self.scan_combo = QComboBox()
         self.scan_combo.currentIndexChanged.connect(self._scan_changed)
@@ -154,22 +138,26 @@ class MameFiltersPanel(QWidget):
         row.addWidget(refresh)
         form.addRow("Scan:", row)
         self.scan_info = QLabel("Nenhum scan selecionado.")
-        self.scan_info.setWordWrap(True)
+        self.scan_info.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         form.addRow("Estado:", self.scan_info)
         root.addWidget(source)
 
         self.tabs = QTabWidget()
+        self.tabs.setDocumentMode(True)
         self.tabs.addTab(self._essential_tab(), "Essencial")
         self.tabs.addTab(self._classification_tab(), "Classificação")
         self.tabs.addTab(self._technical_tab(), "Hardware / Controles")
         self.tabs.addTab(self._set_tab(), "SET")
         root.addWidget(self.tabs, 1)
 
-        result = QGroupBox("Resultado em tempo real")
+        result = QGroupBox("Resultado")
+        result.setMaximumHeight(125)
         rv = QVBoxLayout(result)
+        rv.setContentsMargins(8, 5, 8, 6)
         self.result = QLabel("Aguardando scan…")
         self.result.setWordWrap(True)
-        rv.addWidget(self.result)
+        self.result.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        rv.addWidget(self.result, 1)
         actions = QHBoxLayout()
         self.save = QPushButton("SALVAR PERFIL")
         self.save.clicked.connect(self._save_profile)
@@ -185,8 +173,13 @@ class MameFiltersPanel(QWidget):
     def _essential_tab(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
         box = QGroupBox("Exclusões rápidas")
-        v = QVBoxLayout(box)
+        grid = QGridLayout(box)
+        grid.setContentsMargins(10, 10, 10, 10)
+        grid.setHorizontalSpacing(22)
+        grid.setVerticalSpacing(9)
         self.fundamental: dict[str, QCheckBox] = {}
         labels = {
             "mechanical": "Mecânicas / eletromecânicas",
@@ -197,16 +190,17 @@ class MameFiltersPanel(QWidget):
             "quiz": "Quiz / trivia",
             "tabletop": "Tabletop",
         }
-        for key, label in labels.items():
+        for index, (key, label) in enumerate(labels.items()):
             check = QCheckBox(label)
             check.stateChanged.connect(self._changed)
             self.fundamental[key] = check
-            v.addWidget(check)
+            grid.addWidget(check, index // 3, index % 3)
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
+        grid.setColumnStretch(2, 1)
         layout.addWidget(box)
-        hint = QLabel(
-            "Marcado = excluir. Alterações recalculam somente o preview do motor V2 em background."
-        )
-        hint.setWordWrap(True)
+        hint = QLabel("Marque para excluir. O preview é recalculado em segundo plano.")
+        hint.setProperty("role", "muted")
         layout.addWidget(hint)
         layout.addStretch()
         return page
@@ -214,80 +208,117 @@ class MameFiltersPanel(QWidget):
     def _classification_tab(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
-        for key, title in (
+        layout.setContentsMargins(4, 6, 4, 4)
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(6)
+        grid.setVerticalSpacing(6)
+        for index, (key, title) in enumerate((
             ("content", "Tipo de conteúdo"),
             ("playability", "Jogabilidade"),
             ("genre", "Gênero"),
-        ):
-            layout.addWidget(self._facet_box(key, title))
-        layout.addStretch()
+        )):
+            grid.addWidget(self._facet_box(key, title), 0, index)
+        for column in range(3):
+            grid.setColumnStretch(column, 1)
+        layout.addLayout(grid, 1)
         return page
 
     def _technical_tab(self) -> QWidget:
         page = QWidget()
-        layout = QVBoxLayout(page)
-        for key, title in (
+        outer = QVBoxLayout(page)
+        outer.setContentsMargins(4, 6, 4, 4)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        content = QWidget()
+        grid = QGridLayout(content)
+        grid.setContentsMargins(0, 0, 4, 0)
+        grid.setHorizontalSpacing(6)
+        grid.setVerticalSpacing(6)
+        facets = (
             ("hardware", "Hardware / plataforma"),
             ("manufacturer", "Fabricante"),
             ("series", "Série / família"),
             ("input", "Controles"),
             ("wheel", "Rotação do volante"),
-        ):
-            layout.addWidget(self._facet_box(key, title))
-        layout.addStretch()
+        )
+        for index, (key, title) in enumerate(facets):
+            grid.addWidget(self._facet_box(key, title), index // 3, index % 3)
+        for column in range(3):
+            grid.setColumnStretch(column, 1)
+        scroll.setWidget(content)
+        outer.addWidget(scroll)
         return page
 
     def _facet_box(self, key: str, title: str) -> QGroupBox:
         box = QGroupBox(title)
-        v = QVBoxLayout(box)
+        layout = QVBoxLayout(box)
+        layout.setContentsMargins(7, 8, 7, 7)
+        layout.setSpacing(3)
         info = QLabel("Aguardando scan…")
         info.setObjectName(f"facetInfo_{key}")
-        v.addWidget(info)
+        info.setProperty("role", "muted")
+        info.setWordWrap(True)
+        self._facet_info[key] = info
+        layout.addWidget(info)
         widget = QListWidget()
         widget.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
-        widget.setMaximumHeight(165)
+        widget.setMinimumHeight(78)
+        widget.setMaximumHeight(118)
+        widget.setAlternatingRowColors(True)
         widget.itemSelectionChanged.connect(self._changed)
         self._facet_widgets[key] = widget
-        v.addWidget(widget)
+        layout.addWidget(widget, 1)
         return box
 
     def _set_tab(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
-        box = QGroupBox("Política física do conjunto")
-        form = QFormLayout(box)
+        layout.setContentsMargins(8, 8, 8, 8)
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(10)
+        grid.setVerticalSpacing(8)
+
+        physical = QGroupBox("Estrutura do SET")
+        pf = QFormLayout(physical)
         self.set_type = QComboBox()
         self.set_type.addItem("Split", "split")
         self.set_type.addItem("Non-Merged", "non_merged")
         self.set_type.addItem("Full-Merged", "full_merged")
         self.set_type.currentIndexChanged.connect(self._changed)
-        form.addRow("Tipo de SET:", self.set_type)
+        pf.addRow("Tipo:", self.set_type)
         self.clone_policy = QComboBox()
         self.clone_policy.addItem("Parents + clones", "with_clones")
         self.clone_policy.addItem("Somente parents", "parents_only")
         self.clone_policy.currentIndexChanged.connect(self._changed)
-        form.addRow("Clones:", self.clone_policy)
+        pf.addRow("Clones:", self.clone_policy)
+
+        components = QGroupBox("Componentes")
+        cg = QGridLayout(components)
         self.bios = QCheckBox("Incluir BIOS")
         self.devices = QCheckBox("Incluir Devices")
         self.chd = QCheckBox("Incluir CHDs")
         self.chd.setChecked(True)
         self.optional = QCheckBox("Incluir componentes opcionais")
         self.working = QCheckBox("Somente machines working")
-        for check in (self.bios, self.devices, self.chd, self.optional, self.working):
+        for index, check in enumerate((self.bios, self.devices, self.chd, self.optional, self.working)):
             check.stateChanged.connect(self._changed)
-            form.addRow(check)
-        layout.addWidget(box)
+            cg.addWidget(check, index // 2, index % 2)
+        cg.setColumnStretch(0, 1)
+        cg.setColumnStretch(1, 1)
+
+        grid.addWidget(physical, 0, 0)
+        grid.addWidget(components, 0, 1)
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
+        layout.addLayout(grid)
         layout.addStretch()
         return page
 
     def refresh(self) -> None:
         old = str(self.scan_combo.currentData() or "") if self.scan_combo.count() else ""
         root = scans_root() / "mame"
-        files = (
-            sorted(root.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
-            if root.is_dir()
-            else []
-        )
+        files = sorted(root.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True) if root.is_dir() else []
         preferred = root / "MAME - 0.289_mame0289 - Arcade.json"
         if preferred.is_file():
             files = [preferred] + [p for p in files if p != preferred]
@@ -311,18 +342,12 @@ class MameFiltersPanel(QWidget):
             self.scan_info.setText("Nenhum snapshot JSON válido em data/scans/mame.")
             self.apply.setEnabled(False)
             return
-        self.scan_info.setText(
-            f"{self._scan_path}\nDescobrindo as opções existentes no scan…"
-        )
+        self.scan_info.setText(f"{self._scan_path}\nDescobrindo opções do snapshot…")
         self.apply.setEnabled(False)
         self._start_worker("facets")
 
     def _start_worker(self, operation: str) -> None:
-        if (
-            self._scan_path is None
-            or not self._scan_path.is_file()
-            or (self._worker and self._worker.isRunning())
-        ):
+        if self._scan_path is None or not self._scan_path.is_file() or (self._worker and self._worker.isRunning()):
             return
         self._worker = _FilterWorker(operation, self._scan_path, self._state())
         self._worker.ready.connect(self._worker_ready)
@@ -341,17 +366,11 @@ class MameFiltersPanel(QWidget):
             self._populate_facets(payload)
             self._facets_loaded = True
             self.apply.setEnabled(True)
-            self.scan_info.setText(
-                f"{self._scan_path}\n"
-                "Opções descobertas no snapshot. Nenhum catálogo fixo da V1 está sendo usado."
-            )
+            self.scan_info.setText(f"{self._scan_path}\nOpções descobertas no snapshot.")
         elif operation == "preview":
             self.result.setText(self._format_result(payload, "Preview"))
         else:
-            self.result.setText(
-                self._format_result(payload, "Filtro gerado")
-                + f"\nArquivo: {payload.get('filtered_file_path', '—')}"
-            )
+            self.result.setText(self._format_result(payload, "Filtro gerado") + f"\nArquivo: {payload.get('filtered_file_path', '—')}")
             self.apply.setEnabled(True)
 
     def _worker_failed(self, message: str) -> None:
@@ -366,19 +385,14 @@ class MameFiltersPanel(QWidget):
             for entry in values:
                 value = str(entry.get("value"))
                 count = int(entry.get("count") or 0)
-                label = self._LABELS.get(key, {}).get(
-                    value, value.replace("_", " ").title()
-                )
+                label = self._LABELS.get(key, {}).get(value, value.replace("_", " ").title())
                 item = QListWidgetItem(f"{label}  ({count:,})")
                 item.setData(Qt.ItemDataRole.UserRole, value)
                 widget.addItem(item)
             widget.blockSignals(False)
-            info = self.findChild(QLabel, f"facetInfo_{key}")
+            info = self._facet_info.get(key)
             if info:
-                info.setText(
-                    f"{len(values):,} opções encontradas. Seleção múltipla = OR nesta dimensão; "
-                    "dimensões diferentes = AND."
-                )
+                info.setText(f"{len(values):,} opções • múltipla = OR • dimensões = AND")
 
     def _state(self) -> MameFilterState:
         state = MameFilterState()
@@ -389,18 +403,9 @@ class MameFiltersPanel(QWidget):
         state.mame_include_chd = self.chd.isChecked()
         state.mame_include_optional = self.optional.isChecked()
         state.mame_working_only = self.working.isChecked()
-        state.fundamental = {
-            key: check.isChecked() for key, check in self.fundamental.items()
-        }
+        state.fundamental = {key: check.isChecked() for key, check in self.fundamental.items()}
         for key, widget in self._facet_widgets.items():
-            setattr(
-                state,
-                key,
-                [
-                    str(item.data(Qt.ItemDataRole.UserRole))
-                    for item in widget.selectedItems()
-                ],
-            )
+            setattr(state, key, [str(item.data(Qt.ItemDataRole.UserRole)) for item in widget.selectedItems()])
         return state
 
     def _changed(self, *_args) -> None:
@@ -414,15 +419,12 @@ class MameFiltersPanel(QWidget):
     def _format_result(payload: dict, prefix: str) -> str:
         stages = payload.get("stage_counts") or {}
         reasons = payload.get("filter_counts") or {}
-        reason_text = " | ".join(
-            f"{key}={value:,}" for key, value in list(reasons.items())[:8]
-        ) or "nenhum"
+        reason_text = " | ".join(f"{key}={value:,}" for key, value in list(reasons.items())[:8]) or "nenhum"
         return (
             f"{prefix}: {int(payload.get('input_count', 0)):,} entradas → "
             f"{int(payload.get('output_count', 0)):,} permanecem → "
             f"{int(payload.get('filtered_count', 0)):,} excluídas.\n"
-            "Pipeline: "
-            + " | ".join(f"{key}={value:,}" for key, value in stages.items())
+            "Pipeline: " + " | ".join(f"{key}={value:,}" for key, value in stages.items())
             + f"\nMotivos: {reason_text}"
         )
 
@@ -437,18 +439,10 @@ class MameFiltersPanel(QWidget):
             profiles = raw if isinstance(raw, list) else []
         except (OSError, ValueError, TypeError):
             profiles = []
-        profiles = [
-            item
-            for item in profiles
-            if not isinstance(item, dict)
-            or item.get("profile_id") != state["profile_id"]
-        ]
+        profiles = [item for item in profiles if not isinstance(item, dict) or item.get("profile_id") != state["profile_id"]]
         profiles.append(state)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps(profiles, indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
+        path.write_text(json.dumps(profiles, indent=2, ensure_ascii=False), encoding="utf-8")
         self.result.setText(f"Perfil V2 salvo em:\n{path}")
 
     def _apply(self) -> None:
