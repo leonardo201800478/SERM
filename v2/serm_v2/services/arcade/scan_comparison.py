@@ -1,4 +1,4 @@
-"""Confronto entre ListXML MAME e um snapshot físico de scan V2."""
+"""Confronto entre ListXML MAME e snapshots físicos de scan SERM V2."""
 
 from __future__ import annotations
 
@@ -97,8 +97,12 @@ class ArcadeScanComparisonService:
         payload = json.loads(Path(path).read_text(encoding="utf-8"))
         if not isinstance(payload, dict):
             raise ValueError("O arquivo de scan deve conter um objeto JSON na raiz.")
-        if payload.get("format") not in {None, "SERM-SCAN-V2"}:
-            raise ValueError("Formato de scan não reconhecido pelo SERM V2.")
+        # Os snapshots atualmente gravados pelo SERM ainda usam o identificador
+        # SERM-SCAN-V1, embora pertençam ao fluxo V2. O Studio deve consumir esses
+        # arquivos diretamente, sem exigir uma conversão manual.
+        scan_format = str(payload.get("format") or "").strip().upper()
+        if scan_format and scan_format not in {"SERM-SCAN-V1", "SERM-SCAN-V2"}:
+            raise ValueError(f"Formato de scan não reconhecido pelo SERM: {scan_format}.")
         if not isinstance(payload.get("evidence"), list):
             raise ValueError("O scan não contém uma lista de evidências válida.")
         return payload
