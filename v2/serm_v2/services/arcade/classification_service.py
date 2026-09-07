@@ -34,8 +34,8 @@ class ArcadeClassificationService:
         ArcadeContentType.PACHINKO: frozenset({"pachinko"}),
         ArcadeContentType.PACHISLOT: frozenset({"pachislot", "pachi slot", "pachi-slot"}),
         ArcadeContentType.QUIZ: frozenset({"quiz", "quiz game"}),
-        ArcadeContentType.GAMBLING: frozenset({"gambling", "betting"}),
-        ArcadeContentType.FRUIT_MACHINE: frozenset({"fruit machine", "fruit machines", "fruit_machine", "slot machine", "slots"}),
+        ArcadeContentType.GAMBLING: frozenset({"gambling", "betting", "slot machine", "slot machines"}),
+        ArcadeContentType.FRUIT_MACHINE: frozenset({"fruit machine", "fruit machines", "fruit_machine"}),
         ArcadeContentType.CASINO: frozenset({"casino", "casino game"}),
         ArcadeContentType.TABLETOP: frozenset({"tabletop", "table top"}),
         ArcadeContentType.HANDHELD: frozenset({"handheld", "portable", "portable game"}),
@@ -77,6 +77,9 @@ class ArcadeClassificationService:
         ArcadeHardwareFamily.MODEL_3: frozenset({"model 3", "model3", "sega model 3", "supermodel"}),
     }
 
+    # These are MAME -listxml control types, plus normalized aliases accepted
+    # by SERM. A generic "paddle" is deliberately not called a steering wheel:
+    # MAME also uses paddle for non-steering analog controls.
     _CONTROL_ALIASES: dict[str, ArcadeInputType] = {
         "stick": ArcadeInputType.JOYSTICK,
         "joystick": ArcadeInputType.JOYSTICK,
@@ -86,7 +89,7 @@ class ArcadeClassificationService:
         "pedal": ArcadeInputType.PEDALS,
         "pedals": ArcadeInputType.PEDALS,
         "dial": ArcadeInputType.DIAL,
-        "paddle": ArcadeInputType.STEERING_WHEEL,
+        "paddle": ArcadeInputType.ANALOG,
         "positional": ArcadeInputType.ANALOG,
         "adstick": ArcadeInputType.ANALOG,
         "analog stick": ArcadeInputType.ANALOG,
@@ -94,8 +97,6 @@ class ArcadeClassificationService:
         "trackball": ArcadeInputType.TRACKBALL,
         "lightgun": ArcadeInputType.LIGHTGUN,
         "light gun": ArcadeInputType.LIGHTGUN,
-        "only_buttons": ArcadeInputType.BUTTONS_2,
-        "buttons": ArcadeInputType.BUTTONS_2,
         "dance pad": ArcadeInputType.DANCE_PAD,
         "flight stick": ArcadeInputType.FLIGHT_STICK,
         "flightstick": ArcadeInputType.FLIGHT_STICK,
@@ -188,7 +189,15 @@ class ArcadeClassificationService:
             values = ()
         else:
             values = (value,)
-        return [cls._normalize(str(item)) for item in values if str(item).strip()]
+
+        normalized: list[str] = []
+        for item in values:
+            text = cls._normalize(str(item))
+            if not text:
+                continue
+            normalized.append(text)
+            normalized.extend(part.strip() for part in re.split(r"[/|;>]", text) if part.strip())
+        return list(dict.fromkeys(normalized))
 
     @staticmethod
     def _normalize(value: str) -> str:
@@ -258,7 +267,7 @@ class ArcadeClassificationService:
         for key in ("controls", "control", "input_controls", "input_types"):
             value = metadata.get(key)
             if isinstance(value, Mapping):
-                raw_values.extend(value.keys())
+                raw_values.append(value)
             elif isinstance(value, (list, tuple, set, frozenset)):
                 raw_values.extend(value)
             elif value is not None:
@@ -305,7 +314,7 @@ class ArcadeClassificationService:
                 result.extend(cls._extract_ints(value.get("buttons")))
             return result
         if isinstance(value, (list, tuple, set, frozenset)):
-            result = []
+            result: list[int] = []
             for item in value:
                 result.extend(cls._extract_button_counts(item))
             return result
@@ -332,15 +341,15 @@ class ArcadeClassificationService:
             value = metadata.get(key)
             angle = cls._parse_angle(value)
             if angle is not None:
-                return cls._wheel_class(angle), f"{key}:{angle}"
+                return cls._wheel_class(angle), f"{key}:{angle:g}"
 
-        # A nested control may carry an explicit wheel/rotation field. Do not
-        # derive degrees from MAME minimum/maximum: those are input ranges,
-        # not documented physical steering lock values.
+        # MAME minimum/maximum are input ranges, not documented physical
+        # steering-lock values. Therefore they are intentionally not used to
+        # infer a wheel angle.
         for value in (metadata.get("controls"), metadata.get("control")):
             angle = cls._find_nested_angle(value)
             if angle is not None:
-                return cls._wheel_class(angle), f"control:{angle}"
+                return cls._wheel_class(angle), f"control:{angle:g}"
 
         return WheelAngleClass.UNKNOWN, None
 
