@@ -6,7 +6,11 @@ import logging
 from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QSettings, QSize, Qt
-from PySide6.QtWidgets import QApplication, QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMainWindow, QStackedWidget, QStyle, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QApplication, QDockWidget, QFrame, QHBoxLayout, QLabel, QListWidget,
+    QListWidgetItem, QMainWindow, QPushButton, QStackedWidget, QStyle,
+    QVBoxLayout, QWidget,
+)
 
 from ..config.settings import Settings
 from ..database.bootstrap import apply_migrations
@@ -62,6 +66,7 @@ class MainWindow(QMainWindow):
         self.database = create_sqlite_engine(database_path)
         self.log_viewer = LogViewer()
         self._build_ui()
+        self._build_log_dock()
         self._restore_window_layout()
 
     @staticmethod
@@ -189,6 +194,28 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(root)
         self.navigation.currentRowChanged.connect(self._on_navigation_changed)
         self.navigation.setCurrentRow(0)
+
+    def _build_log_dock(self) -> None:
+        """Cria um console global de logs, redimensionável e sem clipping."""
+        self.log_dock = QDockWidget("LOGS DO SERM", self)
+        self.log_dock.setObjectName("sermLogDock")
+        self.log_dock.setAllowedAreas(Qt.DockWidgetArea.BottomDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
+        self.log_dock.setFeatures(
+            QDockWidget.DockWidgetFeature.DockWidgetMovable
+            | QDockWidget.DockWidgetFeature.DockWidgetFloatable
+            | QDockWidget.DockWidgetFeature.DockWidgetClosable
+        )
+        console = self.log_viewer.create_console(self.log_dock)
+        self.log_console = console
+        self.log_dock.setWidget(console)
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.log_dock)
+        self.log_dock.resize(self.width(), 175)
+        self.log_dock.visibilityChanged.connect(self._log_dock_visibility_changed)
+
+    def _log_dock_visibility_changed(self, visible: bool) -> None:
+        """Registra a visibilidade do console sem interferir no layout salvo."""
+        if visible:
+            self.status_bar.showMessage("Console de logs ativo — arraste a borda para redimensionar")
 
     def _on_navigation_changed(self, index: int) -> None:
         if 0 <= index < len(self.pages):
