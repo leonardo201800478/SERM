@@ -17,11 +17,11 @@ from typing import Final
 
 from ..runtime.paths import data_root
 
-FILTERS_FILE: Final[Path] = data_root() / "mame_fundamental_filters.json"
+# Arquivo V2 separado para não interpretar configurações criadas pela antiga
+# semântica, na qual True significava "excluir".
+FILTERS_FILE: Final[Path] = data_root() / "mame_fundamental_filters_v2.json"
 
-# Semântica: True = permanece no set; False = é excluída.
-# Mechanical e Fruit Machines ficam fora por padrão, pois não fazem parte do
-# conjunto arcade principal desejado pelo Arcade Studio.
+# True = permanece no set; False = é excluída.
 DEFAULT_FILTERS: Final[dict[str, bool]] = {
     "mechanical": False,
     "dance": True,
