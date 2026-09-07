@@ -1,12 +1,8 @@
-"""Motor de filtros em camadas do Arcade Studio.
-
-O motor aplica primeiro regras de limpeza de conteúdo e somente depois
-refinamentos. O catálogo original nunca é alterado.
-"""
+"""Motor de filtros em camadas do Arcade Studio."""
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 
@@ -43,11 +39,7 @@ class FilterStage(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class FilterRules:
-    """Regras declarativas para uma execução do motor.
-
-    Valores vazios significam que a respectiva camada não restringe o
-    resultado. Exclusões são aplicadas antes das seleções/refinamentos.
-    """
+    """Regras declarativas para uma execução do motor."""
 
     excluded_content_types: frozenset[ArcadeContentType] = frozenset()
     included_content_types: frozenset[ArcadeContentType] = frozenset()
@@ -80,9 +72,10 @@ class FilteredGame:
 
 @dataclass(frozen=True, slots=True)
 class FilterResult:
-    """Resultado completo de uma execução, incluindo métricas por etapa."""
+    """Resultado completo, mantendo incluídos e excluídos para auditoria."""
 
     games: tuple[FilteredGame, ...]
+    excluded: tuple[FilteredGame, ...]
     total_input: int
     counts_after_stage: Mapping[FilterStage, int] = field(default_factory=dict)
 
@@ -90,9 +83,16 @@ class FilterResult:
     def included_count(self) -> int:
         return len(self.games)
 
+    @property
+    def excluded_count(self) -> int:
+        return len(self.excluded)
+
+
+Matcher = Callable[[ArcadeClassification, frozenset], bool]
+
 
 class ArcadeFilterEngine:
-    """Aplica o pipeline de limpeza e refinamento sem alterar o catálogo."""
+    """Aplica o pipeline sem alterar o catálogo de origem."""
 
     def __init__(self, classifier: ArcadeClassificationService | None = None) -> None:
         self._classifier = classifier or ArcadeClassificationService()
@@ -103,33 +103,46 @@ class ArcadeFilterEngine:
         rules: FilterRules | None = None,
     ) -> FilterResult:
         active_rules = rules or FilterRules()
-        items = [FilteredGame(game, self._classifier.classify(game), FilterTrace(FilterDecision.INCLUDED)) for game in games]
+        items = [
+            FilteredGame(
+                game,
+                self._classifier.classify(game),
+                FilterTrace(FilterDecision.INCLUDED),
+            )
+            for game in games
+        ]
         total_input = len(items)
         counts: dict[FilterStage, int] = {}
+        excluded: list[FilteredGame] = []
 
-        items = self._apply_content(items, active_rules)
+        items, removed = self._apply_content(items, active_rules)
+        excluded.extend(removed)
         counts[FilterStage.CONTENT] = len(items)
-        items = self._apply_refinement(items, active_rules, FilterStage.GENRE, self._match_genre)
-        counts[FilterStage.GENRE] = len(items)
-        items = self._apply_refinement(items, active_rules, FilterStage.HARDWARE, self._match_hardware)
-        counts[FilterStage.HARDWARE] = len(items)
-        items = self._apply_refinement(items, active_rules, FilterStage.MANUFACTURER, self._match_manufacturer)
-        counts[FilterStage.MANUFACTURER] = len(items)
-        items = self._apply_refinement(items, active_rules, FilterStage.SERIES, self._match_series)
-        counts[FilterStage.SERIES] = len(items)
-        items = self._apply_refinement(items, active_rules, FilterStage.INPUT, self._match_input)
-        counts[FilterStage.INPUT] = len(items)
-        items = self._apply_refinement(items, active_rules, FilterStage.WHEEL, self._match_wheel)
-        counts[FilterStage.WHEEL] = len(items)
-        return FilterResult(tuple(items), total_input, counts)
+
+        for stage, matcher in (
+            (FilterStage.GENRE, self._match_genre),
+            (FilterStage.HARDWARE, self._match_hardware),
+            (FilterStage.MANUFACTURER, self._match_manufacturer),
+            (FilterStage.SERIES, self._match_series),
+            (FilterStage.INPUT, self._match_input),
+            (FilterStage.WHEEL, self._match_wheel),
+        ):
+            items, removed = self._apply_refinement(items, active_rules, stage, matcher)
+            excluded.extend(removed)
+            counts[stage] = len(items)
+
+        return FilterResult(tuple(items), tuple(excluded), total_input, counts)
 
     @staticmethod
-    def _apply_content(items: list[FilteredGame], rules: FilterRules) -> list[FilteredGame]:
+    def _apply_content(
+        items: list[FilteredGame], rules: FilterRules
+    ) -> tuple[list[FilteredGame], list[FilteredGame]]:
         result: list[FilteredGame] = []
+        excluded: list[FilteredGame] = []
         for item in items:
             content = item.classification.content_type
             if content in rules.excluded_content_types:
-                result.append(
+                excluded.append(
                     FilteredGame(
                         item.game,
                         item.classification,
@@ -141,26 +154,55 @@ class ArcadeFilterEngine:
                         ),
                     )
                 )
-                continue
-            if rules.included_content_types and content not in rules.included_content_types:
-                continue
-            result.append(item)
-        return result
+            elif rules.included_content_types and content not in rules.included_content_types:
+                excluded.append(
+                    FilteredGame(
+                        item.game,
+                        item.classification,
+                        FilterTrace(
+                            FilterDecision.EXCLUDED,
+                            FilterStage.CONTENT,
+                            "include_content",
+                            f"CONTENT_TYPE = {content.value} não está entre os tipos incluídos",
+                        ),
+                    )
+                )
+            else:
+                result.append(item)
+        return result, excluded
 
     @staticmethod
     def _apply_refinement(
         items: list[FilteredGame],
         rules: FilterRules,
         stage: FilterStage,
-        matcher,
-    ) -> list[FilteredGame]:
+        matcher: Matcher,
+    ) -> tuple[list[FilteredGame], list[FilteredGame]]:
         selected = ArcadeFilterEngine._selection_for_stage(rules, stage)
         if not selected:
-            return items
-        return [item for item in items if matcher(item.classification, selected)]
+            return items, []
+        result: list[FilteredGame] = []
+        excluded: list[FilteredGame] = []
+        for item in items:
+            if matcher(item.classification, selected):
+                result.append(item)
+            else:
+                excluded.append(
+                    FilteredGame(
+                        item.game,
+                        item.classification,
+                        FilterTrace(
+                            FilterDecision.EXCLUDED,
+                            stage,
+                            f"include_{stage.value}",
+                            f"não atende ao filtro {stage.value}",
+                        ),
+                    )
+                )
+        return result, excluded
 
     @staticmethod
-    def _selection_for_stage(rules: FilterRules, stage: FilterStage):
+    def _selection_for_stage(rules: FilterRules, stage: FilterStage) -> frozenset:
         return {
             FilterStage.GENRE: rules.included_genres,
             FilterStage.HARDWARE: rules.included_hardware,
@@ -180,11 +222,13 @@ class ArcadeFilterEngine:
 
     @staticmethod
     def _match_manufacturer(classification: ArcadeClassification, selected: frozenset[str]) -> bool:
-        return classification.manufacturer is not None and classification.manufacturer.casefold() in {value.casefold() for value in selected}
+        values = {value.casefold() for value in selected}
+        return classification.manufacturer is not None and classification.manufacturer.casefold() in values
 
     @staticmethod
     def _match_series(classification: ArcadeClassification, selected: frozenset[str]) -> bool:
-        return classification.series is not None and classification.series.casefold() in {value.casefold() for value in selected}
+        values = {value.casefold() for value in selected}
+        return classification.series is not None and classification.series.casefold() in values
 
     @staticmethod
     def _match_input(classification: ArcadeClassification, selected: frozenset[ArcadeInputType]) -> bool:
