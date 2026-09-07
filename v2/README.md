@@ -75,7 +75,6 @@ The roadmap in [`docs/phases.md`](docs/phases.md) is authoritative for planned w
 - Python `>=3.12,<3.15`;
 - PySide6 `>=6.8,<7`;
 - SQLAlchemy `>=2.0,<3`;
-- Alembic `>=1.16,<2`;
 - Windows is the primary target; Qt/X11 compatibility is declared by the package metadata.
 
 Development dependencies: pytest, pytest-cov and Ruff.
@@ -121,7 +120,7 @@ Ruff is configured with a 100-character line limit, Python 3.12 target and impor
 
 ## Database
 
-Initialization and migration behavior live under `serm_v2/database`. Versioned SQL migrations are stored in `serm_v2/database/migrations`.
+Initialization and migration behavior live under `serm_v2/database`. Versioned SQL migrations are stored in `serm_v2/database/migrations` and are applied by the V2 bootstrap; Alembic is not part of the current migration mechanism.
 
 The database is application state, not a copy of the user's ROM collection. Physical content stays outside the database.
 
