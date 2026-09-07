@@ -45,6 +45,45 @@ def test_missing_dependency_is_reported_without_silent_drop() -> None:
     assert any(trace.decision is SetBuildDecision.MISSING_DEPENDENCY for trace in result.traces)
 
 
+def test_disabled_bios_dependency_invalidates_the_set() -> None:
+    games = [
+        game("game", dependencies=["bios"]),
+        game("bios", is_bios=True),
+    ]
+
+    result = ArcadeSetBuilder().build(games, ["game"], include_bios=False)
+
+    assert result.unsatisfied_dependencies == ("bios",)
+    assert not result.is_valid
+    assert {item.machine_name for item in result.arcade_set.games} == {"game"}
+    trace = next(item for item in result.traces if item.machine_name == "bios")
+    assert trace.decision is SetBuildDecision.UNSATISFIED_DEPENDENCY
+
+
+def test_disabled_device_dependency_invalidates_the_set() -> None:
+    games = [
+        game("game", dependencies=["device"]),
+        game("device", is_device=True),
+    ]
+
+    result = ArcadeSetBuilder().build(games, ["game"], include_devices=False)
+
+    assert result.unsatisfied_dependencies == ("device",)
+    assert not result.is_valid
+    trace = next(item for item in result.traces if item.machine_name == "device")
+    assert trace.decision is SetBuildDecision.UNSATISFIED_DEPENDENCY
+
+
+def test_selected_dependency_is_promoted_to_selected() -> None:
+    games = [game("parent"), game("clone", "parent")]
+
+    result = ArcadeSetBuilder().build(games, ["clone", "parent"])
+
+    decisions = {trace.machine_name: trace.decision for trace in result.traces}
+    assert decisions["parent"] is SetBuildDecision.SELECTED
+    assert result.selected_count == 2
+
+
 def test_dependency_cycle_is_reported() -> None:
     games = [game("a", "b"), game("b", "a")]
 
