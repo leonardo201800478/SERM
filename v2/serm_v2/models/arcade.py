@@ -95,7 +95,12 @@ class ArcadeDisk:
 
 @dataclass(slots=True, frozen=True)
 class ArcadeGame:
-    """Representação de um título lógico no catálogo."""
+    """Representação de um título lógico no catálogo.
+
+    Flags estruturais são derivadas do metadata para manter o modelo compatível
+    com os providers que normalizam atributos do catálogo sem duplicar campos
+    no construtor do jogo.
+    """
 
     machine_name: str
     display_name: str
@@ -110,6 +115,43 @@ class ArcadeGame:
     @property
     def is_clone(self) -> bool:
         return bool(self.parent_name)
+
+    @property
+    def is_bios(self) -> bool:
+        """Retorna se o catálogo marcou a machine como BIOS."""
+        return self._metadata_flag("is_bios", "bios")
+
+    @property
+    def is_device(self) -> bool:
+        """Retorna se o catálogo marcou a machine como device."""
+        return self._metadata_flag("is_device", "device")
+
+    @property
+    def working(self) -> bool | None:
+        """Retorna o estado de funcionamento sem confundir ausência com True."""
+        value = self.metadata.get("working")
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return None
+        normalized = str(value).strip().casefold()
+        if normalized in {"yes", "true", "1", "working", "good"}:
+            return True
+        if normalized in {"no", "false", "0", "not working", "bad"}:
+            return False
+        return None
+
+    def _metadata_flag(self, *keys: str) -> bool:
+        for key in keys:
+            if key in self.metadata:
+                value = self.metadata[key]
+                if isinstance(value, bool):
+                    return value
+                if str(value).strip().casefold() in {"yes", "true", "1"}:
+                    return True
+                if str(value).strip().casefold() in {"no", "false", "0"}:
+                    return False
+        return False
 
     @property
     def rom_status(self) -> RomStatus:
