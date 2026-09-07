@@ -1,97 +1,35 @@
-# CHD no SERM
+# CHD
 
-**Referência:** 29/08/2026
+CHD é um formato de mídia gerenciado por ferramentas do ecossistema MAME e deve ser tratado separadamente de archives comuns.
 
-CHD possui dois contextos distintos no projeto e não deve ser confundido com arquivo compactado genérico.
+## Princípios
 
-```text
-CHD
-├── MAME
-│   └── validar/copiar artefatos existentes conforme LISTXML
-└── Consoles / Discos
-    └── construir CHD a partir de mídia compatível
-```
+- identificar CHDs pela definição do catálogo;
+- procurar o arquivo no local esperado da machine;
+- não realizar busca global indiscriminada durante o scan;
+- validar CHD existente com ferramenta compatível quando o workflow exigir;
+- publicar somente depois da validação.
 
-## 1. CHD MAME
-
-No fluxo MAME já definido, um CHD encontrado é:
-
-1. identificado como requisito do Scan/Dependency Resolver;
-2. validado pelo `chdman info`;
-3. comparado pelo content SHA1 esperado pelo LISTXML;
-4. validado com `chdman verify` quando aplicável;
-5. copiado para o destino.
-
-Não executar create/extract/merge/recompressão de CHD MAME como parte dessa reconstrução já definida.
-
-Se o content SHA1 divergir, o arquivo não é aceito como o requisito.
-
-## 2. CHD para discos de consoles
-
-Na nova reconstrução de consoles, especialmente com catálogo Redump, **CHD será o formato de saída preferencial** sempre que a mídia e a informação disponível permitirem conversão correta.
-
-Fluxo:
+## Reconstrução
 
 ```text
-Redump Disc
- ↓
-fonte de imagem compatível
- ↓
-DiscImage model
- ↓
-CHD Builder
- ↓
-CHD temporário
- ↓
-validação
- ↓
-CHD final
+Disk definition
+    ↓
+Scan evidence
+    ↓
+Candidate / source
+    ↓
+Staging
+    ↓
+CHD creation or copy
+    ↓
+Verification
+    ↓
+Atomic publish
 ```
 
-O builder deve preservar corretamente:
+`chdman` é uma ferramenta externa e seu caminho deve ser configurável. A reconstrução deve registrar versão/ferramenta utilizada quando essa informação estiver disponível.
 
-- dados;
-- faixas;
-- áudio;
-- ordem das faixas;
-- informações necessárias ao conteúdo;
-- metadados relevantes para a conversão.
+## Ausência
 
-Não converter cegamente uma ISO/BIN-CUE apenas para produzir um `.chd`.
-
-## 3. Fonte e matching
-
-O Redump será a referência lógica para discos. A identidade deve usar os hashes/metadados fornecidos pela fonte, sem inferir uma correspondência apenas pelo nome.
-
-## 4. Atomicidade
-
-CHD construído deve seguir o mesmo princípio de staging:
-
-```text
-CHD temporário
- ↓
-verify / validação
- ↓
-os.replace()
- ↓
-CHD final
-```
-
-Nunca publicar uma imagem parcialmente construída.
-
-## 5. Serviço
-
-O `CHDService` permanece separado do `ArchiveService`.
-
-`ArchiveService` trata ZIP/7Z/RAR. `CHDService` trata operações específicas de CHD e ferramentas como `chdman` quando apropriado.
-
-## 6. Próximas etapas
-
-1. validar catálogo/download Redump;
-2. modelar `RedumpDisc`;
-3. definir fontes de imagem aceitas;
-4. implementar detecção de CUE/BIN/ISO e demais formatos necessários;
-5. implementar CHD Builder;
-6. implementar validação pós-criação;
-7. fixtures reais de sistemas ópticos;
-8. testes de áudio/múltiplas faixas.
+A ausência de um CHD não deve provocar uma varredura global do filesystem. O resultado deve ser registrado como ausência para que o resolver de reconstrução possa consultar fontes alternativas posteriormente.
