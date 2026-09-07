@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/arcade-studio-catalog
+  workflow_dispatch:
 
 permissions:
   contents: write
