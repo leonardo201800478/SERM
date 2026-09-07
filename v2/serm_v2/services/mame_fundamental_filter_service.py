@@ -21,6 +21,8 @@ DEFAULT_FILTERS: Final[dict[str, bool]] = {
     "console": True,
     "handheld": True,
     "fruit_machines": True,
+    "quiz": True,
+    "tabletop": True,
 }
 
 FILTER_DEFINITIONS: Final[dict[str, dict[str, object]]] = {
@@ -44,6 +46,14 @@ FILTER_DEFINITIONS: Final[dict[str, dict[str, object]]] = {
         "label": "Fruit Machines e derivados",
         "description": "Exclui Fruit Machine, Slot, Casino, Gambling, Redemption e Medal.",
     },
+    "quiz": {
+        "label": "Quiz / Trivia",
+        "description": "Exclui máquinas classificadas como Quiz/Trivia.",
+    },
+    "tabletop": {
+        "label": "Tabletop",
+        "description": "Exclui máquinas classificadas como Tabletop.",
+    },
 }
 
 # Estes padrões são aplicados aos dados de classificação já congelados no
@@ -64,6 +74,8 @@ CATEGORY_PATTERNS: Final[dict[str, tuple[str, ...]]] = {
         "medal game",
         "medal_game",
     ),
+    "quiz": ("quiz", "trivia"),
+    "tabletop": ("tabletop", "table top"),
 }
 
 
