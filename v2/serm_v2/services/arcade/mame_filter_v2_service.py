@@ -13,9 +13,10 @@ from uuid import uuid4
 
 from ...models.arcade import ArcadeGame, ArcadePlatform, PlayabilityStatus
 from ...models.arcade_classification import ArcadeContentType, ArcadeGenre, ArcadeHardwareFamily, ArcadeInputType, WheelAngleClass
-from ...runtime.paths import database_path, scans_root
+from ...runtime.paths import data_root, database_path, scans_root
 from ..arcade.filter_engine import ArcadeFilterEngine, FilterRules
 from ..mame_category_filter_service import MameCategoryFilterService
+from ..mame_folder_filter_service import MameFolderFilterService
 from ..scan_file_repository import ScanFileRepository
 
 
@@ -23,23 +24,28 @@ class MameFilterV2Service:
     """Usa o ListXML normalizado no ``serm.db`` como fonte primária do filtro."""
 
     _CONTENT = {
-        "mechanical": {ArcadeContentType.MECHANICAL, ArcadeContentType.ELECTROMECHANICAL},
-        "console": {ArcadeContentType.CONSOLE}, "handheld": {ArcadeContentType.HANDHELD},
+        "mechanical": {ArcadeContentType.MECHANICAL, ArcadeContentType.ELECTROMECHANICAL}, "console": {ArcadeContentType.CONSOLE}, "handheld": {ArcadeContentType.HANDHELD},
         "fruit_machines": {ArcadeContentType.FRUIT_MACHINE, ArcadeContentType.GAMBLING, ArcadeContentType.CASINO, ArcadeContentType.REDEMPTION, ArcadeContentType.MEDAL},
         "quiz": {ArcadeContentType.QUIZ}, "tabletop": {ArcadeContentType.TABLETOP, ArcadeContentType.MAHJONG},
     }
     _FOLDER_FILES = {
-        "working": ("Working Arcade.ini", "Working Arcade Clean.ini"), "not_working": ("Not Working Arcade.ini", "not_working_arcade.ini"),
-        "parents": ("Parents Arcade.ini", "parents_arcade.ini"), "clones": ("Clones Arcade.ini",),
-        "mechanical": ("Mechanical Arcade.ini", "mechanical_arcade.ini"), "non_mechanical": ("Non Mechanical Arcade.ini", "not_mechanical_arcade.ini"),
-        "chd": ("CHD Working.ini", "CHD (no BIOS).ini"), "freeplay": ("freeplay.ini",), "screenless": ("screenless.ini",),
-        "mature": ("mature.ini", "not_mature.ini"), "genre": ("genre.ini",), "series": ("series.ini",), "languages": ("languages.ini",),
-        "driver": ("driver.ini",), "controls": ("controls.ini", "Control.ini"), "cpu": ("CPU.ini",), "device": ("Device.ini",),
-        "resolution": ("resolution.ini",), "screen": ("Screen.ini",), "sound": ("Sound.ini",), "version": ("Version.ini", "version_NEW.ini", "version_ON.ini"),
-        "vsync": ("Vsync.ini",), "category": ("category.ini",), "catlist": ("catlist.ini",), "bootlegs": ("bootlegs.ini", "Non Bootlegs.ini", "not_ bootlegs.ini"),
-        "artwork": ("artwork.ini", "artwork_necessary.ini"), "players": ("players.ini",), "multiplayer": ("multiplayer.ini",), "prototype": ("prototype.ini",),
-        "game_or_no_game": ("Game Or No Game.ini",),
+        "working": ("Working Arcade.ini", "Working Arcade Clean.ini"), "not_working": ("Not Working Arcade.ini", "not_working_arcade.ini"), "parents": ("Parents Arcade.ini", "parents_arcade.ini"), "clones": ("Clones Arcade.ini",),
+        "mechanical": ("Mechanical Arcade.ini", "mechanical_arcade.ini"), "non_mechanical": ("Non Mechanical Arcade.ini", "not_mechanical_arcade.ini"), "chd": ("CHD Working.ini", "CHD (no BIOS).ini"), "freeplay": ("freeplay.ini",), "screenless": ("screenless.ini",),
+        "mature": ("mature.ini", "not_mature.ini"), "genre": ("genre.ini",), "series": ("series.ini",), "languages": ("languages.ini",), "driver": ("driver.ini",), "controls": ("controls.ini", "Control.ini"), "cpu": ("CPU.ini",), "device": ("Device.ini",),
+        "resolution": ("resolution.ini",), "screen": ("Screen.ini",), "sound": ("Sound.ini",), "version": ("Version.ini", "version_NEW.ini", "version_ON.ini"), "vsync": ("Vsync.ini",), "category": ("category.ini",), "catlist": ("catlist.ini",),
+        "bootlegs": ("bootlegs.ini", "Non Bootlegs.ini", "not_ bootlegs.ini"), "artwork": ("artwork.ini", "artwork_necessary.ini"), "players": ("players.ini",), "multiplayer": ("multiplayer.ini",), "prototype": ("prototype.ini",), "game_or_no_game": ("Game Or No Game.ini",),
     }
+
+    @classmethod
+    def _ensure_folder_filters(cls) -> None:
+        """Garante a captura dos folders do MAME configurado antes da primeira consulta."""
+        try:
+            with sqlite3.connect(database_path(), timeout=30.0) as db:
+                if db.execute("SELECT COUNT(*) FROM mame_folder_filter_source").fetchone()[0]: return
+            payload = json.loads((data_root() / "emulator_paths.json").read_text(encoding="utf-8")); executable = payload.get("mame_executable")
+            if isinstance(executable, str) and executable.strip(): MameFolderFilterService(database_path(), Path(executable).expanduser().resolve().parent).ingest()
+        except (OSError, ValueError, TypeError, sqlite3.Error):
+            return
 
     @classmethod
     def _payload(cls, path: Path) -> dict:
@@ -53,8 +59,7 @@ class MameFilterV2Service:
         if source_hash:
             row = connection.execute("SELECT id,mame_build FROM mame_listxml_import WHERE source_hash=? AND status='completed' ORDER BY id DESC LIMIT 1", (source_hash,)).fetchone()
             if row: return int(row[0]), row[1]
-        label = str(payload.get("catalog_label") or "")
-        build_match = re.search(r"(?:MAME\s*)?([0-9]+\.[0-9]+)", label, re.IGNORECASE)
+        label = str(payload.get("catalog_label") or ""); build_match = re.search(r"(?:MAME\s*)?([0-9]+\.[0-9]+)", label, re.IGNORECASE)
         if build_match:
             row = connection.execute("SELECT id,mame_build FROM mame_listxml_import WHERE mame_build LIKE ? AND status='completed' ORDER BY id DESC LIMIT 1", (f"%{build_match.group(1)}%",)).fetchone()
             if row: return int(row[0]), row[1]
@@ -64,46 +69,31 @@ class MameFilterV2Service:
 
     @classmethod
     def _games(cls, payload: dict) -> list[ArcadeGame]:
+        cls._ensure_folder_filters()
         physical_names = {str(item.get("machine_name") or item.get("machine") or item.get("name") or "").strip() for item in payload.get("evidence", [])}; physical_names.discard("")
         if not physical_names: return []
         with sqlite3.connect(database_path(), timeout=60.0) as db:
             import_id, _build = cls._import_id(db, payload); placeholders = ",".join("?" for _ in physical_names)
             query = f"""
                 SELECT m.id,m.name,m.cloneof,m.romof,m.isbios,m.isdevice,m.ismechanical,m.runnable,m.description,m.year,m.manufacturer,m.sourcefile,
-                       GROUP_CONCAT(DISTINCT c.category),GROUP_CONCAT(DISTINCT c.subcategory),MAX(d.status),MAX(d.emulation),MAX(d.sound),MAX(d.graphic),
-                       GROUP_CONCAT(DISTINCT disp.type),GROUP_CONCAT(DISTINCT disp.rotate),GROUP_CONCAT(DISTINCT disp.width || 'x' || disp.height),GROUP_CONCAT(DISTINCT disp.refresh_raw),
-                       GROUP_CONCAT(DISTINCT ctl.type),MAX(ctl.buttons),MAX(inp.players),GROUP_CONCAT(DISTINCT chip.type || ':' || COALESCE(chip.name,'')),
-                       COUNT(DISTINCT disk.id),COUNT(DISTINCT sample.id),COUNT(DISTINCT bios.id),COUNT(DISTINCT device.id),GROUP_CONCAT(DISTINCT rom.name),GROUP_CONCAT(DISTINCT disk.name)
-                FROM mame_machine m
-                LEFT JOIN mame_classification c ON c.machine_id=m.id AND c.resolved_status='resolved'
-                LEFT JOIN mame_driver d ON d.machine_id=m.id LEFT JOIN mame_display disp ON disp.machine_id=m.id LEFT JOIN mame_input inp ON inp.machine_id=m.id
-                LEFT JOIN mame_control ctl ON ctl.input_id=inp.id LEFT JOIN mame_chip chip ON chip.machine_id=m.id LEFT JOIN mame_disk disk ON disk.machine_id=m.id
-                LEFT JOIN mame_sample sample ON sample.machine_id=m.id LEFT JOIN mame_biosset bios ON bios.machine_id=m.id LEFT JOIN mame_device device ON device.machine_id=m.id LEFT JOIN mame_rom rom ON rom.machine_id=m.id
+                       GROUP_CONCAT(DISTINCT c.category),GROUP_CONCAT(DISTINCT c.subcategory),MAX(d.status),MAX(d.emulation),MAX(d.sound),MAX(d.graphic),GROUP_CONCAT(DISTINCT disp.type),GROUP_CONCAT(DISTINCT disp.rotate),GROUP_CONCAT(DISTINCT disp.width || 'x' || disp.height),GROUP_CONCAT(DISTINCT disp.refresh_raw),GROUP_CONCAT(DISTINCT ctl.type),MAX(ctl.buttons),MAX(inp.players),GROUP_CONCAT(DISTINCT chip.type || ':' || COALESCE(chip.name,'')),COUNT(DISTINCT disk.id),COUNT(DISTINCT sample.id),COUNT(DISTINCT bios.id),COUNT(DISTINCT device.id),GROUP_CONCAT(DISTINCT rom.name),GROUP_CONCAT(DISTINCT disk.name)
+                FROM mame_machine m LEFT JOIN mame_classification c ON c.machine_id=m.id AND c.resolved_status='resolved' LEFT JOIN mame_driver d ON d.machine_id=m.id LEFT JOIN mame_display disp ON disp.machine_id=m.id LEFT JOIN mame_input inp ON inp.machine_id=m.id LEFT JOIN mame_control ctl ON ctl.input_id=inp.id LEFT JOIN mame_chip chip ON chip.machine_id=m.id LEFT JOIN mame_disk disk ON disk.machine_id=m.id LEFT JOIN mame_sample sample ON sample.machine_id=m.id LEFT JOIN mame_biosset bios ON bios.machine_id=m.id LEFT JOIN mame_device device ON device.machine_id=m.id LEFT JOIN mame_rom rom ON rom.machine_id=m.id
                 WHERE m.import_id=? AND m.name IN ({placeholders}) GROUP BY m.id ORDER BY m.name COLLATE NOCASE
             """
             rows = db.execute(query, (import_id, *sorted(physical_names))).fetchall(); folder_maps = cls._folder_maps(db, physical_names); games: list[ArcadeGame] = []
             for row in rows:
                 (machine_id,name,cloneof,romof,isbios,isdevice,ismechanical,runnable,description,year,manufacturer,sourcefile,categories,subcategories,driver_status,emulation,sound,graphic,display_types,rotates,resolutions,refreshes,controls,buttons,players,chips,disk_count,sample_count,bios_count,device_count,rom_names,disk_names) = row
-                category_values = [v.strip() for v in str(categories or "").split(",") if v.strip()]; subcategory_values = [v.strip() for v in str(subcategories or "").split(",") if v.strip()]
-                folder_filters = {key: sorted(values.get(name, set())) for key, values in folder_maps.items()}
-                genre_values = folder_filters.get("genre", []); series_values = folder_filters.get("series", [])
+                category_values = [v.strip() for v in str(categories or "").split(",") if v.strip()]; subcategory_values = [v.strip() for v in str(subcategories or "").split(",") if v.strip()]; folder_filters = {key: sorted(values.get(name, set())) for key, values in folder_maps.items()}; genre_values = folder_filters.get("genre", []); series_values = folder_filters.get("series", [])
                 working = bool(folder_filters.get("working")) and not bool(folder_filters.get("not_working"))
-                if not folder_filters.get("working") and not folder_filters.get("not_working"):
-                    working = str(runnable or "").casefold() in {"yes", "true", "1"}
+                if not folder_filters.get("working") and not folder_filters.get("not_working"): working = str(runnable or "").casefold() in {"yes", "true", "1"}
                 status = str(driver_status or "").casefold(); emu = str(emulation or "").casefold()
                 if working: playability = PlayabilityStatus.FULLY_PLAYABLE.value
                 elif status == "good" and emu == "good": playability = PlayabilityStatus.FUNCTIONAL.value
                 elif status == "imperfect" or emu == "imperfect": playability = PlayabilityStatus.PARTIALLY_PLAYABLE.value
                 elif status == "preliminary" or emu == "preliminary": playability = PlayabilityStatus.IN_DEVELOPMENT.value
-                elif status in {"bad", "preliminary"} or emu in {"bad", "preliminary"}: playability = PlayabilityStatus.UNPLAYABLE.value
+                elif status == "bad" or emu == "bad": playability = PlayabilityStatus.UNPLAYABLE.value
                 else: playability = PlayabilityStatus.UNKNOWN.value
-                metadata = {
-                    "year": year, "manufacturer": manufacturer, "sourcefile": sourcefile, "categories": category_values, "subcategories": subcategory_values,
-                    "driver_status": driver_status, "emulation": emulation, "sound": sound, "graphic": graphic, "display": display_types, "rotate": rotates, "resolution": resolutions, "refresh": refreshes,
-                    "controls": controls, "buttons": buttons, "players": players, "chips": chips, "rom_names": rom_names, "disk_names": disk_names, "disk_count": int(disk_count or 0),
-                    "sample_count": int(sample_count or 0), "bios_count": int(bios_count or 0), "device_count": int(device_count or 0), "is_bios": isbios, "is_device": isdevice, "ismechanical": ismechanical,
-                    "runnable": runnable, "working": working, "playability": playability, "genres": genre_values, "series": series_values[0] if series_values else None, "folder_filters": folder_filters,
-                }
+                metadata = {"year": year, "manufacturer": manufacturer, "sourcefile": sourcefile, "categories": category_values, "subcategories": subcategory_values, "driver_status": driver_status, "emulation": emulation, "sound": sound, "graphic": graphic, "display": display_types, "rotate": rotates, "resolution": resolutions, "refresh": refreshes, "controls": controls, "buttons": buttons, "players": players, "chips": chips, "rom_names": rom_names, "disk_names": disk_names, "disk_count": int(disk_count or 0), "sample_count": int(sample_count or 0), "bios_count": int(bios_count or 0), "device_count": int(device_count or 0), "is_bios": isbios, "is_device": isdevice, "ismechanical": ismechanical, "runnable": runnable, "working": working, "playability": playability, "genres": genre_values, "series": series_values[0] if series_values else None, "folder_filters": folder_filters}
                 games.append(ArcadeGame(machine_name=str(name), display_name=str(description or name), platform=ArcadePlatform.MAME, parent_name=str(cloneof) if cloneof else None, category=category_values[0] if category_values else None, subcategory=subcategory_values[0] if subcategory_values else None, metadata=metadata))
             return games
 
@@ -154,7 +144,8 @@ class MameFilterV2Service:
     @classmethod
     def _candidate_names(cls, games: list[ArcadeGame], state) -> set[str] | None:
         candidate_sets: list[set[str]] = []
-        if state.categories or state.subcategories: candidate_sets.append(MameCategoryFilterService.matching_machine_names({"categories": state.categories, "subcategories": state.subcategories}, database_path()))
+        if state.categories or state.subcategories:
+            names = MameCategoryFilterService.matching_machine_names({"categories": state.categories, "subcategories": state.subcategories}, database_path()); candidate_sets.append(names.intersection({game.machine_name for game in games}))
         queries = {key: str(getattr(state, key, "") or "").strip().casefold() for key in ("title_query", "full_text", "rom_query", "parent_query", "clone_query", "video_query", "audio_query", "screen_query", "cabinet_query", "channels_query")}; type_filter = str(getattr(state, "type_filter", "all") or "all"); year_from, year_to = getattr(state, "year_from", None), getattr(state, "year_to", None)
         def match(game: ArcadeGame) -> bool:
             meta = cls._metadata_text(game)
