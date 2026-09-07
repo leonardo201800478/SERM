@@ -35,15 +35,15 @@ class MainWindow(QMainWindow):
         ("Home", "Página inicial e estado dos emuladores", "SP_DirHomeIcon"),
         ("Diretórios", "Gerenciar diretórios dos emuladores", "SP_DirIcon"),
         ("Ferramentas", "LaunchBox, 7-Zip e outros executáveis auxiliares", "SP_ComputerIcon"),
+        ("Scraper de DATs", "Importação e processamento de DATs", "SP_FileIcon"),
         ("Configurações", "Configurações dos emuladores", "SP_FileDialogDetailedView"),
         ("Shaders / Bezels", "Aparência, shaders e bezels", "SP_ComputerIcon"),
         ("Arcade Studio", "Catálogo MAME, comparação física, filtros e reconstrução V2", "SP_DriveHDIcon"),
         ("1 — Scan", "Auditoria completa contra DAT/catalogo", "SP_DriveHDIcon"),
-        ("MAME — Scans", "Novo scan, histórico e exclusão de scans MAME", "SP_DriveHDIcon"),
+        ("MAME — Scans", "Catálogo ListXML, construção do banco MAME, scans e histórico", "SP_DriveHDIcon"),
         ("2 — Filtragem", "Filtragem de fontes não-Arcade sobre scans já concluídos", "SP_FileDialogDetailedView"),
         ("No-Intro — Filtros", "Conteúdo, regiões, clones, hacks, traduções e 1G1R", "SP_FileDialogDetailedView"),
         ("3 — Reconstrução", "Montar o set a partir do arquivo filtrado", "SP_FileDialogInfoView"),
-        ("Scraper de DATs", "Importação e processamento de DATs", "SP_FileIcon"),
     )
     _GEOMETRY_KEY = "main_window/geometry"
     _STATE_KEY = "main_window/state"
@@ -172,6 +172,7 @@ class MainWindow(QMainWindow):
         self.home_section = HomePage(self)
         self.directories_tab = DirectoriesPage(self)
         self.tools_tab = ToolsDirectoriesPage(self)
+        self.dat_scraper_tab = DatScraperPage(self)
         self.settings_tab = EmulatorSettingsPage(self)
         self.visuals_tab = EmulatorShadersBezelsPage(self)
         self.arcade_studio_tab = ArcadeStudioPage(self)
@@ -180,12 +181,10 @@ class MainWindow(QMainWindow):
         self.filter_tab = FilteringPhasePage(self)
         self.no_intro_filter_tab = NoIntroFilterPage(self)
         self.reconstruction_tab = ReconstructionPhasePage(self)
-        self.dat_scraper_tab = DatScraperPage(self)
         self.pages = (
-            self.home_section, self.directories_tab, self.tools_tab, self.settings_tab,
-            self.visuals_tab, self.arcade_studio_tab, self.scan_tab, self.mame_scan_tab,
-            self.filter_tab, self.no_intro_filter_tab, self.reconstruction_tab,
-            self.dat_scraper_tab,
+            self.home_section, self.directories_tab, self.tools_tab, self.dat_scraper_tab,
+            self.settings_tab, self.visuals_tab, self.arcade_studio_tab, self.scan_tab,
+            self.mame_scan_tab, self.filter_tab, self.no_intro_filter_tab, self.reconstruction_tab,
         )
         for page in self.pages:
             self.page_stack.addWidget(page)
@@ -213,7 +212,6 @@ class MainWindow(QMainWindow):
         self.log_dock.visibilityChanged.connect(self._log_dock_visibility_changed)
 
     def _log_dock_visibility_changed(self, visible: bool) -> None:
-        """Registra a visibilidade do console sem interferir no layout salvo."""
         if visible:
             self.status_bar.showMessage("Console de logs ativo — arraste a borda para redimensionar")
 
