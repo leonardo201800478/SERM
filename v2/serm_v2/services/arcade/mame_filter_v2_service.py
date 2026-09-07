@@ -6,6 +6,7 @@ import json
 import re
 import time
 from collections import Counter
+from dataclasses import asdict
 from pathlib import Path
 from uuid import uuid4
 
@@ -94,21 +95,8 @@ class MameFilterV2Service:
         if state.categories or state.subcategories:
             candidate_sets.append(MameCategoryFilterService.matching_machine_names({"categories": state.categories, "subcategories": state.subcategories}, database_path()))
 
-        queries = {
-            "title_query": str(getattr(state, "title_query", "") or "").strip().casefold(),
-            "full_text": str(getattr(state, "full_text", "") or "").strip().casefold(),
-            "rom_query": str(getattr(state, "rom_query", "") or "").strip().casefold(),
-            "parent_query": str(getattr(state, "parent_query", "") or "").strip().casefold(),
-            "clone_query": str(getattr(state, "clone_query", "") or "").strip().casefold(),
-            "video_query": str(getattr(state, "video_query", "") or "").strip().casefold(),
-            "audio_query": str(getattr(state, "audio_query", "") or "").strip().casefold(),
-            "screen_query": str(getattr(state, "screen_query", "") or "").strip().casefold(),
-            "cabinet_query": str(getattr(state, "cabinet_query", "") or "").strip().casefold(),
-            "channels_query": str(getattr(state, "channels_query", "") or "").strip().casefold(),
-        }
-        type_filter = str(getattr(state, "type_filter", "all") or "all")
-        orientation = str(getattr(state, "orientation", "all") or "all").casefold()
-        year_from = getattr(state, "year_from", None); year_to = getattr(state, "year_to", None)
+        queries = {key: str(getattr(state, key, "") or "").strip().casefold() for key in ("title_query", "full_text", "rom_query", "parent_query", "clone_query", "video_query", "audio_query", "screen_query", "cabinet_query", "channels_query")}
+        type_filter = str(getattr(state, "type_filter", "all") or "all"); orientation = str(getattr(state, "orientation", "all") or "all").casefold(); year_from = getattr(state, "year_from", None); year_to = getattr(state, "year_to", None)
 
         def match(game: ArcadeGame) -> bool:
             meta = cls._metadata_text(game)
@@ -130,8 +118,8 @@ class MameFilterV2Service:
             if orientation != "all" and orientation not in meta: return False
             return True
 
-        active_query = any(queries.values()) or type_filter != "all" or year_from is not None or year_to is not None
-        if active_query: candidate_sets.append({game.machine_name for game in games if match(game)})
+        if any(queries.values()) or type_filter != "all" or year_from is not None or year_to is not None:
+            candidate_sets.append({game.machine_name for game in games if match(game)})
         if not candidate_sets: return None
         result = candidate_sets[0].copy()
         for names in candidate_sets[1:]: result.intersection_update(names)
@@ -139,21 +127,18 @@ class MameFilterV2Service:
 
     @classmethod
     def _rules(cls, state, games: list[ArcadeGame] | None = None) -> FilterRules:
-        excluded_content = set(); included_content = set()
+        excluded_content = set()
         for key, types in cls._CONTENT.items():
             if bool(state.fundamental.get(key, False)): excluded_content.update(types)
         excluded_genres = {ArcadeGenre.DANCE} if bool(state.fundamental.get("dance", False)) else set()
         def enum(values, enum_type):
             allowed = {member.value for member in enum_type}; return {enum_type(value) for value in values if value in allowed}
         candidate_names = cls._candidate_names(games or [], state) if games is not None else None
-        selected_content = enum(state.content, ArcadeContentType)
+        included_content = set(enum(state.content, ArcadeContentType))
         if bool(getattr(state, "mamecab_only", True)): included_content.add(ArcadeContentType.ARCADE)
-        included_content.update(selected_content)
         return FilterRules(
-            included_machine_names=frozenset(candidate_names) if candidate_names is not None else frozenset(),
-            excluded_content_types=frozenset(excluded_content), excluded_genres=frozenset(excluded_genres), included_content_types=frozenset(included_content),
-            included_playability=frozenset(enum(state.playability, PlayabilityStatus)), included_genres=frozenset(enum(state.genre, ArcadeGenre)), included_hardware=frozenset(enum(state.hardware, ArcadeHardwareFamily)),
-            included_manufacturers=frozenset(state.manufacturer), included_series=frozenset(state.series), included_inputs=frozenset(enum(state.input, ArcadeInputType)), included_wheel_angles=frozenset(enum(state.wheel, WheelAngleClass)),
+            included_machine_names=frozenset(candidate_names) if candidate_names is not None else frozenset(), excluded_content_types=frozenset(excluded_content), excluded_genres=frozenset(excluded_genres), included_content_types=frozenset(included_content),
+            included_playability=frozenset(enum(state.playability, PlayabilityStatus)), included_genres=frozenset(enum(state.genre, ArcadeGenre)), included_hardware=frozenset(enum(state.hardware, ArcadeHardwareFamily)), included_manufacturers=frozenset(state.manufacturer), included_series=frozenset(state.series), included_inputs=frozenset(enum(state.input, ArcadeInputType)), included_wheel_angles=frozenset(enum(state.wheel, WheelAngleClass)),
             include_bios=state.mame_include_bios, include_devices=state.mame_include_devices, include_optional=state.mame_include_optional, working_only=state.mame_working_only, parents_only=state.mame_clone_policy == "parents_only",
         )
 
