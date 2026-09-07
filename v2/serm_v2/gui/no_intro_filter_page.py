@@ -7,7 +7,19 @@ import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
 
-from PySide6.QtWidgets import QCheckBox, QComboBox, QGroupBox, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QMessageBox,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ..runtime.paths import data_root, database_path
 from ..services.no_intro_filter_service import DEFAULT_REGION_PRIORITY, NoIntroFilterService
