@@ -1,8 +1,8 @@
 """Interface operacional do Arcade Studio V2.
 
-O Studio usa o ListXML importado como fonte de verdade do conteúdo esperado e
-permite selecionar qualquer snapshot JSON produzido pelo scan completo do SERM.
-A comparação é feita por componente, preservando a evidência física do scan.
+O Studio usa o catálogo MAME persistido no banco SERM como fonte de verdade.
+O usuário escolhe a importação ListXML e o snapshot JSON produzido pelo scan.
+As operações pesadas de leitura e comparação são executadas fora da thread da GUI.
 """
 
 from __future__ import annotations
@@ -10,9 +10,10 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QObject, Qt, QThread, Signal
 from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
+    QComboBox,
     QFileDialog,
     QFormLayout,
     QGroupBox,
@@ -39,7 +40,6 @@ from ..runtime.paths import database_path, scans_root
 from ..services.arcade.chd_audit import ArcadeChdAuditService, ChdAuditResult
 from ..services.arcade.scan_comparison import (
     ArcadeScanComparisonService,
-    ComponentComparison,
     MachineComparison,
     ScanComparisonResult,
 )
@@ -66,27 +66,93 @@ _STATUS_COLORS = {
 
 
 def _status_icon(status: RomStatus, size: int = 16) -> QIcon:
-    color = _STATUS_COLORS[status]
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     painter.setPen(QColor("#15191d"))
-    painter.setBrush(color)
+    painter.setBrush(_STATUS_COLORS[status])
     painter.drawEllipse(2, 2, size - 4, size - 4)
     painter.end()
     return QIcon(pixmap)
 
 
 def _set_status_visual(item: QTableWidgetItem | QTreeWidgetItem, status: RomStatus) -> None:
-    icon = _status_icon(status)
     if isinstance(item, QTreeWidgetItem):
-        item.setIcon(0, icon)
+        item.setIcon(0, _status_icon(status))
     else:
-        item.setIcon(icon)
+        item.setIcon(_status_icon(status))
     item.setForeground(QColor("#e8edf2"))
     item.setBackground(_STATUS_COLORS[status].darker(420))
     item.setToolTip(_STATUS_LABELS[status])
+
+
+class _ArcadeStudioWorker(QObject):
+    """Worker de I/O e comparação; nunca manipula widgets."""
+
+    imports_ready = Signal(object)
+    comparison_ready = Signal(object)
+    failed = Signal(str)
+    finished = Signal()
+
+    def __init__(self, database: Path, operation: str, import_id: int | None = None,
+                 scan_path: Path | None = None) -> None:
+        super().__init__()
+        self.database = database
+        self.operation = operation
+        self.import_id = import_id
+        self.scan_path = scan_path
+
+    def run(self) -> None:
+        try:
+            if self.operation == "imports":
+                self.imports_ready.emit(self._load_imports())
+            elif self.operation == "compare":
+                if self.import_id is None or self.scan_path is None:
+                    raise ValueError("Importação ListXML ou scan não selecionado.")
+                self.comparison_ready.emit(self._compare())
+            else:
+                raise ValueError(f"Operação desconhecida: {self.operation}")
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            self.failed.emit(str(exc))
+        finally:
+            self.finished.emit()
+
+    def _connect(self) -> sqlite3.Connection:
+        if not self.database.is_file():
+            raise RuntimeError(f"Banco SERM não encontrado: {self.database}")
+        db = sqlite3.connect(self.database)
+        db.row_factory = sqlite3.Row
+        return db
+
+    def _load_imports(self) -> list[dict[str, object]]:
+        with self._connect() as db:
+            rows = db.execute(
+                """SELECT i.id,i.mame_build,i.xml_path,i.machine_count,i.byte_length,
+                          i.imported_at,i.source_hash,i.status
+                   FROM mame_listxml_import i
+                   ORDER BY i.id DESC"""
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def _compare(self) -> ScanComparisonResult:
+        with self._connect() as db:
+            row = db.execute(
+                """SELECT i.id,i.mame_build,i.xml_path,i.machine_count,d.xml_text
+                   FROM mame_listxml_import i
+                   LEFT JOIN mame_listxml_document d ON d.import_id=i.id
+                   WHERE i.id=? AND i.status='completed'""",
+                (self.import_id,),
+            ).fetchone()
+        if row is None:
+            raise ValueError("A importação ListXML selecionada não está disponível no banco SERM.")
+        xml_text = str(row["xml_text"] or "")
+        if not xml_text:
+            xml_path = Path(str(row["xml_path"] or ""))
+            if not xml_path.is_file():
+                raise ValueError("A importação selecionada não possui o documento ListXML armazenado.")
+            xml_text = xml_path.read_text(encoding="utf-8")
+        return ArcadeScanComparisonService().compare(xml_text, self.scan_path)
 
 
 class ArcadeStudioPage(QWidget):
@@ -97,8 +163,10 @@ class ArcadeStudioPage(QWidget):
         self._database = database_path()
         self._comparison: ScanComparisonResult | None = None
         self._last_chd_audit: ChdAuditResult | None = None
+        self._worker_thread: QThread | None = None
+        self._worker: _ArcadeStudioWorker | None = None
         self._build_ui()
-        self.refresh()
+        self._start_import_load()
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -106,9 +174,9 @@ class ArcadeStudioPage(QWidget):
         title.setProperty("role", "title")
         layout.addWidget(title)
         intro = QLabel(
-            "ListXML MAME = conteúdo esperado. Scan JSON = inventário físico encontrado. "
-            "O Studio confronta os dois e mostra exatamente o que está OK, ausente, "
-            "inválido ou reconstruível."
+            "ListXML MAME = conteúdo esperado. O banco SERM preserva as importações ListXML. "
+            "Scan JSON = inventário físico produzido pelo scan completo. O Studio confronta os dois "
+            "sem executar o scan novamente."
         )
         intro.setWordWrap(True)
         layout.addWidget(intro)
@@ -121,12 +189,22 @@ class ArcadeStudioPage(QWidget):
     def _catalog_tab(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
-
         source_box = QGroupBox("Fontes da comparação")
         source_form = QFormLayout(source_box)
+
+        listxml_row = QHBoxLayout()
+        self.listxml_choice = QComboBox()
+        self.listxml_choice.setMinimumWidth(500)
+        self.listxml_choice.currentIndexChanged.connect(self._listxml_changed)
+        reload_catalog = QPushButton("ATUALIZAR LISTXML")
+        reload_catalog.clicked.connect(self._start_import_load)
+        listxml_row.addWidget(self.listxml_choice, 1)
+        listxml_row.addWidget(reload_catalog)
+        source_form.addRow("ListXML / banco SERM:", listxml_row)
+
         self.listxml_source = QLineEdit()
         self.listxml_source.setReadOnly(True)
-        source_form.addRow("ListXML:", self.listxml_source)
+        source_form.addRow("Documento:", self.listxml_source)
 
         scan_row = QHBoxLayout()
         self.scan_source = QLineEdit()
@@ -148,7 +226,11 @@ class ArcadeStudioPage(QWidget):
         source_form.addRow("Ação:", actions)
         layout.addWidget(source_box)
 
-        self.scan_info = QLabel("Nenhum scan físico selecionado.")
+        self.load_progress = QProgressBar()
+        self.load_progress.setRange(0, 1)
+        self.load_progress.setValue(0)
+        layout.addWidget(self.load_progress)
+        self.scan_info = QLabel("Lendo catálogo MAME do banco SERM…")
         self.scan_info.setWordWrap(True)
         layout.addWidget(self.scan_info)
 
@@ -162,7 +244,7 @@ class ArcadeStudioPage(QWidget):
         controls.addWidget(filter_button)
         layout.addLayout(controls)
 
-        self.comparison_status = QLabel("ListXML carregado pelo catálogo SERM: aguardando comparação.")
+        self.comparison_status = QLabel("Aguardando leitura do banco SERM…")
         self.comparison_status.setWordWrap(True)
         layout.addWidget(self.comparison_status)
 
@@ -273,102 +355,157 @@ class ArcadeStudioPage(QWidget):
         layout.addStretch()
         return page
 
-    def refresh(self) -> None:
-        self._load_listxml_identity()
-        self._refresh_scan_choices()
-        if self._comparison is not None:
-            self._apply_machine_filter()
+    def closeEvent(self, event) -> None:
+        if self._worker_thread is not None and self._worker_thread.isRunning():
+            self._worker_thread.quit()
+            self._worker_thread.wait(2000)
+        super().closeEvent(event)
 
-    def _load_listxml_identity(self) -> None:
-        try:
-            with sqlite3.connect(self._database) as db:
-                db.row_factory = sqlite3.Row
-                row = db.execute(
-                    """SELECT i.id,i.mame_build,i.xml_path,i.machine_count,d.xml_text
-                       FROM mame_listxml_import i
-                       LEFT JOIN mame_listxml_document d ON d.import_id=i.id
-                       WHERE i.status='completed'
-                       ORDER BY i.id DESC LIMIT 1"""
-                ).fetchone()
-            if row is None:
-                self.listxml_source.setText("Nenhum ListXML MAME importado.")
-                self._listxml_text = None
-                return
-            self._listxml_text = str(row["xml_text"] or "")
-            source = row["xml_path"] or "documento armazenado no banco SERM"
-            self.listxml_source.setText(str(source))
-            self.comparison_status.setText(
-                f"ListXML carregado: importação {row['id']} | MAME {row['mame_build'] or '—'} | "
-                f"{row['machine_count']:,} machines | fonte: {source}"
+    def _start_worker(self, operation: str, import_id: int | None = None,
+                      scan_path: Path | None = None) -> None:
+        if self._worker_thread is not None and self._worker_thread.isRunning():
+            return
+        self._worker_thread = QThread(self)
+        self._worker = _ArcadeStudioWorker(self._database, operation, import_id, scan_path)
+        self._worker.moveToThread(self._worker_thread)
+        self._worker_thread.started.connect(self._worker.run)
+        self._worker.finished.connect(self._worker_thread.quit)
+        self._worker.finished.connect(self._worker.deleteLater)
+        self._worker_thread.finished.connect(self._worker_thread.deleteLater)
+        self._worker_thread.finished.connect(self._worker_finished)
+        self._worker.failed.connect(self._worker_failed)
+        if operation == "imports":
+            self._worker.imports_ready.connect(self._imports_loaded)
+        else:
+            self._worker.comparison_ready.connect(self._comparison_loaded)
+        self._worker_thread.start()
+
+    def _worker_finished(self) -> None:
+        self._worker = None
+        self._worker_thread = None
+        self.load_progress.setRange(0, 1)
+        self.load_progress.setValue(1)
+        self.compare_button.setEnabled(True)
+
+    def _worker_failed(self, message: str) -> None:
+        self._comparison = None
+        self.catalog_table.setRowCount(0)
+        self.rom_tree.clear()
+        self.comparison_status.setText(f"Falha: {message}")
+        self.scan_info.setText("Operação não concluída.")
+
+    def _start_import_load(self) -> None:
+        self.compare_button.setEnabled(False)
+        self.load_progress.setRange(0, 0)
+        self.scan_info.setText("Lendo as importações ListXML persistidas no banco SERM…")
+        self._start_worker("imports")
+
+    def _imports_loaded(self, rows: list[dict[str, object]]) -> None:
+        self.listxml_choice.blockSignals(True)
+        self.listxml_choice.clear()
+        for row in rows:
+            build = str(row.get("mame_build") or "desconhecido")
+            status = str(row.get("status") or "?")
+            machines = int(row.get("machine_count") or 0)
+            imported = str(row.get("imported_at") or "")
+            label = f"ID {row['id']} | MAME {build} | {machines:,} machines | {status} | {imported}"
+            self.listxml_choice.addItem(label, int(row["id"]))
+        self.listxml_choice.blockSignals(False)
+        if rows:
+            self.listxml_choice.setCurrentIndex(0)
+            self._listxml_changed(0)
+            self.scan_info.setText(
+                f"Banco SERM: {len(rows):,} importação(ões) ListXML disponível(is). "
+                "Selecione a versão desejada e depois o snapshot físico."
             )
-        except sqlite3.Error as exc:
-            self._listxml_text = None
-            self.listxml_source.setText(f"Erro ao carregar ListXML: {exc}")
+        else:
+            self.listxml_source.setText("Nenhuma importação ListXML MAME no banco SERM.")
+            self.comparison_status.setText("Nenhum catálogo MAME disponível.")
+        self._refresh_scan_choices()
+
+    def _listxml_changed(self, index: int) -> None:
+        if index < 0:
+            return
+        import_id = self.listxml_choice.itemData(index)
+        if import_id is None:
+            return
+        with sqlite3.connect(self._database) as db:
+            row = db.execute(
+                "SELECT xml_path,mame_build,machine_count,source_hash FROM mame_listxml_import WHERE id=?",
+                (int(import_id),),
+            ).fetchone()
+        if row is None:
+            self.listxml_source.setText("Importação não encontrada.")
+            return
+        self.listxml_source.setText(str(row[0] or "documento lossless armazenado em mame_listxml_document"))
+        self.comparison_status.setText(
+            f"ListXML selecionado: importação {import_id} | MAME {row[1] or '—'} | "
+            f"{int(row[2] or 0):,} machines | SHA-256={str(row[3] or '')[:16]}"
+        )
 
     def _refresh_scan_choices(self) -> None:
         root = scans_root() / "mame"
-        files = sorted(root.glob("*.json"), key=lambda path: path.stat().st_mtime, reverse=True) if root.is_dir() else []
+        files = []
+        if root.is_dir():
+            files = sorted(root.glob("*.json"), key=lambda path: path.stat().st_mtime, reverse=True)
         preferred = root / "MAME - 0.289_mame0289 - Arcade.json"
-        if preferred.is_file():
-            self.scan_source.setText(str(preferred))
-        elif files and not self.scan_source.text().strip():
-            self.scan_source.setText(str(files[0]))
-        elif not files and not self.scan_source.text().strip():
+        selected = preferred if preferred.is_file() else (files[0] if files else None)
+        if selected is not None:
+            self.scan_source.setText(str(selected))
+        elif not self.scan_source.text().strip():
             self.scan_source.setText("Nenhum scan MAME JSON encontrado em data/scans/mame.")
 
     def _choose_scan(self) -> None:
         start = str(scans_root() / "mame")
         path, _ = QFileDialog.getOpenFileName(
-            self, "Selecionar snapshot JSON do scan MAME", start, "Scan SERM (*.json);;JSON (*.json)"
+            self, "Selecionar snapshot JSON do scan MAME", start,
+            "Scan SERM (*.json);;JSON (*.json)"
         )
         if path:
             self.scan_source.setText(path)
             self._compare_scan()
 
     def _compare_scan(self) -> None:
-        if not self._listxml_text:
-            self._load_listxml_identity()
+        index = self.listxml_choice.currentIndex()
+        import_id = self.listxml_choice.itemData(index)
         scan_text = self.scan_source.text().strip()
-        if not self._listxml_text:
-            self.comparison_status.setText("Não foi possível carregar o ListXML MAME.")
+        if import_id is None:
+            self.comparison_status.setText("Selecione uma importação ListXML no banco SERM.")
             return
         if not scan_text or not Path(scan_text).is_file():
             self.comparison_status.setText("Selecione um arquivo JSON de scan MAME válido.")
             return
         self.compare_button.setEnabled(False)
-        self.catalog_table.setUpdatesEnabled(False)
-        try:
-            self._comparison = ArcadeScanComparisonService().compare(
-                self._listxml_text, Path(scan_text)
-            )
-            self.scan_info.setText(
-                f"Scan carregado: {self._comparison.scan_path} | "
-                f"scan_id={self._comparison.scan_id or '—'} | "
-                f"catálogo={self._comparison.catalog_label or '—'} | "
-                f"machines comparadas={self._comparison.machine_count:,} | "
-                f"componentes esperados={self._comparison.component_count:,} | "
-                f"itens físicos fora do ListXML={self._comparison.orphan_items:,}"
-            )
-            counts = self._comparison.status_counts
-            self.comparison_status.setText(
-                "Resultado: "
-                f"OK={counts[RomStatus.OK.value]:,} | "
-                f"AUSENTE={counts[RomStatus.MISSING.value]:,} | "
-                f"INVÁLIDO={counts[RomStatus.INVALID.value]:,} | "
-                f"RECONSTRUÍVEL={counts[RomStatus.REPAIRABLE.value]:,} | "
-                f"NÃO AUDITADO={counts[RomStatus.UNKNOWN.value]:,}"
-            )
-            self._apply_machine_filter()
-        except (OSError, ValueError, sqlite3.Error) as exc:
-            self._comparison = None
-            self.comparison_status.setText(f"Falha ao comparar ListXML e scan: {exc}")
-        finally:
-            self.catalog_table.setUpdatesEnabled(True)
-            self.compare_button.setEnabled(True)
+        self.load_progress.setRange(0, 0)
+        self.scan_info.setText(
+            "Lendo o ListXML selecionado do banco SERM e comparando o snapshot físico. "
+            "A interface continuará responsiva durante a operação…"
+        )
+        self._start_worker("compare", int(import_id), Path(scan_text))
 
-    def _apply_machine_filter(self) -> None:
+    def _comparison_loaded(self, comparison: ScanComparisonResult) -> None:
+        self._comparison = comparison
+        self.scan_info.setText(
+            f"Scan carregado: {comparison.scan_path} | scan_id={comparison.scan_id or '—'} | "
+            f"catálogo={comparison.catalog_label or '—'} | machines comparadas={comparison.machine_count:,} | "
+            f"componentes esperados={comparison.component_count:,} | "
+            f"itens físicos fora do ListXML={comparison.orphan_items:,}"
+        )
+        counts = comparison.status_counts
+        self.comparison_status.setText(
+            "Resultado: "
+            f"OK={counts[RomStatus.OK.value]:,} | "
+            f"AUSENTE={counts[RomStatus.MISSING.value]:,} | "
+            f"INVÁLIDO={counts[RomStatus.INVALID.value]:,} | "
+            f"RECONSTRUÍVEL={counts[RomStatus.REPAIRABLE.value]:,} | "
+            f"NÃO AUDITADO={counts[RomStatus.UNKNOWN.value]:,}"
+        )
+        self._apply_machine_filter(select_first=True)
+
+    def _apply_machine_filter(self, select_first: bool = False) -> None:
         if self._comparison is None:
             self.catalog_table.setRowCount(0)
+            self.rom_tree.clear()
             return
         text = self.search.text().strip().casefold()
         rows = [
@@ -378,6 +515,7 @@ class ArcadeStudioPage(QWidget):
             or text in (machine.manufacturer or "").casefold()
         ][:1000]
         self.catalog_table.setSortingEnabled(False)
+        self.catalog_table.clearContents()
         self.catalog_table.setRowCount(len(rows))
         for index, machine in enumerate(rows):
             status_item = QTableWidgetItem(_STATUS_LABELS[machine.status])
@@ -399,6 +537,12 @@ class ArcadeStudioPage(QWidget):
                 self.catalog_table.setItem(index, column, item)
         self.catalog_table.setSortingEnabled(True)
         self.catalog_table.resizeColumnsToContents()
+        if select_first and rows:
+            self.catalog_table.setCurrentCell(0, 0)
+            self.catalog_table.selectRow(0)
+            self._show_machine()
+        elif not rows:
+            self.rom_tree.clear()
 
     def _selected_machine(self) -> MachineComparison | None:
         if self._comparison is None:
@@ -456,20 +600,15 @@ class ArcadeStudioPage(QWidget):
             physical = component.physical_path or "—"
             actual_hash = component.actual_sha1 or component.actual_md5 or component.actual_crc or "—"
             detail = (
-                f"esperado hash={expected_hash}"
-                f" | físico hash={actual_hash}"
-                f" | tamanho={expected.size if expected.size is not None else '—'}"
+                f"esperado hash={expected_hash} | físico hash={actual_hash} | "
+                f"tamanho={expected.size if expected.size is not None else '—'}"
             )
-            if component.expected.merge:
-                detail += f" | merge={component.expected.merge}"
+            if expected.merge:
+                detail += f" | merge={expected.merge}"
             if component.message:
                 detail += f" | {component.message}"
             item = QTreeWidgetItem([
-                expected.name,
-                _STATUS_LABELS[component.status],
-                expected_hash,
-                physical,
-                detail,
+                expected.name, _STATUS_LABELS[component.status], expected_hash, physical, detail,
             ])
             _set_status_visual(item, component.status)
             target.addChild(item)
