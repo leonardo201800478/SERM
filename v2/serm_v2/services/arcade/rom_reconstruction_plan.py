@@ -124,15 +124,18 @@ class ArcadeRomReconstructionPlanner:
                     RomSourceKind.SELF,
                     "merge referencia a propria ROM do machine set",
                 )
-            if parent_name or romof:
-                return RomReconstructionPlan(
-                    game.machine_name,
-                    rom.display_name,
-                    None,
-                    merge,
-                    RomSourceKind.MISSING,
-                    "merge definido, mas a ROM de origem nao foi localizada no catalogo aplicavel",
-                )
+
+            # Um ``merge`` explicito sem ROM de origem catalogada nao pode ser
+            # convertido em uma ROM propria por fallback. Isso esconderia uma
+            # dependencia semantica e produziria conjuntos incorretos.
+            return RomReconstructionPlan(
+                game.machine_name,
+                rom.display_name,
+                None,
+                merge,
+                RomSourceKind.MISSING,
+                "merge definido, mas a ROM de origem nao foi localizada no catalogo",
+            )
 
         if romof and romof != game.machine_name and romof in catalog:
             target = catalog[romof]
@@ -186,8 +189,6 @@ class ArcadeRomReconstructionPlanner:
         if len(preferred_candidates) == 1:
             return preferred_candidates[0]
         if len(preferred_candidates) > 1:
-            # A preferred machine may legitimately contain duplicate XML ROM
-            # names only in malformed input. Do not guess in that situation.
             return None
 
         if len(candidates) == 1:
