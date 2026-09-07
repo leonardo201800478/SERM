@@ -1,0 +1,79 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "V2: install dev dependencies",
+      "type": "shell",
+      "command": "python -m pip install -e \".[dev]\"",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "V2: run",
+      "type": "shell",
+      "command": "python -m serm_v2",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "V2: test",
+      "type": "shell",
+      "command": "python -m pytest",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "V2: test with coverage",
+      "type": "shell",
+      "command": "python -m pytest --cov=serm_v2 --cov-report=term-missing",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "V2: lint",
+      "type": "shell",
+      "command": "ruff check serm_v2 tests",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "V2: format",
+      "type": "shell",
+      "command": "ruff format serm_v2 tests",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "V2: format check",
+      "type": "shell",
+      "command": "ruff format --check serm_v2 tests",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "V2: quality",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "V2: lint",
+        "V2: format check",
+        "V2: test"
+      ]
+    }
+  ]
+}
