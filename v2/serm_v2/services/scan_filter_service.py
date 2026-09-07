@@ -1,4 +1,4 @@
-"""Aplicação dos filtros sobre um snapshot de scan já concluído."""
+"""Adaptador de snapshot para o motor unificado de filtros do Arcade Studio."""
 
 from __future__ import annotations
 
@@ -9,28 +9,36 @@ from collections import Counter
 from pathlib import Path
 from uuid import uuid4
 
+from ..models.arcade import ArcadeGame, ArcadePlatform, PlayabilityStatus
+from ..models.arcade_classification import ArcadeContentType
 from ..runtime.paths import database_path, scans_root
+from .arcade.filter_engine import ArcadeFilterEngine, FilterRules
 from .mame_category_filter_service import MameCategoryFilterService
-from .mame_fundamental_filter_service import CATEGORY_PATTERNS, DEFAULT_FILTERS
+from .mame_fundamental_filter_service import DEFAULT_FILTERS
 from .scan_file_repository import ScanFileRepository
 
 
 class ScanFilterService:
-    """Nunca toca no scan bruto; produz somente um resultado filtrado novo.
+    """Adapta snapshots de scan para o único motor lógico de filtros.
 
-    Semântica MAME:
-    - True em um filtro fundamental = categoria permanece no set.
-    - False em um filtro fundamental = categoria é excluída.
-    - CATLIST recebe categorias/subcategorias explicitamente excluídas.
-    - As demais políticas MAME refinam a seleção estrutural do set.
+    Este serviço não contém mais regras de seleção. Ele apenas:
+    1. lê o snapshot;
+    2. converte as evidências para o domínio do Arcade Studio;
+    3. traduz o perfil/UI em ``FilterRules``;
+    4. executa ``ArcadeFilterEngine``;
+    5. persiste o resultado.
     """
 
     VALID_STATUSES = frozenset({"CURRENT", "DUPLICATE"})
-
-    @staticmethod
-    def _matches(categories: list[str] | tuple[str, ...], patterns: tuple[str, ...]) -> bool:
-        values = [str(value).casefold() for value in categories]
-        return any(pattern.casefold() in value for value in values for pattern in patterns)
+    _FUNDAMENTAL_CONTENT = {
+        "mechanical": ArcadeContentType.MECHANICAL,
+        "dance": ArcadeContentType.ARCADE,
+        "console": ArcadeContentType.CONSOLE,
+        "handheld": ArcadeContentType.HANDHELD,
+        "fruit_machines": ArcadeContentType.FRUIT_MACHINE,
+        "quiz": ArcadeContentType.QUIZ,
+        "tabletop": ArcadeContentType.TABLETOP,
+    }
 
     @classmethod
     def apply_mame(
@@ -40,21 +48,24 @@ class ScanFilterService:
         fundamental_values: dict[str, bool],
         category_values: dict[str, list[str]] | None = None,
     ) -> dict:
-        payload = ScanFileRepository.load(scan_path)
-        if str(payload.get("source", "")).casefold() != "mame":
-            raise ValueError("Os filtros MAME só podem ser aplicados a um scan MAME.")
+        payload = cls._load_mame(scan_path)
         evidence = list(payload.get("evidence", []))
         category_values = category_values or {"categories": [], "subcategories": []}
-        kept, reasons = cls._filter_evidence(
-            evidence, profile, fundamental_values, category_values
-        )
+        games = cls._games_from_evidence(evidence)
+        rules = cls._build_rules(profile, fundamental_values, category_values)
+        result = ArcadeFilterEngine().apply(games, rules)
+
+        kept_names = {item.game.machine_name for item in result.games}
+        kept = [item for item in evidence if cls._machine_name(item) in kept_names]
+        reasons = cls._reason_counts(result.excluded)
+
         run_id = uuid4().hex[:16]
         out_dir = scans_root() / "filtered" / "mame"
         out_dir.mkdir(parents=True, exist_ok=True)
         label = re.sub(r"[^A-Za-z0-9._-]+", "_", str(payload.get("catalog_label", "catalog")))
         scan_type = str(payload.get("scan_type", "arcade"))
         out_path = out_dir / f"MAME_{label}_{scan_type}_FILTER_{run_id}.json"
-        result = cls._build_result(
+        output = cls._build_result(
             payload,
             scan_path,
             profile,
@@ -62,12 +73,14 @@ class ScanFilterService:
             category_values,
             kept,
             reasons,
+            rules,
             run_id,
             out_path,
+            result,
         )
-        out_path.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
-        result["filtered_file_path"] = str(out_path)
-        return result
+        out_path.write_text(json.dumps(output, indent=2, ensure_ascii=False), encoding="utf-8")
+        output["filtered_file_path"] = str(out_path)
+        return output
 
     @classmethod
     def preview_mame(
@@ -77,54 +90,105 @@ class ScanFilterService:
         fundamental_values: dict[str, bool],
         category_values: dict[str, list[str]] | None = None,
     ) -> dict:
-        payload = ScanFileRepository.load(scan_path)
-        if str(payload.get("source", "")).casefold() != "mame":
-            raise ValueError("Os filtros MAME só podem ser aplicados a um scan MAME.")
+        payload = cls._load_mame(scan_path)
         evidence = list(payload.get("evidence", []))
         category_values = category_values or {"categories": [], "subcategories": []}
-        _, reasons = cls._filter_evidence(
-            evidence, profile, fundamental_values, category_values
-        )
-        kept = len(evidence) - sum(reasons.values())
+        rules = cls._build_rules(profile, fundamental_values, category_values)
+        result = ArcadeFilterEngine().apply(cls._games_from_evidence(evidence), rules)
+        reasons = cls._reason_counts(result.excluded)
         return {
             "catalog_label": payload.get("catalog_label"),
             "scan_type": payload.get("scan_type"),
             "input_count": len(evidence),
-            "output_count": kept,
-            "filtered_count": len(evidence) - kept,
+            "output_count": result.included_count,
+            "filtered_count": result.excluded_count,
             "filter_counts": dict(reasons),
+            "stage_counts": {stage.value: count for stage, count in result.counts_after_stage.items()},
             "status_counts": dict(payload.get("status_counts") or {}),
         }
 
     @classmethod
-    def _filter_evidence(
+    def _load_mame(cls, scan_path: Path) -> dict:
+        payload = ScanFileRepository.load(scan_path)
+        if str(payload.get("source", "")).casefold() != "mame":
+            raise ValueError("Os filtros MAME só podem ser aplicados a um scan MAME.")
+        return payload
+
+    @classmethod
+    def _games_from_evidence(cls, evidence: list[dict]) -> list[ArcadeGame]:
+        games: list[ArcadeGame] = []
+        for item in evidence:
+            status = str(item.get("status") or "").upper()
+            if status not in cls.VALID_STATUSES:
+                continue
+            machine_name = cls._machine_name(item)
+            if not machine_name:
+                continue
+            metadata = dict(item)
+            metadata["categories"] = list(item.get("categories") or ())
+            metadata["playability"] = item.get("playability") or item.get("playability_status")
+            games.append(
+                ArcadeGame(
+                    machine_name=machine_name,
+                    display_name=str(item.get("description") or item.get("display_name") or machine_name),
+                    platform=ArcadePlatform.MAME,
+                    parent_name=str(item.get("cloneof")) if item.get("cloneof") else None,
+                    category=(item.get("categories") or [None])[0] if item.get("categories") else None,
+                    subcategory=(item.get("categories") or [None, None])[1] if len(item.get("categories") or ()) > 1 else None,
+                    metadata=metadata,
+                )
+            )
+        return games
+
+    @classmethod
+    def _build_rules(
         cls,
-        evidence: list[dict],
         profile,
         fundamental_values: dict[str, bool],
         category_values: dict[str, list[str]],
-    ) -> tuple[list[dict], Counter[str]]:
-        # Agora True significa inclusão. Só categorias marcadas como False
-        # são removidas pelo filtro fundamental.
-        excluded_fundamentals = {
-            key
+    ) -> FilterRules:
+        excluded_content = {
+            cls._FUNDAMENTAL_CONTENT[key]
             for key, default in DEFAULT_FILTERS.items()
-            if not bool(fundamental_values.get(key, default))
+            if key in cls._FUNDAMENTAL_CONTENT and not bool(fundamental_values.get(key, default))
         }
-        excluded_category_names = MameCategoryFilterService.matching_machine_names(
+        excluded_names = MameCategoryFilterService.matching_machine_names(
             category_values, database_path()
         )
-        kept: list[dict] = []
-        reasons: Counter[str] = Counter()
-        for item in evidence:
-            reason = cls._selection_reason(
-                item, profile, excluded_fundamentals, excluded_category_names
-            )
-            if reason:
-                reasons[reason] += 1
-            else:
-                kept.append(item)
-        return kept, reasons
+        included_playability = cls._playability_values(profile)
+        return FilterRules(
+            excluded_machine_names=frozenset(excluded_names),
+            excluded_content_types=frozenset(excluded_content),
+            included_playability=included_playability,
+            include_bios=bool(getattr(profile, "mame_include_bios", False)),
+            include_devices=bool(getattr(profile, "mame_include_devices", False)),
+            include_optional=bool(getattr(profile, "mame_include_optional", True)),
+            working_only=bool(getattr(profile, "mame_working_only", False)),
+            parents_only=str(getattr(profile, "mame_clone_policy", "with_clones")) == "parents_only",
+        )
+
+    @staticmethod
+    def _playability_values(profile) -> frozenset[PlayabilityStatus]:
+        raw = getattr(profile, "mame_playability", None)
+        if raw is None:
+            raw = getattr(profile, "included_playability", None)
+        if not raw:
+            return frozenset()
+        values: set[PlayabilityStatus] = set()
+        for value in raw:
+            try:
+                values.add(value if isinstance(value, PlayabilityStatus) else PlayabilityStatus(str(value)))
+            except ValueError:
+                continue
+        return frozenset(values)
+
+    @staticmethod
+    def _machine_name(item: dict) -> str:
+        return str(item.get("machine_name") or item.get("machine") or item.get("name") or "")
+
+    @staticmethod
+    def _reason_counts(excluded) -> Counter[str]:
+        return Counter(item.trace.rule or item.trace.stage.value for item in excluded)
 
     @staticmethod
     def _build_result(
@@ -135,8 +199,10 @@ class ScanFilterService:
         category_values: dict[str, list[str]],
         kept: list[dict],
         reasons: Counter[str],
+        rules: FilterRules,
         run_id: str,
         out_path: Path,
+        engine_result,
     ) -> dict:
         return {
             "format": "SERM-FILTER-V2",
@@ -155,6 +221,7 @@ class ScanFilterService:
             "output_count": len(kept),
             "filtered_count": len(payload.get("evidence", [])) - len(kept),
             "filter_counts": dict(reasons),
+            "stage_counts": {stage.value: count for stage, count in engine_result.counts_after_stage.items()},
             "filters": {
                 "fundamental": {
                     key: bool(fundamental_values.get(key, default))
@@ -165,89 +232,16 @@ class ScanFilterService:
                     "excluded_subcategories": sorted(category_values.get("subcategories", [])),
                 },
                 "mame_clone_policy": str(getattr(profile, "mame_clone_policy", "with_clones")),
-                "mame_include_bios": bool(getattr(profile, "mame_include_bios", False)),
-                "mame_include_devices": bool(getattr(profile, "mame_include_devices", False)),
-                "mame_include_optional": bool(getattr(profile, "mame_include_optional", True)),
-                "mame_working_only": bool(getattr(profile, "mame_working_only", False)),
+                "mame_include_bios": rules.include_bios,
+                "mame_include_devices": rules.include_devices,
+                "mame_include_optional": rules.include_optional,
+                "mame_working_only": rules.working_only,
+                "mame_playability": sorted(value.value for value in rules.included_playability),
                 "mame_set_type": str(getattr(profile, "mame_set_type", "split")),
             },
             "evidence": kept,
             "output_file": str(out_path),
         }
-
-    @classmethod
-    def _selection_reason(
-        cls, item: dict, profile, excluded_fundamentals: set[str], category_names: set[str]
-    ) -> str | None:
-        status = str(item.get("status") or "").upper()
-        if status not in cls.VALID_STATUSES:
-            return status.lower() or "invalid_status"
-
-        machine_name = str(
-            item.get("machine_name") or item.get("machine") or item.get("name") or ""
-        )
-        if machine_name in category_names:
-            return "catlist"
-
-        categories = tuple(item.get("categories") or ())
-        reason = cls._fundamental_reason(item, categories, excluded_fundamentals)
-        if reason:
-            return reason
-
-        return cls._profile_reason(item, profile)
-
-    @classmethod
-    def _fundamental_reason(
-        cls, item: dict, categories: tuple[str, ...], excluded_fundamentals: set[str]
-    ) -> str | None:
-        if "mechanical" in excluded_fundamentals and cls._is_mechanical(item, categories):
-            return "mechanical"
-
-        for key in (
-            "dance",
-            "console",
-            "handheld",
-            "fruit_machines",
-            "quiz",
-            "tabletop",
-        ):
-            if key in excluded_fundamentals and cls._matches(categories, CATEGORY_PATTERNS[key]):
-                return key
-        return None
-
-    @staticmethod
-    def _profile_reason(cls_item: dict, profile) -> str | None:
-        if (
-            not bool(getattr(profile, "mame_include_bios", False))
-            and str(cls_item.get("isbios") or "").casefold() == "yes"
-        ):
-            return "bios"
-        if (
-            not bool(getattr(profile, "mame_include_devices", False))
-            and str(cls_item.get("isdevice") or "").casefold() == "yes"
-        ):
-            return "device"
-        if not bool(getattr(profile, "mame_include_optional", True)) and str(
-            cls_item.get("optional") or ""
-        ).casefold() in {"yes", "true", "1"}:
-            return "optional"
-        if bool(getattr(profile, "mame_working_only", False)) and str(
-            cls_item.get("runnable") or ""
-        ).casefold() not in {"yes", "true", "1"}:
-            return "not_working"
-        if str(getattr(profile, "mame_clone_policy", "with_clones")) == "parents_only" and cls_item.get(
-            "cloneof"
-        ):
-            return "clone"
-        return None
-
-    @classmethod
-    def _is_mechanical(cls, item: dict, categories: tuple[str, ...]) -> bool:
-        return str(item.get("ismechanical") or "").casefold() in {
-            "yes",
-            "true",
-            "1",
-        } or cls._matches(categories, CATEGORY_PATTERNS["mechanical"])
 
 
 __all__ = ["ScanFilterService"]
