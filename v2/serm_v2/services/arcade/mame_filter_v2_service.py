@@ -23,6 +23,7 @@ from ..scan_file_repository import ScanFileRepository
 class MameFilterV2Service:
     """Usa o ListXML normalizado no ``serm.db`` como fonte primária do filtro."""
 
+    _SQLITE_VARIABLE_CHUNK = 500
     _CONTENT = {
         "mechanical": {ArcadeContentType.MECHANICAL, ArcadeContentType.ELECTROMECHANICAL},
         "console": {ArcadeContentType.CONSOLE},
@@ -114,14 +115,18 @@ class MameFilterV2Service:
             return []
         with sqlite3.connect(database_path(), timeout=60.0) as db:
             import_id, _build = cls._import_id(db, payload)
-            placeholders = ",".join("?" for _ in physical_names)
-            query = f"""
-                SELECT m.id,m.name,m.cloneof,m.romof,m.isbios,m.isdevice,m.ismechanical,m.runnable,m.description,m.year,m.manufacturer,m.sourcefile,
-                       GROUP_CONCAT(DISTINCT c.category),GROUP_CONCAT(DISTINCT c.subcategory),MAX(d.status),MAX(d.emulation),MAX(d.sound),MAX(d.graphic),GROUP_CONCAT(DISTINCT disp.type),GROUP_CONCAT(DISTINCT disp.rotate),GROUP_CONCAT(DISTINCT disp.width || 'x' || disp.height),GROUP_CONCAT(DISTINCT disp.refresh_raw),GROUP_CONCAT(DISTINCT ctl.type),MAX(ctl.buttons),MAX(inp.players),GROUP_CONCAT(DISTINCT chip.type || ':' || COALESCE(chip.name,'')),COUNT(DISTINCT disk.id),COUNT(DISTINCT sample.id),COUNT(DISTINCT bios.id),COUNT(DISTINCT device.id),GROUP_CONCAT(DISTINCT rom.name),GROUP_CONCAT(DISTINCT disk.name)
-                FROM mame_machine m LEFT JOIN mame_classification c ON c.machine_id=m.id AND c.resolved_status='resolved' LEFT JOIN mame_driver d ON d.machine_id=m.id LEFT JOIN mame_display disp ON disp.machine_id=m.id LEFT JOIN mame_input inp ON inp.machine_id=m.id LEFT JOIN mame_control ctl ON ctl.input_id=inp.id LEFT JOIN mame_chip chip ON chip.machine_id=m.id LEFT JOIN mame_disk disk ON disk.machine_id=m.id LEFT JOIN mame_sample sample ON sample.machine_id=m.id LEFT JOIN mame_biosset bios ON bios.machine_id=m.id LEFT JOIN mame_device device ON device.machine_id=m.id LEFT JOIN mame_rom rom ON rom.machine_id=m.id
-                WHERE m.import_id=? AND m.name IN ({placeholders}) GROUP BY m.id ORDER BY m.name COLLATE NOCASE
-            """
-            rows = db.execute(query, (import_id, *sorted(physical_names))).fetchall()
+            machine_names = sorted(physical_names)
+            rows = []
+            for start in range(0, len(machine_names), cls._SQLITE_VARIABLE_CHUNK):
+                chunk = machine_names[start : start + cls._SQLITE_VARIABLE_CHUNK]
+                placeholders = ",".join("?" for _ in chunk)
+                query = f"""
+                    SELECT m.id,m.name,m.cloneof,m.romof,m.isbios,m.isdevice,m.ismechanical,m.runnable,m.description,m.year,m.manufacturer,m.sourcefile,
+                           GROUP_CONCAT(DISTINCT c.category),GROUP_CONCAT(DISTINCT c.subcategory),MAX(d.status),MAX(d.emulation),MAX(d.sound),MAX(d.graphic),GROUP_CONCAT(DISTINCT disp.type),GROUP_CONCAT(DISTINCT disp.rotate),GROUP_CONCAT(DISTINCT disp.width || 'x' || disp.height),GROUP_CONCAT(DISTINCT disp.refresh_raw),GROUP_CONCAT(DISTINCT ctl.type),MAX(ctl.buttons),MAX(inp.players),GROUP_CONCAT(DISTINCT chip.type || ':' || COALESCE(chip.name,'')),COUNT(DISTINCT disk.id),COUNT(DISTINCT sample.id),COUNT(DISTINCT bios.id),COUNT(DISTINCT device.id),GROUP_CONCAT(DISTINCT rom.name),GROUP_CONCAT(DISTINCT disk.name)
+                    FROM mame_machine m LEFT JOIN mame_classification c ON c.machine_id=m.id AND c.resolved_status='resolved' LEFT JOIN mame_driver d ON d.machine_id=m.id LEFT JOIN mame_display disp ON disp.machine_id=m.id LEFT JOIN mame_input inp ON inp.machine_id=m.id LEFT JOIN mame_control ctl ON ctl.input_id=inp.id LEFT JOIN mame_chip chip ON chip.machine_id=m.id LEFT JOIN mame_disk disk ON disk.machine_id=m.id LEFT JOIN mame_sample sample ON sample.machine_id=m.id LEFT JOIN mame_biosset bios ON bios.machine_id=m.id LEFT JOIN mame_device device ON device.machine_id=m.id LEFT JOIN mame_rom rom ON rom.machine_id=m.id
+                    WHERE m.import_id=? AND m.name IN ({placeholders}) GROUP BY m.id ORDER BY m.name COLLATE NOCASE
+                """
+                rows.extend(db.execute(query, (import_id, *chunk)).fetchall())
             folder_maps = cls._folder_maps(db, physical_names)
             games: list[ArcadeGame] = []
             for row in rows:
@@ -170,7 +175,7 @@ class MameFilterV2Service:
         result = {key: {} for key in cls._FOLDER_FILES}
         if not machine_names:
             return result
-        placeholders_names = ",".join("?" for _ in machine_names)
+        machine_names_sorted = sorted(machine_names)
         source_rows = db.execute("SELECT id,file_name FROM mame_folder_filter_source").fetchall()
         source_by_key = {key: set() for key in cls._FOLDER_FILES}
         for source_id, file_name in source_rows:
@@ -182,10 +187,15 @@ class MameFilterV2Service:
             if not ids:
                 continue
             placeholders_ids = ",".join("?" for _ in ids)
-            rows = db.execute(f"SELECT machine_name,COALESCE(section,'') FROM mame_folder_filter_entry WHERE source_id IN ({placeholders_ids}) AND machine_name IN ({placeholders_names})", (*sorted(ids), *sorted(machine_names))).fetchall()
-            mapping = result[key]
-            for machine_name, section in rows:
-                mapping.setdefault(str(machine_name), set()).add(str(section))
+            for start in range(0, len(machine_names_sorted), cls._SQLITE_VARIABLE_CHUNK - len(ids)):
+                chunk = machine_names_sorted[start : start + (cls._SQLITE_VARIABLE_CHUNK - len(ids))]
+                if not chunk:
+                    continue
+                placeholders_names = ",".join("?" for _ in chunk)
+                rows = db.execute(f"SELECT machine_name,COALESCE(section,'') FROM mame_folder_filter_entry WHERE source_id IN ({placeholders_ids}) AND machine_name IN ({placeholders_names})", (*sorted(ids), *chunk)).fetchall()
+                mapping = result[key]
+                for machine_name, section in rows:
+                    mapping.setdefault(str(machine_name), set()).add(str(section))
         return result
 
     @classmethod
