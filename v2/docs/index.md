@@ -14,7 +14,7 @@ Quando houver divergência entre documentos, use esta ordem:
 4. documentação operacional atual;
 5. documentação histórica.
 
-A V1 é referência histórica e comportamental. Ela não é dependência de runtime da V2.
+A V1 é referência histórica e comportamental. A árvore ativa de `main` contém a V2 e não possui um pacote V1 importável.
 
 ## Documentação principal
 
