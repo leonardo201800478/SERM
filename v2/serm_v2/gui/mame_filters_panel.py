@@ -8,10 +8,11 @@ fonte física, mas a unidade lógica do filtro é sempre a machine.
 from __future__ import annotations
 
 import json
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from PySide6.QtCore import QTimer, Qt, QThread, Signal
+from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -72,31 +73,8 @@ class MameFilterState:
     wheel: list[str] = field(default_factory=list)
 
 
-class _FilterWorker(QThread):
-    ready = Signal(str, object)
-    failed = Signal(str)
-
-    def __init__(self, operation: str, path: Path, state: MameFilterState) -> None:
-        super().__init__()
-        self.operation = operation
-        self.path = path
-        self.state = state
-
-    def run(self) -> None:
-        try:
-            if self.operation == "facets":
-                result = MameFilterV2Service.facets(self.path)
-            elif self.operation == "preview":
-                result = MameFilterV2Service.preview(self.path, self.state)
-            else:
-                result = MameFilterV2Service.apply(self.path, self.state)
-            self.ready.emit(self.operation, result)
-        except Exception as exc:  # noqa: BLE001
-            self.failed.emit(f"{type(exc).__name__}: {exc}")
-
-
 class MameFiltersPanel(QWidget):
-    """Editor MAME V2 com semântica explícita e layout compacto."""
+    """Editor MAME V2 com semântica explícita e execução assíncrona gerenciada."""
 
     _FACETS = (
         ("content", "Tipo de conteúdo"),
@@ -144,15 +122,24 @@ class MameFiltersPanel(QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._scan_path: Path | None = None
-        self._worker: _FilterWorker | None = None
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="serm-mame-filter")
+        self._future: Future | None = None
+        self._future_operation: str | None = None
         self._facets_loaded = False
         self._pending_preview = False
+        self._generation = 0
         self._facet_widgets: dict[str, QListWidget] = {}
         self._facet_info: dict[str, QLabel] = {}
+
         self._preview_timer = QTimer(self)
         self._preview_timer.setSingleShot(True)
         self._preview_timer.setInterval(180)
         self._preview_timer.timeout.connect(self._start_preview)
+
+        self._poll_timer = QTimer(self)
+        self._poll_timer.setInterval(60)
+        self._poll_timer.timeout.connect(self._poll_future)
+
         self._build_ui()
         self.refresh()
 
@@ -226,12 +213,11 @@ class MameFiltersPanel(QWidget):
             item = layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
-        values = (
+        for label, value in (
             ("MACHINES NO SNAPSHOT", total),
             ("MACHINES INCLUÍDAS", kept),
             ("MACHINES EXCLUÍDAS", excluded),
-        )
-        for label, value in values:
+        ):
             box = QGroupBox(label)
             box.setMinimumHeight(48)
             box_layout = QVBoxLayout(box)
@@ -246,6 +232,7 @@ class MameFiltersPanel(QWidget):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(8, 8, 8, 8)
+
         box = QGroupBox("EXCLUIR MACHINES POR CLASSIFICAÇÃO")
         grid = QGridLayout(box)
         grid.setContentsMargins(10, 10, 10, 10)
@@ -319,8 +306,7 @@ class MameFiltersPanel(QWidget):
         widget.itemSelectionChanged.connect(self._changed)
         self._facet_widgets[key] = widget
         layout.addWidget(widget, 1)
-        hint = QLabel("Selecionar = INCLUIR")
-        layout.addWidget(hint)
+        layout.addWidget(QLabel("Selecionar = INCLUIR"))
         return box
 
     def _set_tab(self) -> QWidget:
@@ -392,31 +378,56 @@ class MameFiltersPanel(QWidget):
         self._scan_path = Path(str(value)) if value else None
         self._facets_loaded = False
         self._pending_preview = False
+        self._generation += 1
         if self._scan_path is None or not self._scan_path.is_file():
             self.result.setText("Nenhum snapshot JSON válido em data/scans/mame.")
             self.apply.setEnabled(False)
             return
         self.result.setText("Lendo machines e descobrindo classificações…")
-        self._start_worker("facets")
+        self._start_operation("facets")
 
-    def _start_worker(self, operation: str) -> None:
-        if (
-            self._scan_path is None
-            or not self._scan_path.is_file()
-            or (self._worker and self._worker.isRunning())
-        ):
+    def _start_operation(self, operation: str) -> None:
+        if self._scan_path is None or not self._scan_path.is_file():
             return
-        self._worker = _FilterWorker(operation, self._scan_path, self._state())
-        self._worker.ready.connect(self._worker_ready)
-        self._worker.failed.connect(self._worker_failed)
-        self._worker.finished.connect(self._worker_finished)
-        self._worker.start()
+        if self._future is not None and not self._future.done():
+            return
+        generation = self._generation
+        path = self._scan_path
+        state = self._state()
+        self._future_operation = operation
+        self._future = self._executor.submit(self._execute, operation, path, state)
+        self._future.add_done_callback(lambda _future: None)
+        self._poll_timer.start()
+        self._future_generation = generation
 
-    def _worker_finished(self) -> None:
-        worker = self._worker
-        self._worker = None
-        if worker is not None:
-            worker.deleteLater()
+    @staticmethod
+    def _execute(operation: str, path: Path, state: MameFilterState):
+        if operation == "facets":
+            return MameFilterV2Service.facets(path)
+        if operation == "preview":
+            return MameFilterV2Service.preview(path, state)
+        if operation == "apply":
+            return MameFilterV2Service.apply(path, state)
+        raise ValueError(f"Operação desconhecida: {operation}")
+
+    def _poll_future(self) -> None:
+        future = self._future
+        if future is None or not future.done():
+            return
+        self._poll_timer.stop()
+        operation = self._future_operation
+        generation = getattr(self, "_future_generation", self._generation)
+        self._future = None
+        self._future_operation = None
+        try:
+            payload = future.result()
+        except Exception as exc:  # noqa: BLE001
+            if generation == self._generation:
+                self._worker_failed(f"{type(exc).__name__}: {exc}")
+        else:
+            if generation == self._generation:
+                self._worker_ready(operation or "", payload)
+
         if self._pending_preview and self._facets_loaded:
             self._pending_preview = False
             self._start_preview()
@@ -426,10 +437,7 @@ class MameFiltersPanel(QWidget):
             self._populate_facets(payload)
             self._facets_loaded = True
             self.apply.setEnabled(True)
-            total = sum(
-                int(entry.get("count") or 0)
-                for entry in payload.get("content", [])
-            )
+            total = sum(int(entry.get("count") or 0) for entry in payload.get("content", []))
             self._set_summary(total, total, 0)
             self._pending_preview = True
             self.result.setText(
@@ -475,12 +483,6 @@ class MameFiltersPanel(QWidget):
                 else "Nenhuma classificação disponível no snapshot"
             )
 
-    def _machine_count(self) -> int:
-        if self._scan_path is None:
-            return 0
-        payload = MameFilterV2Service._payload(self._scan_path)
-        return len(MameFilterV2Service._games(payload))
-
     def _state(self) -> MameFilterState:
         state = MameFilterState()
         state.mame_set_type = str(self.set_type.currentData())
@@ -490,18 +492,12 @@ class MameFiltersPanel(QWidget):
         state.mame_include_chd = self.chd.isChecked()
         state.mame_include_optional = self.optional.isChecked()
         state.mame_working_only = self.working.isChecked()
-        state.fundamental = {
-            key: check.isChecked()
-            for key, check in self.fundamental.items()
-        }
+        state.fundamental = {key: check.isChecked() for key, check in self.fundamental.items()}
         for key, widget in self._facet_widgets.items():
             setattr(
                 state,
                 key,
-                [
-                    str(item.data(Qt.ItemDataRole.UserRole))
-                    for item in widget.selectedItems()
-                ],
+                [str(item.data(Qt.ItemDataRole.UserRole)) for item in widget.selectedItems()],
             )
         return state
 
@@ -510,10 +506,10 @@ class MameFiltersPanel(QWidget):
             self._preview_timer.start()
 
     def _start_preview(self) -> None:
-        if self._worker and self._worker.isRunning():
+        if self._future is not None and not self._future.done():
             self._pending_preview = True
             return
-        self._start_worker("preview")
+        self._start_operation("preview")
 
     @staticmethod
     def _format_preview(payload: dict) -> str:
@@ -542,24 +538,32 @@ class MameFiltersPanel(QWidget):
         except (OSError, ValueError, TypeError):
             profiles = []
         profiles = [
-            item
-            for item in profiles
-            if not isinstance(item, dict)
-            or item.get("profile_id") != state["profile_id"]
+            item for item in profiles
+            if not isinstance(item, dict) or item.get("profile_id") != state["profile_id"]
         ]
         profiles.append(state)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps(profiles, indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
+        path.write_text(json.dumps(profiles, indent=2, ensure_ascii=False), encoding="utf-8")
         self.result.setText(f"Perfil V2 salvo em: {path}")
 
     def _apply(self) -> None:
         if self._scan_path is None or not self._facets_loaded:
             return
+        if self._future is not None and not self._future.done():
+            return
         self.apply.setEnabled(False)
-        self._start_worker("apply")
+        self.result.setText("Aplicando filtros às machines e gerando FILTER JSON…")
+        self._start_operation("apply")
+
+    def closeEvent(self, event) -> None:  # noqa: N802
+        self._preview_timer.stop()
+        self._poll_timer.stop()
+        future = self._future
+        if future is not None and not future.done():
+            future.cancel()
+        self._executor.shutdown(wait=True, cancel_futures=True)
+        self._future = None
+        super().closeEvent(event)
 
 
 __all__ = ["MameFiltersPanel", "MameFilterState"]
