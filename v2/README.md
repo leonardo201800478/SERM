@@ -4,7 +4,7 @@
 
 SERM is a desktop application for managing emulators, catalogs, ROM collections, scans, filtering, reconstruction and execution metadata from a single local workspace.
 
-> **V2 is the active implementation.** V1 is preserved for historical and behavioral reference and is not a runtime dependency of V2.
+> **V2 is the active implementation.** The current `main` tree contains the V2 project; no V1 source tree is present in the active filesystem hierarchy. Historical V1 behavior is treated as reference material and must not become a V2 runtime dependency.
 
 ## Architecture
 
@@ -60,9 +60,7 @@ External XML, DAT, JSON, CFG and database formats are handled through adapters o
 
 ## V1 boundary
 
-V1 is retained as a reference for proven behavior, algorithms and historical decisions. V2 reimplements required behavior against V2 contracts and data structures.
-
-No V2 service should import V1 models, database tables, configuration or runtime services.
+V1 is not part of the active V2 package hierarchy. If historical V1 material is consulted, it must remain outside the V2 import graph. No V2 service should import V1 models, database tables, configuration or runtime services.
 
 ## Development status
 
