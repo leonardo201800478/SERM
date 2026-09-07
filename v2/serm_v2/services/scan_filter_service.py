@@ -1,4 +1,4 @@
-"""Aplicação rápida de filtros sobre um snapshot de scan já concluído."""
+"""Aplicação dos filtros sobre um snapshot de scan já concluído."""
 
 from __future__ import annotations
 
@@ -16,7 +16,14 @@ from .scan_file_repository import ScanFileRepository
 
 
 class ScanFilterService:
-    """Nunca toca no scan bruto; produz somente um resultado filtrado novo."""
+    """Nunca toca no scan bruto; produz somente um resultado filtrado novo.
+
+    Semântica MAME:
+    - True em um filtro fundamental = categoria permanece no set.
+    - False em um filtro fundamental = categoria é excluída.
+    - CATLIST recebe categorias/subcategorias explicitamente excluídas.
+    - As demais políticas MAME refinam a seleção estrutural do set.
+    """
 
     VALID_STATUSES = frozenset({"CURRENT", "DUPLICATE"})
 
@@ -97,18 +104,22 @@ class ScanFilterService:
         fundamental_values: dict[str, bool],
         category_values: dict[str, list[str]],
     ) -> tuple[list[dict], Counter[str]]:
-        enabled = {
+        # Agora True significa inclusão. Só categorias marcadas como False
+        # são removidas pelo filtro fundamental.
+        excluded_fundamentals = {
             key
             for key, default in DEFAULT_FILTERS.items()
-            if bool(fundamental_values.get(key, default))
+            if not bool(fundamental_values.get(key, default))
         }
-        category_names = MameCategoryFilterService.matching_machine_names(
+        excluded_category_names = MameCategoryFilterService.matching_machine_names(
             category_values, database_path()
         )
         kept: list[dict] = []
         reasons: Counter[str] = Counter()
         for item in evidence:
-            reason = cls._selection_reason(item, profile, enabled, category_names)
+            reason = cls._selection_reason(
+                item, profile, excluded_fundamentals, excluded_category_names
+            )
             if reason:
                 reasons[reason] += 1
             else:
@@ -150,8 +161,8 @@ class ScanFilterService:
                     for key, default in DEFAULT_FILTERS.items()
                 },
                 "catlist": {
-                    "categories": sorted(category_values.get("categories", [])),
-                    "subcategories": sorted(category_values.get("subcategories", [])),
+                    "excluded_categories": sorted(category_values.get("categories", [])),
+                    "excluded_subcategories": sorted(category_values.get("subcategories", [])),
                 },
                 "mame_clone_policy": str(getattr(profile, "mame_clone_policy", "with_clones")),
                 "mame_include_bios": bool(getattr(profile, "mame_include_bios", False)),
@@ -166,7 +177,7 @@ class ScanFilterService:
 
     @classmethod
     def _selection_reason(
-        cls, item: dict, profile, enabled: set[str], category_names: set[str]
+        cls, item: dict, profile, excluded_fundamentals: set[str], category_names: set[str]
     ) -> str | None:
         status = str(item.get("status") or "").upper()
         if status not in cls.VALID_STATUSES:
@@ -179,7 +190,7 @@ class ScanFilterService:
             return "catlist"
 
         categories = tuple(item.get("categories") or ())
-        reason = cls._fundamental_reason(item, categories, enabled)
+        reason = cls._fundamental_reason(item, categories, excluded_fundamentals)
         if reason:
             return reason
 
@@ -187,9 +198,9 @@ class ScanFilterService:
 
     @classmethod
     def _fundamental_reason(
-        cls, item: dict, categories: tuple[str, ...], enabled: set[str]
+        cls, item: dict, categories: tuple[str, ...], excluded_fundamentals: set[str]
     ) -> str | None:
-        if "mechanical" in enabled and cls._is_mechanical(item, categories):
+        if "mechanical" in excluded_fundamentals and cls._is_mechanical(item, categories):
             return "mechanical"
 
         for key in (
@@ -200,31 +211,31 @@ class ScanFilterService:
             "quiz",
             "tabletop",
         ):
-            if key in enabled and cls._matches(categories, CATEGORY_PATTERNS[key]):
+            if key in excluded_fundamentals and cls._matches(categories, CATEGORY_PATTERNS[key]):
                 return key
         return None
 
-    @classmethod
-    def _profile_reason(cls, item: dict, profile) -> str | None:
+    @staticmethod
+    def _profile_reason(cls_item: dict, profile) -> str | None:
         if (
             not bool(getattr(profile, "mame_include_bios", False))
-            and str(item.get("isbios") or "").casefold() == "yes"
+            and str(cls_item.get("isbios") or "").casefold() == "yes"
         ):
             return "bios"
         if (
             not bool(getattr(profile, "mame_include_devices", False))
-            and str(item.get("isdevice") or "").casefold() == "yes"
+            and str(cls_item.get("isdevice") or "").casefold() == "yes"
         ):
             return "device"
         if not bool(getattr(profile, "mame_include_optional", True)) and str(
-            item.get("optional") or ""
+            cls_item.get("optional") or ""
         ).casefold() in {"yes", "true", "1"}:
             return "optional"
         if bool(getattr(profile, "mame_working_only", False)) and str(
-            item.get("runnable") or ""
+            cls_item.get("runnable") or ""
         ).casefold() not in {"yes", "true", "1"}:
             return "not_working"
-        if str(getattr(profile, "mame_clone_policy", "with_clones")) == "parents_only" and item.get(
+        if str(getattr(profile, "mame_clone_policy", "with_clones")) == "parents_only" and cls_item.get(
             "cloneof"
         ):
             return "clone"
