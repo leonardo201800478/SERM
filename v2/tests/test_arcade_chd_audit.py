@@ -36,8 +36,10 @@ def make_database(path, sha1: str) -> None:
             );
             INSERT INTO mame_listxml_import VALUES (1, 'completed');
             INSERT INTO mame_machine VALUES (1, 1, 'game');
-            INSERT INTO mame_disk VALUES (1, 1, 'disc', ?, NULL);
-            """,
+            """
+        )
+        db.execute(
+            "INSERT INTO mame_disk VALUES (1, 1, 'disc', ?, NULL)",
             (sha1,),
         )
 
