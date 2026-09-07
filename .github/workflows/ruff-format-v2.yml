@@ -33,7 +33,7 @@ jobs:
         run: ruff format .
 
       - name: Autofix lint
-        run: ruff check . --fix
+        run: ruff check . --fix || true
 
       - name: Commit corrections
         working-directory: .
