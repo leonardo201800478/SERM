@@ -148,7 +148,9 @@ class WHLoaderDataService:
 
         return list(unique.values()), duplicates
 
-    def _insert_game(self, connection: sqlite3.Connection, game: dict[str, Any], now: str) -> tuple[int | None, list[Any]]:
+    def _insert_game(
+        self, connection: sqlite3.Connection, game: dict[str, Any], now: str
+    ) -> tuple[int | None, list[Any]]:
         hardware_raw = game.get("hardware")
         hardware: dict[str, Any] = hardware_raw if isinstance(hardware_raw, dict) else {}
         filename = self._text(game.get("filename")) or ""
@@ -158,17 +160,30 @@ class WHLoaderDataService:
         if not isinstance(slaves, list):
             slaves = []
         values = (
-            filename, self._text(game.get("sha1")), self._text(game.get("name")) or filename,
-            self._text(game.get("subpath")), self._text(game.get("slave_default")), len(slaves),
-            self._text(hardware.get("primary_control")), self._text(hardware.get("port0")),
-            self._text(hardware.get("port1")), self._text(hardware.get("chipset")),
-            self._text(hardware.get("cpu")), self._bool(hardware.get("fast_copper")),
-            self._bool(hardware.get("cpu_compatible")), self._bool(hardware.get("jit")),
-            self._bool(hardware.get("screen_autoheight")), self._text(hardware.get("screen_centerh")),
-            self._text(hardware.get("screen_centerv")), self._int(hardware.get("screen_height")),
-            self._int(hardware.get("screen_y_offset")), self._bool(hardware.get("line_doubling")),
-            self._bool(hardware.get("ntsc")), self._text(hardware.get("sprites")),
-            json.dumps(game, ensure_ascii=False, separators=(",", ":")), now,
+            filename,
+            self._text(game.get("sha1")),
+            self._text(game.get("name")) or filename,
+            self._text(game.get("subpath")),
+            self._text(game.get("slave_default")),
+            len(slaves),
+            self._text(hardware.get("primary_control")),
+            self._text(hardware.get("port0")),
+            self._text(hardware.get("port1")),
+            self._text(hardware.get("chipset")),
+            self._text(hardware.get("cpu")),
+            self._bool(hardware.get("fast_copper")),
+            self._bool(hardware.get("cpu_compatible")),
+            self._bool(hardware.get("jit")),
+            self._bool(hardware.get("screen_autoheight")),
+            self._text(hardware.get("screen_centerh")),
+            self._text(hardware.get("screen_centerv")),
+            self._int(hardware.get("screen_height")),
+            self._int(hardware.get("screen_y_offset")),
+            self._bool(hardware.get("line_doubling")),
+            self._bool(hardware.get("ntsc")),
+            self._text(hardware.get("sprites")),
+            json.dumps(game, ensure_ascii=False, separators=(",", ":")),
+            now,
         )
         cursor = connection.execute(
             """INSERT INTO whloader_game (
@@ -182,7 +197,9 @@ class WHLoaderDataService:
         )
         return require_lastrowid(cursor.lastrowid), slaves
 
-    def _insert_slaves(self, connection: sqlite3.Connection, game_id: int, slaves: list[Any]) -> int:
+    def _insert_slaves(
+        self, connection: sqlite3.Connection, game_id: int, slaves: list[Any]
+    ) -> int:
         total = 0
         for slave in slaves:
             if not isinstance(slave, dict):
@@ -192,8 +209,14 @@ class WHLoaderDataService:
                 continue
             connection.execute(
                 "INSERT OR IGNORE INTO whloader_slave(game_id, filename, datapath, custom_json) VALUES (?, ?, ?, ?)",
-                (game_id, filename, self._text(slave.get("datapath")),
-                 json.dumps(slave.get("custom_fields", []), ensure_ascii=False, separators=(",", ":"))),
+                (
+                    game_id,
+                    filename,
+                    self._text(slave.get("datapath")),
+                    json.dumps(
+                        slave.get("custom_fields", []), ensure_ascii=False, separators=(",", ":")
+                    ),
+                ),
             )
             total += 1
         return total

@@ -254,7 +254,9 @@ class ReconstructionPage(QWidget):
     def _completed(self, result: object) -> None:
         self.progress.setValue(self.progress.maximum())
         if isinstance(result, dict):
-            set_label = _MAME_SET_LABELS.get(str(result.get("set_type", "standard")), str(result.get("set_type", "standard")))
+            set_label = _MAME_SET_LABELS.get(
+                str(result.get("set_type", "standard")), str(result.get("set_type", "standard"))
+            )
             self.status.setText(
                 f"RECONSTRUÇÃO CONCLUÍDA | set={set_label} | arquivos criados="
                 f"{int(result.get('created_count', 0)):,} | destino={result.get('destination', '—')}"

@@ -117,7 +117,9 @@ class EmulatorSettingsPage(QWidget):
                 ),
             ),
             SettingSpec("samples", "Samples", "bool", AUDIO_CATEGORY),
-            SettingSpec("volume", "Volume inicial (dB)", "slider", AUDIO_CATEGORY, minimum=-32, maximum=0),
+            SettingSpec(
+                "volume", "Volume inicial (dB)", "slider", AUDIO_CATEGORY, minimum=-32, maximum=0
+            ),
             SettingSpec("sound", "Backend de som", "text", AUDIO_CATEGORY),
             SettingSpec("joystick", "Joystick", "bool", "Controles"),
             SettingSpec("mouse", "Mouse", "bool", "Controles"),
@@ -150,7 +152,9 @@ class EmulatorSettingsPage(QWidget):
             ),
         ),
         "fbneo": (
-            SettingSpec("nVidSelect", "Blitter de vídeo", "slider", VIDEO_CATEGORY, minimum=0, maximum=6),
+            SettingSpec(
+                "nVidSelect", "Blitter de vídeo", "slider", VIDEO_CATEGORY, minimum=0, maximum=6
+            ),
             SettingSpec("bVidBilinear", "Filtragem bilinear", "bool", VIDEO_CATEGORY),
             SettingSpec("bVidScanlines", "Scanlines", "bool", VIDEO_CATEGORY),
             SettingSpec("bVidScanDelay", "Fósforo lento", "bool", VIDEO_CATEGORY),
@@ -160,7 +164,9 @@ class EmulatorSettingsPage(QWidget):
             SettingSpec("bForce60Hz", "Forçar 60 Hz", "bool", VIDEO_CATEGORY),
             SettingSpec("bAlwaysDrawFrames", "Sempre desenhar frames", "bool", "Desempenho"),
             SettingSpec("bRunAhead", "Run-ahead", "bool", "Desempenho"),
-            SettingSpec("nAudSelect", "Plugin de áudio", "slider", AUDIO_CATEGORY, minimum=0, maximum=8),
+            SettingSpec(
+                "nAudSelect", "Plugin de áudio", "slider", AUDIO_CATEGORY, minimum=0, maximum=8
+            ),
             SettingSpec("nAudVolume", "Volume", "slider", AUDIO_CATEGORY, minimum=0, maximum=10000),
             SettingSpec(
                 "nAudSegCount", "Buffer de áudio", "slider", AUDIO_CATEGORY, minimum=2, maximum=20
@@ -193,7 +199,12 @@ class EmulatorSettingsPage(QWidget):
                 "nInterpolation", "Interpolação PCM", "slider", AUDIO_CATEGORY, minimum=0, maximum=3
             ),
             SettingSpec(
-                "nFMInterpolation", "Interpolação FM", "slider", AUDIO_CATEGORY, minimum=0, maximum=3
+                "nFMInterpolation",
+                "Interpolação FM",
+                "slider",
+                AUDIO_CATEGORY,
+                minimum=0,
+                maximum=3,
             ),
             SettingSpec("bAutoPause", "Pausar ao perder foco", "bool", "Controles"),
             SettingSpec(
@@ -257,14 +268,24 @@ class EmulatorSettingsPage(QWidget):
             SettingSpec("aica.LimitFPS", "Limitar FPS", "bool", AUDIO_CATEGORY),
             SettingSpec("aica.NoSound", "Sem som", "bool", AUDIO_CATEGORY),
             SettingSpec(
-                "aica.BufferSize", "Buffer de áudio", "slider", AUDIO_CATEGORY, minimum=512, maximum=8192
+                "aica.BufferSize",
+                "Buffer de áudio",
+                "slider",
+                AUDIO_CATEGORY,
+                minimum=512,
+                maximum=8192,
             ),
             SettingSpec(
                 "backend",
                 "Backend de áudio",
                 "combo",
                 AUDIO_CATEGORY,
-                (("auto", AUTO_OPTION_LABEL), ("wasapi", "WASAPI"), ("sdl2", "SDL2"), ("null", "Nulo")),
+                (
+                    ("auto", AUTO_OPTION_LABEL),
+                    ("wasapi", "WASAPI"),
+                    ("sdl2", "SDL2"),
+                    ("null", "Nulo"),
+                ),
             ),
             SettingSpec("rend.UseMipmaps", "Mipmaps", "bool", VIDEO_CATEGORY),
             SettingSpec("rend.WideScreen", "Widescreen", "bool", VIDEO_CATEGORY),
@@ -286,15 +307,29 @@ class EmulatorSettingsPage(QWidget):
                 maximum=4096,
             ),
             SettingSpec(
-                "rend.ScreenScaling", "Escala da tela", "slider", VIDEO_CATEGORY, minimum=1, maximum=800
+                "rend.ScreenScaling",
+                "Escala da tela",
+                "slider",
+                VIDEO_CATEGORY,
+                minimum=1,
+                maximum=800,
             ),
             SettingSpec(
-                "rend.ScreenStretching", "Alongamento", "slider", VIDEO_CATEGORY, minimum=1, maximum=200
+                "rend.ScreenStretching",
+                "Alongamento",
+                "slider",
+                VIDEO_CATEGORY,
+                minimum=1,
+                maximum=200,
             ),
             SettingSpec("rend.Fog", "Fog", "bool", VIDEO_CATEGORY),
             SettingSpec("rend.Rotate90", "Rotacionar 90°", "bool", VIDEO_CATEGORY),
-            SettingSpec("rend.WidescreenGameHacks", "Widescreen game hacks", "bool", ADVANCED_CATEGORY),
-            SettingSpec("pvr.rend", "Renderer PVR", "slider", ADVANCED_CATEGORY, minimum=0, maximum=8),
+            SettingSpec(
+                "rend.WidescreenGameHacks", "Widescreen game hacks", "bool", ADVANCED_CATEGORY
+            ),
+            SettingSpec(
+                "pvr.rend", "Renderer PVR", "slider", ADVANCED_CATEGORY, minimum=0, maximum=8
+            ),
             SettingSpec(
                 "pvr.MaxThreads", "Threads do PVR", "slider", "Desempenho", minimum=1, maximum=16
             ),
@@ -315,9 +350,15 @@ class EmulatorSettingsPage(QWidget):
             SettingSpec("VSync", "VSync", "bool", VIDEO_CATEGORY),
             SettingSpec("ShowStats", "Mostrar estatísticas", "bool", VIDEO_CATEGORY),
             SettingSpec("Stretch", "Stretch", "bool", VIDEO_CATEGORY),
-            SettingSpec("XResolution", "Resolução X", "slider", VIDEO_CATEGORY, minimum=320, maximum=7680),
-            SettingSpec("YResolution", "Resolução Y", "slider", VIDEO_CATEGORY, minimum=240, maximum=4320),
-            SettingSpec("SoundVolume", "Volume de som", "slider", AUDIO_CATEGORY, minimum=0, maximum=200),
+            SettingSpec(
+                "XResolution", "Resolução X", "slider", VIDEO_CATEGORY, minimum=320, maximum=7680
+            ),
+            SettingSpec(
+                "YResolution", "Resolução Y", "slider", VIDEO_CATEGORY, minimum=240, maximum=4320
+            ),
+            SettingSpec(
+                "SoundVolume", "Volume de som", "slider", AUDIO_CATEGORY, minimum=0, maximum=200
+            ),
             SettingSpec(
                 "MusicVolume", "Volume de música", "slider", AUDIO_CATEGORY, minimum=0, maximum=200
             ),
@@ -358,18 +399,32 @@ class EmulatorSettingsPage(QWidget):
                 ),
             ),
             SettingSpec("video_fullscreen", "Fullscreen", "bool", VIDEO_CATEGORY),
-            SettingSpec("video_windowed_fullscreen", "Fullscreen em janela", "bool", VIDEO_CATEGORY),
+            SettingSpec(
+                "video_windowed_fullscreen", "Fullscreen em janela", "bool", VIDEO_CATEGORY
+            ),
             SettingSpec("video_vsync", "VSync", "bool", VIDEO_CATEGORY),
             SettingSpec("video_smooth", "Filtragem suave", "bool", VIDEO_CATEGORY),
             SettingSpec("video_scale_integer", "Escala inteira", "bool", VIDEO_CATEGORY),
             SettingSpec("video_allow_rotate", "Permitir rotação do core", "bool", VIDEO_CATEGORY),
             SettingSpec(
-                "video_fullscreen_x", "Resolução X", "slider", VIDEO_CATEGORY, minimum=0, maximum=7680
+                "video_fullscreen_x",
+                "Resolução X",
+                "slider",
+                VIDEO_CATEGORY,
+                minimum=0,
+                maximum=7680,
             ),
             SettingSpec(
-                "video_fullscreen_y", "Resolução Y", "slider", VIDEO_CATEGORY, minimum=0, maximum=4320
+                "video_fullscreen_y",
+                "Resolução Y",
+                "slider",
+                VIDEO_CATEGORY,
+                minimum=0,
+                maximum=4320,
             ),
-            SettingSpec("video_monitor_index", "Monitor", "slider", VIDEO_CATEGORY, minimum=0, maximum=8),
+            SettingSpec(
+                "video_monitor_index", "Monitor", "slider", VIDEO_CATEGORY, minimum=0, maximum=8
+            ),
             SettingSpec("audio_enable", AUDIO_CATEGORY, "bool", AUDIO_CATEGORY),
             SettingSpec(
                 "audio_driver",
@@ -395,7 +450,9 @@ class EmulatorSettingsPage(QWidget):
                 "audio_latency", "Latência (ms)", "slider", AUDIO_CATEGORY, minimum=1, maximum=256
             ),
             SettingSpec("audio_rate_control", "Rate control", "bool", AUDIO_CATEGORY),
-            SettingSpec("audio_volume", "Volume (dB)", "slider", AUDIO_CATEGORY, minimum=-40, maximum=12),
+            SettingSpec(
+                "audio_volume", "Volume (dB)", "slider", AUDIO_CATEGORY, minimum=-40, maximum=12
+            ),
             SettingSpec(
                 "input_driver",
                 "Driver de input",
@@ -517,8 +574,8 @@ class EmulatorSettingsPage(QWidget):
             spin.valueChanged.connect(slider.setValue)
             box.addWidget(slider, 1)
             box.addWidget(spin)
-            setattr(widget, "_serm_slider", slider)
-            setattr(widget, "_serm_spin", spin)
+            widget._serm_slider = slider
+            widget._serm_spin = spin
             return widget
         return QLineEdit()
 

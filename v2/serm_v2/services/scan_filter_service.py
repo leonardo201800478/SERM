@@ -157,7 +157,9 @@ class ScanFilterService:
         return cls._profile_reason(item, profile)
 
     @classmethod
-    def _fundamental_reason(cls, item: dict, categories: tuple[str, ...], enabled: set[str]) -> str | None:
+    def _fundamental_reason(
+        cls, item: dict, categories: tuple[str, ...], enabled: set[str]
+    ) -> str | None:
         if "mechanical" in enabled and cls._is_mechanical(item, categories):
             return "mechanical"
 
@@ -194,9 +196,11 @@ class ScanFilterService:
 
     @classmethod
     def _is_mechanical(cls, item: dict, categories: tuple[str, ...]) -> bool:
-        return str(item.get("ismechanical") or "").casefold() in {"yes", "true", "1"} or cls._matches(
-            categories, CATEGORY_PATTERNS["mechanical"]
-        )
+        return str(item.get("ismechanical") or "").casefold() in {
+            "yes",
+            "true",
+            "1",
+        } or cls._matches(categories, CATEGORY_PATTERNS["mechanical"])
 
 
 __all__ = ["ScanFilterService"]

@@ -110,9 +110,7 @@ class EmulatorManager:
             result[key] = EmulatorStatus(key, label, executable, root, version, state)
         return result
 
-    def install(
-        self, key: str, destination: Path, *, progress=None, log=None
-    ) -> DownloadResult:
+    def install(self, key: str, destination: Path, *, progress=None, log=None) -> DownloadResult:
         """Baixa e instala o pacote Windows x64 oficial."""
         key = key.casefold()
         if key not in self.REPOSITORIES:
@@ -183,7 +181,22 @@ class EmulatorManager:
             score += 50
         if any(t in name for t in ("x64", "x86_64", "amd64", "64bit", "64-bit")):
             score += 40
-        if any(t in name for t in ("linux", "macos", "osx", "android", "ios", "arm64", "aarch64", "win32", "i386", "source", "src")):
+        if any(
+            t in name
+            for t in (
+                "linux",
+                "macos",
+                "osx",
+                "android",
+                "ios",
+                "arm64",
+                "aarch64",
+                "win32",
+                "i386",
+                "source",
+                "src",
+            )
+        ):
             score -= 100
         if name.endswith(".zip"):
             score += 20
@@ -421,9 +434,7 @@ class RetroArchManager:
                 timeout=4,
                 check=False,
             )
-            match = re.search(
-                r"RetroArch\s+(\d+\.\d+(?:\.\d+)?)", result.stdout or "", re.I
-            )
+            match = re.search(r"RetroArch\s+(\d+\.\d+(?:\.\d+)?)", result.stdout or "", re.I)
             return match.group(1) if match else None
         except (OSError, subprocess.SubprocessError):
             return None
@@ -700,7 +711,9 @@ class RetroArchManager:
             bad = package.testzip()
             if bad:
                 raise RuntimeError(f"ZIP corrompido do core: {bad}")
-            dll_names = [name for name in package.namelist() if name.casefold().endswith("_libretro.dll")]
+            dll_names = [
+                name for name in package.namelist() if name.casefold().endswith("_libretro.dll")
+            ]
             if not dll_names:
                 raise RuntimeError(f"ZIP sem DLL libretro: {filename}")
             return dll_names[0], package.read(dll_names[0])
@@ -711,17 +724,29 @@ class RetroArchManager:
             raise RuntimeError("Caminho inseguro no core.")
 
     def _find_core(self, filename: str, stable_version: str | None) -> CoreInfo | None:
-        return next((core for core in self.list_cores("nightly", stable_version)
-                     if core.filename.casefold() == filename.casefold()), None)
+        return next(
+            (
+                core
+                for core in self.list_cores("nightly", stable_version)
+                if core.filename.casefold() == filename.casefold()
+            ),
+            None,
+        )
 
     @staticmethod
-    def _validate_core_crc(temp_dll: Path, target: Path, actual_crc: str, remote: CoreInfo | None) -> None:
+    def _validate_core_crc(
+        temp_dll: Path, target: Path, actual_crc: str, remote: CoreInfo | None
+    ) -> None:
         if remote is None or remote.crc32 != actual_crc:
             temp_dll.unlink(missing_ok=True)
             expected = remote.crc32 if remote else "desconhecido"
-            raise RuntimeError(f"CRC32 inválido para {target.name}: recebido={actual_crc}, esperado={expected}")
+            raise RuntimeError(
+                f"CRC32 inválido para {target.name}: recebido={actual_crc}, esperado={expected}"
+            )
 
-    def install_frontend(self, destination: Path, *, channel: str = "stable", progress=None, log=None) -> DownloadResult:
+    def install_frontend(
+        self, destination: Path, *, channel: str = "stable", progress=None, log=None
+    ) -> DownloadResult:
         """Baixa e instala o frontend RetroArch x64 Stable ou Nightly."""
         channel = channel.casefold().strip()
         if channel not in {"stable", "nightly"}:
@@ -743,16 +768,22 @@ class RetroArchManager:
         extracted.mkdir()
         try:
             if log:
-                log(f"RETROARCH | canal={channel} | versão={version_label} | arquivo={archive_name}")
+                log(
+                    f"RETROARCH | canal={channel} | versão={version_label} | arquivo={archive_name}"
+                )
                 log(f"DOWNLOAD | {url}")
             self._download_file(url, archive, progress, log)
             self._extract(archive, extracted, log)
             self._merge(extracted, destination)
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
-        executable = next((x.resolve() for x in destination.rglob("retroarch.exe") if x.is_file()), None)
+        executable = next(
+            (x.resolve() for x in destination.rglob("retroarch.exe") if x.is_file()), None
+        )
         if executable is None:
-            raise RuntimeError(f"Download concluído, mas retroarch.exe não foi encontrado em {destination}.")
+            raise RuntimeError(
+                f"Download concluído, mas retroarch.exe não foi encontrado em {destination}."
+            )
         return DownloadResult("retroarch", version_label, executable, archive_name)
 
     @classmethod

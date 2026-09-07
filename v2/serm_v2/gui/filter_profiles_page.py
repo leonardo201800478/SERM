@@ -481,9 +481,7 @@ class FilterProfilesPage(QWidget):
         disks = self._estimate_count(estimate.get("disks"))
         catalog_roms = self._estimate_count(estimate.get("catalog_roms"))
 
-        self.catalog_estimate.setText(
-            f"ROMs selecionadas: {roms:,}  •  máquinas: {machines:,}"
-        )
+        self.catalog_estimate.setText(f"ROMs selecionadas: {roms:,}  •  máquinas: {machines:,}")
         details = (
             f"Opcionais: {optional:,}  •  CHDs/disks: {disks:,}  •  "
             f"SET: {estimate.get('set_type', 'split')}  •  catálogo total: {catalog_roms:,} ROMs"

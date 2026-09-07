@@ -12,7 +12,18 @@ from uuid import uuid4
 from ..runtime.paths import scans_root
 from .scan_file_repository import ScanFileRepository
 
-DEFAULT_REGION_PRIORITY = ("Brazil", "Portugal", "USA/America", "World", "Europe", "Spain", "Japan", "China", "Korea", "Others")
+DEFAULT_REGION_PRIORITY = (
+    "Brazil",
+    "Portugal",
+    "USA/America",
+    "World",
+    "Europe",
+    "Spain",
+    "Japan",
+    "China",
+    "Korea",
+    "Others",
+)
 
 
 def _tags(item: dict) -> set[str]:
@@ -20,7 +31,7 @@ def _tags(item: dict) -> set[str]:
 
 
 def _values(item: dict, prefix: str) -> list[str]:
-    return [tag[len(prefix):] for tag in _tags(item) if tag.startswith(prefix)]
+    return [tag[len(prefix) :] for tag in _tags(item) if tag.startswith(prefix)]
 
 
 class NoIntroFilterService:
@@ -32,7 +43,13 @@ class NoIntroFilterService:
     def preview(cls, scan_path: Path, profile) -> dict:
         payload = ScanFileRepository.load(scan_path)
         kept, reasons = cls._filter(payload.get("evidence", []), profile)
-        return {"input_count": len(payload.get("evidence", [])), "output_count": len(kept), "filtered_count": len(payload.get("evidence", [])) - len(kept), "filter_counts": dict(reasons), "catalog_label": payload.get("catalog_label")}
+        return {
+            "input_count": len(payload.get("evidence", [])),
+            "output_count": len(kept),
+            "filtered_count": len(payload.get("evidence", [])) - len(kept),
+            "filter_counts": dict(reasons),
+            "catalog_label": payload.get("catalog_label"),
+        }
 
     @classmethod
     def apply(cls, scan_path: Path, profile) -> dict:
@@ -47,7 +64,25 @@ class NoIntroFilterService:
         label = re.sub(r"[^A-Za-z0-9._-]+", "_", str(payload.get("catalog_label") or "catalog"))
         out = out_dir / f"No-Intro_{label}_FILTER_{run_id}.json"
         priority = list(getattr(profile, "region_priority", ()) or DEFAULT_REGION_PRIORITY)
-        result = {"format": "SERM-FILTER-V1", "filter_run_id": run_id, "scan_id": payload.get("scan_id"), "profile_id": str(profile.profile_id), "source": payload.get("source"), "system": payload.get("system"), "scan_type": payload.get("scan_type", "full"), "catalog_label": payload.get("catalog_label"), "catalog_hash": payload.get("catalog_hash"), "source_scan_file": str(scan_path), "created_at": time.time(), "input_count": len(evidence), "output_count": len(kept), "filtered_count": len(evidence) - len(kept), "filter_counts": dict(reasons), "filters": cls.profile_payload(profile, priority), "evidence": kept}
+        result = {
+            "format": "SERM-FILTER-V1",
+            "filter_run_id": run_id,
+            "scan_id": payload.get("scan_id"),
+            "profile_id": str(profile.profile_id),
+            "source": payload.get("source"),
+            "system": payload.get("system"),
+            "scan_type": payload.get("scan_type", "full"),
+            "catalog_label": payload.get("catalog_label"),
+            "catalog_hash": payload.get("catalog_hash"),
+            "source_scan_file": str(scan_path),
+            "created_at": time.time(),
+            "input_count": len(evidence),
+            "output_count": len(kept),
+            "filtered_count": len(evidence) - len(kept),
+            "filter_counts": dict(reasons),
+            "filters": cls.profile_payload(profile, priority),
+            "evidence": kept,
+        }
         out.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
         result["filtered_file_path"] = str(out)
         return result
@@ -55,15 +90,30 @@ class NoIntroFilterService:
     @classmethod
     def profile_payload(cls, profile, region_priority):
         defaults = {
-            "include_bios": False, "include_demos": False, "include_prototypes": False, "include_betas": False,
-            "include_programs": False, "include_np": False, "include_samples": False, "include_aftermarket": True,
-            "include_unlicensed": False, "include_pirates": False, "include_enhancement_chips": False,
-            "include_tech_demos": False, "include_bad_dumps": False, "include_clones": True,
+            "include_bios": False,
+            "include_demos": False,
+            "include_prototypes": False,
+            "include_betas": False,
+            "include_programs": False,
+            "include_np": False,
+            "include_samples": False,
+            "include_aftermarket": True,
+            "include_unlicensed": False,
+            "include_pirates": False,
+            "include_enhancement_chips": False,
+            "include_tech_demos": False,
+            "include_bad_dumps": False,
+            "include_clones": True,
             "include_unl_regions": True,
-            "one_game_one_region": False, "include_translations": False, "include_hacks": False,
-            "keep_unverified_variants": True, "remove_previous_versions": True,
+            "one_game_one_region": False,
+            "include_translations": False,
+            "include_hacks": False,
+            "keep_unverified_variants": True,
+            "remove_previous_versions": True,
         }
-        return {key: getattr(profile, key, default) for key, default in defaults.items()} | {"region_priority": list(region_priority)}
+        return {key: getattr(profile, key, default) for key, default in defaults.items()} | {
+            "region_priority": list(region_priority)
+        }
 
     @classmethod
     def _filter(cls, evidence, profile):
@@ -94,7 +144,11 @@ class NoIntroFilterService:
                 continue
             chosen_key, members = chosen
             selected.extend(members)
-            reasons["1g1r"] += sum(len(group_members) for release_key, group_members in family if release_key != chosen_key)
+            reasons["1g1r"] += sum(
+                len(group_members)
+                for release_key, group_members in family
+                if release_key != chosen_key
+            )
         return selected, reasons
 
     @staticmethod
@@ -111,7 +165,9 @@ class NoIntroFilterService:
     def _choose_release(cls, releases, profile):
         best = None
         for release_key, members in releases:
-            representative = next((m for m in members if str(m.get("status")).upper() != "DUPLICATE"), members[0])
+            representative = next(
+                (m for m in members if str(m.get("status")).upper() != "DUPLICATE"), members[0]
+            )
             score = cls._release_score(representative, profile)
             if best is None or score < best[0]:
                 best = (score, release_key, members)
@@ -129,13 +185,27 @@ class NoIntroFilterService:
         # participar da prioridade regional como Brazil no 1G1R.
         if re.search(r"(?:^|[ _.-])t[-_ ]?br(?:a|asil)?(?:$|[ _.-])", normalized_name):
             regions.append("brazil")
-        if re.search(r"(?:pt[-_ ]?br|br[-_ ]?pt|translated[-_ ]?pt[-_ ]?br|trad[-_ ]?pt[-_ ]?br)", normalized_name):
+        if re.search(
+            r"(?:pt[-_ ]?br|br[-_ ]?pt|translated[-_ ]?pt[-_ ]?br|trad[-_ ]?pt[-_ ]?br)",
+            normalized_name,
+        ):
             regions.append("brazil")
         tags = _tags(item)
         return (
             cls._region_rank(regions, ranks),
             1 if str(item.get("status")).upper() == "UNVERIFIED_VARIANT" else 0,
-            int(any(t in tags for t in ("type:beta", "type:proto", "type:demo", "type:sample", "type:tech_demo"))),
+            int(
+                any(
+                    t in tags
+                    for t in (
+                        "type:beta",
+                        "type:proto",
+                        "type:demo",
+                        "type:sample",
+                        "type:tech_demo",
+                    )
+                )
+            ),
             0 if "language:en" in tags else 1,
             1 if any(t.startswith("version:") for t in tags) else 0,
             str(item.get("machine_name") or "").casefold(),
@@ -150,7 +220,9 @@ class NoIntroFilterService:
         if status == "UNVERIFIED_VARIANT":
             if not getattr(profile, "keep_unverified_variants", True):
                 return "unverified"
-            if "variant:translation" in tags and not getattr(profile, "include_translations", False):
+            if "variant:translation" in tags and not getattr(
+                profile, "include_translations", False
+            ):
                 return "translation"
             if "variant:hack" in tags and not getattr(profile, "include_hacks", False):
                 return "hack"
@@ -174,7 +246,9 @@ class NoIntroFilterService:
                 return reason
         # "Unl" pode ser representado como conteúdo não licenciado e/ou como
         # marcador regional. O filtro de região Unl é independente.
-        if any(tag.startswith("region:unl") for tag in tags) and not getattr(profile, "include_unl_regions", True):
+        if any(tag.startswith("region:unl") for tag in tags) and not getattr(
+            profile, "include_unl_regions", True
+        ):
             return "unl_region"
         if "variant:translation" in tags and not getattr(profile, "include_translations", False):
             return "translation"
@@ -200,16 +274,38 @@ class NoIntroFilterService:
         if not regions:
             return len(ranks) + 1
         aliases = {
-            "bra": "brazil", "brazil": "brazil", "br": "brazil",
-            "por": "portugal", "portugal": "portugal", "pt": "portugal",
-            "usa": "usa/america", "america": "usa/america", "us": "usa/america",
-            "eur": "europe", "europe": "europe", "eu": "europe",
-            "spa": "spain", "spain": "spain", "esp": "spain",
-            "jpn": "japan", "japan": "japan", "chn": "china", "china": "china", "cn": "china",
-            "kor": "korea", "korea": "korea", "kr": "korea", "world": "world", "ww": "world",
-            "unl": "others", "unlicensed": "others",
+            "bra": "brazil",
+            "brazil": "brazil",
+            "br": "brazil",
+            "por": "portugal",
+            "portugal": "portugal",
+            "pt": "portugal",
+            "usa": "usa/america",
+            "america": "usa/america",
+            "us": "usa/america",
+            "eur": "europe",
+            "europe": "europe",
+            "eu": "europe",
+            "spa": "spain",
+            "spain": "spain",
+            "esp": "spain",
+            "jpn": "japan",
+            "japan": "japan",
+            "chn": "china",
+            "china": "china",
+            "cn": "china",
+            "kor": "korea",
+            "korea": "korea",
+            "kr": "korea",
+            "world": "world",
+            "ww": "world",
+            "unl": "others",
+            "unlicensed": "others",
         }
-        return min(ranks.get(aliases.get(region, "others"), ranks.get("others", len(ranks))) for region in regions)
+        return min(
+            ranks.get(aliases.get(region, "others"), ranks.get("others", len(ranks)))
+            for region in regions
+        )
 
 
 __all__ = ["DEFAULT_REGION_PRIORITY", "NoIntroFilterService"]

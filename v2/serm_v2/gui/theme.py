@@ -164,7 +164,10 @@ def _refine_buttons(root) -> None:
         button.setMinimumHeight(max(button.minimumHeight(), 30))
         text = button.text().strip().casefold()
         role = None
-        if any(token in text for token in ("selecionar pasta", "adicionar pasta", "selecionar diretório")):
+        if any(
+            token in text
+            for token in ("selecionar pasta", "adicionar pasta", "selecionar diretório")
+        ):
             role = "folder"
         elif "remover selecionada" in text:
             role = "danger"

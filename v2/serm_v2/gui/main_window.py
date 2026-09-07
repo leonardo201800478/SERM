@@ -214,12 +214,8 @@ class MainWindow(QMainWindow):
         self.navigation.setIconSize(QSize(20, 20))
         self.navigation.setSpacing(3)
         self.navigation.setFrameShape(QFrame.Shape.NoFrame)
-        self.navigation.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-        )
-        self.navigation.setVerticalScrollMode(
-            QListWidget.ScrollMode.ScrollPerPixel
-        )
+        self.navigation.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.navigation.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
         for label, description, style_icon in self.NAV_ITEMS:
             item = QListWidgetItem(
                 self.style().standardIcon(getattr(QStyle, style_icon)),
@@ -278,9 +274,7 @@ class MainWindow(QMainWindow):
             self._refresh_page(index)
             item = self.navigation.item(index)
             self.status_bar.showMessage(
-                (item.data(Qt.ItemDataRole.UserRole) or item.text())
-                if item
-                else "Pronto"
+                (item.data(Qt.ItemDataRole.UserRole) or item.text()) if item else "Pronto"
             )
 
     def _refresh_page(self, index: int) -> None:

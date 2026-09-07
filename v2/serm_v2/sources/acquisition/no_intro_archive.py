@@ -234,7 +234,7 @@ class NoIntroArchiveProvider:
                 value = value[:opening].rstrip()
         suffix = "(Parent-Clone)"
         if value.casefold().endswith(suffix.casefold()):
-            value = value[:-len(suffix)].rstrip()
+            value = value[: -len(suffix)].rstrip()
         value = re.sub(r"\s+", " ", value)
         value = value.casefold().replace("&", "and")
         return re.sub(r"[^a-z0-9]+", " ", value).strip()

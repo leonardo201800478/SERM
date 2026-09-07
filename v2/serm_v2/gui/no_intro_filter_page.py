@@ -40,7 +40,9 @@ class NoIntroFilterPage(QWidget):
         title = QLabel("NO-INTRO — FILTROS E 1G1R")
         title.setProperty("role", "title")
         layout.addWidget(title)
-        intro = QLabel("O scan bruto coleta todos os metadados. Esta tela decide o que entra no set final; o snapshot original nunca é alterado.")
+        intro = QLabel(
+            "O scan bruto coleta todos os metadados. Esta tela decide o que entra no set final; o snapshot original nunca é alterado."
+        )
         intro.setWordWrap(True)
         layout.addWidget(intro)
 
@@ -140,12 +142,17 @@ class NoIntroFilterPage(QWidget):
         try:
             with sqlite3.connect(database_path()) as connection:
                 connection.row_factory = sqlite3.Row
-                rows = connection.execute("SELECT * FROM scan_runs WHERE status='completed' AND lower(source)='no-intro' ORDER BY started_at DESC").fetchall()
+                rows = connection.execute(
+                    "SELECT * FROM scan_runs WHERE status='completed' AND lower(source)='no-intro' ORDER BY started_at DESC"
+                ).fetchall()
         except sqlite3.Error:
             rows = []
         for row in rows:
             data = dict(row)
-            self.scan_combo.addItem(f"{data.get('system','No-Intro')} › {data.get('catalog_label','catalog')} | {data.get('scan_id','')}", data)
+            self.scan_combo.addItem(
+                f"{data.get('system', 'No-Intro')} › {data.get('catalog_label', 'catalog')} | {data.get('scan_id', '')}",
+                data,
+            )
         self.scan_combo.blockSignals(False)
         self._changed()
 
@@ -157,7 +164,9 @@ class NoIntroFilterPage(QWidget):
             return
         path = Path(str(data.get("scan_file_path") or ""))
         self.apply.setEnabled(path.is_file())
-        self.scan_info.setText(f"Entrada: {path}\nItens={int(data.get('items_examined') or 0):,} | {data.get('status_counts_json','{}')}")
+        self.scan_info.setText(
+            f"Entrada: {path}\nItens={int(data.get('items_examined') or 0):,} | {data.get('status_counts_json', '{}')}"
+        )
 
     def _config(self):
         priority = [self.region_list.item(i).text() for i in range(self.region_list.count())]
@@ -185,7 +194,7 @@ class NoIntroFilterPage(QWidget):
             result = NoIntroFilterService.preview(path, self._config())
             self.preview.setText(
                 f"Preview: entrada={result['input_count']:,} | saída={result['output_count']:,} | excluídas={result['filtered_count']:,}\n"
-                + " | ".join(f"{k}={v:,}" for k, v in result['filter_counts'].items())
+                + " | ".join(f"{k}={v:,}" for k, v in result["filter_counts"].items())
             )
         except Exception as exc:
             self.preview.setText(f"Preview indisponível: {exc}")
@@ -197,7 +206,9 @@ class NoIntroFilterPage(QWidget):
         path = Path(str(data.get("scan_file_path") or ""))
         try:
             result = NoIntroFilterService.apply(path, self._config())
-            self.result.setText(f"ARQUIVO FILTRADO GERADO\n{result['filtered_file_path']}\nentrada={result['input_count']:,} | saída={result['output_count']:,}")
+            self.result.setText(
+                f"ARQUIVO FILTRADO GERADO\n{result['filtered_file_path']}\nentrada={result['input_count']:,} | saída={result['output_count']:,}"
+            )
         except Exception as exc:
             QMessageBox.critical(self, "No-Intro", f"Falha ao gerar filtro:\n{exc}")
 
@@ -205,7 +216,9 @@ class NoIntroFilterPage(QWidget):
         config = self._config()
         payload = {key: getattr(config, key) for key in vars(config)}
         self.SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
-        self.SETTINGS_PATH.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        self.SETTINGS_PATH.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
         self.result.setText("Configuração No-Intro salva.")
 
     def _load_settings(self) -> None:

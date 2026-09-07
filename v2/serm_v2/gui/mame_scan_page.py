@@ -156,11 +156,15 @@ class MameScanPage(QWidget):
 
     def new_scan(self) -> None:
         if self.scan_tab.worker and self.scan_tab.worker.isRunning():
-            QMessageBox.information(self, "Novo scan", "Finalize ou cancele o scan em execução antes de iniciar outro.")
+            QMessageBox.information(
+                self, "Novo scan", "Finalize ou cancele o scan em execução antes de iniciar outro."
+            )
             return
         self.scan_list.clearSelection()
         self.scan_tab.log.clear()
-        self.scan_tab.status.setText("Novo scan preparado. Configure os diretórios e clique em INICIAR SCAN COMPLETO.")
+        self.scan_tab.status.setText(
+            "Novo scan preparado. Configure os diretórios e clique em INICIAR SCAN COMPLETO."
+        )
         self.scan_tab.progress.setValue(0)
         self.scan_tab.progress.setMaximum(1)
         self.scan_tab.refresh()

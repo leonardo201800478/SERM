@@ -46,23 +46,84 @@ class NoIntroScanService:
     CHUNK_SIZE = 1024 * 1024
     VARIANT_STATUS = "UNVERIFIED_VARIANT"
     VARIANT_PATTERNS = (
-        ("translation", re.compile(r"(?:translation|translated|trad(?:uced|ucao|ução)?|\[t[+\-][^\]]*\]|\(t[+\-][^)]*\))", re.I)),
+        (
+            "translation",
+            re.compile(
+                r"(?:translation|translated|trad(?:uced|ucao|ução)?|\[t[+\-][^\]]*\]|\(t[+\-][^)]*\))",
+                re.I,
+            ),
+        ),
         ("hack", re.compile(r"(?:hack|hacked|romhack|\[h[+\-][^\]]*\]|\(hack[^)]*\))", re.I)),
     )
     REGION_ALIASES = {
-        "usa": "USA/America", "america": "USA/America", "us": "USA/America",
-        "eur": "Europe", "europe": "Europe", "eu": "Europe",
-        "jpn": "Japan", "japan": "Japan", "chn": "China", "china": "China", "cn": "China",
-        "kor": "Korea", "korea": "Korea", "kr": "Korea", "spa": "Spain", "spain": "Spain",
-        "esp": "Spain", "por": "Portugal", "portugal": "Portugal", "pt": "Portugal",
-        "bra": "Brazil", "brazil": "Brazil", "br": "Brazil", "world": "World", "ww": "World",
+        "usa": "USA/America",
+        "america": "USA/America",
+        "us": "USA/America",
+        "eur": "Europe",
+        "europe": "Europe",
+        "eu": "Europe",
+        "jpn": "Japan",
+        "japan": "Japan",
+        "chn": "China",
+        "china": "China",
+        "cn": "China",
+        "kor": "Korea",
+        "korea": "Korea",
+        "kr": "Korea",
+        "spa": "Spain",
+        "spain": "Spain",
+        "esp": "Spain",
+        "por": "Portugal",
+        "portugal": "Portugal",
+        "pt": "Portugal",
+        "bra": "Brazil",
+        "brazil": "Brazil",
+        "br": "Brazil",
+        "world": "World",
+        "ww": "World",
     }
-    LANGUAGE_CODES = {"En", "Fr", "De", "Es", "It", "Pt", "Nl", "Sv", "Da", "No", "Fi", "Ru", "Pl", "Cs", "Hu", "Tr", "El", "Ja", "Zh", "Ko", "Ar", "He", "Th", "Vi"}
+    LANGUAGE_CODES = {
+        "En",
+        "Fr",
+        "De",
+        "Es",
+        "It",
+        "Pt",
+        "Nl",
+        "Sv",
+        "Da",
+        "No",
+        "Fi",
+        "Ru",
+        "Pl",
+        "Cs",
+        "Hu",
+        "Tr",
+        "El",
+        "Ja",
+        "Zh",
+        "Ko",
+        "Ar",
+        "He",
+        "Th",
+        "Vi",
+    }
     TYPE_TOKENS = {
-        "bios": "type:bios", "program": "type:program", "beta": "type:beta", "proto": "type:proto",
-        "prototype": "type:proto", "demo": "type:demo", "tech demo": "type:tech_demo", "techdemo": "type:tech_demo",
-        "sample": "type:sample", "np": "type:np", "aftermarket": "type:aftermarket", "unl": "type:unlicensed",
-        "unlicensed": "type:unlicensed", "pirate": "type:pirate", "enhancement chip": "type:enhancement_chip",
+        "bios": "type:bios",
+        "program": "type:program",
+        "beta": "type:beta",
+        "proto": "type:proto",
+        "prototype": "type:proto",
+        "demo": "type:demo",
+        "tech demo": "type:tech_demo",
+        "techdemo": "type:tech_demo",
+        "sample": "type:sample",
+        "np": "type:np",
+        "aftermarket": "type:aftermarket",
+        "unl": "type:unlicensed",
+        "unlicensed": "type:unlicensed",
+        "pirate": "type:pirate",
+        "enhancement chip": "type:enhancement_chip",
         "enhancementchip": "type:enhancement_chip",
     }
 
@@ -80,7 +141,15 @@ class NoIntroScanService:
         expected, header = self._load_dat(dat_path)
         if not expected:
             raise NoIntroScanError(f"Nenhuma ROM encontrada no DAT: {dat_path}")
-        result = ScanResult(scan_id=self._make_scan_id(profile), profile_id=str(profile.profile_id), source="No-Intro", system=str(profile.system), started_at=started, catalog_label=f"{profile.system} - {self._catalog_label(dat_path, header)}", scan_type="full")
+        result = ScanResult(
+            scan_id=self._make_scan_id(profile),
+            profile_id=str(profile.profile_id),
+            source="No-Intro",
+            system=str(profile.system),
+            started_at=started,
+            catalog_label=f"{profile.system} - {self._catalog_label(dat_path, header)}",
+            scan_type="full",
+        )
         result.catalog_hash = self._sha256(dat_path)
         stream_path = scans_root() / "streaming" / f"{result.scan_id}.jsonl"
         stream_path.parent.mkdir(parents=True, exist_ok=True)
@@ -90,7 +159,32 @@ class NoIntroScanService:
         completed = 0
         known_bases = {self._normalize_name(item.base_name): item.base_name for item in expected}
         with stream_path.open("w", encoding="utf-8", newline="\n") as stream:
-            self._write_jsonl(stream, {"record_type": "header", "format": "SERM-SCAN-V1", "scan_id": result.scan_id, "profile_id": result.profile_id, "source": result.source, "system": result.system, "scan_type": result.scan_type, "catalog_label": result.catalog_label, "catalog_hash": result.catalog_hash, "dat_path": str(dat_path), "started_at": started, "source_paths": [str(p) for p in sources], "machine_count_expected": len(games), "item_count_expected": total, "metadata": {"validation": "expected_driven", "persist_mode": "streaming", "filters_applied": False, "naming_convention": "No-Intro", "unverified_variants": True}})
+            self._write_jsonl(
+                stream,
+                {
+                    "record_type": "header",
+                    "format": "SERM-SCAN-V1",
+                    "scan_id": result.scan_id,
+                    "profile_id": result.profile_id,
+                    "source": result.source,
+                    "system": result.system,
+                    "scan_type": result.scan_type,
+                    "catalog_label": result.catalog_label,
+                    "catalog_hash": result.catalog_hash,
+                    "dat_path": str(dat_path),
+                    "started_at": started,
+                    "source_paths": [str(p) for p in sources],
+                    "machine_count_expected": len(games),
+                    "item_count_expected": total,
+                    "metadata": {
+                        "validation": "expected_driven",
+                        "persist_mode": "streaming",
+                        "filters_applied": False,
+                        "naming_convention": "No-Intro",
+                        "unverified_variants": True,
+                    },
+                },
+            )
             for game_name, items in games.items():
                 if self._cancelled:
                     break
@@ -102,7 +196,19 @@ class NoIntroScanService:
                     stream.flush()
             if not self._cancelled:
                 self._discover_unverified_variants(sources, known_bases, result, stream)
-            self._write_jsonl(stream, {"record_type": "scan_end", "status": "cancelled" if self._cancelled else "completed", "finished_at": time.time(), "status_counts": dict(result.status_counts), "files_examined": result.files_examined, "archives_examined": result.archives_examined, "items_examined": result.items_examined, "errors": result.errors})
+            self._write_jsonl(
+                stream,
+                {
+                    "record_type": "scan_end",
+                    "status": "cancelled" if self._cancelled else "completed",
+                    "finished_at": time.time(),
+                    "status_counts": dict(result.status_counts),
+                    "files_examined": result.files_examined,
+                    "archives_examined": result.archives_examined,
+                    "items_examined": result.items_examined,
+                    "errors": result.errors,
+                },
+            )
             stream.flush()
         result.finished_at = time.time()
         return result
@@ -118,7 +224,9 @@ class NoIntroScanService:
     def _resolve_sources(profile) -> list[Path]:
         sources = [Path(p).expanduser().resolve() for p in profile.source_directories]
         if not sources:
-            raise NoIntroScanError("Nenhum diretório de origem foi configurado para o scan No-Intro.")
+            raise NoIntroScanError(
+                "Nenhum diretório de origem foi configurado para o scan No-Intro."
+            )
         for source in sources:
             if not source.is_dir():
                 raise NoIntroScanError(f"Diretório de origem não encontrado: {source}")
@@ -142,7 +250,13 @@ class NoIntroScanService:
                     self._scan_loose(loose, item, occurrences, result, stream)
         for item in items:
             if occurrences[self._item_key(item)] == 0:
-                self._emit(self._evidence(item, "MISSING", message="Arquivo não encontrado na fonte do scan."), result, stream)
+                self._emit(
+                    self._evidence(
+                        item, "MISSING", message="Arquivo não encontrado na fonte do scan."
+                    ),
+                    result,
+                    stream,
+                )
 
     def _scan_zip(self, archive, expected_by_name, occurrences, result, stream) -> None:
         try:
@@ -157,7 +271,9 @@ class NoIntroScanService:
                     for item in candidates:
                         key = self._item_key(item)
                         duplicate = occurrences[key] > 0
-                        evidence = self._validate_zip_member(zf, info, item, archive, duplicate=duplicate)
+                        evidence = self._validate_zip_member(
+                            zf, info, item, archive, duplicate=duplicate
+                        )
                         occurrences[key] += 1
                         self._emit(evidence, result, stream)
         except (OSError, zipfile.BadZipFile, RuntimeError) as exc:
@@ -172,7 +288,19 @@ class NoIntroScanService:
             if status == "CURRENT" and occurrences[key] > 0:
                 status = "DUPLICATE"
             occurrences[key] += 1
-            self._emit(self._evidence(item, status, actual_size=size, actual_crc=crc, actual_md5=md5, actual_sha1=sha1, path=str(path)), result, stream)
+            self._emit(
+                self._evidence(
+                    item,
+                    status,
+                    actual_size=size,
+                    actual_crc=crc,
+                    actual_md5=md5,
+                    actual_sha1=sha1,
+                    path=str(path),
+                ),
+                result,
+                stream,
+            )
         except OSError as exc:
             result.errors += 1
             self._log_error(result, stream, path, exc)
@@ -182,11 +310,25 @@ class NoIntroScanService:
         status = self._compare(item, size, crc, md5, sha1)
         if status == "CURRENT" and duplicate:
             status = "DUPLICATE"
-        return self._evidence(item, status, actual_size=size, actual_crc=crc, actual_md5=md5, actual_sha1=sha1, archive_path=str(archive), archive_member=info.filename)
+        return self._evidence(
+            item,
+            status,
+            actual_size=size,
+            actual_crc=crc,
+            actual_md5=md5,
+            actual_sha1=sha1,
+            archive_path=str(archive),
+            archive_member=info.filename,
+        )
 
     @staticmethod
     def _compare(item, size, crc, md5, sha1):
-        if size != item.size or (item.crc and crc.casefold() != item.crc.casefold()) or (item.md5 and md5.casefold() != item.md5.casefold()) or (item.sha1 and sha1.casefold() != item.sha1.casefold()):
+        if (
+            size != item.size
+            or (item.crc and crc.casefold() != item.crc.casefold())
+            or (item.md5 and md5.casefold() != item.md5.casefold())
+            or (item.sha1 and sha1.casefold() != item.sha1.casefold())
+        ):
             return "WRONG"
         return "CURRENT"
 
@@ -212,7 +354,20 @@ class NoIntroScanService:
                             size, crc, md5, sha1 = self._hash_zip_member_full(zf, info)
                             tags = [f"variant:{variant}", "verification:unverified", "type:game"]
                             tags.extend(self._name_metadata(stem)["tags"])
-                            evidence = ScanEvidence(machine_name=stem, rom_name=Path(info.filename).name, status=self.VARIANT_STATUS, actual_size=size, actual_crc=crc, actual_md5=md5, actual_sha1=sha1, archive_path=str(archive), archive_member=info.filename, merge_name=base, categories=tuple(dict.fromkeys(tags)), message=f"Variante externa {variant}; nome compatível com '{base}', sem hashes no DAT.")
+                            evidence = ScanEvidence(
+                                machine_name=stem,
+                                rom_name=Path(info.filename).name,
+                                status=self.VARIANT_STATUS,
+                                actual_size=size,
+                                actual_crc=crc,
+                                actual_md5=md5,
+                                actual_sha1=sha1,
+                                archive_path=str(archive),
+                                archive_member=info.filename,
+                                merge_name=base,
+                                categories=tuple(dict.fromkeys(tags)),
+                                message=f"Variante externa {variant}; nome compatível com '{base}', sem hashes no DAT.",
+                            )
                             self._emit(evidence, result, stream)
                             result.items_examined += 1
                 except (OSError, zipfile.BadZipFile, RuntimeError) as exc:
@@ -289,11 +444,20 @@ class NoIntroScanService:
                 tags.append("status:baddump")
             if lower.startswith("t-") or lower.startswith("t+"):
                 tags.append("variant:translation")
-            if "translated" in lower or "translation" in lower or lower.startswith("trad ") or lower.startswith("trad-"):
+            if (
+                "translated" in lower
+                or "translation" in lower
+                or lower.startswith("trad ")
+                or lower.startswith("trad-")
+            ):
                 tags.append("variant:translation")
         # Formas comuns usadas por traduções brasileiras/portuguesas.
         normalized_name = re.sub(r"[\[\](){}]", " ", game_name.casefold())
-        if re.search(r"(?:pt[-_ ]?br|br[-_ ]?pt|t[-_ ]?pt[-_ ]?br|translated[-_ ]?pt[-_ ]?br|trad[-_ ]?pt[-_ ]?br|brasil|brazil)", normalized_name, re.I):
+        if re.search(
+            r"(?:pt[-_ ]?br|br[-_ ]?pt|t[-_ ]?pt[-_ ]?br|translated[-_ ]?pt[-_ ]?br|trad[-_ ]?pt[-_ ]?br|brasil|brazil)",
+            normalized_name,
+            re.I,
+        ):
             tags.append("variant:translation")
             tags.append("translation:pt-br")
             languages.append("Pt")
@@ -307,7 +471,12 @@ class NoIntroScanService:
         base = re.sub(r"\s+\([^()]*\)", "", base)
         base = re.sub(r"\s+\[[^\]]*\]", "", base)
         base = re.sub(r"\s+", " ", base).strip()
-        return {"base_name": base, "regions": tuple(dict.fromkeys(regions)), "languages": tuple(dict.fromkeys(languages)), "tags": tuple(dict.fromkeys(tags))}
+        return {
+            "base_name": base,
+            "regions": tuple(dict.fromkeys(regions)),
+            "languages": tuple(dict.fromkeys(languages)),
+            "tags": tuple(dict.fromkeys(tags)),
+        }
 
     @classmethod
     def _name_metadata(cls, name):
@@ -319,7 +488,11 @@ class NoIntroScanService:
         cloneof = str(game.attrib.get("cloneof") or "").strip() or None
         if not game_name:
             return []
-        release_regions = tuple(str(r.attrib.get("region") or "").strip() for r in game.findall("release") if r.attrib.get("region"))
+        release_regions = tuple(
+            str(r.attrib.get("region") or "").strip()
+            for r in game.findall("release")
+            if r.attrib.get("region")
+        )
         meta = cls._parse_name(game_name, "", cloneof, release_regions=release_regions)
         result = []
         for rom in game.findall("rom"):
@@ -332,9 +505,27 @@ class NoIntroScanService:
                 size = 0
             rom_status = str(rom.attrib.get("status") or "").strip()
             fmt = str(rom.attrib.get("format") or "").strip()
-            rom_meta = cls._parse_name(game_name, rom_name, cloneof, rom_status, fmt, release_regions)
+            rom_meta = cls._parse_name(
+                game_name, rom_name, cloneof, rom_status, fmt, release_regions
+            )
             tags = tuple(dict.fromkeys((*meta["tags"], *rom_meta["tags"])))
-            result.append(_ExpectedRom(game_name, rom_name, size, str(rom.attrib.get("crc") or "").casefold(), str(rom.attrib.get("md5") or "").casefold(), str(rom.attrib.get("sha1") or "").casefold(), rom_status.casefold(), fmt, cloneof, meta["base_name"], rom_meta["regions"], rom_meta["languages"], tags))
+            result.append(
+                _ExpectedRom(
+                    game_name,
+                    rom_name,
+                    size,
+                    str(rom.attrib.get("crc") or "").casefold(),
+                    str(rom.attrib.get("md5") or "").casefold(),
+                    str(rom.attrib.get("sha1") or "").casefold(),
+                    rom_status.casefold(),
+                    fmt,
+                    cloneof,
+                    meta["base_name"],
+                    rom_meta["regions"],
+                    rom_meta["languages"],
+                    tags,
+                )
+            )
         return result
 
     @classmethod
@@ -345,7 +536,9 @@ class NoIntroScanService:
             raise NoIntroScanError(f"DAT No-Intro inválido: {path}: {exc}") from exc
         node = root.find("header")
         header = {c.tag: (c.text or "").strip() for c in node} if node is not None else {}
-        return [item for game in root.findall(".//game") for item in cls._parse_game_roms(game)], header
+        return [
+            item for game in root.findall(".//game") for item in cls._parse_game_roms(game)
+        ], header
 
     @staticmethod
     def _group_by_game(items):
@@ -356,11 +549,29 @@ class NoIntroScanService:
 
     @staticmethod
     def _item_key(item):
-        return (item.game_name.casefold(), item.rom_name.casefold(), item.size, item.sha1.casefold())
+        return (
+            item.game_name.casefold(),
+            item.rom_name.casefold(),
+            item.size,
+            item.sha1.casefold(),
+        )
 
     @staticmethod
     def _evidence(item, status, **kwargs):
-        return ScanEvidence(machine_name=item.game_name, rom_name=item.rom_name, status=status, expected_size=item.size, expected_crc=item.crc, expected_md5=item.md5, expected_sha1=item.sha1, merge_name=item.base_name, cloneof=item.cloneof, categories=item.tags, message=kwargs.pop("message", ""), **kwargs)
+        return ScanEvidence(
+            machine_name=item.game_name,
+            rom_name=item.rom_name,
+            status=status,
+            expected_size=item.size,
+            expected_crc=item.crc,
+            expected_md5=item.md5,
+            expected_sha1=item.sha1,
+            merge_name=item.base_name,
+            cloneof=item.cloneof,
+            categories=item.tags,
+            message=kwargs.pop("message", ""),
+            **kwargs,
+        )
 
     @classmethod
     def _hash_zip_member_full(cls, zf, info):
@@ -401,14 +612,21 @@ class NoIntroScanService:
     @staticmethod
     def _catalog_label(path, header):
         match = re.search(r"(\d{8}-\d{6}|\d{8})", path.name)
-        return match.group(1) if match else (header.get("date") or header.get("version") or path.stem)
+        return (
+            match.group(1) if match else (header.get("date") or header.get("version") or path.stem)
+        )
 
     @staticmethod
     def _normalize_name(value):
         value = re.sub(r"\.[A-Za-z0-9]{1,8}$", "", str(value))
         value = re.sub(r"\[[^]]+\]", " ", value)
         value = re.sub(r"\([^)]*\)", " ", value)
-        value = re.sub(r"(?:translation|translated|trad(?:uced|ucao|ução)?|hack|romhack|t\+[^ ]+|h\+[^ ]+)", " ", value, flags=re.I)
+        value = re.sub(
+            r"(?:translation|translated|trad(?:uced|ucao|ução)?|hack|romhack|t\+[^ ]+|h\+[^ ]+)",
+            " ",
+            value,
+            flags=re.I,
+        )
         return re.sub(r"[^a-z0-9]+", " ", value.casefold()).strip()
 
     @staticmethod
@@ -427,13 +645,37 @@ class NoIntroScanService:
 
     @staticmethod
     def _serialize(evidence):
-        return {"machine_name": evidence.machine_name, "rom_name": evidence.rom_name, "status": evidence.status, "expected_size": evidence.expected_size, "actual_size": evidence.actual_size, "expected_crc": evidence.expected_crc, "actual_crc": evidence.actual_crc, "expected_sha1": evidence.expected_sha1, "actual_sha1": evidence.actual_sha1, "expected_md5": evidence.expected_md5, "actual_md5": evidence.actual_md5, "path": evidence.path, "archive_path": evidence.archive_path, "archive_member": evidence.archive_member, "merge_name": evidence.merge_name, "optional": evidence.optional, "message": evidence.message, "error": evidence.error, "categories": list(evidence.categories), "cloneof": evidence.cloneof}
+        return {
+            "machine_name": evidence.machine_name,
+            "rom_name": evidence.rom_name,
+            "status": evidence.status,
+            "expected_size": evidence.expected_size,
+            "actual_size": evidence.actual_size,
+            "expected_crc": evidence.expected_crc,
+            "actual_crc": evidence.actual_crc,
+            "expected_sha1": evidence.expected_sha1,
+            "actual_sha1": evidence.actual_sha1,
+            "expected_md5": evidence.expected_md5,
+            "actual_md5": evidence.actual_md5,
+            "path": evidence.path,
+            "archive_path": evidence.archive_path,
+            "archive_member": evidence.archive_member,
+            "merge_name": evidence.merge_name,
+            "optional": evidence.optional,
+            "message": evidence.message,
+            "error": evidence.error,
+            "categories": list(evidence.categories),
+            "cloneof": evidence.cloneof,
+        }
 
     @staticmethod
     def _log_error(result, stream, path, exc):
         result.errors += 1
         result.status_counts["ERROR"] += 1
-        NoIntroScanService._write_jsonl(stream, {"record_type": "error", "path": str(path), "error": f"{type(exc).__name__}: {exc}"})
+        NoIntroScanService._write_jsonl(
+            stream,
+            {"record_type": "error", "path": str(path), "error": f"{type(exc).__name__}: {exc}"},
+        )
 
 
 __all__ = ["NoIntroScanError", "NoIntroScanService"]

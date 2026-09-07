@@ -106,9 +106,7 @@ class MameChdScanService:
             )
 
     @staticmethod
-    def _load_disks(
-        database: Path, import_id: int, machine: str
-    ) -> list[sqlite3.Row]:
+    def _load_disks(database: Path, import_id: int, machine: str) -> list[sqlite3.Row]:
         with sqlite3.connect(database) as connection:
             connection.row_factory = sqlite3.Row
             return connection.execute(
@@ -123,9 +121,7 @@ class MameChdScanService:
             ).fetchall()
 
     @staticmethod
-    def _find_chd(
-        machine: str, disk_name: str, sources: list[Path]
-    ) -> Path | None:
+    def _find_chd(machine: str, disk_name: str, sources: list[Path]) -> Path | None:
         filename = Path(disk_name).name
         if not filename.casefold().endswith(".chd"):
             filename = f"{filename}.chd"

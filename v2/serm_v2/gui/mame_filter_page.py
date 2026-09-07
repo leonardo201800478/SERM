@@ -314,7 +314,8 @@ class MameFilterPage(QWidget):
         profiles.append(profile)
         self._profiles_path.parent.mkdir(parents=True, exist_ok=True)
         self._profiles_path.write_text(
-            json.dumps([asdict(p) for p in profiles], indent=2, ensure_ascii=False), encoding="utf-8"
+            json.dumps([asdict(p) for p in profiles], indent=2, ensure_ascii=False),
+            encoding="utf-8",
         )
         MameFundamentalFilterService.save(profile.profile_id, self._values())
         self.result.setText(f"Filtros salvos: {profile.name} | SET={profile.mame_set_type}")
