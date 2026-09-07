@@ -1,48 +1,64 @@
-"""Gerenciador dedicado de scans MAME: novo scan e histórico persistido."""
+"""Gerenciador dedicado de scans MAME e aquisição do catálogo ListXML."""
 
 from __future__ import annotations
 
 import json
 from datetime import datetime
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QThread, Qt, Signal
 from PySide6.QtWidgets import (
-    QGroupBox,
-    QHBoxLayout,
-    QLabel,
-    QListWidget,
-    QListWidgetItem,
-    QMessageBox,
-    QPushButton,
-    QSplitter,
-    QVBoxLayout,
-    QWidget,
+    QCheckBox, QGroupBox, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
+    QMessageBox, QPushButton, QSplitter, QVBoxLayout, QWidget,
 )
 
 from ..runtime.paths import database_path
+from ..services.mame_catalog_service import MameCatalogError, MameCatalogService
 from ..services.scan_repository import ScanRepository
 from .scan_phase_page import _SystemScanTab
 
 
+class _MameCatalogWorker(QThread):
+    """Executa a captura/normalização do catálogo fora da thread da interface."""
+
+    completed = Signal(object)
+    failed = Signal(str)
+    log = Signal(str)
+
+    def __init__(self, force: bool, parent=None) -> None:
+        super().__init__(parent)
+        self.force = force
+
+    def run(self) -> None:
+        try:
+            service = MameCatalogService(logger=self.log.emit)
+            result = service.ingest(force=self.force)
+            self.completed.emit(result)
+        except (MameCatalogError, OSError, RuntimeError, ValueError) as exc:
+            self.failed.emit(f"{type(exc).__name__}: {exc}")
+
+
 class MameScanPage(QWidget):
-    """Tela MAME com configuração de scan, histórico e ciclo de vida dos scans."""
+    """Tela MAME com aquisição do catálogo, scans físicos e histórico."""
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
+        self._catalog_worker: _MameCatalogWorker | None = None
         self._build_ui()
         self.refresh()
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        title = QLabel("MAME — SCANS")
+        title = QLabel("MAME — CATÁLOGO E SCANS")
         title.setProperty("role", "title")
         root.addWidget(title)
         description = QLabel(
-            "Cada execução cria um novo snapshot. Um scan concluído pode ser selecionado no histórico "
-            "ou excluído sem apagar os diretórios configurados para o próximo scan."
+            "O catálogo é a fonte estrutural do SERM. A aquisição usa mame.exe -listxml sem padrões, "
+            "preserva o XML bruto e normaliza máquinas, ROMs, CHDs, displays, input, chips, dispositivos, "
+            "slots, BIOS e demais elementos. Depois sincroniza folders/*.ini e hash/*.xml."
         )
         description.setWordWrap(True)
         root.addWidget(description)
+        root.addWidget(self._catalog_panel())
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(self._history_panel())
@@ -53,6 +69,96 @@ class MameScanPage(QWidget):
         splitter.setSizes([360, 900])
         root.addWidget(splitter, 1)
 
+    def _catalog_panel(self) -> QWidget:
+        box = QGroupBox("Construção do banco MAME / ListXML")
+        layout = QVBoxLayout(box)
+        options = QHBoxLayout()
+        self.catalog_complete = QCheckBox("Catálogo completo — todos os sistemas e dispositivos")
+        self.catalog_complete.setChecked(True)
+        self.catalog_complete.setEnabled(False)
+        self.catalog_force = QCheckBox("Forçar reimportação mesmo com o mesmo SHA-256")
+        self.catalog_auxiliary = QCheckBox("Sincronizar folders/*.ini e hash/*.xml")
+        self.catalog_auxiliary.setChecked(True)
+        self.catalog_auxiliary.setEnabled(False)
+        options.addWidget(self.catalog_complete)
+        options.addWidget(self.catalog_auxiliary)
+        options.addWidget(self.catalog_force)
+        options.addStretch()
+        layout.addLayout(options)
+        actions = QHBoxLayout()
+        self.catalog_button = QPushButton("CRIAR / ATUALIZAR BANCO MAME")
+        self.catalog_button.clicked.connect(self.build_catalog)
+        actions.addWidget(self.catalog_button)
+        self.catalog_refresh_button = QPushButton("ATUALIZAR STATUS")
+        self.catalog_refresh_button.clicked.connect(self._catalog_status)
+        actions.addWidget(self.catalog_refresh_button)
+        actions.addStretch()
+        layout.addLayout(actions)
+        self.catalog_status = QLabel(
+            "Pronto. A operação completa é a recomendada para alimentar o banco relacional do SERM."
+        )
+        self.catalog_status.setWordWrap(True)
+        layout.addWidget(self.catalog_status)
+        self.catalog_log = QListWidget()
+        self.catalog_log.setMaximumHeight(105)
+        layout.addWidget(self.catalog_log)
+        return box
+
+    def build_catalog(self) -> None:
+        if self._catalog_worker is not None and self._catalog_worker.isRunning():
+            return
+        self.catalog_button.setEnabled(False)
+        self.catalog_refresh_button.setEnabled(False)
+        self.catalog_log.clear()
+        self.catalog_status.setText("Executando mame.exe -listxml e construindo o banco relacional…")
+        self._catalog_worker = _MameCatalogWorker(self.catalog_force.isChecked(), self)
+        self._catalog_worker.log.connect(self._catalog_log)
+        self._catalog_worker.completed.connect(self._catalog_completed)
+        self._catalog_worker.failed.connect(self._catalog_failed)
+        self._catalog_worker.finished.connect(self._catalog_finished)
+        self._catalog_worker.start()
+
+    def _catalog_log(self, message: str) -> None:
+        self.catalog_log.addItem(message)
+        self.catalog_log.scrollToBottom()
+
+    def _catalog_completed(self, result: dict[str, object]) -> None:
+        ini_results = result.get("ini_results") or []
+        self.catalog_status.setText(
+            f"Catálogo concluído: MAME {result.get('mame_build') or 'desconhecido'} | "
+            f"máquinas={int(result.get('machine_count') or 0):,} | import_id={result.get('import_id')} | "
+            f"fontes auxiliares={len(ini_results):,} | deduplicado={bool(result.get('deduplicated'))}."
+        )
+        self.refresh()
+
+    def _catalog_failed(self, message: str) -> None:
+        self.catalog_status.setText(f"Falha na construção do catálogo: {message}")
+        self._catalog_log(f"ERRO | {message}")
+
+    def _catalog_finished(self) -> None:
+        worker = self._catalog_worker
+        self._catalog_worker = None
+        self.catalog_button.setEnabled(True)
+        self.catalog_refresh_button.setEnabled(True)
+        if worker is not None:
+            worker.deleteLater()
+
+    def _catalog_status(self) -> None:
+        try:
+            with __import__("sqlite3").connect(database_path()) as db:
+                row = db.execute(
+                    "SELECT mame_build,machine_count,imported_at,source_hash,status FROM mame_listxml_import ORDER BY id DESC LIMIT 1"
+                ).fetchone()
+            if row is None:
+                self.catalog_status.setText("Nenhum ListXML MAME foi persistido ainda.")
+                return
+            self.catalog_status.setText(
+                f"Último catálogo: MAME {row[0] or '—'} | máquinas={int(row[1] or 0):,} | "
+                f"status={row[4] or '—'} | importado={row[2] or '—'} | SHA-256={str(row[3] or '')[:16]}"
+            )
+        except Exception as exc:  # noqa: BLE001
+            self.catalog_status.setText(f"Não foi possível consultar o catálogo: {exc}")
+
     def _history_panel(self) -> QWidget:
         panel = QWidget()
         layout = QVBoxLayout(panel)
@@ -61,11 +167,9 @@ class MameScanPage(QWidget):
         self.scan_list = QListWidget()
         self.scan_list.currentItemChanged.connect(self._history_selected)
         box_layout.addWidget(self.scan_list, 1)
-
         self.history_info = QLabel("Nenhum scan selecionado.")
         self.history_info.setWordWrap(True)
         box_layout.addWidget(self.history_info)
-
         actions = QHBoxLayout()
         self.new_scan_button = QPushButton("NOVO SCAN")
         self.delete_scan_button = QPushButton("DELETAR SCAN")
@@ -97,13 +201,13 @@ class MameScanPage(QWidget):
 
     def refresh(self) -> None:
         self.scan_tab.refresh()
+        self._catalog_status()
         repository = ScanRepository(database_path())
         rows = repository.list_for_source("MAME")
         current_id = None
         current = self.scan_list.currentItem()
         if current is not None:
             current_id = current.data(Qt.ItemDataRole.UserRole)
-
         self.scan_list.blockSignals(True)
         self.scan_list.clear()
         selected_item = None
@@ -145,8 +249,7 @@ class MameScanPage(QWidget):
             return
         counts = self._counts(row)
         self.history_info.setText(
-            f"ID: {scan_id}\n"
-            f"Tipo: {row.get('scan_type') or 'full'}\n"
+            f"ID: {scan_id}\nTipo: {row.get('scan_type') or 'full'}\n"
             f"Catálogo: {row.get('catalog_label') or 'MAME'}\n"
             f"Início: {self._format_timestamp(row.get('started_at'))}\n"
             f"CURRENT={counts.get('CURRENT', 0):,} | MISSING={counts.get('MISSING', 0):,} | WRONG={counts.get('WRONG', 0):,}\n"
@@ -156,15 +259,11 @@ class MameScanPage(QWidget):
 
     def new_scan(self) -> None:
         if self.scan_tab.worker and self.scan_tab.worker.isRunning():
-            QMessageBox.information(
-                self, "Novo scan", "Finalize ou cancele o scan em execução antes de iniciar outro."
-            )
+            QMessageBox.information(self, "Novo scan", "Finalize ou cancele o scan em execução antes de iniciar outro.")
             return
         self.scan_list.clearSelection()
         self.scan_tab.log.clear()
-        self.scan_tab.status.setText(
-            "Novo scan preparado. Configure os diretórios e clique em INICIAR SCAN COMPLETO."
-        )
+        self.scan_tab.status.setText("Novo scan preparado. Configure os diretórios e clique em INICIAR SCAN COMPLETO.")
         self.scan_tab.progress.setValue(0)
         self.scan_tab.progress.setMaximum(1)
         self.scan_tab.refresh()
@@ -180,8 +279,7 @@ class MameScanPage(QWidget):
             self.refresh()
             return
         answer = QMessageBox.question(
-            self,
-            "Deletar scan",
+            self, "Deletar scan",
             "O registro, as evidências e o arquivo bruto deste scan serão removidos.\n\n"
             "Os diretórios e as configurações do MAME não serão alterados.\n\nContinuar?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
