@@ -79,6 +79,10 @@ class ScanComparisonResult:
         return len(self.machines)
 
     @property
+    def component_count(self) -> int:
+        return sum(len(machine.components) for machine in self.machines)
+
+    @property
     def status_counts(self) -> dict[str, int]:
         counts = {status.value: 0 for status in RomStatus}
         for machine in self.machines:
@@ -101,7 +105,7 @@ class ArcadeScanComparisonService:
 
     def compare(self, listxml_text: str, scan_path: Path) -> ScanComparisonResult:
         payload = self.load_scan(scan_path)
-        expected = self._parse_listxml(listxml_text)
+        catalog = self._parse_listxml(listxml_text)
         evidence = [item for item in payload["evidence"] if isinstance(item, dict)]
         by_key: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
         for item in evidence:
@@ -112,19 +116,16 @@ class ArcadeScanComparisonService:
                 by_key.setdefault((machine, kind, name), []).append(item)
 
         grouped: dict[str, list[ComponentComparison]] = {}
-        machine_meta: dict[str, tuple[str, str | None, str | None, str | None]] = {}
-        expected_keys: set[tuple[str, str, str]] = set()
-        for component in expected:
+        for component in catalog["components"]:
             key = (component.machine_name, component.component_type, component.name)
-            expected_keys.add(key)
             grouped.setdefault(component.machine_name, []).append(
                 self._resolve(component, by_key.get(key, []))
             )
-            if component.machine_name not in machine_meta:
-                machine_meta[component.machine_name] = self._machine_metadata(
-                    component.machine_name, listxml_text
-                )
 
+        expected_keys = {
+            (item.machine_name, item.component_type, item.name)
+            for item in catalog["components"]
+        }
         orphan_items = sum(
             1 for item in evidence
             if (
@@ -136,10 +137,10 @@ class ArcadeScanComparisonService:
         machines = tuple(
             MachineComparison(
                 machine_name=name,
-                description=machine_meta[name][0],
-                parent=machine_meta[name][1],
-                year=machine_meta[name][2],
-                manufacturer=machine_meta[name][3],
+                description=catalog["metadata"].get(name, (name, None, None, None))[0],
+                parent=catalog["metadata"].get(name, (name, None, None, None))[1],
+                year=catalog["metadata"].get(name, (name, None, None, None))[2],
+                manufacturer=catalog["metadata"].get(name, (name, None, None, None))[3],
                 components=tuple(grouped[name]),
             )
             for name in sorted(grouped, key=str.casefold)
@@ -153,15 +154,22 @@ class ArcadeScanComparisonService:
         )
 
     @staticmethod
-    def _parse_listxml(text: str) -> list[ExpectedComponent]:
+    def _parse_listxml(text: str) -> dict[str, Any]:
         root = ET.fromstring(text)
-        result: list[ExpectedComponent] = []
+        components: list[ExpectedComponent] = []
+        metadata: dict[str, tuple[str, str | None, str | None, str | None]] = {}
         for machine in root.findall("machine"):
             machine_name = str(machine.get("name") or "").strip()
             if not machine_name:
                 continue
+            metadata[machine_name] = (
+                (machine.findtext("description") or machine_name).strip(),
+                ArcadeScanComparisonService._text(machine.get("cloneof")),
+                ArcadeScanComparisonService._text(machine.findtext("year")),
+                ArcadeScanComparisonService._text(machine.findtext("manufacturer")),
+            )
             for rom in machine.findall("rom"):
-                result.append(ExpectedComponent(
+                components.append(ExpectedComponent(
                     machine_name, "ROM", str(rom.get("name") or "").strip(),
                     ArcadeScanComparisonService._int(rom.get("size")),
                     ArcadeScanComparisonService._text(rom.get("crc")),
@@ -171,27 +179,14 @@ class ArcadeScanComparisonService:
                     str(rom.get("optional") or "").casefold() in {"yes", "true", "1"},
                 ))
             for disk in machine.findall("disk"):
-                result.append(ExpectedComponent(
+                components.append(ExpectedComponent(
                     machine_name, "CHD", str(disk.get("name") or "").strip(),
                     sha1=ArcadeScanComparisonService._text(disk.get("sha1")),
                     md5=ArcadeScanComparisonService._text(disk.get("md5")),
                     merge=ArcadeScanComparisonService._text(disk.get("merge")),
                     optional=str(disk.get("optional") or "").casefold() in {"yes", "true", "1"},
                 ))
-        return [item for item in result if item.name]
-
-    @classmethod
-    def _machine_metadata(cls, machine_name: str, text: str) -> tuple[str, str | None, str | None, str | None]:
-        root = ET.fromstring(text)
-        machine = next((item for item in root.findall("machine") if item.get("name") == machine_name), None)
-        if machine is None:
-            return machine_name, None, None, None
-        return (
-            (machine.findtext("description") or machine_name).strip(),
-            cls._text(machine.get("cloneof")),
-            cls._text(machine.findtext("year")),
-            cls._text(machine.findtext("manufacturer")),
-        )
+        return {"components": [item for item in components if item.name], "metadata": metadata}
 
     @classmethod
     def _resolve(cls, expected: ExpectedComponent, candidates: list[dict[str, Any]]) -> ComponentComparison:
