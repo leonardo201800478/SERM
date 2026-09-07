@@ -1,8 +1,8 @@
 """Provider MAME para o Arcade Studio.
 
-Nesta primeira versão o catálogo é derivado do snapshot persistido pelo scan
-V2. O provider não copia nem altera o XML/DAT de origem e mantém a resolução
-MAME isolada da futura UI.
+Nesta primeira versão o catálogo é normalizado a partir do snapshot bruto do
+scan V2. O provider não copia nem altera XML/DAT de origem e mantém detalhes
+específicos do formato MAME fora da futura UI.
 """
 
 from __future__ import annotations
@@ -10,12 +10,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from ..models.arcade import ArcadeGame, ArcadePlatform, ArcadeRom, RomStatus
+from ..services.scan_file_repository import ScanFileRepository
 from ..services.scan_repository import ScanRepository
 from .base import ArcadeCatalogProvider
 
 
 class MameCatalogProvider(ArcadeCatalogProvider):
-    """Expõe um scan MAME como catálogo normalizado do Arcade Studio."""
+    """Expõe um snapshot de scan MAME como catálogo Arcade Studio."""
 
     platform = ArcadePlatform.MAME
 
@@ -31,35 +32,56 @@ class MameCatalogProvider(ArcadeCatalogProvider):
     def _load(self) -> dict[str, ArcadeGame]:
         if self._games is not None:
             return self._games
-
-        rows = self._repository.evidence(self.scan_id)
+        path = self.source()
+        if path is None or not path.is_file():
+            self._games = {}
+            return self._games
+        payload = ScanFileRepository.load(path)
+        evidence = payload.get("evidence", [])
+        if not isinstance(evidence, list):
+            evidence = []
         grouped: dict[str, list[dict]] = {}
-        for row in rows:
-            machine_name = str(row.get("machine_name") or "").strip()
-            if machine_name:
-                grouped.setdefault(machine_name, []).append(row)
-
+        for row in evidence:
+            if isinstance(row, dict):
+                machine_name = str(row.get("machine_name") or "").strip()
+                if machine_name:
+                    grouped.setdefault(machine_name, []).append(row)
         games: dict[str, ArcadeGame] = {}
         for machine_name, items in grouped.items():
             first = items[0]
-            parent = str(first.get("parent_name") or first.get("parent") or "").strip() or None
-            display_name = str(first.get("description") or first.get("machine_name") or machine_name)
-            roms = tuple(self._rom(machine_name, row) for row in items)
+            parent = str(first.get("cloneof") or "").strip() or None
+            categories = self._strings(first.get("categories"))
             games[machine_name] = ArcadeGame(
                 machine_name=machine_name,
-                display_name=display_name,
+                display_name=str(first.get("description") or machine_name),
                 platform=self.platform,
                 parent_name=parent,
-                roms=roms,
-                metadata={"scan_id": self.scan_id},
+                category=categories[0] if categories else None,
+                subcategory=categories[1] if len(categories) > 1 else None,
+                roms=tuple(self._rom(machine_name, row) for row in items),
+                metadata={
+                    "scan_id": self.scan_id,
+                    "categories": categories,
+                    "cloneof": parent,
+                    "isbios": bool(first.get("isbios")),
+                    "isdevice": bool(first.get("isdevice")),
+                    "ismechanical": bool(first.get("ismechanical")),
+                    "runnable": first.get("runnable"),
+                },
             )
-
         self._games = games
         return games
 
     @staticmethod
+    def _strings(value: object) -> list[str]:
+        if isinstance(value, (list, tuple)):
+            return [str(item).strip() for item in value if str(item).strip()]
+        if value is None:
+            return []
+        return [str(value).strip()] if str(value).strip() else []
+
+    @staticmethod
     def _rom(machine_name: str, row: dict) -> ArcadeRom:
-        status = str(row.get("status") or "").upper()
         status_map = {
             "CURRENT": RomStatus.OK,
             "DUPLICATE": RomStatus.OK,
@@ -67,16 +89,23 @@ class MameCatalogProvider(ArcadeCatalogProvider):
             "WRONG": RomStatus.INVALID,
             "ERROR": RomStatus.INVALID,
         }
+        status = str(row.get("status") or "").upper()
         return ArcadeRom(
             machine_name=machine_name,
             display_name=str(row.get("rom_name") or machine_name),
             platform=ArcadePlatform.MAME,
             rom_status=status_map.get(status, RomStatus.UNKNOWN),
+            is_bios=bool(row.get("isbios")),
+            is_device=bool(row.get("isdevice")),
+            has_chd=bool(row.get("chd")) or bool(row.get("disk_name")),
+            working=row.get("runnable"),
             metadata={
                 "scan_item_id": row.get("id"),
                 "path": row.get("path"),
                 "archive_path": row.get("archive_path"),
                 "archive_member": row.get("archive_member"),
+                "merge_name": row.get("merge_name"),
+                "optional": bool(row.get("optional")),
                 "expected_size": row.get("expected_size"),
                 "actual_size": row.get("actual_size"),
             },
@@ -84,9 +113,11 @@ class MameCatalogProvider(ArcadeCatalogProvider):
 
     def games(self) -> list[ArcadeGame]:
         """Retorna os títulos em ordem estável pelo machine name."""
-        return [self._load()[name] for name in sorted(self._load())]
+        games = self._load()
+        return [games[name] for name in sorted(games)]
 
     def game(self, machine_name: str) -> ArcadeGame | None:
+        """Localiza um título pelo nome técnico MAME."""
         return self._load().get(str(machine_name).strip())
 
 
