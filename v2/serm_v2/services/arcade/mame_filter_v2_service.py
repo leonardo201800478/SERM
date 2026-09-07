@@ -106,6 +106,15 @@ class MameFilterV2Service:
             return int(row[0]), row[1]
         raise ValueError("Nenhuma importação ListXML MAME concluída foi encontrada no SERM.")
 
+    @staticmethod
+    def _mame_flag(value: object) -> bool:
+        """Normaliza flags do ListXML que podem chegar como yes/no, 1/0 ou bool."""
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return value != 0
+        return str(value or "").strip().casefold() in {"yes", "true", "1", "on"}
+
     @classmethod
     def _games(cls, payload: dict) -> list[ArcadeGame]:
         cls._ensure_folder_filters()
@@ -131,9 +140,13 @@ class MameFilterV2Service:
             games: list[ArcadeGame] = []
             for row in rows:
                 (machine_id,name,cloneof,romof,isbios,isdevice,ismechanical,runnable,description,year,manufacturer,sourcefile,categories,subcategories,driver_status,emulation,sound,graphic,display_types,rotates,resolutions,refreshes,controls,buttons,players,chips,disk_count,sample_count,bios_count,device_count,rom_names,disk_names) = row
+                is_bios = cls._mame_flag(isbios)
+                is_device = cls._mame_flag(isdevice)
+                is_mechanical = cls._mame_flag(ismechanical)
                 category_values = [v.strip() for v in str(categories or "").split(",") if v.strip()]
                 subcategory_values = [v.strip() for v in str(subcategories or "").split(",") if v.strip()]
-                if not isbios and not isdevice and not ismechanical and not any(v.casefold() in {"console", "computer", "handheld", "pachinko", "pachislot"} for v in category_values):
+                non_arcade_categories = {"console", "computer", "handheld", "pachinko", "pachislot"}
+                if not is_bios and not is_device and not is_mechanical and not any(v.casefold() in non_arcade_categories for v in category_values):
                     category_values.append("arcade")
                 folder_filters = {key: sorted(values.get(name, set())) for key, values in folder_maps.items()}
                 genre_values = folder_filters.get("genre", [])
@@ -163,7 +176,7 @@ class MameFilterV2Service:
                     "controls": controls, "buttons": buttons, "players": players, "chips": chips,
                     "rom_names": rom_names, "disk_names": disk_names, "disk_count": int(disk_count or 0),
                     "sample_count": int(sample_count or 0), "bios_count": int(bios_count or 0), "device_count": int(device_count or 0),
-                    "is_bios": isbios, "is_device": isdevice, "ismechanical": ismechanical, "runnable": runnable,
+                    "is_bios": is_bios, "is_device": is_device, "ismechanical": is_mechanical, "runnable": runnable,
                     "working": working, "playability": playability, "genres": genre_values,
                     "series": series_values[0] if series_values else None, "folder_filters": folder_filters,
                 }
