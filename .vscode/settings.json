@@ -32,5 +32,6 @@
     "**/.ruff_cache": true,
     "**/.mypy_cache": true,
     "**/data": true
-  }
+  },
+  "git.autofetch": "all"
 }
