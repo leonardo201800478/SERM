@@ -1,5 +1,6 @@
 """Servicos do Arcade Studio."""
 
+from .chd_audit import ArcadeChdAuditService, ChdAuditRecord, ChdAuditResult
 from .chd_reconstruction import (
     ArcadeChdReconstructionEngine,
     ChdMatchKind,
@@ -23,8 +24,10 @@ from .set_builder import (
 )
 
 __all__ = [
+    "ArcadeChdAuditService",
+    "ChdAuditRecord",
+    "ChdAuditResult",
     "ArcadeChdReconstructionEngine",
-    "ArcadeRomReconstructionPlanner",
     "ChdMatchKind",
     "ChdReconstruction",
     "ChdReconstructionPlan",
