@@ -222,12 +222,28 @@ def _set_compact_font(widget: QWidget, point_size: float) -> None:
 
 
 def _protect_text_widget(widget: QWidget, minimum_height: int = 25) -> None:
-    """Evita que o refinamento visual corte texto por falta de espaço físico."""
+    """Garante espaço físico mínimo sem cortar o conteúdo textual."""
     policy = widget.sizePolicy()
     policy.setHorizontalPolicy(QSizePolicy.Policy.Expanding)
     widget.setSizePolicy(policy)
-    widget.setMinimumHeight(minimum_height)
+    widget.setMinimumHeight(max(minimum_height, widget.sizeHint().height()))
     widget.setMaximumHeight(16777215)
+
+
+def _protect_button(button: QPushButton) -> None:
+    """Dimensiona botões pelo texto real, evitando clipping horizontal e vertical."""
+    button.ensurePolished()
+    hint = button.sizeHint()
+    # Margem adicional para o padding do stylesheet, DPI/escala do Windows e
+    # pequenas diferenças de métrica entre as fontes Qt.
+    button.setMinimumWidth(max(hint.width() + 18, 120))
+    button.setMinimumHeight(max(hint.height() + 4, 28))
+    button.setMaximumHeight(16777215)
+    policy = button.sizePolicy()
+    policy.setHorizontalPolicy(QSizePolicy.Policy.Preferred)
+    policy.setVerticalPolicy(QSizePolicy.Policy.Fixed)
+    button.setSizePolicy(policy)
+    button.adjustSize()
 
 
 def _refine_arcade_studio(window) -> bool:
@@ -249,8 +265,8 @@ def _refine_arcade_studio(window) -> bool:
         title.setMaximumHeight(40)
     intro = page_layout.itemAt(1).widget() if page_layout.count() > 1 else None
     if isinstance(intro, QLabel):
-        intro.setMinimumHeight(20)
-        intro.setMaximumHeight(40)
+        intro.setMinimumHeight(max(20, intro.sizeHint().height()))
+        intro.setMaximumHeight(60)
         intro.setWordWrap(True)
     tabs = getattr(studio, "tabs", None)
     if isinstance(tabs, QTabWidget):
@@ -270,8 +286,6 @@ def _refine_arcade_studio(window) -> bool:
         catalog_layout.setSpacing(4)
     source_box = catalog.findChild(QGroupBox, "", options=Qt.FindChildOption.FindDirectChildrenOnly)
     if source_box is not None:
-        # Nunca limitar a altura fixa: o QFormLayout precisa acomodar rótulos,
-        # campos e botões sem sobreposição ou corte vertical.
         source_box.setMaximumHeight(16777215)
         source_box.setMinimumHeight(0)
         source_layout = source_box.layout()
@@ -284,9 +298,7 @@ def _refine_arcade_studio(window) -> bool:
         edit.setMinimumWidth(max(edit.minimumSizeHint().width(), 180))
         edit.setToolTip(edit.text())
     for button in catalog.findChildren(QPushButton):
-        _protect_text_widget(button, 27)
-        button.setMinimumWidth(max(button.minimumSizeHint().width(), 120))
-        button.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        _protect_button(button)
     progress = getattr(studio, "load_progress", None)
     if isinstance(progress, QProgressBar):
         progress.setMinimumHeight(12)
@@ -294,22 +306,27 @@ def _refine_arcade_studio(window) -> bool:
     for label_name in ("scan_info", "comparison_status", "catalog_details"):
         label = getattr(studio, label_name, None)
         if isinstance(label, QLabel):
-            label.setMinimumHeight(18)
-            label.setMaximumHeight(60)
+            label.setMinimumHeight(max(18, label.sizeHint().height()))
+            label.setMaximumHeight(80)
             label.setWordWrap(True)
     table = getattr(studio, "catalog_table", None)
     if isinstance(table, QTableWidget):
         table.verticalHeader().setDefaultSectionSize(21)
         table.verticalHeader().setMinimumSectionSize(20)
+        table.verticalHeader().setMinimumWidth(38)
+        table.horizontalHeader().setMinimumHeight(25)
         header = table.horizontalHeader()
         for column in (0, 1, 3, 4, 5, 6, 7):
             header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(8, QHeaderView.ResizeMode.Stretch)
         table.setWordWrap(False)
+        table.setTextElideMode(Qt.TextElideMode.ElideNone)
         table.setAlternatingRowColors(True)
+        table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
     tree = getattr(studio, "rom_tree", None)
     if isinstance(tree, QTreeWidget):
+        tree.header().setMinimumHeight(25)
         tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         tree.header().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         tree.header().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
@@ -317,6 +334,8 @@ def _refine_arcade_studio(window) -> bool:
         tree.header().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         tree.setUniformRowHeights(True)
         tree.setIndentation(16)
+        tree.setTextElideMode(Qt.TextElideMode.ElideNone)
+        tree.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
     splitters = catalog.findChildren(QSplitter)
     if splitters:
         main_splitter = splitters[0]
