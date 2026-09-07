@@ -18,6 +18,7 @@ from .mame_catalog_normalizer import MameCatalogNormalizer
 from .mame_classification_service import MameClassificationService
 from .mame_folder_filter_service import MameFolderFilterService
 from .mame_resolution_service import MameResolutionService
+from .mame_softwarelist_service import MameSoftwareListService
 from .mame_vsync_service import MameVsyncService
 from .sqlite_utils import require_lastrowid
 
@@ -138,7 +139,7 @@ class MameCatalogService:
         return result
 
     def _ingest_inis(self, mame_root: Path) -> list[tuple[str, dict[str, object]]]:
-        """Importa CATLIST, RESOLUTION, VSYNC e todos os folders/*.ini."""
+        """Importa fontes auxiliares MAME, incluindo software lists de hash/*.xml."""
         stages = (
             ("CATLIST", MameClassificationService),
             ("RESOLUTION", MameResolutionService),
@@ -152,7 +153,15 @@ class MameCatalogService:
         self._log("MAME | INIS | FOLDERS | START")
         folder_result = MameFolderFilterService(self.DB_FILE, mame_root).ingest(logger=self._log)
         results.append(("FOLDERS", dict(folder_result)))
-        self._log(f"MAME | INIS | DONE | fontes={len(results)} | folders={folder_result.get('files', 0):,}")
+
+        hash_path = mame_root / "hash"
+        self._log("MAME | INIS | SOFTWARELISTS | START")
+        software_result = MameSoftwareListService(self.DB_FILE, hash_path).ingest(logger=self._log)
+        results.append(("SOFTWARELISTS", dict(software_result)))
+        self._log(
+            f"MAME | INIS | DONE | fontes={len(results)} | folders={folder_result.get('files', 0):,} | "
+            f"softwarelists={software_result.get('files', 0):,} | software={software_result.get('software', 0):,}"
+        )
         return results
 
     @staticmethod
@@ -174,7 +183,8 @@ class MameCatalogService:
             "mame_rom", "mame_disk", "mame_display", "mame_sample", "mame_chip", "mame_device", "mame_device_ref",
             "mame_input", "mame_control", "mame_feature", "mame_slot", "mame_slot_option", "mame_softwarelist", "mame_ramoption",
             "mame_dipswitch", "mame_dipvalue", "mame_configuration", "mame_confsetting", "mame_port", "mame_adjuster", "mame_biosset",
-            "mame_folder_filter_source", "mame_folder_filter_entry",
+            "mame_folder_filter_source", "mame_folder_filter_entry", "mame_softwarelist_source", "mame_software", "mame_software_part",
+            "mame_software_rom", "mame_software_disk", "mame_software_info",
         }
         existing = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         missing = sorted(required - existing)
