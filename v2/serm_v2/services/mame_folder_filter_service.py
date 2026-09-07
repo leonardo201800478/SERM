@@ -90,11 +90,31 @@ class MameFolderFilterService:
             total += len(batch)
         return total
 
+    @staticmethod
+    def _stored_entry_count(connection: sqlite3.Connection, source_id: int) -> int:
+        row = connection.execute(
+            "SELECT COUNT(*) FROM mame_folder_filter_entry WHERE source_id=?",
+            (source_id,),
+        ).fetchone()
+        return int(row[0] or 0) if row else 0
+
     def ingest(self, logger=None) -> dict[str, int | str]:
-        """Importa rapidamente todos os ``*.ini`` do diretório configurado."""
+        """Importa rapidamente todos os ``*.ini`` do diretório configurado.
+
+        ``files`` e ``entries`` representam o estado efetivamente disponível no
+        banco após a operação, enquanto ``imported`` e ``skipped`` informam o
+        trabalho realizado nesta execução. Isso evita reportar zero quando uma
+        fonte já estava persistida e foi corretamente reutilizada.
+        """
         log = logger or (lambda _message: None)
         if not self.folders_path.is_dir():
-            return {"files": 0, "entries": 0, "skipped": 0, "status": "missing"}
+            return {
+                "files": 0,
+                "entries": 0,
+                "imported": 0,
+                "skipped": 0,
+                "status": "missing",
+            }
 
         files = sorted(self.folders_path.glob("*.ini"), key=lambda path: path.name.casefold())
         total_entries = 0
@@ -112,6 +132,8 @@ class MameFolderFilterService:
                     (path.name, source_hash),
                 ).fetchone()
                 if existing is not None:
+                    source_id = int(existing[0])
+                    total_entries += self._stored_entry_count(connection, source_id)
                     skipped_files += 1
                     continue
 
@@ -153,8 +175,9 @@ class MameFolderFilterService:
             connection.close()
 
         return {
-            "files": imported_files,
+            "files": len(files),
             "entries": total_entries,
+            "imported": imported_files,
             "skipped": skipped_files,
             "status": "completed",
         }
