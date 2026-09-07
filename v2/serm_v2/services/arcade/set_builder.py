@@ -76,9 +76,12 @@ class ArcadeSetBuilder:
         include_devices: bool = False,
         include_chd: bool = True,
     ) -> SetBuildResult:
-        catalog = {game.machine_name: game for game in games}
-        if len(catalog) != len(list(games)) if not isinstance(games, (list, tuple)) else False:
-            raise SetBuildError("Catalogo contem maquinas duplicadas")
+        catalog_games = tuple(games)
+        catalog = {}
+        for game in catalog_games:
+            if game.machine_name in catalog:
+                raise SetBuildError(f"Catalogo contem maquina duplicada: {game.machine_name}")
+            catalog[game.machine_name] = game
 
         selected = tuple(dict.fromkeys(selected_names or catalog.keys()))
         unknown = tuple(machine for machine in selected if machine not in catalog)
@@ -108,12 +111,12 @@ class ArcadeSetBuilder:
             for dependency in self._dependency_names(game):
                 visit(dependency, machine_name, stack + (machine_name,))
 
-            if game.metadata.get("is_bios") and not include_bios:
+            if self._metadata_flag(game, "is_bios") and not include_bios:
                 included[machine_name] = SetBuildTrace(
                     machine_name, SetBuildDecision.EXCLUDED, "BIOS desabilitado", dependency_of
                 )
                 return
-            if game.metadata.get("is_device") and not include_devices:
+            if self._metadata_flag(game, "is_device") and not include_devices:
                 included[machine_name] = SetBuildTrace(
                     machine_name, SetBuildDecision.EXCLUDED, "device desabilitado", dependency_of
                 )
@@ -126,14 +129,14 @@ class ArcadeSetBuilder:
         for machine in selected:
             visit(machine, None, ())
 
-        if missing:
-            for machine in sorted(missing):
-                included[machine] = SetBuildTrace(
-                    machine, SetBuildDecision.MISSING_DEPENDENCY, "dependencia nao encontrada"
-                )
+        for machine in sorted(missing):
+            included[machine] = SetBuildTrace(
+                machine, SetBuildDecision.MISSING_DEPENDENCY, "dependencia nao encontrada"
+            )
 
         ordered_names = sorted(
-            name for name, trace in included.items()
+            machine
+            for machine, trace in included.items()
             if trace.decision in {SetBuildDecision.SELECTED, SetBuildDecision.DEPENDENCY}
         )
         result_set = ArcadeSet(
@@ -152,6 +155,13 @@ class ArcadeSetBuilder:
             missing_dependencies=tuple(sorted(missing)),
             cycles=tuple(cycles),
         )
+
+    @staticmethod
+    def _metadata_flag(game: ArcadeGame, key: str) -> bool:
+        value = game.metadata.get(key)
+        if isinstance(value, bool):
+            return value
+        return str(value).strip().casefold() in {"1", "true", "yes", "y", "on"}
 
     @staticmethod
     def _dependency_names(game: ArcadeGame) -> tuple[str, ...]:
