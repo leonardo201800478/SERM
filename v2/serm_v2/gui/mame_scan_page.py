@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import datetime
 
 from PySide6.QtCore import QThread, Qt, Signal
@@ -24,14 +25,18 @@ class _MameCatalogWorker(QThread):
     failed = Signal(str)
     log = Signal(str)
 
-    def __init__(self, force: bool, parent=None) -> None:
+    def __init__(self, force: bool, include_auxiliary: bool, parent=None) -> None:
         super().__init__(parent)
         self.force = force
+        self.include_auxiliary = include_auxiliary
 
     def run(self) -> None:
         try:
             service = MameCatalogService(logger=self.log.emit)
-            result = service.ingest(force=self.force)
+            result = service.ingest(
+                force=self.force,
+                include_auxiliary=self.include_auxiliary,
+            )
             self.completed.emit(result)
         except (MameCatalogError, OSError, RuntimeError, ValueError) as exc:
             self.failed.emit(f"{type(exc).__name__}: {exc}")
@@ -54,7 +59,7 @@ class MameScanPage(QWidget):
         description = QLabel(
             "O catálogo é a fonte estrutural do SERM. A aquisição usa mame.exe -listxml sem padrões, "
             "preserva o XML bruto e normaliza máquinas, ROMs, CHDs, displays, input, chips, dispositivos, "
-            "slots, BIOS e demais elementos. Depois sincroniza folders/*.ini e hash/*.xml."
+            "slots, BIOS e demais elementos. As fontes auxiliares podem ser sincronizadas na mesma operação."
         )
         description.setWordWrap(True)
         root.addWidget(description)
@@ -76,10 +81,9 @@ class MameScanPage(QWidget):
         self.catalog_complete = QCheckBox("Catálogo completo — todos os sistemas e dispositivos")
         self.catalog_complete.setChecked(True)
         self.catalog_complete.setEnabled(False)
-        self.catalog_force = QCheckBox("Forçar reimportação mesmo com o mesmo SHA-256")
         self.catalog_auxiliary = QCheckBox("Sincronizar folders/*.ini e hash/*.xml")
         self.catalog_auxiliary.setChecked(True)
-        self.catalog_auxiliary.setEnabled(False)
+        self.catalog_force = QCheckBox("Forçar reimportação mesmo com o mesmo SHA-256")
         options.addWidget(self.catalog_complete)
         options.addWidget(self.catalog_auxiliary)
         options.addWidget(self.catalog_force)
@@ -94,9 +98,7 @@ class MameScanPage(QWidget):
         actions.addWidget(self.catalog_refresh_button)
         actions.addStretch()
         layout.addLayout(actions)
-        self.catalog_status = QLabel(
-            "Pronto. A operação completa é a recomendada para alimentar o banco relacional do SERM."
-        )
+        self.catalog_status = QLabel("Pronto. A operação completa é a recomendada para alimentar o banco relacional do SERM.")
         self.catalog_status.setWordWrap(True)
         layout.addWidget(self.catalog_status)
         self.catalog_log = QListWidget()
@@ -111,7 +113,11 @@ class MameScanPage(QWidget):
         self.catalog_refresh_button.setEnabled(False)
         self.catalog_log.clear()
         self.catalog_status.setText("Executando mame.exe -listxml e construindo o banco relacional…")
-        self._catalog_worker = _MameCatalogWorker(self.catalog_force.isChecked(), self)
+        self._catalog_worker = _MameCatalogWorker(
+            self.catalog_force.isChecked(),
+            self.catalog_auxiliary.isChecked(),
+            self,
+        )
         self._catalog_worker.log.connect(self._catalog_log)
         self._catalog_worker.completed.connect(self._catalog_completed)
         self._catalog_worker.failed.connect(self._catalog_failed)
@@ -127,7 +133,8 @@ class MameScanPage(QWidget):
         self.catalog_status.setText(
             f"Catálogo concluído: MAME {result.get('mame_build') or 'desconhecido'} | "
             f"máquinas={int(result.get('machine_count') or 0):,} | import_id={result.get('import_id')} | "
-            f"fontes auxiliares={len(ini_results):,} | deduplicado={bool(result.get('deduplicated'))}."
+            f"fontes auxiliares={len(ini_results):,} | "
+            f"deduplicado={bool(result.get('deduplicated'))}."
         )
         self.refresh()
 
@@ -145,7 +152,7 @@ class MameScanPage(QWidget):
 
     def _catalog_status(self) -> None:
         try:
-            with __import__("sqlite3").connect(database_path()) as db:
+            with sqlite3.connect(database_path()) as db:
                 row = db.execute(
                     "SELECT mame_build,machine_count,imported_at,source_hash,status FROM mame_listxml_import ORDER BY id DESC LIMIT 1"
                 ).fetchone()
@@ -156,7 +163,7 @@ class MameScanPage(QWidget):
                 f"Último catálogo: MAME {row[0] or '—'} | máquinas={int(row[1] or 0):,} | "
                 f"status={row[4] or '—'} | importado={row[2] or '—'} | SHA-256={str(row[3] or '')[:16]}"
             )
-        except Exception as exc:  # noqa: BLE001
+        except sqlite3.Error as exc:
             self.catalog_status.setText(f"Não foi possível consultar o catálogo: {exc}")
 
     def _history_panel(self) -> QWidget:
