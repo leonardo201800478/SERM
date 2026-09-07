@@ -19,7 +19,6 @@ from .emulator_shaders_bezels_page import EmulatorShadersBezelsPage
 from .filter_phase_page import FilteringPhasePage
 from .home import HomePage
 from .log_handler import LogViewer
-from .mame_filter_page import MameFilterPage
 from .mame_scan_page import MameScanPage
 from .no_intro_filter_page import NoIntroFilterPage
 from .reconstruction_phase_page import ReconstructionPhasePage
@@ -34,11 +33,10 @@ class MainWindow(QMainWindow):
         ("Ferramentas", "LaunchBox, 7-Zip e outros executáveis auxiliares", "SP_ComputerIcon"),
         ("Configurações", "Configurações dos emuladores", "SP_FileDialogDetailedView"),
         ("Shaders / Bezels", "Aparência, shaders e bezels", "SP_ComputerIcon"),
-        ("Arcade Studio", "Catálogo MAME, comparação física e reconstrução V2", "SP_DriveHDIcon"),
+        ("Arcade Studio", "Catálogo MAME, comparação física, filtros e reconstrução V2", "SP_DriveHDIcon"),
         ("1 — Scan", "Auditoria completa contra DAT/catalogo", "SP_DriveHDIcon"),
         ("MAME — Scans", "Novo scan, histórico e exclusão de scans MAME", "SP_DriveHDIcon"),
-        ("2 — Filtragem", "Aplicar filtros sobre um scan já concluído", "SP_FileDialogDetailedView"),
-        ("MAME — Filtros", "Filtros MAME separados por tipo de jogo e tipo de SET", "SP_FileDialogDetailedView"),
+        ("2 — Filtragem", "Filtragem de fontes não-Arcade sobre scans já concluídos", "SP_FileDialogDetailedView"),
         ("No-Intro — Filtros", "Conteúdo, regiões, clones, hacks, traduções e 1G1R", "SP_FileDialogDetailedView"),
         ("3 — Reconstrução", "Montar o set a partir do arquivo filtrado", "SP_FileDialogInfoView"),
         ("Scraper de DATs", "Importação e processamento de DATs", "SP_FileIcon"),
@@ -175,15 +173,14 @@ class MainWindow(QMainWindow):
         self.scan_tab = ScanPhasePage(self)
         self.mame_scan_tab = MameScanPage(self)
         self.filter_tab = FilteringPhasePage(self)
-        self.mame_filter_tab = MameFilterPage(self)
         self.no_intro_filter_tab = NoIntroFilterPage(self)
         self.reconstruction_tab = ReconstructionPhasePage(self)
         self.dat_scraper_tab = DatScraperPage(self)
         self.pages = (
             self.home_section, self.directories_tab, self.tools_tab, self.settings_tab,
             self.visuals_tab, self.arcade_studio_tab, self.scan_tab, self.mame_scan_tab,
-            self.filter_tab, self.mame_filter_tab, self.no_intro_filter_tab,
-            self.reconstruction_tab, self.dat_scraper_tab,
+            self.filter_tab, self.no_intro_filter_tab, self.reconstruction_tab,
+            self.dat_scraper_tab,
         )
         for page in self.pages:
             self.page_stack.addWidget(page)
