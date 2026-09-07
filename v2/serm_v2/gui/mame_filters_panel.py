@@ -69,6 +69,7 @@ class MameFilterState:
     orientation: str = "all"
     cabinet_query: str = ""
     channels_query: str = ""
+    mamecab_only: bool = True
     mame_set_type: str = "split"
     mame_clone_policy: str = "with_clones"
     mame_include_bios: bool = False
@@ -469,7 +470,7 @@ class MameFiltersPanel(QWidget):
 
     def _state(self) -> MameFilterState:
         state = MameFilterState()
-        state.title_query = self.title_query.text().strip(); state.full_text = self.full_text.text().strip()
+        state.title_query = self.title_query.text().strip(); state.full_text = self.full_text.text().strip(); state.mamecab_only = self.mamecab.isChecked()
         if self._dialog is not None:
             values = self._dialog.values()
             for key, value in values.items():
@@ -477,12 +478,25 @@ class MameFiltersPanel(QWidget):
         if self.genre_quick.currentData(): state.genre = [str(self.genre_quick.currentData())]
         if self.year_quick.currentData() is not None: state.year_from = int(self.year_quick.currentData()); state.year_to = int(self.year_quick.currentData())
         if not self.show_clones.isChecked(): state.type_filter = "parent"
+        state.mamecab_only = self.mamecab.isChecked()
         return state
 
     def _apply_state(self, state: MameFilterState) -> None:
         self._restoring_state = True
         try:
-            self.title_query.setText(state.title_query); self.full_text.setText(state.full_text); self.show_clones.setChecked(state.type_filter != "parent")
+            self.title_query.setText(state.title_query); self.full_text.setText(state.full_text); self.show_clones.setChecked(state.type_filter != "parent"); self.mamecab.setChecked(state.mamecab_only)
+            self.genre_quick.blockSignals(True); self.year_quick.blockSignals(True)
+            try:
+                genre_value = state.genre[0] if state.genre else ""
+                genre_index = self.genre_quick.findData(genre_value)
+                self.genre_quick.setCurrentIndex(max(0, genre_index))
+                if state.year_from is not None and state.year_to == state.year_from:
+                    year_index = self.year_quick.findData(state.year_from)
+                    self.year_quick.setCurrentIndex(max(0, year_index))
+                else:
+                    self.year_quick.setCurrentIndex(0)
+            finally:
+                self.genre_quick.blockSignals(False); self.year_quick.blockSignals(False)
             if self._dialog is not None: self._dialog.apply_state(state)
             self._update_active_summary(state)
         finally: self._restoring_state = False
@@ -526,6 +540,7 @@ class MameFiltersPanel(QWidget):
         if state.type_filter != "all": parts.append("Parents only" if state.type_filter == "parent" else "Clones only")
         if state.mame_set_type != "split": parts.append(state.mame_set_type)
         if state.mame_working_only: parts.append("Working")
+        if not state.mamecab_only: parts.append("MameCab OFF")
         self.active.setText("Filtros ativos: " + (" • ".join(parts) if parts else "nenhum"))
 
     def _clear_filters(self) -> None:
