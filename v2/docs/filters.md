@@ -1,41 +1,31 @@
-# Filtros e seleção
+# Filtros
 
-**Referência:** 17/08/2026
+Filtros reduzem um catálogo ou dataset segundo regras explícitas. Eles não alteram a fonte original.
 
-## Princípio
-
-A GUI coleta opções; regras de seleção ficam na camada de serviço/modelo. O filtro deve produzir uma seleção de machines que posteriormente pode alimentar Scan, XML e construção do set.
-
-## Filtros atuais
-
-O projeto trabalha com categorias/macrocategorias, estado de emulação e relações de machines, além das opções disponíveis na interface atual. Os nomes exatos das opções devem ser obtidos do código atual, não deste documento.
-
-## Arcade
-
-O objetivo principal inclui conjuntos Arcade. A classificação deve priorizar informações estruturais do MAME e os dados complementares existentes, evitando regras textuais frágeis como única fonte de decisão.
-
-A política histórica do projeto exclui categorias como casino, quiz, tabletop, fruit machines e eletromecânicas quando elas não pertencem ao conjunto desejado.
-
-## Clones
-
-Parent e clone são entidades lógicas diferentes. A política de clones precisa respeitar o tipo físico do set.
+## Pipeline
 
 ```text
-Split      → parent e clones possuem arquivos relacionados separadamente
-Non-Merged → cada machine precisa ser autossuficiente
-Merged     → parent/clone compartilham o arquivo segundo a semântica MAME
+Catalog
+  ↓
+Fundamental filters
+  ↓
+Advanced/category filters
+  ↓
+Resolved dataset
 ```
 
-## Status de emulação
+## MAME
 
-A seleção deve considerar os estados disponíveis no dataset. Não confundir status de emulação com classificação de plataforma.
+A V2 possui filtros fundamentais e avançados para o catálogo MAME, incluindo classificação e critérios relacionados ao tipo de máquina. O filtro deve operar sobre dados normalizados, não sobre XML bruto dentro do widget.
 
-## Relação com Scan
+## Persistência
 
-O filtro seleciona machines; o Scan verifica o estado físico. A reconstrução não redefine o filtro nem deve usar a GUI para localizar ROMs.
+Filtros podem ter estado de aplicação/sessão ou persistência própria quando implementada. Documentação deve distinguir claramente os dois casos.
 
-## Pendências
+## Regras
 
-- Consolidar todas as regras de classificação no serviço de filtro.
-- Validar categorias com fixtures do dataset MAME usado pelo projeto.
-- Integrar completamente a seleção de dependências ao resultado físico do Scan.
+- filtro não modifica o catálogo authoritative;
+- resultado deve ser reprodutível a partir do catálogo e configuração;
+- filtros devem ser testáveis sem GUI;
+- novos critérios devem ter cobertura de teste;
+- filtros usados no scan devem ser identificáveis junto ao resultado quando necessário para auditoria.
