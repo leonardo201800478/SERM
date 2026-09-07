@@ -10,7 +10,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from ..models.arcade import ArcadeGame, ArcadePlatform, PlayabilityStatus
-from ..models.arcade_classification import ArcadeContentType
+from ..models.arcade_classification import ArcadeContentType, ArcadeGenre
 from ..runtime.paths import database_path, scans_root
 from .arcade.filter_engine import ArcadeFilterEngine, FilterRules
 from .mame_category_filter_service import MameCategoryFilterService
@@ -29,7 +29,6 @@ class ScanFilterService:
     VALID_STATUSES = frozenset({"CURRENT", "DUPLICATE"})
     _FUNDAMENTAL_CONTENT = {
         "mechanical": ArcadeContentType.MECHANICAL,
-        "dance": ArcadeContentType.ARCADE,
         "console": ArcadeContentType.CONSOLE,
         "handheld": ArcadeContentType.HANDHELD,
         "fruit_machines": ArcadeContentType.FRUIT_MACHINE,
@@ -97,7 +96,6 @@ class ScanFilterService:
             categories = list(item.get("categories") or ())
             metadata = dict(item)
             metadata["categories"] = categories
-            metadata["playability"] = item.get("playability") or item.get("playability_status")
             games.append(
                 ArcadeGame(
                     machine_name=machine_name,
@@ -149,9 +147,15 @@ class ScanFilterService:
             if key in cls._FUNDAMENTAL_CONTENT and not bool(fundamental_values.get(key, default))
         }
         excluded_names = MameCategoryFilterService.matching_machine_names(category_values, database_path())
+        excluded_genres = frozenset()
+        dance_default = DEFAULT_FILTERS.get("dance", True)
+        if not bool(fundamental_values.get("dance", dance_default)):
+            excluded_genres = frozenset({ArcadeGenre.DANCE})
         return FilterRules(
             excluded_machine_names=frozenset(excluded_names),
             excluded_content_types=frozenset(excluded_content),
+            included_genres=frozenset(),
+            excluded_genres=excluded_genres,
             included_playability=cls._playability_values(profile),
             include_bios=bool(getattr(profile, "mame_include_bios", False)),
             include_devices=bool(getattr(profile, "mame_include_devices", False)),
