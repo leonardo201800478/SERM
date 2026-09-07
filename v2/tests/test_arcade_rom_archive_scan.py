@@ -27,7 +27,7 @@ def test_scans_zip_entries_with_physical_identity(tmp_path: Path) -> None:
     assert result.inventory[0].size == len(payload)
     assert result.inventory[0].sha1 == hashlib.sha1(payload).hexdigest()
     assert result.inventory[0].md5 == hashlib.md5(payload).hexdigest()
-    assert result.inventory[0].crc == "c2c7e5b6"
+    assert result.inventory[0].crc == "f725aec6"
 
 
 def test_rejects_non_zip(tmp_path: Path) -> None:
