@@ -59,7 +59,7 @@ _STATUS_COLORS = {
 
 
 def _status_icon(status: RomStatus, size: int = 16) -> QIcon:
-    """Cria um ícone vetorial simples e consistente sem depender de assets externos."""
+    """Cria um ícone vetorial simples e consistente sem assets externos."""
     color = _STATUS_COLORS[status]
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.GlobalColor.transparent)
@@ -73,8 +73,12 @@ def _status_icon(status: RomStatus, size: int = 16) -> QIcon:
 
 
 def _set_status_visual(item: QTableWidgetItem | QTreeWidgetItem, status: RomStatus) -> None:
-    """Aplica ícone, texto e cor ao item conforme o estado da reconstrução."""
-    item.setIcon(_status_icon(status))
+    """Aplica ícone, texto auxiliar e cor conforme o estado da reconstrução."""
+    icon = _status_icon(status)
+    if isinstance(item, QTreeWidgetItem):
+        item.setIcon(0, icon)
+    else:
+        item.setIcon(icon)
     item.setForeground(QColor("#e8edf2"))
     item.setBackground(_STATUS_COLORS[status].darker(420))
     item.setToolTip(_STATUS_LABELS[status])
@@ -101,7 +105,6 @@ class ArcadeStudioPage(QWidget):
         )
         intro.setWordWrap(True)
         layout.addWidget(intro)
-
         self.tabs = QTabWidget()
         self.tabs.addTab(self._catalog_tab(), "Catálogo")
         self.tabs.addTab(self._chd_tab(), "Auditoria CHD")
@@ -120,7 +123,6 @@ class ArcadeStudioPage(QWidget):
         button.clicked.connect(self.refresh)
         controls.addWidget(button)
         layout.addLayout(controls)
-
         self.catalog_status = QLabel("Nenhum catálogo carregado.")
         layout.addWidget(self.catalog_status)
 
@@ -230,7 +232,7 @@ class ArcadeStudioPage(QWidget):
 
     @staticmethod
     def _catalog_status() -> RomStatus:
-        """Até a auditoria física, o catálogo não deve afirmar que uma ROM existe."""
+        """Sem inventário físico, o catálogo não afirma que uma ROM existe."""
         return RomStatus.UNKNOWN
 
     def refresh(self) -> None:
@@ -342,8 +344,7 @@ class ArcadeStudioPage(QWidget):
         root.addChild(rom_group)
         for rom in roms:
             item = QTreeWidgetItem([
-                str(rom["name"]),
-                _STATUS_LABELS[status],
+                str(rom["name"]), _STATUS_LABELS[status],
                 str(rom["sha1"] or rom["crc"] or "—"),
                 f"{rom['size'] or 0:,} bytes | merge={rom['merge'] or '—'}",
             ])
@@ -356,8 +357,7 @@ class ArcadeStudioPage(QWidget):
         root.addChild(disk_group)
         for disk in disks:
             item = QTreeWidgetItem([
-                str(disk["name"]),
-                _STATUS_LABELS[status],
+                str(disk["name"]), _STATUS_LABELS[status],
                 str(disk["sha1"] or "—"),
                 f"MD5={disk['md5'] or '—'} | merge={disk['merge'] or '—'}",
             ])
@@ -405,7 +405,13 @@ class ArcadeStudioPage(QWidget):
                 item = QTableWidgetItem(str(value))
                 item.setData(Qt.ItemDataRole.UserRole, record.path)
                 if column == 0:
-                    status_map = {"OK": RomStatus.OK, "MISSING": RomStatus.MISSING, "AMBIGUOUS": RomStatus.REPAIRABLE, "INVALID": RomStatus.INVALID, "ORPHAN": RomStatus.INCOMPLETE}
+                    status_map = {
+                        "OK": RomStatus.OK,
+                        "MISSING": RomStatus.MISSING,
+                        "AMBIGUOUS": RomStatus.REPAIRABLE,
+                        "INVALID": RomStatus.INVALID,
+                        "ORPHAN": RomStatus.INCOMPLETE,
+                    }
                     _set_status_visual(item, status_map.get(str(value).upper(), RomStatus.UNKNOWN))
                 self.chd_table.setItem(row_index, column, item)
         self.chd_table.resizeColumnsToContents()
