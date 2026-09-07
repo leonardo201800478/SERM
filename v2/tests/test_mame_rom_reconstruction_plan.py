@@ -83,3 +83,16 @@ def test_ambiguous_global_merge_name_is_not_guessed():
     item = next(item for item in result.items if item.machine_name == "clone")
     assert item.source_kind is RomSourceKind.MISSING
     assert item.source_machine is None
+
+
+def test_unique_global_merge_name_without_relationship_is_not_guessed():
+    source = rom("unrelated", "unique.bin", sha1="a")
+    clone_rom = rom("clone", "clone.bin", merge="unique.bin")
+    result = ArcadeRomReconstructionPlanner().plan(
+        [game("unrelated", roms=[source]), game("clone", roms=[clone_rom])]
+    )
+
+    item = next(item for item in result.items if item.machine_name == "clone")
+    assert item.source_kind is RomSourceKind.MISSING
+    assert item.source_machine is None
+    assert item.source_rom_name == "unique.bin"
