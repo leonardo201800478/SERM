@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 from ..config.settings import Settings
 from ..database.bootstrap import apply_migrations
 from ..database.engine import create_sqlite_engine
+from .arcade_studio_page import ArcadeStudioPage
 from .dat_scraper import DatScraperPage
 from .emulator_directories_page import DirectoriesPage
 from .emulator_settings_page import EmulatorSettingsPage
@@ -53,6 +54,7 @@ class MainWindow(QMainWindow):
             "SP_FileDialogDetailedView",
         ),
         ("Shaders / Bezels", "Aparência, shaders e bezels", "SP_ComputerIcon"),
+        ("Arcade Studio", "Catálogo, ROMs, CHDs e reconstrução V2", "SP_DriveHDIcon"),
         ("1 — Scan", "Auditoria completa contra DAT/catalogo", "SP_DriveHDIcon"),
         (
             "MAME — Scans",
@@ -113,7 +115,7 @@ class MainWindow(QMainWindow):
     @staticmethod
     def _get_screen_key(screen) -> str:
         geometry = screen.geometry()
-        return f"{screen.name().strip()}|{geometry.x()},{geometry.y()},{geometry.width()},{geometry.height()}"
+        return f"{screen.name().strip()}|{geometry.x()},{geometry.y()},{geometry.width()},{geometry.height()})"
 
     @staticmethod
     def _intersection_area(first, second) -> int:
@@ -239,6 +241,7 @@ class MainWindow(QMainWindow):
         self.tools_tab = ToolsDirectoriesPage(self)
         self.settings_tab = EmulatorSettingsPage(self)
         self.visuals_tab = EmulatorShadersBezelsPage(self)
+        self.arcade_studio_tab = ArcadeStudioPage(self)
         self.scan_tab = ScanPhasePage(self)
         self.mame_scan_tab = MameScanPage(self)
         self.filter_tab = FilteringPhasePage(self)
@@ -252,6 +255,7 @@ class MainWindow(QMainWindow):
             self.tools_tab,
             self.settings_tab,
             self.visuals_tab,
+            self.arcade_studio_tab,
             self.scan_tab,
             self.mame_scan_tab,
             self.filter_tab,
