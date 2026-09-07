@@ -1,37 +1,27 @@
-# Torrent / aquisição de ROMs
+# Torrents
 
-**Referência:** 17/08/2026
+A integração com torrents deve ser tratada como mecanismo de aquisição, não como fonte canônica de identidade.
 
-## Estado
-
-A integração de download via torrent/qBittorrent é **pendente**. Não considerar esta aba ou fluxo como implementado apenas por existirem modelos ou documentação histórica.
-
-## Objetivo
-
-O Torrent deve receber o manifesto residual da reconstrução e adquirir somente os artefatos realmente ausentes.
+## Arquitetura
 
 ```text
-Reconstrução
-    ↓
-current_reconstruction.jsonl
-    ↓
-Torrent/qBittorrent
-    ↓
-arquivos faltantes
-    ↓
-Scan/revalidação ou reconstrução
+Torrent metadata
+      ↓
+Acquisition backend
+      ↓
+Downloaded resource
+      ↓
+Validation
+      ↓
+Source adapter / scan
 ```
 
 ## Regras
 
-- Não baixar ROMs que já foram validadas localmente.
-- Não alterar o FULLSET/origens.
-- Identificar torrents por infohash ou outro identificador confiável.
-- Obter metadata antes de consultar a lista de arquivos.
-- Fazer matching por caminho/nome e, quando possível, tamanho/hash.
-- Permitir seleção apenas dos arquivos necessários.
-- Validar os arquivos obtidos antes de disponibilizá-los para reconstrução.
+- preservar a origem do recurso;
+- não confiar no nome do arquivo como identidade;
+- validar conteúdo quando houver DAT/hash de referência;
+- manter downloads fora do banco canônico até serem reconhecidos;
+- separar aquisição de reconstrução.
 
-## Futuro
-
-A primeira integração deve consumir torrents existentes. A criação de novos `.torrent` para subsets é uma etapa posterior e exige geração correta de piece hashes.
+O suporte efetivo a um backend torrent específico deve ser documentado junto ao código que o implementa.
