@@ -28,12 +28,12 @@ class ScanFilterService:
 
     VALID_STATUSES = frozenset({"CURRENT", "DUPLICATE"})
     _FUNDAMENTAL_CONTENT = {
-        "mechanical": ArcadeContentType.MECHANICAL,
-        "console": ArcadeContentType.CONSOLE,
-        "handheld": ArcadeContentType.HANDHELD,
-        "fruit_machines": ArcadeContentType.FRUIT_MACHINE,
-        "quiz": ArcadeContentType.QUIZ,
-        "tabletop": ArcadeContentType.TABLETOP,
+        "mechanical": frozenset({ArcadeContentType.MECHANICAL, ArcadeContentType.ELECTROMECHANICAL}),
+        "console": frozenset({ArcadeContentType.CONSOLE}),
+        "handheld": frozenset({ArcadeContentType.HANDHELD}),
+        "fruit_machines": frozenset({ArcadeContentType.FRUIT_MACHINE, ArcadeContentType.GAMBLING, ArcadeContentType.CASINO, ArcadeContentType.REDEMPTION, ArcadeContentType.MEDAL}),
+        "quiz": frozenset({ArcadeContentType.QUIZ}),
+        "tabletop": frozenset({ArcadeContentType.TABLETOP}),
     }
 
     @classmethod
@@ -141,20 +141,20 @@ class ScanFilterService:
 
     @classmethod
     def _build_rules(cls, profile, fundamental_values: dict[str, bool], category_values: dict[str, list[str]]) -> FilterRules:
-        excluded_content = {
-            cls._FUNDAMENTAL_CONTENT[key]
-            for key, default in DEFAULT_FILTERS.items()
-            if key in cls._FUNDAMENTAL_CONTENT and not bool(fundamental_values.get(key, default))
-        }
+        excluded_content: set[ArcadeContentType] = set()
+        for key, content_types in cls._FUNDAMENTAL_CONTENT.items():
+            default = DEFAULT_FILTERS.get(key, True)
+            if not bool(fundamental_values.get(key, default)):
+                excluded_content.update(content_types)
+
         excluded_names = MameCategoryFilterService.matching_machine_names(category_values, database_path())
         excluded_genres = frozenset()
-        dance_default = DEFAULT_FILTERS.get("dance", True)
-        if not bool(fundamental_values.get("dance", dance_default)):
+        if not bool(fundamental_values.get("dance", DEFAULT_FILTERS.get("dance", True))):
             excluded_genres = frozenset({ArcadeGenre.DANCE})
+
         return FilterRules(
             excluded_machine_names=frozenset(excluded_names),
             excluded_content_types=frozenset(excluded_content),
-            included_genres=frozenset(),
             excluded_genres=excluded_genres,
             included_playability=cls._playability_values(profile),
             include_bios=bool(getattr(profile, "mame_include_bios", False)),
@@ -213,10 +213,7 @@ class ScanFilterService:
             "stage_counts": {stage.value: count for stage, count in engine_result.counts_after_stage.items()},
             "filters": {
                 "fundamental": {key: bool(fundamental_values.get(key, default)) for key, default in DEFAULT_FILTERS.items()},
-                "catlist": {
-                    "excluded_categories": sorted(category_values.get("categories", [])),
-                    "excluded_subcategories": sorted(category_values.get("subcategories", [])),
-                },
+                "catlist": {"excluded_categories": sorted(category_values.get("categories", [])), "excluded_subcategories": sorted(category_values.get("subcategories", []))},
                 "mame_clone_policy": str(getattr(profile, "mame_clone_policy", "with_clones")),
                 "mame_include_bios": rules.include_bios,
                 "mame_include_devices": rules.include_devices,
