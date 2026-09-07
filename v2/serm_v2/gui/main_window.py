@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 from ..config.settings import Settings
 from ..database.bootstrap import apply_migrations
 from ..database.engine import create_sqlite_engine
+from .arcade_file_scan_page import ArcadeFileScanPage
 from .arcade_studio_page import ArcadeStudioPage
 from .dat_scraper import DatScraperPage
 from .emulator_directories_page import DirectoriesPage
@@ -55,6 +56,11 @@ class MainWindow(QMainWindow):
         ),
         ("Shaders / Bezels", "Aparência, shaders e bezels", "SP_ComputerIcon"),
         ("Arcade Studio", "Catálogo, ROMs, CHDs e reconstrução V2", "SP_DriveHDIcon"),
+        (
+            "Arcade — Scan de Arquivo",
+            "Abrir um ZIP ou CHD individual e executar o scan imediatamente",
+            "SP_DriveHDIcon",
+        ),
         ("1 — Scan", "Auditoria completa contra DAT/catalogo", "SP_DriveHDIcon"),
         (
             "MAME — Scans",
@@ -242,6 +248,7 @@ class MainWindow(QMainWindow):
         self.settings_tab = EmulatorSettingsPage(self)
         self.visuals_tab = EmulatorShadersBezelsPage(self)
         self.arcade_studio_tab = ArcadeStudioPage(self)
+        self.arcade_file_scan_tab = ArcadeFileScanPage(self)
         self.scan_tab = ScanPhasePage(self)
         self.mame_scan_tab = MameScanPage(self)
         self.filter_tab = FilteringPhasePage(self)
@@ -256,6 +263,7 @@ class MainWindow(QMainWindow):
             self.settings_tab,
             self.visuals_tab,
             self.arcade_studio_tab,
+            self.arcade_file_scan_tab,
             self.scan_tab,
             self.mame_scan_tab,
             self.filter_tab,
