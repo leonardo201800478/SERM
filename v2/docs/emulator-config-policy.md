@@ -1,70 +1,38 @@
-# Política de configuração dos emuladores
+# Política de configuração de emuladores
 
-**Referência:** 21/08/2026
+## Objetivo
 
-## Regra principal
+Centralizar no SERM somente as configurações que o aplicativo consegue identificar, validar e manter com segurança.
 
-O MAME Set Builder não deve regenerar arquivos de configuração que já existem e estão válidos. A existência de uma configuração do usuário é presumida como intencional.
+## Princípios
 
-```text
-EXISTE?
- ├─ não → gerar somente se houver gerador oficial configurado
- └─ sim
-     ↓
-   VALIDAR
-     ├─ válido → reutilizar/importar
-     └─ inválido → backup → gerar somente se houver gerador
-```
+1. A instalação do emulador é um recurso externo.
+2. O SERM registra paths, versão e propriedades administradas pelo próprio SERM.
+3. Configurações nativas desconhecidas devem ser preservadas.
+4. Alterações devem ser reversíveis sempre que possível.
+5. A GUI não deve editar diretamente arquivos de configuração quando um service puder encapsular a operação.
 
-## Arquivo inválido
+## Execution Profile
 
-Antes da regeneração, o arquivo inválido é preservado como:
+O profile de execução relaciona plataforma, runtime/emulador/core e opções necessárias para iniciar conteúdo.
 
 ```text
-<arquivo>.corrupt.<timestamp>.bak
+Platform
+   ↓
+Execution Profile
+   ↓
+Runtime / Emulator / Core
+   ↓
+Content
 ```
 
-Se não existir um comando de geração apropriado, o sistema mantém o arquivo inválido e registra a situação. Ele não inventa conteúdo e não remove o arquivo.
+Arguments, BIOS, shaders, overlays e paths podem pertencer ao profile quando fizerem parte do contrato de execução.
 
-## Execução
+## Segurança
 
-A geração é executada com `shell=False`, `stdin=DEVNULL`, stdout/stderr capturados, `CREATE_NO_WINDOW` no Windows, timeout e validação do artefato após o processo.
+Antes de alterar configuração externa:
 
-## Fontes por emulador
-
-### MAME
-
-`mame.ini` e arquivos existentes são reutilizados. `-createconfig` é reservado para recuperação de configuração ausente ou inválida. O `-listxml` é artefato de dataset, não configuração de usuário.
-
-### Flycast
-
-`emu.cfg` e mappings existentes são reutilizados. O projeto não deve criar um `flycast.xml` artificial.
-
-### Supermodel
-
-`Supermodel.ini` é configuração. `Games.xml` descreve jogos/ROMs e `Music.xml` descreve músicas customizadas; são artefatos distintos e não devem ser sobrescritos como se fossem uma única configuração.
-
-### FinalBurn Neo
-
-A configuração principal é reutilizada. DAT/listinfo são artefatos de catálogo. Só podem ser gerados quando estiverem ausentes ou inválidos e houver comando explícito de geração disponível para a versão instalada.
-
-## Implementação
-
-A política é implementada por `app/core/services/emulator_config_service.py`. `EmulatorConfigService` recebe caminho, validador e, quando aplicável, comando de geração, mantendo a regra de segurança independente dos collectors específicos.
-
-## Estado
-
-### Implementado
-
-- reutilização de configuração válida;
-- geração condicional;
-- backup de arquivo inválido;
-- execução silenciosa e segura;
-- validação pós-geração;
-- testes unitários da política.
-
-### Pendente
-
-- conectar a política ao discovery/importer;
-- definir comandos concretos de geração para cada versão instalada de Flycast, Supermodel e FBNeo;
-- persistir origem, versão e data dos artefatos no banco.
+- validar caminho;
+- confirmar o executável esperado;
+- evitar sobrescrita de arquivos desconhecidos;
+- registrar a operação quando houver risco de alteração persistente.
