@@ -1,5 +1,16 @@
 # Ambiente de desenvolvimento
 
+## Estrutura do workspace
+
+O arquivo `SERM.code-workspace` abre `v2/` como a pasta do workspace. Portanto, dentro do VS Code:
+
+- `${workspaceFolder}` = diretório `v2/`;
+- o interpretador padrão é `v2/.venv/Scripts/python.exe` no Windows;
+- `pytest`, Ruff e `python -m serm_v2` são executados a partir de `v2/`;
+- a configuração específica do editor fica em `v2/.vscode/`.
+
+Isso evita que configurações específicas da V2 dependam de caminhos relativos à raiz histórica do repositório.
+
 ## Requisitos
 
 O `pyproject.toml` define:
@@ -26,6 +37,22 @@ python -m venv .venv
 python -m pip install --upgrade pip
 pip install -e ".[dev]"
 ```
+
+No VS Code, abra `SERM.code-workspace` depois de criar o ambiente. A configuração do workspace aponta automaticamente para o interpretador da V2.
+
+## Extensões recomendadas
+
+`v2/.vscode/extensions.json` recomenda:
+
+- Microsoft Python;
+- Microsoft Pylance;
+- Ruff;
+- Material Icon Theme;
+- SQLite Viewer.
+
+Python e Pylance fornecem linguagem, testes e debug; Ruff fornece lint/format; SQLite Viewer é apenas uma ferramenta de inspeção local.
+
+As extensões são auxiliares do desenvolvimento e não são dependências de runtime do SERM.
 
 ## Execução
 
@@ -58,7 +85,13 @@ ruff check serm_v2 tests
 ruff format --check serm_v2 tests
 ```
 
-Ruff usa target Python 3.12, line length de 100 caracteres e regras E4/E7/E9/F/I/B/UP.
+Ou pela task `V2: quality` do VS Code, que executa lint, verificação de formatação e testes em sequência.
+
+Para cobertura:
+
+```powershell
+pytest --cov=serm_v2 --cov-report=term-missing
+```
 
 ## Banco de dados
 
@@ -67,10 +100,17 @@ A inicialização é feita pelos componentes em `serm_v2/database`. Migrations s
 Ao alterar o schema:
 
 1. adicionar a migration correspondente;
-2. atualizar os modelos afetados;
-3. cobrir o comportamento com testes;
-4. validar bootstrap e upgrade em banco limpo;
-5. nunca editar silenciosamente uma migration já aplicada.
+2. usar o próximo número de migration disponível;
+3. atualizar os modelos/serviços afetados;
+4. cobrir o comportamento com testes;
+5. validar bootstrap e upgrade em banco limpo;
+6. nunca editar silenciosamente uma migration já publicada.
+
+## Configurações externas
+
+Configurações de ferramentas externas versionadas devem ficar em `v2/config/<ferramenta>/`. O `v2/config/mame/ui.ini` é um template/configuração do MAME e não faz parte do pacote Python.
+
+Dados de usuário, bancos locais, logs, caches, staging, exports e backups permanecem fora da árvore versionada.
 
 ## Ferramentas externas
 
