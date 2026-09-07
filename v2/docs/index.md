@@ -32,6 +32,7 @@ A V1 é referência histórica e comportamental. A árvore ativa de `main` cont�
 | [`sets.md`](sets.md) | Sets e relações parent/clone |
 | [`reconstruction.md`](reconstruction.md) | Reconstrução e publicação |
 | [`reconstruction-dependencies.md`](reconstruction-dependencies.md) | Dependências de reconstrução |
+| [`mame-semantic-validation.md`](mame-semantic-validation.md) | Auditorias, invariantes e regras semânticas do MAME |
 | [`reconstruction/multi-emulator-layout.md`](reconstruction/multi-emulator-layout.md) | Layout multi-emulador |
 | [`archives.md`](archives.md) | Operações com arquivos compactados |
 | [`chd-reconstruction.md`](chd-reconstruction.md) | CHD e validação |
