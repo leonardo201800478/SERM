@@ -67,17 +67,12 @@ class MameFilterV2Service:
 
     @classmethod
     def _ensure_folder_filters(cls) -> None:
-        """Sincroniza rapidamente os INIs: arquivos inalterados são apenas ignorados."""
         try:
             paths_file = data_root() / "emulator_paths.json"
             payload = json.loads(paths_file.read_text(encoding="utf-8"))
             executable = payload.get("mame_executable")
             if isinstance(executable, str) and executable.strip():
-                result = MameFolderFilterService(
-                    database_path(), Path(executable).expanduser().resolve().parent
-                ).ingest()
-                if result.get("files") or result.get("entries"):
-                    return
+                MameFolderFilterService(database_path(), Path(executable).expanduser().resolve().parent).ingest()
         except (OSError, ValueError, TypeError, sqlite3.Error):
             return
 
@@ -108,12 +103,16 @@ class MameFilterV2Service:
 
     @staticmethod
     def _mame_flag(value: object) -> bool:
-        """Normaliza flags do ListXML que podem chegar como yes/no, 1/0 ou bool."""
         if isinstance(value, bool):
             return value
         if isinstance(value, (int, float)):
             return value != 0
         return str(value or "").strip().casefold() in {"yes", "true", "1", "on"}
+
+    @staticmethod
+    def _has_value(value: object, expected: set[str]) -> bool:
+        values = {part.strip().casefold() for part in str(value or "").split(",") if part.strip()}
+        return bool(values & expected)
 
     @classmethod
     def _games(cls, payload: dict) -> list[ArcadeGame]:
@@ -125,45 +124,120 @@ class MameFilterV2Service:
         with sqlite3.connect(database_path(), timeout=60.0) as db:
             import_id, _build = cls._import_id(db, payload)
             machine_names = sorted(physical_names)
-            rows = []
+            rows: list[tuple] = []
             for start in range(0, len(machine_names), cls._SQLITE_VARIABLE_CHUNK):
-                chunk = machine_names[start : start + cls._SQLITE_VARIABLE_CHUNK]
+                chunk = machine_names[start:start + cls._SQLITE_VARIABLE_CHUNK]
                 placeholders = ",".join("?" for _ in chunk)
+                # Cada relação 1:N é agregada isoladamente antes do JOIN.
+                # Isso impede o produto cartesiano ROM x CHIP x DISPLAY x INPUT...
                 query = f"""
-                    SELECT m.id,m.name,m.cloneof,m.romof,m.isbios,m.isdevice,m.ismechanical,m.runnable,m.description,m.year,m.manufacturer,m.sourcefile,
-                           GROUP_CONCAT(DISTINCT c.category),GROUP_CONCAT(DISTINCT c.subcategory),MAX(d.status),MAX(d.emulation),MAX(d.sound),MAX(d.graphic),GROUP_CONCAT(DISTINCT disp.type),GROUP_CONCAT(DISTINCT disp.rotate),GROUP_CONCAT(DISTINCT disp.width || 'x' || disp.height),GROUP_CONCAT(DISTINCT disp.refresh_raw),GROUP_CONCAT(DISTINCT ctl.type),MAX(ctl.buttons),MAX(inp.players),GROUP_CONCAT(DISTINCT chip.type || ':' || COALESCE(chip.name,'')),COUNT(DISTINCT disk.id),COUNT(DISTINCT sample.id),COUNT(DISTINCT bios.id),COUNT(DISTINCT device.id),GROUP_CONCAT(DISTINCT rom.name),GROUP_CONCAT(DISTINCT disk.name)
-                    FROM mame_machine m
-                    LEFT JOIN mame_classification c
-                      ON c.machine_id=m.id
-                     AND c.resolved_status='resolved'
-                     AND EXISTS (
-                         SELECT 1
-                           FROM mame_source_document sd
-                          WHERE sd.id=c.source_document_id
-                            AND sd.source_type='catlist'
-                     )
-                    LEFT JOIN mame_driver d ON d.machine_id=m.id
-                    LEFT JOIN mame_display disp ON disp.machine_id=m.id
-                    LEFT JOIN mame_input inp ON inp.machine_id=m.id
-                    LEFT JOIN mame_control ctl ON ctl.input_id=inp.id
-                    LEFT JOIN mame_chip chip ON chip.machine_id=m.id
-                    LEFT JOIN mame_disk disk ON disk.machine_id=m.id
-                    LEFT JOIN mame_sample sample ON sample.machine_id=m.id
-                    LEFT JOIN mame_biosset bios ON bios.machine_id=m.id
-                    LEFT JOIN mame_device device ON device.machine_id=m.id
-                    LEFT JOIN mame_rom rom ON rom.machine_id=m.id
-                    WHERE m.import_id=? AND m.name IN ({placeholders})
-                    GROUP BY m.id
-                    ORDER BY m.name COLLATE NOCASE
+                    WITH base AS (
+                        SELECT id,name,cloneof,romof,isbios,isdevice,ismechanical,runnable,description,year,manufacturer,sourcefile
+                        FROM mame_machine
+                        WHERE import_id=? AND name IN ({placeholders})
+                    ),
+                    classification AS (
+                        SELECT c.machine_id,
+                               GROUP_CONCAT(DISTINCT c.category) AS categories,
+                               GROUP_CONCAT(DISTINCT c.subcategory) AS subcategories
+                        FROM mame_classification c
+                        JOIN mame_source_document sd ON sd.id=c.source_document_id AND sd.source_type='catlist'
+                        JOIN base b ON b.id=c.machine_id
+                        WHERE c.resolved_status='resolved'
+                        GROUP BY c.machine_id
+                    ),
+                    driver AS (
+                        SELECT d.machine_id,
+                               GROUP_CONCAT(DISTINCT d.status) AS driver_status,
+                               GROUP_CONCAT(DISTINCT d.emulation) AS emulation,
+                               GROUP_CONCAT(DISTINCT d.sound) AS sound,
+                               GROUP_CONCAT(DISTINCT d.graphic) AS graphic
+                        FROM mame_driver d JOIN base b ON b.id=d.machine_id
+                        GROUP BY d.machine_id
+                    ),
+                    display AS (
+                        SELECT machine_id,
+                               GROUP_CONCAT(DISTINCT type) AS display_types,
+                               GROUP_CONCAT(DISTINCT rotate) AS rotates,
+                               GROUP_CONCAT(DISTINCT width || 'x' || height) AS resolutions,
+                               GROUP_CONCAT(DISTINCT refresh_raw) AS refreshes
+                        FROM mame_display JOIN base b ON b.id=mame_display.machine_id
+                        GROUP BY machine_id
+                    ),
+                    input AS (
+                        SELECT machine_id,
+                               GROUP_CONCAT(DISTINCT players) AS players
+                        FROM mame_input JOIN base b ON b.id=mame_input.machine_id
+                        GROUP BY machine_id
+                    ),
+                    control AS (
+                        SELECT i.machine_id,
+                               GROUP_CONCAT(DISTINCT c.type) AS controls,
+                               GROUP_CONCAT(DISTINCT c.buttons) AS buttons
+                        FROM mame_input i
+                        JOIN base b ON b.id=i.machine_id
+                        JOIN mame_control c ON c.input_id=i.id
+                        GROUP BY i.machine_id
+                    ),
+                    chip AS (
+                        SELECT machine_id,
+                               GROUP_CONCAT(DISTINCT type || ':' || COALESCE(name,'')) AS chips
+                        FROM mame_chip JOIN base b ON b.id=mame_chip.machine_id
+                        GROUP BY machine_id
+                    ),
+                    disk AS (
+                        SELECT machine_id,COUNT(*) AS disk_count,GROUP_CONCAT(DISTINCT name) AS disk_names
+                        FROM mame_disk JOIN base b ON b.id=mame_disk.machine_id
+                        GROUP BY machine_id
+                    ),
+                    sample AS (
+                        SELECT machine_id,COUNT(*) AS sample_count
+                        FROM mame_sample JOIN base b ON b.id=mame_sample.machine_id
+                        GROUP BY machine_id
+                    ),
+                    bios AS (
+                        SELECT machine_id,COUNT(*) AS bios_count
+                        FROM mame_biosset JOIN base b ON b.id=mame_biosset.machine_id
+                        GROUP BY machine_id
+                    ),
+                    device AS (
+                        SELECT machine_id,COUNT(*) AS device_count
+                        FROM mame_device JOIN base b ON b.id=mame_device.machine_id
+                        GROUP BY machine_id
+                    ),
+                    rom AS (
+                        SELECT machine_id,GROUP_CONCAT(DISTINCT name) AS rom_names
+                        FROM mame_rom JOIN base b ON b.id=mame_rom.machine_id
+                        GROUP BY machine_id
+                    )
+                    SELECT b.id,b.name,b.cloneof,b.romof,b.isbios,b.isdevice,b.ismechanical,b.runnable,b.description,b.year,b.manufacturer,b.sourcefile,
+                           classification.categories,classification.subcategories,
+                           driver.driver_status,driver.emulation,driver.sound,driver.graphic,
+                           display.display_types,display.rotates,display.resolutions,display.refreshes,
+                           control.controls,control.buttons,input.players,chip.chips,
+                           COALESCE(disk.disk_count,0),COALESCE(sample.sample_count,0),COALESCE(bios.bios_count,0),COALESCE(device.device_count,0),
+                           rom.rom_names,disk.disk_names
+                    FROM base b
+                    LEFT JOIN classification ON classification.machine_id=b.id
+                    LEFT JOIN driver ON driver.machine_id=b.id
+                    LEFT JOIN display ON display.machine_id=b.id
+                    LEFT JOIN input ON input.machine_id=b.id
+                    LEFT JOIN control ON control.machine_id=b.id
+                    LEFT JOIN chip ON chip.machine_id=b.id
+                    LEFT JOIN disk ON disk.machine_id=b.id
+                    LEFT JOIN sample ON sample.machine_id=b.id
+                    LEFT JOIN bios ON bios.machine_id=b.id
+                    LEFT JOIN device ON device.machine_id=b.id
+                    LEFT JOIN rom ON rom.machine_id=b.id
+                    ORDER BY b.name COLLATE NOCASE
                 """
                 rows.extend(db.execute(query, (import_id, *chunk)).fetchall())
+
             folder_maps = cls._folder_maps(db, physical_names)
             games: list[ArcadeGame] = []
             for row in rows:
                 (machine_id,name,cloneof,romof,isbios,isdevice,ismechanical,runnable,description,year,manufacturer,sourcefile,categories,subcategories,driver_status,emulation,sound,graphic,display_types,rotates,resolutions,refreshes,controls,buttons,players,chips,disk_count,sample_count,bios_count,device_count,rom_names,disk_names) = row
-                is_bios = cls._mame_flag(isbios)
-                is_device = cls._mame_flag(isdevice)
-                is_mechanical = cls._mame_flag(ismechanical)
+                is_bios, is_device, is_mechanical = cls._mame_flag(isbios), cls._mame_flag(isdevice), cls._mame_flag(ismechanical)
                 category_values = [v.strip() for v in str(categories or "").split(",") if v.strip()]
                 subcategory_values = [v.strip() for v in str(subcategories or "").split(",") if v.strip()]
                 non_arcade_categories = {"console", "computer", "handheld", "pachinko", "pachislot"}
@@ -179,13 +253,13 @@ class MameFilterV2Service:
                 emu = str(emulation or "").casefold()
                 if working:
                     playability = PlayabilityStatus.FULLY_PLAYABLE.value
-                elif status == "good" and emu == "good":
+                elif cls._has_value(status, {"good"}) and cls._has_value(emu, {"good"}):
                     playability = PlayabilityStatus.FUNCTIONAL.value
-                elif status == "imperfect" or emu == "imperfect":
+                elif cls._has_value(status, {"imperfect"}) or cls._has_value(emu, {"imperfect"}):
                     playability = PlayabilityStatus.PARTIALLY_PLAYABLE.value
-                elif status == "preliminary" or emu == "preliminary":
+                elif cls._has_value(status, {"preliminary"}) or cls._has_value(emu, {"preliminary"}):
                     playability = PlayabilityStatus.IN_DEVELOPMENT.value
-                elif status == "bad" or emu == "bad":
+                elif cls._has_value(status, {"bad"}) or cls._has_value(emu, {"bad"}):
                     playability = PlayabilityStatus.UNPLAYABLE.value
                 else:
                     playability = PlayabilityStatus.UNKNOWN.value
@@ -221,10 +295,9 @@ class MameFilterV2Service:
             if not ids:
                 continue
             placeholders_ids = ",".join("?" for _ in ids)
-            for start in range(0, len(machine_names_sorted), cls._SQLITE_VARIABLE_CHUNK - len(ids)):
-                chunk = machine_names_sorted[start : start + (cls._SQLITE_VARIABLE_CHUNK - len(ids))]
-                if not chunk:
-                    continue
+            chunk_size = max(1, cls._SQLITE_VARIABLE_CHUNK - len(ids))
+            for start in range(0, len(machine_names_sorted), chunk_size):
+                chunk = machine_names_sorted[start:start + chunk_size]
                 placeholders_names = ",".join("?" for _ in chunk)
                 rows = db.execute(f"SELECT machine_name,COALESCE(section,'') FROM mame_folder_filter_entry WHERE source_id IN ({placeholders_ids}) AND machine_name IN ({placeholders_names})", (*sorted(ids), *chunk)).fetchall()
                 mapping = result[key]
@@ -280,10 +353,8 @@ class MameFilterV2Service:
     def _is_horizontal(game: ArcadeGame) -> bool:
         rotate = str(game.metadata.get("rotate") or "").casefold()
         display = str(game.metadata.get("display") or "").casefold()
-        if any(value in rotate for value in ("90", "270", "vertical")):
-            return False
-        if "vertical" in display or "tate" in display:
-            return False
+        if any(value in rotate for value in ("90", "270", "vertical")): return False
+        if "vertical" in display or "tate" in display: return False
         return True
 
     @staticmethod
@@ -322,8 +393,7 @@ class MameFilterV2Service:
             return True
         if any(queries.values()) or type_filter != "all" or year_from is not None or year_to is not None or orientation != "all":
             candidate_sets.append({game.machine_name for game in games if match(game)})
-        if not candidate_sets:
-            return None
+        if not candidate_sets: return None
         result = candidate_sets[0].copy()
         for names in candidate_sets[1:]: result.intersection_update(names)
         return result
@@ -332,31 +402,23 @@ class MameFilterV2Service:
     def _rules(cls, state, games: list[ArcadeGame] | None = None) -> FilterRules:
         excluded_content = set()
         for key, types in cls._CONTENT.items():
-            if bool(state.fundamental.get(key, False)):
-                excluded_content.update(types)
+            if bool(state.fundamental.get(key, False)): excluded_content.update(types)
         excluded_genres = {ArcadeGenre.DANCE} if bool(state.fundamental.get("dance", False)) else set()
         def enum(values, enum_type):
             allowed = {member.value for member in enum_type}
             return {enum_type(value) for value in values if value in allowed}
         candidate_names = cls._candidate_names(games or [], state) if games is not None else None
         included_content = set(enum(state.content, ArcadeContentType))
-        if bool(getattr(state, "mamecab_only", True)):
-            included_content.add(ArcadeContentType.ARCADE)
+        if bool(getattr(state, "mamecab_only", True)): included_content.add(ArcadeContentType.ARCADE)
         return FilterRules(
             included_machine_names=frozenset(candidate_names) if candidate_names is not None else frozenset(),
-            excluded_content_types=frozenset(excluded_content),
-            excluded_genres=frozenset(excluded_genres),
-            included_content_types=frozenset(included_content),
-            included_playability=frozenset(enum(state.playability, PlayabilityStatus)),
-            included_genres=frozenset(enum(state.genre, ArcadeGenre)),
-            included_hardware=frozenset(enum(state.hardware, ArcadeHardwareFamily)),
-            included_manufacturers=frozenset(state.manufacturer),
-            included_series=frozenset(state.series),
-            included_inputs=frozenset(enum(state.input, ArcadeInputType)),
-            included_wheel_angles=frozenset(enum(state.wheel, WheelAngleClass)),
-            include_bios=state.mame_include_bios, include_devices=state.mame_include_devices,
-            include_optional=state.mame_include_optional, working_only=state.mame_working_only,
-            parents_only=state.mame_clone_policy == "parents_only",
+            excluded_content_types=frozenset(excluded_content), excluded_genres=frozenset(excluded_genres),
+            included_content_types=frozenset(included_content), included_playability=frozenset(enum(state.playability, PlayabilityStatus)),
+            included_genres=frozenset(enum(state.genre, ArcadeGenre)), included_hardware=frozenset(enum(state.hardware, ArcadeHardwareFamily)),
+            included_manufacturers=frozenset(state.manufacturer), included_series=frozenset(state.series),
+            included_inputs=frozenset(enum(state.input, ArcadeInputType)), included_wheel_angles=frozenset(enum(state.wheel, WheelAngleClass)),
+            include_bios=state.mame_include_bios, include_devices=state.mame_include_devices, include_optional=state.mame_include_optional,
+            working_only=state.mame_working_only, parents_only=state.mame_clone_policy == "parents_only",
         )
 
     @classmethod
@@ -384,19 +446,14 @@ class MameFilterV2Service:
         label = re.sub(r"[^A-Za-z0-9._-]+", "_", str(payload.get("catalog_label") or "catalog"))
         output_path = out_dir / f"MAME_{label}_{payload.get('scan_type', 'arcade')}_FILTER_{run_id}.json"
         output = {
-            "format": "SERM-FILTER-V2", "schema_version": 2, "filter_run_id": run_id,
-            "scan_id": payload.get("scan_id"), "profile_id": state.profile_id, "source": "mame",
-            "system": payload.get("system"), "scan_type": payload.get("scan_type", "arcade"),
-            "catalog_label": payload.get("catalog_label"), "catalog_hash": payload.get("catalog_hash"),
-            "source_scan_file": str(path.resolve()), "created_at": time.time(), "unit": "machines",
-            "input_count": result.total_input, "output_count": result.included_count, "filtered_count": result.excluded_count,
-            "physical_evidence_count": len(kept_evidence), "filter_counts": dict(reasons),
-            "stage_counts": {stage.value: count for stage, count in result.counts_after_stage.items()},
-            "filters": asdict(state), "machines": sorted(kept_names), "evidence": kept_evidence, "output_file": str(output_path),
+            "format": "SERM-FILTER-V2", "schema_version": 2, "filter_run_id": run_id, "scan_id": payload.get("scan_id"),
+            "profile_id": state.profile_id, "source": "mame", "system": payload.get("system"), "scan_type": payload.get("scan_type", "arcade"),
+            "catalog_label": payload.get("catalog_label"), "catalog_hash": payload.get("catalog_hash"), "source_scan_file": str(path.resolve()),
+            "created_at": time.time(), "unit": "machines", "input_count": result.total_input, "output_count": result.included_count,
+            "filtered_count": result.excluded_count, "physical_evidence_count": len(kept_evidence), "filter_counts": dict(reasons),
+            "stage_counts": {stage.value: count for stage, count in result.counts_after_stage.items()}, "filters": asdict(state),
+            "machines": sorted(kept_names), "evidence": kept_evidence, "output_file": str(output_path),
         }
         output_path.write_text(json.dumps(output, indent=2, ensure_ascii=False), encoding="utf-8")
         output["filtered_file_path"] = str(output_path)
         return output
-
-
-__all__ = ["MameFilterV2Service"]
