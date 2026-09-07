@@ -4,7 +4,11 @@ from serm_v2.services.arcade.reconstruction_manifest import (
     ArcadeReconstructionManifestBuilder,
     MaterializationKind,
 )
-from serm_v2.services.arcade.rom_reconstruction import ArcadeRomReconstructionEngine, PhysicalRom
+from serm_v2.services.arcade.rom_reconstruction import (
+    ArcadeRomReconstructionEngine,
+    PhysicalRom,
+    ReconstructionResult,
+)
 
 
 def game(name: str, *, parent: str | None = None, roms=(), disks=()) -> ArcadeGame:
@@ -80,12 +84,16 @@ def test_full_merged_deduplicates_shared_rom_destination() -> None:
 def test_chd_is_placed_in_machine_directory() -> None:
     disk = ArcadeDisk(name="disc", sha1="c" * 40)
     games = [game("game", disks=(disk,))]
-    result = ArcadeChdReconstructionEngine().reconstruct(
+    chd_result = ArcadeChdReconstructionEngine().reconstruct(
         games, [PhysicalChd("source/disc.chd", logical_sha1="c" * 40)]
     )
 
     manifest = ArcadeReconstructionManifestBuilder().build(
-        games, set_name="test", set_type=ArcadeSetType.SPLIT, rom_result=type("R", (), {"items": ()})(), chd_result=result
+        games,
+        set_name="test",
+        set_type=ArcadeSetType.SPLIT,
+        rom_result=ReconstructionResult(()),
+        chd_result=chd_result,
     )
 
     assert manifest.is_ready
