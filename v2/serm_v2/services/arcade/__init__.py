@@ -1,5 +1,11 @@
 """Servicos do Arcade Studio."""
 
+from .rom_reconstruction_plan import (
+    ArcadeRomReconstructionPlanner,
+    RomReconstructionPlan,
+    RomReconstructionPlanResult,
+    RomSourceKind,
+)
 from .set_builder import (
     ArcadeSetBuilder,
     SetBuildDecision,
@@ -9,7 +15,11 @@ from .set_builder import (
 )
 
 __all__ = [
+    "ArcadeRomReconstructionPlanner",
     "ArcadeSetBuilder",
+    "RomReconstructionPlan",
+    "RomReconstructionPlanResult",
+    "RomSourceKind",
     "SetBuildDecision",
     "SetBuildError",
     "SetBuildResult",
