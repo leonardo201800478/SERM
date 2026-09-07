@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QProgressBar,
     QPushButton,
+    QSizePolicy,
     QSplitter,
     QTabWidget,
     QTableWidget,
@@ -220,8 +221,17 @@ def _set_compact_font(widget: QWidget, point_size: float) -> None:
     widget.setFont(font)
 
 
+def _protect_text_widget(widget: QWidget, minimum_height: int = 25) -> None:
+    """Evita que o refinamento visual corte texto por falta de espaço físico."""
+    policy = widget.sizePolicy()
+    policy.setHorizontalPolicy(QSizePolicy.Policy.Expanding)
+    widget.setSizePolicy(policy)
+    widget.setMinimumHeight(minimum_height)
+    widget.setMaximumHeight(16777215)
+
+
 def _refine_arcade_studio(window) -> bool:
-    """Compacta o Arcade Studio sem impor altura artificial ao conteúdo principal."""
+    """Compacta o Arcade Studio sem impor dimensões que possam cortar texto."""
     studio = getattr(window, "arcade_studio_tab", None)
     if studio is None or studio.property("layout_refined"):
         return False
@@ -235,18 +245,21 @@ def _refine_arcade_studio(window) -> bool:
     title = studio.findChild(QLabel, "", options=Qt.FindChildOption.FindDirectChildrenOnly)
     if title is not None:
         _set_compact_font(title, 14.0)
-        title.setMaximumHeight(26)
+        title.setMinimumHeight(26)
+        title.setMaximumHeight(40)
     intro = page_layout.itemAt(1).widget() if page_layout.count() > 1 else None
     if isinstance(intro, QLabel):
-        intro.setMaximumHeight(28)
-        intro.setWordWrap(False)
+        intro.setMinimumHeight(20)
+        intro.setMaximumHeight(40)
+        intro.setWordWrap(True)
     tabs = getattr(studio, "tabs", None)
     if isinstance(tabs, QTabWidget):
         tabs.setDocumentMode(True)
         tabs.setUsesScrollButtons(False)
         tabs.setMinimumHeight(30)
         tabs.setMaximumHeight(16777215)
-        tabs.tabBar().setFixedHeight(28)
+        tabs.tabBar().setMinimumHeight(28)
+        tabs.tabBar().setMaximumHeight(40)
         _set_compact_font(tabs, 9.0)
     catalog = tabs.widget(0) if isinstance(tabs, QTabWidget) else None
     if catalog is None:
@@ -254,30 +267,36 @@ def _refine_arcade_studio(window) -> bool:
     catalog_layout = catalog.layout()
     if catalog_layout is not None:
         catalog_layout.setContentsMargins(2, 2, 2, 2)
-        catalog_layout.setSpacing(3)
+        catalog_layout.setSpacing(4)
     source_box = catalog.findChild(QGroupBox, "", options=Qt.FindChildOption.FindDirectChildrenOnly)
     if source_box is not None:
-        source_box.setMaximumHeight(145)
+        # Nunca limitar a altura fixa: o QFormLayout precisa acomodar rótulos,
+        # campos e botões sem sobreposição ou corte vertical.
+        source_box.setMaximumHeight(16777215)
+        source_box.setMinimumHeight(0)
         source_layout = source_box.layout()
         if source_layout is not None:
             source_layout.setContentsMargins(7, 5, 7, 5)
-            source_layout.setVerticalSpacing(2)
-            source_layout.setHorizontalSpacing(7)
+            source_layout.setVerticalSpacing(4)
+            source_layout.setHorizontalSpacing(8)
     for edit in catalog.findChildren(QLineEdit):
-        edit.setMinimumHeight(22)
-        edit.setMaximumHeight(24)
+        _protect_text_widget(edit, 25)
+        edit.setMinimumWidth(max(edit.minimumSizeHint().width(), 180))
+        edit.setToolTip(edit.text())
     for button in catalog.findChildren(QPushButton):
-        button.setMinimumHeight(22)
-        button.setMaximumHeight(25)
+        _protect_text_widget(button, 27)
+        button.setMinimumWidth(max(button.minimumSizeHint().width(), 120))
+        button.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
     progress = getattr(studio, "load_progress", None)
     if isinstance(progress, QProgressBar):
-        progress.setMinimumHeight(11)
-        progress.setMaximumHeight(11)
+        progress.setMinimumHeight(12)
+        progress.setMaximumHeight(18)
     for label_name in ("scan_info", "comparison_status", "catalog_details"):
         label = getattr(studio, label_name, None)
         if isinstance(label, QLabel):
-            label.setMaximumHeight(25 if label_name != "catalog_details" else 28)
-            label.setWordWrap(False)
+            label.setMinimumHeight(18)
+            label.setMaximumHeight(60)
+            label.setWordWrap(True)
     table = getattr(studio, "catalog_table", None)
     if isinstance(table, QTableWidget):
         table.verticalHeader().setDefaultSectionSize(21)
