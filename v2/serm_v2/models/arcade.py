@@ -6,9 +6,9 @@ catálogo, integridade física das ROMs, jogabilidade e montagem do set.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Iterable
 
 
 class ArcadePlatform(StrEnum):
