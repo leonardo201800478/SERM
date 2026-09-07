@@ -115,7 +115,7 @@ class MainWindow(QMainWindow):
     @staticmethod
     def _get_screen_key(screen) -> str:
         geometry = screen.geometry()
-        return f"{screen.name().strip()}|{geometry.x()},{geometry.y()},{geometry.width()},{geometry.height()})"
+        return f"{screen.name().strip()}|{geometry.x()},{geometry.y()},{geometry.width()},{geometry.height()}"
 
     @staticmethod
     def _intersection_area(first, second) -> int:
