@@ -1,10 +1,20 @@
 from pathlib import Path
+import sqlite3
 
 from serm_v2.services.mame_softwarelist_service import MameSoftwareListService
 
 
+def _database_with_schema(path: Path) -> None:
+    with sqlite3.connect(path) as db:
+        db.execute("CREATE TABLE schema_migrations (version TEXT PRIMARY KEY, applied_at TEXT NOT NULL)")
+        migration = Path(__file__).parents[1] / "serm_v2" / "database" / "migrations" / "019_mame_softwarelists.sql"
+        db.executescript(migration.read_text(encoding="utf-8"))
+        db.commit()
+
+
 def test_ingest_software_list(tmp_path: Path) -> None:
     database = tmp_path / "serm.db"
+    _database_with_schema(database)
     hash_path = tmp_path / "hash"
     hash_path.mkdir()
     (hash_path / "test.xml").write_text(
@@ -37,8 +47,6 @@ def test_ingest_software_list(tmp_path: Path) -> None:
     assert result["roms"] == 1
     assert result["disks"] == 1
 
-    import sqlite3
-
     with sqlite3.connect(database) as db:
         assert db.execute("SELECT COUNT(*) FROM mame_softwarelist_source").fetchone()[0] == 1
         assert db.execute("SELECT name,year,publisher FROM mame_software").fetchone() == ("game1", "1985", "Publisher")
@@ -49,6 +57,7 @@ def test_ingest_software_list(tmp_path: Path) -> None:
 
 def test_unchanged_software_list_is_skipped(tmp_path: Path) -> None:
     database = tmp_path / "serm.db"
+    _database_with_schema(database)
     hash_path = tmp_path / "hash"
     hash_path.mkdir()
     (hash_path / "test.xml").write_text(
