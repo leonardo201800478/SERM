@@ -1,7 +1,8 @@
 """Interface operacional do Arcade Studio V2.
 
-A página centraliza catálogo, auditoria física de CHDs e preparação da
-reconstrução sem depender de RomVault ou de outro backend externo.
+O Studio usa o ListXML importado como fonte de verdade do conteúdo esperado e
+permite selecionar qualquer snapshot JSON produzido pelo scan completo do SERM.
+A comparação é feita por componente, preservando a evidência física do scan.
 """
 
 from __future__ import annotations
@@ -18,7 +19,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
-    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QProgressBar,
@@ -34,8 +34,14 @@ from PySide6.QtWidgets import (
 )
 
 from ..models.arcade import RomStatus
-from ..runtime.paths import database_path
+from ..runtime.paths import database_path, scans_root
 from ..services.arcade.chd_audit import ArcadeChdAuditService, ChdAuditResult
+from ..services.arcade.scan_comparison import (
+    ArcadeScanComparisonService,
+    ComponentComparison,
+    MachineComparison,
+    ScanComparisonResult,
+)
 from ..services.chd_header import ChdFormatError, ChdHeaderReader
 
 
@@ -59,7 +65,6 @@ _STATUS_COLORS = {
 
 
 def _status_icon(status: RomStatus, size: int = 16) -> QIcon:
-    """Cria um ícone vetorial simples e consistente sem assets externos."""
     color = _STATUS_COLORS[status]
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.GlobalColor.transparent)
@@ -73,7 +78,6 @@ def _status_icon(status: RomStatus, size: int = 16) -> QIcon:
 
 
 def _set_status_visual(item: QTableWidgetItem | QTreeWidgetItem, status: RomStatus) -> None:
-    """Aplica ícone, texto auxiliar e cor conforme o estado da reconstrução."""
     icon = _status_icon(status)
     if isinstance(item, QTreeWidgetItem):
         item.setIcon(0, icon)
@@ -85,11 +89,12 @@ def _set_status_visual(item: QTableWidgetItem | QTreeWidgetItem, status: RomStat
 
 
 class ArcadeStudioPage(QWidget):
-    """Painel operacional do Arcade Studio."""
+    """Painel central do catálogo MAME, comparação física e reconstrução."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._database = database_path()
+        self._comparison: ScanComparisonResult | None = None
         self._last_chd_audit: ChdAuditResult | None = None
         self._build_ui()
         self.refresh()
@@ -100,13 +105,14 @@ class ArcadeStudioPage(QWidget):
         title.setProperty("role", "title")
         layout.addWidget(title)
         intro = QLabel(
-            "Catálogo MAME → auditoria → reconstrução. V2 usa a identidade lógica "
-            "do conteúdo e executa a reconstrução dentro do SERM."
+            "ListXML MAME = conteúdo esperado. Scan JSON = inventário físico encontrado. "
+            "O Studio confronta os dois e mostra exatamente o que está OK, ausente, "
+            "inválido ou reconstruível."
         )
         intro.setWordWrap(True)
         layout.addWidget(intro)
         self.tabs = QTabWidget()
-        self.tabs.addTab(self._catalog_tab(), "Catálogo")
+        self.tabs.addTab(self._catalog_tab(), "Catálogo / Comparação")
         self.tabs.addTab(self._chd_tab(), "Auditoria CHD")
         self.tabs.addTab(self._reconstruction_tab(), "Reconstrução")
         layout.addWidget(self.tabs, 1)
@@ -114,23 +120,57 @@ class ArcadeStudioPage(QWidget):
     def _catalog_tab(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
+
+        source_box = QGroupBox("Fontes da comparação")
+        source_form = QFormLayout(source_box)
+        self.listxml_source = QLineEdit()
+        self.listxml_source.setReadOnly(True)
+        source_form.addRow("ListXML:", self.listxml_source)
+
+        scan_row = QHBoxLayout()
+        self.scan_source = QLineEdit()
+        self.scan_source.setReadOnly(True)
+        choose_scan = QPushButton("ESCOLHER SCAN JSON…")
+        choose_scan.clicked.connect(self._choose_scan)
+        scan_row.addWidget(self.scan_source, 1)
+        scan_row.addWidget(choose_scan)
+        source_form.addRow("Scan físico:", scan_row)
+
+        actions = QHBoxLayout()
+        self.compare_button = QPushButton("CARREGAR LISTXML + COMPARAR SCAN")
+        self.compare_button.clicked.connect(self._compare_scan)
+        refresh_scans = QPushButton("ATUALIZAR LISTA DE SCANS")
+        refresh_scans.clicked.connect(self._refresh_scan_choices)
+        actions.addWidget(self.compare_button)
+        actions.addWidget(refresh_scans)
+        actions.addStretch()
+        source_form.addRow("Ação:", actions)
+        layout.addWidget(source_box)
+
+        self.scan_info = QLabel("Nenhum scan físico selecionado.")
+        self.scan_info.setWordWrap(True)
+        layout.addWidget(self.scan_info)
+
         controls = QHBoxLayout()
         self.search = QLineEdit()
-        self.search.setPlaceholderText("Pesquisar machine, descrição ou fabricante…")
-        self.search.returnPressed.connect(self.refresh)
+        self.search.setPlaceholderText("Filtrar machine, descrição ou fabricante…")
+        self.search.returnPressed.connect(self._apply_machine_filter)
         controls.addWidget(self.search, 1)
-        button = QPushButton("ATUALIZAR")
-        button.clicked.connect(self.refresh)
-        controls.addWidget(button)
+        filter_button = QPushButton("FILTRAR")
+        filter_button.clicked.connect(self._apply_machine_filter)
+        controls.addWidget(filter_button)
         layout.addLayout(controls)
-        self.catalog_status = QLabel("Nenhum catálogo carregado.")
-        layout.addWidget(self.catalog_status)
+
+        self.comparison_status = QLabel("ListXML carregado pelo catálogo SERM: aguardando comparação.")
+        self.comparison_status.setWordWrap(True)
+        layout.addWidget(self.comparison_status)
 
         splitter = QSplitter(Qt.Orientation.Vertical)
-        self.catalog_table = QTableWidget(0, 7)
-        self.catalog_table.setHorizontalHeaderLabels(
-            ["Status", "Machine", "Descrição", "Ano", "Fabricante", "Parent", "ROMs / CHDs"]
-        )
+        self.catalog_table = QTableWidget(0, 9)
+        self.catalog_table.setHorizontalHeaderLabels([
+            "Status", "Machine", "Descrição", "Parent", "Ano", "Fabricante",
+            "ROMs", "CHDs", "Detalhamento",
+        ])
         self.catalog_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.catalog_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.catalog_table.setAlternatingRowColors(True)
@@ -140,10 +180,10 @@ class ArcadeStudioPage(QWidget):
         self.catalog_table.itemSelectionChanged.connect(self._show_machine)
         splitter.addWidget(self.catalog_table)
 
-        tree_box = QGroupBox("Árvore de ROMs / CHDs — status da reconstrução")
+        tree_box = QGroupBox("Árvore de componentes — ListXML × físico")
         tree_layout = QVBoxLayout(tree_box)
         self.rom_tree = QTreeWidget()
-        self.rom_tree.setHeaderLabels(["Componente", "Status", "Origem / Hash", "Detalhes"])
+        self.rom_tree.setHeaderLabels(["Componente", "Status", "Esperado", "Físico", "Detalhes"])
         self.rom_tree.setAlternatingRowColors(True)
         self.rom_tree.setRootIsDecorated(True)
         self.rom_tree.header().setStretchLastSection(True)
@@ -152,7 +192,7 @@ class ArcadeStudioPage(QWidget):
         splitter.setSizes([430, 300])
         layout.addWidget(splitter, 1)
 
-        self.catalog_details = QLabel("Selecione uma machine para visualizar os componentes.")
+        self.catalog_details = QLabel("Selecione uma machine após carregar um scan.")
         self.catalog_details.setWordWrap(True)
         layout.addWidget(self.catalog_details)
         return page
@@ -178,9 +218,9 @@ class ArcadeStudioPage(QWidget):
         self.chd_summary.setWordWrap(True)
         layout.addWidget(self.chd_summary)
         self.chd_table = QTableWidget(0, 7)
-        self.chd_table.setHorizontalHeaderLabels(
-            ["Status", "Machine", "Disco", "Arquivo", "Raw SHA1", "Versão", "Detalhes"]
-        )
+        self.chd_table.setHorizontalHeaderLabels([
+            "Status", "Machine", "Disco", "Arquivo", "Raw SHA1", "Versão", "Detalhes",
+        ])
         self.chd_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.chd_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.chd_table.horizontalHeader().setStretchLastSection(True)
@@ -217,152 +257,221 @@ class ArcadeStudioPage(QWidget):
         warning.setWordWrap(True)
         layout.addWidget(warning)
         self.reconstruction_machine = QLineEdit()
-        self.reconstruction_machine.setPlaceholderText("machine (ex.: sf2, outrun, etc.)")
+        self.reconstruction_machine.setPlaceholderText("machine")
         self.reconstruction_disk = QLineEdit()
         self.reconstruction_disk.setPlaceholderText("nome do disco/CHD")
         form = QFormLayout()
         form.addRow("Machine:", self.reconstruction_machine)
         form.addRow("Disco:", self.reconstruction_disk)
         layout.addLayout(form)
-        self.reconstruction_result = QLabel("Selecione uma machine no catálogo para preparar o plano.")
+        self.reconstruction_result = QLabel(
+            "Selecione uma machine no resultado da comparação para preparar o plano."
+        )
         self.reconstruction_result.setWordWrap(True)
         layout.addWidget(self.reconstruction_result)
         layout.addStretch()
         return page
 
-    @staticmethod
-    def _catalog_status() -> RomStatus:
-        """Sem inventário físico, o catálogo não afirma que uma ROM existe."""
-        return RomStatus.UNKNOWN
-
     def refresh(self) -> None:
-        """Atualiza o catálogo da última importação MAME concluída."""
+        self._load_listxml_identity()
+        self._refresh_scan_choices()
+        if self._comparison is not None:
+            self._apply_machine_filter()
+
+    def _load_listxml_identity(self) -> None:
         try:
             with sqlite3.connect(self._database) as db:
                 db.row_factory = sqlite3.Row
-                import_row = db.execute(
-                    "SELECT id,mame_build,machine_count FROM mame_listxml_import "
-                    "WHERE status='completed' ORDER BY id DESC LIMIT 1"
+                row = db.execute(
+                    """SELECT i.id,i.mame_build,i.xml_path,i.machine_count,d.xml_text
+                       FROM mame_listxml_import i
+                       LEFT JOIN mame_listxml_document d ON d.import_id=i.id
+                       WHERE i.status='completed'
+                       ORDER BY i.id DESC LIMIT 1"""
                 ).fetchone()
-                if import_row is None:
-                    self.catalog_status.setText("Nenhuma importação MAME concluída.")
-                    self.catalog_table.setRowCount(0)
-                    self.rom_tree.clear()
-                    return
-                import_id = int(import_row["id"])
-                text = self.search.text().strip()
-                pattern = f"%{text}%" if text else "%"
-                rows = db.execute(
-                    """SELECT m.id,m.name,m.description,m.year,m.manufacturer,m.cloneof,
-                              (SELECT COUNT(*) FROM mame_rom r WHERE r.machine_id=m.id) AS rom_count,
-                              (SELECT COUNT(*) FROM mame_disk d WHERE d.machine_id=m.id) AS disk_count
-                       FROM mame_machine m
-                       WHERE m.import_id=?
-                         AND (m.name LIKE ? OR m.description LIKE ? OR m.manufacturer LIKE ?)
-                       ORDER BY m.name LIMIT 1000""",
-                    (import_id, pattern, pattern, pattern),
-                ).fetchall()
-                self.catalog_status.setText(
-                    f"Importação {import_id} | MAME {import_row['mame_build'] or '—'} | "
-                    f"{import_row['machine_count']:,} machines | exibindo {len(rows):,} | "
-                    "status físico: não auditado"
-                )
-                self.catalog_table.setSortingEnabled(False)
-                self.catalog_table.setRowCount(len(rows))
-                status = self._catalog_status()
-                for index, row in enumerate(rows):
-                    status_item = QTableWidgetItem(_STATUS_LABELS[status])
-                    _set_status_visual(status_item, status)
-                    self.catalog_table.setItem(index, 0, status_item)
-                    values = (
-                        row["name"], row["description"], row["year"],
-                        row["manufacturer"], row["cloneof"],
-                        f"{row['rom_count']:,} / {row['disk_count']:,}",
-                    )
-                    for column, value in enumerate(values, start=1):
-                        item = QTableWidgetItem("" if value is None else str(value))
-                        item.setData(Qt.ItemDataRole.UserRole, int(row["id"]))
-                        self.catalog_table.setItem(index, column, item)
-                self.catalog_table.setSortingEnabled(True)
-                self.catalog_table.resizeColumnsToContents()
+            if row is None:
+                self.listxml_source.setText("Nenhum ListXML MAME importado.")
+                self._listxml_text = None
+                return
+            self._listxml_text = str(row["xml_text"] or "")
+            source = row["xml_path"] or "documento armazenado no banco SERM"
+            self.listxml_source.setText(str(source))
+            self.comparison_status.setText(
+                f"ListXML carregado: importação {row['id']} | MAME {row['mame_build'] or '—'} | "
+                f"{row['machine_count']:,} machines | fonte: {source}"
+            )
         except sqlite3.Error as exc:
-            self.catalog_status.setText(f"Erro ao consultar catálogo: {exc}")
+            self._listxml_text = None
+            self.listxml_source.setText(f"Erro ao carregar ListXML: {exc}")
+
+    def _refresh_scan_choices(self) -> None:
+        root = scans_root() / "mame"
+        files = sorted(root.glob("*.json"), key=lambda path: path.stat().st_mtime, reverse=True) if root.is_dir() else []
+        preferred = root / "MAME - 0.289_mame0289 - Arcade.json"
+        if preferred.is_file():
+            self.scan_source.setText(str(preferred))
+        elif files and not self.scan_source.text().strip():
+            self.scan_source.setText(str(files[0]))
+        elif not files and not self.scan_source.text().strip():
+            self.scan_source.setText("Nenhum scan MAME JSON encontrado em data/scans/mame.")
+
+    def _choose_scan(self) -> None:
+        start = str(scans_root() / "mame")
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Selecionar snapshot JSON do scan MAME", start, "Scan SERM (*.json);;JSON (*.json)"
+        )
+        if path:
+            self.scan_source.setText(path)
+            self._compare_scan()
+
+    def _compare_scan(self) -> None:
+        if not self._listxml_text:
+            self._load_listxml_identity()
+        scan_text = self.scan_source.text().strip()
+        if not self._listxml_text:
+            self.comparison_status.setText("Não foi possível carregar o ListXML MAME.")
+            return
+        if not scan_text or not Path(scan_text).is_file():
+            self.comparison_status.setText("Selecione um arquivo JSON de scan MAME válido.")
+            return
+        self.compare_button.setEnabled(False)
+        self.catalog_table.setUpdatesEnabled(False)
+        try:
+            self._comparison = ArcadeScanComparisonService().compare(
+                self._listxml_text, Path(scan_text)
+            )
+            self.scan_info.setText(
+                f"Scan carregado: {self._comparison.scan_path} | "
+                f"scan_id={self._comparison.scan_id or '—'} | "
+                f"catálogo={self._comparison.catalog_label or '—'} | "
+                f"machines comparadas={self._comparison.machine_count:,} | "
+                f"componentes esperados={self._comparison.component_count:,} | "
+                f"itens físicos fora do ListXML={self._comparison.orphan_items:,}"
+            )
+            counts = self._comparison.status_counts
+            self.comparison_status.setText(
+                "Resultado: "
+                f"OK={counts[RomStatus.OK.value]:,} | "
+                f"AUSENTE={counts[RomStatus.MISSING.value]:,} | "
+                f"INVÁLIDO={counts[RomStatus.INVALID.value]:,} | "
+                f"RECONSTRUÍVEL={counts[RomStatus.REPAIRABLE.value]:,} | "
+                f"NÃO AUDITADO={counts[RomStatus.UNKNOWN.value]:,}"
+            )
+            self._apply_machine_filter()
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            self._comparison = None
+            self.comparison_status.setText(f"Falha ao comparar ListXML e scan: {exc}")
+        finally:
+            self.catalog_table.setUpdatesEnabled(True)
+            self.compare_button.setEnabled(True)
+
+    def _apply_machine_filter(self) -> None:
+        if self._comparison is None:
+            self.catalog_table.setRowCount(0)
+            return
+        text = self.search.text().strip().casefold()
+        rows = [
+            machine for machine in self._comparison.machines
+            if not text or text in machine.machine_name.casefold()
+            or text in machine.description.casefold()
+            or text in (machine.manufacturer or "").casefold()
+        ][:1000]
+        self.catalog_table.setSortingEnabled(False)
+        self.catalog_table.setRowCount(len(rows))
+        for index, machine in enumerate(rows):
+            status_item = QTableWidgetItem(_STATUS_LABELS[machine.status])
+            status_item.setData(Qt.ItemDataRole.UserRole, machine.machine_name)
+            _set_status_visual(status_item, machine.status)
+            self.catalog_table.setItem(index, 0, status_item)
+            ok = sum(item.status is RomStatus.OK for item in machine.components)
+            missing = sum(item.status is RomStatus.MISSING for item in machine.components)
+            invalid = sum(item.status is RomStatus.INVALID for item in machine.components)
+            repairable = sum(item.status is RomStatus.REPAIRABLE for item in machine.components)
+            values = (
+                machine.machine_name, machine.description, machine.parent or "—", machine.year or "—",
+                machine.manufacturer or "—", str(machine.rom_count), str(machine.chd_count),
+                f"OK {ok} | ausentes {missing} | inválidos {invalid} | reconstruíveis {repairable}",
+            )
+            for column, value in enumerate(values, start=1):
+                item = QTableWidgetItem(str(value))
+                item.setData(Qt.ItemDataRole.UserRole, machine.machine_name)
+                self.catalog_table.setItem(index, column, item)
+        self.catalog_table.setSortingEnabled(True)
+        self.catalog_table.resizeColumnsToContents()
+
+    def _selected_machine(self) -> MachineComparison | None:
+        if self._comparison is None:
+            return None
+        selected = self.catalog_table.selectionModel().selectedRows()
+        if not selected:
+            return None
+        item = self.catalog_table.item(selected[0].row(), 0)
+        name = item.data(Qt.ItemDataRole.UserRole) if item else None
+        return next((machine for machine in self._comparison.machines if machine.machine_name == name), None)
 
     def _show_machine(self) -> None:
-        rows = self.catalog_table.selectionModel().selectedRows()
-        if not rows:
+        machine = self._selected_machine()
+        if machine is None:
             return
-        machine_id = self.catalog_table.item(rows[0].row(), 1).data(Qt.ItemDataRole.UserRole)
-        try:
-            with sqlite3.connect(self._database) as db:
-                db.row_factory = sqlite3.Row
-                machine = db.execute(
-                    "SELECT name,description,cloneof,romof FROM mame_machine WHERE id=?",
-                    (machine_id,),
-                ).fetchone()
-                if machine is None:
-                    return
-                roms = db.execute(
-                    "SELECT name,size,crc,sha1,merge FROM mame_rom WHERE machine_id=? ORDER BY name",
-                    (machine_id,),
-                ).fetchall()
-                disks = db.execute(
-                    "SELECT name,sha1,md5,merge FROM mame_disk WHERE machine_id=? ORDER BY name",
-                    (machine_id,),
-                ).fetchall()
-            self.reconstruction_machine.setText(str(machine["name"]))
-            status = self._catalog_status()
-            self.catalog_details.setText(
-                f"{machine['name']} | parent={machine['cloneof'] or '—'} | romof={machine['romof'] or '—'} | "
-                f"ROMs={len(roms):,} | CHDs={len(disks):,} | reconstrução={_STATUS_LABELS[status]}"
-            )
-            self._populate_rom_tree(machine, roms, disks)
-            if disks:
-                self.reconstruction_disk.setText(str(disks[0]["name"]))
-                self.reconstruction_result.setText(
-                    "CHDs catalogados: " + ", ".join(
-                        f"{disk['name']} [SHA1={disk['sha1'] or '—'}]" for disk in disks
-                    )
-                )
-            else:
-                self.reconstruction_disk.clear()
-                self.reconstruction_result.setText("A machine selecionada não possui CHD catalogado.")
-        except sqlite3.Error as exc:
-            self.catalog_details.setText(f"Erro: {exc}")
+        self.reconstruction_machine.setText(machine.machine_name)
+        ok = sum(item.status is RomStatus.OK for item in machine.components)
+        missing = sum(item.status is RomStatus.MISSING for item in machine.components)
+        invalid = sum(item.status is RomStatus.INVALID for item in machine.components)
+        repairable = sum(item.status is RomStatus.REPAIRABLE for item in machine.components)
+        self.catalog_details.setText(
+            f"{machine.machine_name} | parent={machine.parent or '—'} | ano={machine.year or '—'} | "
+            f"fabricante={machine.manufacturer or '—'} | ROMs={machine.rom_count:,} | CHDs={machine.chd_count:,} | "
+            f"OK={ok:,} | ausentes={missing:,} | inválidos={invalid:,} | reconstruíveis={repairable:,}"
+        )
+        self._populate_component_tree(machine)
+        disks = [item for item in machine.components if item.expected.component_type == "CHD"]
+        if disks:
+            self.reconstruction_disk.setText(disks[0].expected.name)
+        else:
+            self.reconstruction_disk.clear()
+        self.reconstruction_result.setText(
+            f"Machine {machine.machine_name}: {ok:,} componentes confirmados, "
+            f"{missing:,} ausentes, {invalid:,} inválidos e {repairable:,} reconstruíveis."
+        )
 
-    def _populate_rom_tree(self, machine: sqlite3.Row, roms: list[sqlite3.Row], disks: list[sqlite3.Row]) -> None:
+    def _populate_component_tree(self, machine: MachineComparison) -> None:
         self.rom_tree.clear()
-        status = self._catalog_status()
-        root = QTreeWidgetItem([str(machine["name"]), _STATUS_LABELS[status], "machine", str(machine["description"] or "")])
-        _set_status_visual(root, status)
+        root = QTreeWidgetItem([
+            machine.machine_name, _STATUS_LABELS[machine.status], "ListXML", "scan físico", machine.description,
+        ])
+        _set_status_visual(root, machine.status)
         root.setExpanded(True)
         self.rom_tree.addTopLevelItem(root)
-
-        rom_group = QTreeWidgetItem([f"ROMs ({len(roms):,})", _STATUS_LABELS[status], "catálogo MAME", ""])
-        _set_status_visual(rom_group, status)
-        rom_group.setExpanded(True)
+        rom_group = QTreeWidgetItem([f"ROMs ({machine.rom_count:,})", "", "esperadas", "", ""])
         root.addChild(rom_group)
-        for rom in roms:
+        rom_group.setExpanded(True)
+        chd_group = QTreeWidgetItem([f"CHDs ({machine.chd_count:,})", "", "esperados", "", ""])
+        root.addChild(chd_group)
+        chd_group.setExpanded(True)
+        for component in machine.components:
+            target = rom_group if component.expected.component_type == "ROM" else chd_group
+            expected = component.expected
+            expected_hash = expected.sha1 or expected.md5 or expected.crc or "—"
+            physical = component.physical_path or "—"
+            actual_hash = component.actual_sha1 or component.actual_md5 or component.actual_crc or "—"
+            detail = (
+                f"esperado hash={expected_hash}"
+                f" | físico hash={actual_hash}"
+                f" | tamanho={expected.size if expected.size is not None else '—'}"
+            )
+            if component.expected.merge:
+                detail += f" | merge={component.expected.merge}"
+            if component.message:
+                detail += f" | {component.message}"
             item = QTreeWidgetItem([
-                str(rom["name"]), _STATUS_LABELS[status],
-                str(rom["sha1"] or rom["crc"] or "—"),
-                f"{rom['size'] or 0:,} bytes | merge={rom['merge'] or '—'}",
+                expected.name,
+                _STATUS_LABELS[component.status],
+                expected_hash,
+                physical,
+                detail,
             ])
-            _set_status_visual(item, status)
-            rom_group.addChild(item)
-
-        disk_group = QTreeWidgetItem([f"CHDs ({len(disks):,})", _STATUS_LABELS[status], "catálogo MAME", ""])
-        _set_status_visual(disk_group, status)
-        disk_group.setExpanded(True)
-        root.addChild(disk_group)
-        for disk in disks:
-            item = QTreeWidgetItem([
-                str(disk["name"]), _STATUS_LABELS[status],
-                str(disk["sha1"] or "—"),
-                f"MD5={disk['md5'] or '—'} | merge={disk['merge'] or '—'}",
-            ])
-            _set_status_visual(item, status)
-            disk_group.addChild(item)
+            _set_status_visual(item, component.status)
+            target.addChild(item)
 
     def _choose_chd_source(self) -> None:
         path = QFileDialog.getExistingDirectory(self, "Selecionar pasta de CHDs")
@@ -406,10 +515,8 @@ class ArcadeStudioPage(QWidget):
                 item.setData(Qt.ItemDataRole.UserRole, record.path)
                 if column == 0:
                     status_map = {
-                        "OK": RomStatus.OK,
-                        "MISSING": RomStatus.MISSING,
-                        "AMBIGUOUS": RomStatus.REPAIRABLE,
-                        "INVALID": RomStatus.INVALID,
+                        "OK": RomStatus.OK, "MISSING": RomStatus.MISSING,
+                        "AMBIGUOUS": RomStatus.REPAIRABLE, "INVALID": RomStatus.INVALID,
                         "ORPHAN": RomStatus.INCOMPLETE,
                     }
                     _set_status_visual(item, status_map.get(str(value).upper(), RomStatus.UNKNOWN))
@@ -430,7 +537,6 @@ class ArcadeStudioPage(QWidget):
             return
         self.chd_path.setText(path)
         self.chd_result.clear()
-        self.chd_progress.setRange(0, 1)
         try:
             header = ChdHeaderReader().read(Path(path))
         except (OSError, ChdFormatError) as exc:
@@ -444,7 +550,6 @@ class ArcadeStudioPage(QWidget):
         )
         for label, value in values:
             self.chd_result.addItem(QListWidgetItem(f"{label}: {value}"))
-        self.chd_progress.setValue(1)
 
 
 __all__ = ["ArcadeStudioPage"]
