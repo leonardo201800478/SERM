@@ -95,18 +95,20 @@ class ArcadeSetMaterializer:
     def _validate_destinations(cls, entries: tuple[MaterializationEntry, ...]) -> None:
         seen: dict[str, str] = {}
         for entry in entries:
-            raw = entry.archive if entry.kind is MaterializationKind.ROM else entry.destination
-            if not raw:
-                raise MaterializationError(f"Destino ausente: {entry}")
-            path = cls._normalise_relative(raw)
+            if entry.kind is MaterializationKind.ROM:
+                if not entry.archive or not entry.member_name:
+                    raise MaterializationError(f"Destino ROM incompleto: {entry}")
+                archive = cls._normalise_relative(entry.archive)
+                member = cls._normalise_relative(entry.member_name)
+                path = f"{archive}!/{member}"
+            else:
+                path = cls._normalise_relative(entry.destination)
             previous = seen.get(path)
             if previous is not None and previous != entry.source_path:
                 raise MaterializationError(
                     f"Conflito de destino {path}: {previous} | {entry.source_path}"
                 )
             seen[path] = entry.source_path
-            if entry.kind is MaterializationKind.ROM:
-                cls._normalise_relative(entry.member_name or "")
 
     @staticmethod
     def _normalise_relative(value: str) -> str:
