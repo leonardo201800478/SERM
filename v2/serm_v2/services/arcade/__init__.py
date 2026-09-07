@@ -1,5 +1,13 @@
 """Servicos do Arcade Studio."""
 
+from .chd_reconstruction import (
+    ArcadeChdReconstructionEngine,
+    ChdMatchKind,
+    ChdReconstruction,
+    ChdReconstructionPlan,
+    ChdReconstructionResult,
+    PhysicalChd,
+)
 from .rom_reconstruction_plan import (
     ArcadeRomReconstructionPlanner,
     RomReconstructionPlan,
@@ -15,8 +23,13 @@ from .set_builder import (
 )
 
 __all__ = [
+    "ArcadeChdReconstructionEngine",
     "ArcadeRomReconstructionPlanner",
-    "ArcadeSetBuilder",
+    "ChdMatchKind",
+    "ChdReconstruction",
+    "ChdReconstructionPlan",
+    "ChdReconstructionResult",
+    "PhysicalChd",
     "RomReconstructionPlan",
     "RomReconstructionPlanResult",
     "RomSourceKind",
