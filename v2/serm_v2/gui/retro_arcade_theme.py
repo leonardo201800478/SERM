@@ -401,7 +401,7 @@ def apply_retro_arcade_theme(app: QApplication) -> str:
     app.setStyle("Fusion")
     font_family = resolve_pixel_font()
     app.setFont(QFont(font_family, 10))
-    app.setStyleSheet(RETRO_ARCADE_THEME.format(font_family=font_family))
+    app.setStyleSheet(RETRO_ARCADE_THEME.replace("{font_family}", font_family))
     return font_family
 
 
