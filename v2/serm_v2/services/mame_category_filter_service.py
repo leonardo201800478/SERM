@@ -10,10 +10,17 @@ from typing import Final
 from ..runtime.paths import data_root, database_path
 
 FILTERS_FILE: Final[Path] = data_root() / "mame_category_filters.json"
+CATLIST_SOURCE_TYPE: Final[str] = "catlist"
 
 
 class MameCategoryFilterService:
-    """Consulta classificações CATLIST já importadas e persiste a seleção por perfil."""
+    """Consulta exclusivamente a classificação CATLIST e persiste a seleção por perfil.
+
+    ``mame_classification`` é uma tabela de armazenamento comum. A autoridade
+    semântica deste serviço, porém, é estritamente o documento cujo
+    ``source_type`` é ``catlist``. Assim, uma futura fonte classificatória não
+    poderá contaminar os filtros CATLIST por acidente.
+    """
 
     @staticmethod
     def _read() -> dict[str, dict]:
@@ -54,18 +61,28 @@ class MameCategoryFilterService:
     def _database(database: Path | None = None) -> Path:
         return Path(database) if database is not None else database_path()
 
+    @staticmethod
+    def _catlist_join() -> str:
+        """SQL JOIN que limita a classificação proveniente do CATLIST."""
+        return """
+            JOIN mame_source_document sd
+              ON sd.id = c.source_document_id
+             AND sd.source_type = 'catlist'
+        """
+
     @classmethod
     def tree(cls, database: Path | None = None) -> list[dict[str, object]]:
         """Retorna categorias/subcategorias CATLIST com quantidade de machines."""
         db_path = cls._database(database)
         if not db_path.is_file():
             return []
-        query = """
-            SELECT COALESCE(NULLIF(TRIM(category), ''), '[Sem categoria]') AS category,
-                   COALESCE(NULLIF(TRIM(subcategory), ''), '') AS subcategory,
-                   COUNT(DISTINCT machine_id) AS machines
-            FROM mame_classification
-            WHERE resolved_status = 'resolved'
+        query = f"""
+            SELECT COALESCE(NULLIF(TRIM(c.category), ''), '[Sem categoria]') AS category,
+                   COALESCE(NULLIF(TRIM(c.subcategory), ''), '') AS subcategory,
+                   COUNT(DISTINCT c.machine_id) AS machines
+            FROM mame_classification c
+            {cls._catlist_join()}
+            WHERE c.resolved_status = 'resolved'
             GROUP BY category, subcategory
             ORDER BY category COLLATE NOCASE, subcategory COLLATE NOCASE
         """
@@ -92,16 +109,17 @@ class MameCategoryFilterService:
         params: list[str] = []
         if categories:
             placeholders = ",".join("?" for _ in categories)
-            clauses.append(f"category IN ({placeholders})")
+            clauses.append(f"c.category IN ({placeholders})")
             params.extend(sorted(categories))
         if subcategories:
             placeholders = ",".join("?" for _ in subcategories)
-            clauses.append(f"subcategory IN ({placeholders})")
+            clauses.append(f"c.subcategory IN ({placeholders})")
             params.extend(sorted(subcategories))
         query = f"""
-            SELECT DISTINCT machine_name
-            FROM mame_classification
-            WHERE resolved_status = 'resolved' AND ({" OR ".join(clauses)})
+            SELECT DISTINCT c.machine_name
+            FROM mame_classification c
+            {cls._catlist_join()}
+            WHERE c.resolved_status = 'resolved' AND ({" OR ".join(clauses)})
         """
         with sqlite3.connect(db_path, timeout=30.0) as db:
             return {str(row[0]) for row in db.execute(query, params) if row[0]}
