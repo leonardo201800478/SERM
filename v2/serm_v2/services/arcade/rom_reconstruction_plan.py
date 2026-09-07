@@ -101,12 +101,13 @@ class ArcadeRomReconstructionPlanner:
         parent_name = self._text(game.parent_name)
 
         # ``merge`` names a ROM, not a machine. Its origin must be established
-        # through an explicit MAME relationship. An unrelated global name match
-        # is intentionally rejected because it can silently invent a dependency.
+        # through the current machine or an explicit MAME relationship. An
+        # unrelated global name match is intentionally rejected because it can
+        # silently invent a dependency.
         if merge:
             source = self._find_rom(
                 merge,
-                preferred_machines=(romof, parent_name),
+                preferred_machines=(game.machine_name, romof, parent_name),
                 rom_index=rom_index,
             )
             if source is not None:
@@ -135,7 +136,7 @@ class ArcadeRomReconstructionPlanner:
                 None,
                 merge,
                 RomSourceKind.MISSING,
-                "merge definido, mas nao foi localizado em romof ou parent",
+                "merge definido, mas nao foi localizado em machine set ou maquina relacionada",
             )
 
         if romof and romof != game.machine_name and romof in catalog:
