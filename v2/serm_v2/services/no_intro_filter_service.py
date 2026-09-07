@@ -122,6 +122,15 @@ class NoIntroFilterService:
         priority = list(getattr(profile, "region_priority", ()) or DEFAULT_REGION_PRIORITY)
         ranks = {str(name).casefold(): i for i, name in enumerate(priority)}
         regions = [v.casefold() for v in _values(item, "region:")]
+        machine_name = str(item.get("machine_name") or "")
+        normalized_name = re.sub(r"[\[\](){}]", " ", machine_name.casefold())
+        # No-Intro não possui hash para traduções externas. T-BRA/T-BR são
+        # convenções comuns para tradução em português brasileiro e precisam
+        # participar da prioridade regional como Brazil no 1G1R.
+        if re.search(r"(?:^|[ _.-])t[-_ ]?br(?:a|asil)?(?:$|[ _.-])", normalized_name):
+            regions.append("brazil")
+        if re.search(r"(?:pt[-_ ]?br|br[-_ ]?pt|translated[-_ ]?pt[-_ ]?br|trad[-_ ]?pt[-_ ]?br)", normalized_name):
+            regions.append("brazil")
         tags = _tags(item)
         return (
             cls._region_rank(regions, ranks),
