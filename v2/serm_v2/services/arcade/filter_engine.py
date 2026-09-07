@@ -34,9 +34,8 @@ class FilterRules:
     """Regras declarativas do motor.
 
     PlayabilityStatus representa os vários estágios de emulação e nunca é
-    reduzido a um simples working/not-working. Filtros ``included_*`` são
-    seleções OR dentro da própria dimensão; dimensões diferentes são AND.
-    Exclusões explícitas têm precedência.
+    reduzido a working/not-working. Seleções são OR dentro da dimensão e AND
+    entre dimensões; exclusões explícitas têm precedência.
     """
 
     excluded_machine_names: frozenset[str] = frozenset()
@@ -175,34 +174,50 @@ class ArcadeFilterEngine:
         for item in items:
             game = item.game
             if not rules.include_bios and game.is_bios:
-                removed.append(ArcadeFilterEngine._excluded(item, FilterStage.STRUCTURAL, "exclude_bios", "BIOS não incluído")); continue
+                removed.append(ArcadeFilterEngine._excluded(item, FilterStage.STRUCTURAL, "exclude_bios", "BIOS não incluído"))
+                continue
             if not rules.include_devices and game.is_device:
-                removed.append(ArcadeFilterEngine._excluded(item, FilterStage.STRUCTURAL, "exclude_devices", "device não incluído")); continue
+                removed.append(ArcadeFilterEngine._excluded(item, FilterStage.STRUCTURAL, "exclude_devices", "device não incluído"))
+                continue
             if not rules.include_optional and ArcadeFilterEngine._truthy(game.metadata.get("optional")):
-                removed.append(ArcadeFilterEngine._excluded(item, FilterStage.STRUCTURAL, "exclude_optional", "item opcional não incluído")); continue
+                removed.append(ArcadeFilterEngine._excluded(item, FilterStage.STRUCTURAL, "exclude_optional", "item opcional não incluído"))
+                continue
             if rules.working_only and game.working is not True:
-                removed.append(ArcadeFilterEngine._excluded(item, FilterStage.STRUCTURAL, "working_only", "item marcado como não funcional pelo catálogo")); continue
+                removed.append(ArcadeFilterEngine._excluded(item, FilterStage.STRUCTURAL, "working_only", "item marcado como não funcional pelo catálogo"))
+                continue
             if rules.parents_only and game.is_clone:
-                removed.append(ArcadeFilterEngine._excluded(item, FilterStage.STRUCTURAL, "parents_only", "clone excluído pela política de pais")); continue
+                removed.append(ArcadeFilterEngine._excluded(item, FilterStage.STRUCTURAL, "parents_only", "clone excluído pela política de pais"))
+                continue
             keep.append(item)
         return keep, removed
 
     @staticmethod
     def _apply_genre(items, rules):
         keep, removed = [], []
+        excluded = set(rules.excluded_genres)
+        included = set(rules.included_genres)
         for item in items:
             genres = set(item.classification.genres)
-            if genres & set(rules.excluded_genres):
-                genre = next(iter(genres & set(rules.excluded_genres))
-                removed.append(ArcadeFilterEngine._excluded(item, FilterStage.GENRE, f"exclude_genre:{genre.value}", f"GENRE = {genre.value}")); continue
-            if rules.included_genres and not genres & set(rules.included_genres):
-                removed.append(ArcadeFilterEngine._excluded(item, FilterStage.GENRE, "include_genre", "não atende ao filtro genre")); continue
+            blocked = genres & excluded
+            if blocked:
+                genre = next(iter(blocked))
+                removed.append(ArcadeFilterEngine._excluded(item, FilterStage.GENRE, f"exclude_genre:{genre.value}", f"GENRE = {genre.value}"))
+                continue
+            if included and not genres & included:
+                removed.append(ArcadeFilterEngine._excluded(item, FilterStage.GENRE, "include_genre", "não atende ao filtro genre"))
+                continue
             keep.append(item)
         return keep, removed
 
     @staticmethod
     def _apply_refinement(items, rules, stage, matcher):
-        selected = {FilterStage.HARDWARE: rules.included_hardware, FilterStage.MANUFACTURER: rules.included_manufacturers, FilterStage.SERIES: rules.included_series, FilterStage.INPUT: rules.included_inputs, FilterStage.WHEEL: rules.included_wheel_angles}.get(stage, frozenset())
+        selected = {
+            FilterStage.HARDWARE: rules.included_hardware,
+            FilterStage.MANUFACTURER: rules.included_manufacturers,
+            FilterStage.SERIES: rules.included_series,
+            FilterStage.INPUT: rules.included_inputs,
+            FilterStage.WHEEL: rules.included_wheel_angles,
+        }.get(stage, frozenset())
         if not selected:
             return items, []
         keep, removed = [], []
@@ -214,17 +229,28 @@ class ArcadeFilterEngine:
         return keep, removed
 
     @staticmethod
-    def _match_hardware(item, selected): return bool(set(item.classification.hardware) & set(selected))
+    def _match_hardware(item, selected):
+        return bool(set(item.classification.hardware) & set(selected))
+
     @staticmethod
-    def _match_manufacturer(item, selected): return item.classification.manufacturer is not None and item.classification.manufacturer.casefold() in {value.casefold() for value in selected}
+    def _match_manufacturer(item, selected):
+        return item.classification.manufacturer is not None and item.classification.manufacturer.casefold() in {value.casefold() for value in selected}
+
     @staticmethod
-    def _match_series(item, selected): return item.classification.series is not None and item.classification.series.casefold() in {value.casefold() for value in selected}
+    def _match_series(item, selected):
+        return item.classification.series is not None and item.classification.series.casefold() in {value.casefold() for value in selected}
+
     @staticmethod
-    def _match_input(item, selected): return bool(set(item.classification.inputs) & set(selected))
+    def _match_input(item, selected):
+        return bool(set(item.classification.inputs) & set(selected))
+
     @staticmethod
-    def _match_wheel(item, selected): return item.classification.wheel_angle in selected
+    def _match_wheel(item, selected):
+        return item.classification.wheel_angle in selected
+
     @staticmethod
-    def _truthy(value): return str(value).casefold() in {"yes", "true", "1"}
+    def _truthy(value):
+        return str(value).casefold() in {"yes", "true", "1"}
 
 
 __all__ = ["ArcadeFilterEngine", "FilterDecision", "FilterResult", "FilterRules", "FilterStage", "FilterTrace", "FilteredGame"]
