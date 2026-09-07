@@ -77,9 +77,6 @@ class ArcadeClassificationService:
         ArcadeHardwareFamily.MODEL_3: frozenset({"model 3", "model3", "sega model 3", "supermodel"}),
     }
 
-    # These are MAME -listxml control types, plus normalized aliases accepted
-    # by SERM. A generic "paddle" is deliberately not called a steering wheel:
-    # MAME also uses paddle for non-steering analog controls.
     _CONTROL_ALIASES: dict[str, ArcadeInputType] = {
         "stick": ArcadeInputType.JOYSTICK,
         "joystick": ArcadeInputType.JOYSTICK,
@@ -276,9 +273,12 @@ class ArcadeClassificationService:
         controls: list[str] = []
         for value in raw_values:
             if isinstance(value, Mapping):
-                control = value.get("type") or value.get("control") or value.get("name")
+                control = value.get("type") or value.get("control")
+                name = value.get("name") or value.get("port_name") or value.get("label")
                 if control is not None:
                     controls.append(cls._normalize(str(control)))
+                if name is not None:
+                    controls.extend(cls._normalized_values(name))
             else:
                 controls.append(cls._normalize(str(value)))
         return controls
