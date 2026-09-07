@@ -17,8 +17,7 @@ O `pyproject.toml` define:
 
 - Python `>=3.12,<3.15`;
 - PySide6 `>=6.8,<7`;
-- SQLAlchemy `>=2.0,<3`;
-- Alembic `>=1.16,<2`.
+- SQLAlchemy `>=2.0,<3`.
 
 Dependências de desenvolvimento:
 
@@ -95,7 +94,7 @@ pytest --cov=serm_v2 --cov-report=term-missing
 
 ## Banco de dados
 
-A inicialização é feita pelos componentes em `serm_v2/database`. Migrations são SQL versionados em `serm_v2/database/migrations`.
+A inicialização é feita pelos componentes em `serm_v2/database`. Migrations são SQL versionados em `serm_v2/database/migrations`; o mecanismo atual não usa Alembic.
 
 Ao alterar o schema:
 
