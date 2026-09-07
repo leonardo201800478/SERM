@@ -9,6 +9,19 @@ from .chd_reconstruction import (
     ChdReconstructionResult,
     PhysicalChd,
 )
+from .reconstruction_manifest import (
+    ArcadeReconstructionManifestBuilder,
+    MaterializationEntry,
+    MaterializationKind,
+    ReconstructionManifest,
+)
+from .rom_reconstruction import (
+    ArcadeRomReconstructionEngine,
+    PhysicalRom,
+    ReconstructionResult,
+    RomMatchKind,
+    RomReconstruction,
+)
 from .rom_reconstruction_plan import (
     ArcadeRomReconstructionPlanner,
     RomReconstructionPlan,
@@ -22,6 +35,7 @@ from .set_builder import (
     SetBuildResult,
     SetBuildTrace,
 )
+from .set_layout import ArcadeSetLayoutPlanner, SetFileAction, SetLayoutEntry, SetLayoutPlan
 
 __all__ = [
     "ArcadeChdAuditService",
@@ -33,9 +47,23 @@ __all__ = [
     "ChdReconstructionPlan",
     "ChdReconstructionResult",
     "PhysicalChd",
+    "ArcadeReconstructionManifestBuilder",
+    "MaterializationEntry",
+    "MaterializationKind",
+    "ReconstructionManifest",
+    "ArcadeRomReconstructionEngine",
+    "PhysicalRom",
+    "ReconstructionResult",
+    "RomMatchKind",
+    "RomReconstruction",
+    "ArcadeRomReconstructionPlanner",
     "RomReconstructionPlan",
     "RomReconstructionPlanResult",
     "RomSourceKind",
+    "ArcadeSetLayoutPlanner",
+    "SetFileAction",
+    "SetLayoutEntry",
+    "SetLayoutPlan",
     "SetBuildDecision",
     "SetBuildError",
     "SetBuildResult",
