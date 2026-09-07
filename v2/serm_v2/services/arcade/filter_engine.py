@@ -7,7 +7,14 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 
 from ...models.arcade import ArcadeGame, PlayabilityStatus
-from ...models.arcade_classification import ArcadeClassification, ArcadeContentType, ArcadeGenre, ArcadeHardwareFamily, ArcadeInputType, WheelAngleClass
+from ...models.arcade_classification import (
+    ArcadeClassification,
+    ArcadeContentType,
+    ArcadeGenre,
+    ArcadeHardwareFamily,
+    ArcadeInputType,
+    WheelAngleClass,
+)
 from .classification_service import ArcadeClassificationService
 
 
@@ -33,12 +40,13 @@ class FilterStage(StrEnum):
 class FilterRules:
     """Regras declarativas do motor.
 
-    PlayabilityStatus representa os vários estágios de emulação e nunca é
-    reduzido a working/not-working. Seleções são OR dentro da dimensão e AND
-    entre dimensões; exclusões explícitas têm precedência.
+    Seleções são OR dentro da dimensão e AND entre dimensões. Exclusões
+    explícitas têm precedência. CATLIST suporta tanto exclusão legada quanto
+    seleção inclusiva de machines classificadas.
     """
 
     excluded_machine_names: frozenset[str] = frozenset()
+    included_machine_names: frozenset[str] = frozenset()
     excluded_content_types: frozenset[ArcadeContentType] = frozenset()
     included_content_types: frozenset[ArcadeContentType] = frozenset()
     included_playability: frozenset[PlayabilityStatus] = frozenset()
@@ -98,7 +106,10 @@ class ArcadeFilterEngine:
 
     def apply(self, games: Iterable[ArcadeGame], rules: FilterRules | None = None) -> FilterResult:
         active_rules = rules or FilterRules()
-        items = [FilteredGame(game, self._classifier.classify(game), FilterTrace(FilterDecision.INCLUDED)) for game in games]
+        items = [
+            FilteredGame(game, self._classifier.classify(game), FilterTrace(FilterDecision.INCLUDED))
+            for game in games
+        ]
         total_input = len(items)
         counts: dict[FilterStage, int] = {}
         excluded: list[FilteredGame] = []
@@ -129,16 +140,35 @@ class ArcadeFilterEngine:
 
     @staticmethod
     def _excluded(item: FilteredGame, stage: FilterStage, rule: str, reason: str) -> FilteredGame:
-        return FilteredGame(item.game, item.classification, FilterTrace(FilterDecision.EXCLUDED, stage, rule, reason))
+        return FilteredGame(
+            item.game,
+            item.classification,
+            FilterTrace(FilterDecision.EXCLUDED, stage, rule, reason),
+        )
 
     @staticmethod
     def _apply_catlist(items, rules):
-        if not rules.excluded_machine_names:
-            return items, []
         keep, removed = [], []
         for item in items:
-            if item.game.machine_name in rules.excluded_machine_names:
-                removed.append(ArcadeFilterEngine._excluded(item, FilterStage.CATLIST, "exclude_catlist", f"machine = {item.game.machine_name} foi explicitamente excluída pelo CATLIST"))
+            name = item.game.machine_name
+            if name in rules.excluded_machine_names:
+                removed.append(
+                    ArcadeFilterEngine._excluded(
+                        item,
+                        FilterStage.CATLIST,
+                        "exclude_catlist",
+                        f"machine = {name} foi explicitamente excluída pelo CATLIST",
+                    )
+                )
+            elif rules.included_machine_names and name not in rules.included_machine_names:
+                removed.append(
+                    ArcadeFilterEngine._excluded(
+                        item,
+                        FilterStage.CATLIST,
+                        "include_catlist",
+                        f"machine = {name} não pertence às categorias selecionadas",
+                    )
+                )
             else:
                 keep.append(item)
         return keep, removed
