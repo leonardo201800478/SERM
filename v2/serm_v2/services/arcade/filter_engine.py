@@ -1,4 +1,4 @@
-"""Motor de filtros em camadas do Arcade Studio."""
+"""Motor unificado de filtros em camadas do Arcade Studio."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from ...models.arcade import ArcadeGame
+from ...models.arcade import ArcadeGame, PlayabilityStatus
 from ...models.arcade_classification import (
     ArcadeClassification,
     ArcadeContentType,
@@ -29,6 +29,7 @@ class FilterStage(StrEnum):
     """Camadas aplicadas pelo motor, na ordem do pipeline."""
 
     CONTENT = "content"
+    PLAYABILITY = "playability"
     GENRE = "genre"
     HARDWARE = "hardware"
     MANUFACTURER = "manufacturer"
@@ -39,10 +40,17 @@ class FilterStage(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class FilterRules:
-    """Regras declarativas para uma execução do motor."""
+    """Regras declarativas para uma execução do motor.
+
+    O estágio de emulação/playabilidade não é binário. Um título pode estar
+    plenamente jogável, funcional com limitações, parcialmente jogável,
+    em desenvolvimento, jogável em outro alvo, não jogável ou sem avaliação.
+    Quando ``included_playability`` está vazio, todos os estados permanecem.
+    """
 
     excluded_content_types: frozenset[ArcadeContentType] = frozenset()
     included_content_types: frozenset[ArcadeContentType] = frozenset()
+    included_playability: frozenset[PlayabilityStatus] = frozenset()
     included_genres: frozenset[ArcadeGenre] = frozenset()
     included_hardware: frozenset[ArcadeHardwareFamily] = frozenset()
     included_manufacturers: frozenset[str] = frozenset()
@@ -92,7 +100,7 @@ Matcher = Callable[[ArcadeClassification, frozenset], bool]
 
 
 class ArcadeFilterEngine:
-    """Aplica o pipeline sem alterar o catálogo de origem."""
+    """Aplica o pipeline unificado sem alterar o catálogo de origem."""
 
     def __init__(self, classifier: ArcadeClassificationService | None = None) -> None:
         self._classifier = classifier or ArcadeClassificationService()
@@ -118,6 +126,15 @@ class ArcadeFilterEngine:
         items, removed = self._apply_content(items, active_rules)
         excluded.extend(removed)
         counts[FilterStage.CONTENT] = len(items)
+
+        items, removed = self._apply_refinement(
+            items,
+            active_rules,
+            FilterStage.PLAYABILITY,
+            self._match_playability,
+        )
+        excluded.extend(removed)
+        counts[FilterStage.PLAYABILITY] = len(items)
 
         for stage, matcher in (
             (FilterStage.GENRE, self._match_genre),
@@ -204,6 +221,7 @@ class ArcadeFilterEngine:
     @staticmethod
     def _selection_for_stage(rules: FilterRules, stage: FilterStage) -> frozenset:
         return {
+            FilterStage.PLAYABILITY: rules.included_playability,
             FilterStage.GENRE: rules.included_genres,
             FilterStage.HARDWARE: rules.included_hardware,
             FilterStage.MANUFACTURER: rules.included_manufacturers,
@@ -211,6 +229,21 @@ class ArcadeFilterEngine:
             FilterStage.INPUT: rules.included_inputs,
             FilterStage.WHEEL: rules.included_wheel_angles,
         }.get(stage, frozenset())
+
+    @staticmethod
+    def _match_playability(
+        classification: ArcadeClassification,
+        selected: frozenset[PlayabilityStatus],
+    ) -> bool:
+        status = classification.evidence.get("playability")
+        if isinstance(status, PlayabilityStatus):
+            return status in selected
+        if status is not None:
+            try:
+                return PlayabilityStatus(str(status)) in selected
+            except ValueError:
+                pass
+        return False
 
     @staticmethod
     def _match_genre(classification: ArcadeClassification, selected: frozenset[ArcadeGenre]) -> bool:
