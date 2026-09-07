@@ -132,8 +132,29 @@ class MameFilterV2Service:
                 query = f"""
                     SELECT m.id,m.name,m.cloneof,m.romof,m.isbios,m.isdevice,m.ismechanical,m.runnable,m.description,m.year,m.manufacturer,m.sourcefile,
                            GROUP_CONCAT(DISTINCT c.category),GROUP_CONCAT(DISTINCT c.subcategory),MAX(d.status),MAX(d.emulation),MAX(d.sound),MAX(d.graphic),GROUP_CONCAT(DISTINCT disp.type),GROUP_CONCAT(DISTINCT disp.rotate),GROUP_CONCAT(DISTINCT disp.width || 'x' || disp.height),GROUP_CONCAT(DISTINCT disp.refresh_raw),GROUP_CONCAT(DISTINCT ctl.type),MAX(ctl.buttons),MAX(inp.players),GROUP_CONCAT(DISTINCT chip.type || ':' || COALESCE(chip.name,'')),COUNT(DISTINCT disk.id),COUNT(DISTINCT sample.id),COUNT(DISTINCT bios.id),COUNT(DISTINCT device.id),GROUP_CONCAT(DISTINCT rom.name),GROUP_CONCAT(DISTINCT disk.name)
-                    FROM mame_machine m LEFT JOIN mame_classification c ON c.machine_id=m.id AND c.resolved_status='resolved' LEFT JOIN mame_driver d ON d.machine_id=m.id LEFT JOIN mame_display disp ON disp.machine_id=m.id LEFT JOIN mame_input inp ON inp.machine_id=m.id LEFT JOIN mame_control ctl ON ctl.input_id=inp.id LEFT JOIN mame_chip chip ON chip.machine_id=m.id LEFT JOIN mame_disk disk ON disk.machine_id=m.id LEFT JOIN mame_sample sample ON sample.machine_id=m.id LEFT JOIN mame_biosset bios ON bios.machine_id=m.id LEFT JOIN mame_device device ON device.machine_id=m.id LEFT JOIN mame_rom rom ON rom.machine_id=m.id
-                    WHERE m.import_id=? AND m.name IN ({placeholders}) GROUP BY m.id ORDER BY m.name COLLATE NOCASE
+                    FROM mame_machine m
+                    LEFT JOIN mame_classification c
+                      ON c.machine_id=m.id
+                     AND c.resolved_status='resolved'
+                     AND EXISTS (
+                         SELECT 1
+                           FROM mame_source_document sd
+                          WHERE sd.id=c.source_document_id
+                            AND sd.source_type='catlist'
+                     )
+                    LEFT JOIN mame_driver d ON d.machine_id=m.id
+                    LEFT JOIN mame_display disp ON disp.machine_id=m.id
+                    LEFT JOIN mame_input inp ON inp.machine_id=m.id
+                    LEFT JOIN mame_control ctl ON ctl.input_id=inp.id
+                    LEFT JOIN mame_chip chip ON chip.machine_id=m.id
+                    LEFT JOIN mame_disk disk ON disk.machine_id=m.id
+                    LEFT JOIN mame_sample sample ON sample.machine_id=m.id
+                    LEFT JOIN mame_biosset bios ON bios.machine_id=m.id
+                    LEFT JOIN mame_device device ON device.machine_id=m.id
+                    LEFT JOIN mame_rom rom ON rom.machine_id=m.id
+                    WHERE m.import_id=? AND m.name IN ({placeholders})
+                    GROUP BY m.id
+                    ORDER BY m.name COLLATE NOCASE
                 """
                 rows.extend(db.execute(query, (import_id, *chunk)).fetchall())
             folder_maps = cls._folder_maps(db, physical_names)
