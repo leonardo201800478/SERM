@@ -50,7 +50,7 @@ def test_merge_resolves_against_parent_by_rom_name():
 
 def test_romof_resolves_without_parent():
     source_rom = rom("source", "shared.bin")
-    clone_rom = rom("clone", "clone.bin", romof="source")
+    clone_rom = rom("clone", "shared.bin", romof="source")
 
     result = ArcadeRomReconstructionPlanner().plan(
         [game("source", roms=[source_rom]), game("clone", roms=[clone_rom])]
@@ -59,6 +59,7 @@ def test_romof_resolves_without_parent():
     item = result.items[1]
     assert item.source_kind is RomSourceKind.ROMOF
     assert item.source_machine == "source"
+    assert item.source_rom_name == "shared.bin"
 
 
 def test_self_merge_does_not_create_external_dependency():
