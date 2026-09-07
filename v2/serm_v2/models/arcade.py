@@ -8,8 +8,6 @@ from enum import StrEnum
 
 
 class ArcadePlatform(StrEnum):
-    """Plataformas de arcade suportadas ou previstas pelo Studio."""
-
     MAME = "mame"
     SUPERMODEL = "supermodel"
     FLYCAST_ARCADE = "flycast_arcade"
@@ -20,16 +18,12 @@ class ArcadePlatform(StrEnum):
 
 
 class ArcadeSetType(StrEnum):
-    """Estratégias de organização física de um conjunto."""
-
     SPLIT = "split"
     NON_MERGED = "non_merged"
     FULL_MERGED = "full_merged"
 
 
 class RomStatus(StrEnum):
-    """Estado físico da ROM em relação à definição do catálogo."""
-
     OK = "ok"
     REPAIRABLE = "repairable"
     INCOMPLETE = "incomplete"
@@ -39,8 +33,6 @@ class RomStatus(StrEnum):
 
 
 class PlayabilityStatus(StrEnum):
-    """Estado de execução do título no alvo avaliado."""
-
     FULLY_PLAYABLE = "fully_playable"
     FUNCTIONAL = "functional"
     PARTIALLY_PLAYABLE = "partially_playable"
@@ -52,8 +44,6 @@ class PlayabilityStatus(StrEnum):
 
 @dataclass(slots=True, frozen=True)
 class ArcadeRom:
-    """Uma ROM/elemento de set catalogado."""
-
     machine_name: str
     display_name: str
     platform: ArcadePlatform
@@ -74,13 +64,6 @@ class ArcadeRom:
 
 @dataclass(slots=True, frozen=True)
 class ArcadeDisk:
-    """Um disco CHD catalogado pelo MAME.
-
-    Os hashes representam o conteúdo lógico do disco definido pelo MAME, não o
-    hash bruto do arquivo ``.chd``. O SERM deve comparar esses hashes com a
-    identidade lógica extraída do CHD durante o inventário físico.
-    """
-
     name: str
     sha1: str | None = None
     md5: str | None = None
@@ -95,13 +78,6 @@ class ArcadeDisk:
 
 @dataclass(slots=True, frozen=True)
 class ArcadeGame:
-    """Representação de um título lógico no catálogo.
-
-    Flags estruturais são derivadas do metadata para manter o modelo compatível
-    com os providers que normalizam atributos do catálogo sem duplicar campos
-    no construtor do jogo.
-    """
-
     machine_name: str
     display_name: str
     platform: ArcadePlatform
@@ -118,18 +94,17 @@ class ArcadeGame:
 
     @property
     def is_bios(self) -> bool:
-        """Retorna se o catálogo marcou a machine como BIOS."""
         return self._metadata_flag("is_bios", "bios")
 
     @property
     def is_device(self) -> bool:
-        """Retorna se o catálogo marcou a machine como device."""
         return self._metadata_flag("is_device", "device")
 
     @property
     def working(self) -> bool | None:
-        """Retorna o estado de funcionamento sem confundir ausência com True."""
         value = self.metadata.get("working")
+        if value is None:
+            value = self.metadata.get("runnable")
         if isinstance(value, bool):
             return value
         if value is None:
@@ -140,6 +115,19 @@ class ArcadeGame:
         if normalized in {"no", "false", "0", "not working", "bad"}:
             return False
         return None
+
+    @property
+    def playability(self) -> PlayabilityStatus:
+        """Estado de jogabilidade normalizado para o motor de filtros V2."""
+        value = self.metadata.get("playability") or self.metadata.get("playability_status")
+        if isinstance(value, PlayabilityStatus):
+            return value
+        if value is None:
+            return PlayabilityStatus.UNKNOWN
+        try:
+            return PlayabilityStatus(str(value))
+        except ValueError:
+            return PlayabilityStatus.UNKNOWN
 
     def _metadata_flag(self, *keys: str) -> bool:
         for key in keys:
@@ -155,19 +143,10 @@ class ArcadeGame:
 
     @property
     def rom_status(self) -> RomStatus:
-        """Consolida o pior estado físico entre os componentes do título."""
-
         statuses = {rom.rom_status for rom in self.roms}
         if not statuses:
             return RomStatus.UNKNOWN
-        priority = (
-            RomStatus.INVALID,
-            RomStatus.MISSING,
-            RomStatus.INCOMPLETE,
-            RomStatus.REPAIRABLE,
-            RomStatus.OK,
-            RomStatus.UNKNOWN,
-        )
+        priority = (RomStatus.INVALID, RomStatus.MISSING, RomStatus.INCOMPLETE, RomStatus.REPAIRABLE, RomStatus.OK, RomStatus.UNKNOWN)
         for status in priority:
             if status in statuses:
                 return status
@@ -176,8 +155,6 @@ class ArcadeGame:
 
 @dataclass(slots=True)
 class ArcadeSet:
-    """Set lógico que será posteriormente materializado pelo Set Builder."""
-
     name: str
     platform: ArcadePlatform
     set_type: ArcadeSetType = ArcadeSetType.SPLIT
@@ -195,13 +172,4 @@ class ArcadeSet:
         return len(self.games)
 
 
-__all__ = [
-    "ArcadeDisk",
-    "ArcadeGame",
-    "ArcadePlatform",
-    "ArcadeRom",
-    "ArcadeSet",
-    "ArcadeSetType",
-    "PlayabilityStatus",
-    "RomStatus",
-]
+__all__ = ["ArcadeDisk", "ArcadeGame", "ArcadePlatform", "ArcadeRom", "ArcadeSet", "ArcadeSetType", "PlayabilityStatus", "RomStatus"]
