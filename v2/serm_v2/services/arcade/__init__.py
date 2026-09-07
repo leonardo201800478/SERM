@@ -9,6 +9,7 @@ from .chd_reconstruction import (
     ChdReconstructionResult,
     PhysicalChd,
 )
+from .materializer import ArcadeSetMaterializer, MaterializationError
 from .reconstruction_manifest import (
     ArcadeReconstructionManifestBuilder,
     MaterializationEntry,
@@ -47,6 +48,8 @@ __all__ = [
     "ChdReconstructionPlan",
     "ChdReconstructionResult",
     "PhysicalChd",
+    "ArcadeSetMaterializer",
+    "MaterializationError",
     "ArcadeReconstructionManifestBuilder",
     "MaterializationEntry",
     "MaterializationKind",
