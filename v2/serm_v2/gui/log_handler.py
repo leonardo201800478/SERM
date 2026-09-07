@@ -1,11 +1,12 @@
-"""Qt logging bridge used by the SERM V2 GUI."""
+"""Qt logging bridge and live console used by the SERM V2 GUI."""
 
 from __future__ import annotations
 
 import logging
 from collections import deque
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, Qt, Signal
+from PySide6.QtWidgets import QPlainTextEdit, QVBoxLayout, QWidget
 
 
 class _QtLogEmitter(QObject):
@@ -13,9 +14,9 @@ class _QtLogEmitter(QObject):
 
 
 class QtLogHandler(logging.Handler):
-    """Forward Python logging records to Qt widgets without changing the logger API."""
+    """Forward Python logging records to Qt while retaining recent messages."""
 
-    def __init__(self, max_records: int = 500) -> None:
+    def __init__(self, max_records: int = 1000) -> None:
         super().__init__()
         self.records: deque[str] = deque(maxlen=max_records)
         self.emitter = _QtLogEmitter()
@@ -25,7 +26,6 @@ class QtLogHandler(logging.Handler):
         return self.emitter.record_emitted
 
     def emit(self, record: logging.LogRecord) -> None:
-        """Store and emit one formatted logging record."""
         try:
             message = self.format(record)
             self.records.append(message)
@@ -34,8 +34,37 @@ class QtLogHandler(logging.Handler):
             self.handleError(record)
 
 
+class LogConsole(QWidget):
+    """Console de diagnóstico sem clipping e com rolagem automática."""
+
+    def __init__(self, handler: QtLogHandler, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self.view = QPlainTextEdit()
+        self.view.setObjectName("logConsole")
+        self.view.setReadOnly(True)
+        self.view.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
+        self.view.setWordWrapMode(None)
+        self.view.setMaximumBlockCount(1000)
+        self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        layout.addWidget(self.view)
+        self._handler = handler
+        for message in handler.records:
+            self.view.appendPlainText(message)
+        handler.record_emitted.connect(self._append)
+
+    def _append(self, _level: str, message: str) -> None:
+        self.view.appendPlainText(message)
+        self.view.verticalScrollBar().setValue(self.view.verticalScrollBar().maximum())
+
+    def clear(self) -> None:
+        self.view.clear()
+
+
 class LogViewer(QObject):
-    """Own the application-wide Qt logging handler."""
+    """Own the application-wide Qt logging handler and optional live console."""
 
     handler: QtLogHandler
 
@@ -46,7 +75,12 @@ class LogViewer(QObject):
         root = logging.getLogger()
         root.addHandler(self.handler)
 
+    def create_console(self, parent: QWidget | None = None) -> LogConsole:
+        return LogConsole(self.handler, parent)
+
     def close(self) -> None:
-        """Detach the Qt handler from the root logger."""
         logging.getLogger().removeHandler(self.handler)
         self.handler.close()
+
+
+__all__ = ["LogConsole", "LogViewer", "QtLogHandler"]
