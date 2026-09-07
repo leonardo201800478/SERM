@@ -42,10 +42,17 @@ def _status_icon(status: RomStatus, size: int = 16) -> QIcon:
     painter.drawEllipse(2, 2, size - 4, size - 4); painter.end(); return QIcon(pixmap)
 
 def _set_status_visual(item: QTableWidgetItem | QTreeWidgetItem, status: RomStatus) -> None:
-    if isinstance(item, QTreeWidgetItem): item.setIcon(0, _status_icon(status))
-    else: item.setIcon(_status_icon(status))
-    item.setForeground(QColor("#e8edf2")); item.setBackground(_STATUS_COLORS[status].darker(420))
-    item.setToolTip(_STATUS_LABELS[status])
+    """Aplica ícone, foreground, background e tooltip respeitando as APIs Qt6."""
+    if isinstance(item, QTreeWidgetItem):
+        item.setIcon(0, _status_icon(status))
+        item.setForeground(0, QColor("#e8edf2"))
+        item.setBackground(0, _STATUS_COLORS[status].darker(420))
+        item.setToolTip(0, _STATUS_LABELS[status])
+    else:
+        item.setIcon(_status_icon(status))
+        item.setForeground(QColor("#e8edf2"))
+        item.setBackground(_STATUS_COLORS[status].darker(420))
+        item.setToolTip(_STATUS_LABELS[status])
 
 class _ArcadeStudioWorker(QObject):
     """Worker de I/O e comparação; nunca manipula widgets."""
