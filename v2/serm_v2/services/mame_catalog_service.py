@@ -176,7 +176,7 @@ class MameCatalogService:
             "mame_dipswitch", "mame_dipvalue", "mame_configuration", "mame_confsetting", "mame_port", "mame_adjuster", "mame_biosset",
             "mame_folder_filter_source", "mame_folder_filter_entry",
         }
-        existing = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table')}
+        existing = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         missing = sorted(required - existing)
         if missing:
             raise MameCatalogError("Schema MAME incompleto; migrations necessárias: " + ", ".join(missing))
