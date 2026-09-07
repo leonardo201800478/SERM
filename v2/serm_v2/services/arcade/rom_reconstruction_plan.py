@@ -100,21 +100,25 @@ class ArcadeRomReconstructionPlanner:
         romof = self._text(metadata.get("romof")) or self._text(game.metadata.get("romof"))
         parent_name = self._text(game.parent_name)
 
-        # ``merge`` names a ROM, not a machine. Prefer the explicit parent
-        # relationship when present, then romof, and only then a unique global
-        # ROM-name match. This avoids inventing a dependency from a machine name.
+        # ``merge`` names a ROM, not a machine. Its origin must be established
+        # through an explicit MAME relationship. An unrelated global name match
+        # is intentionally rejected because it can silently invent a dependency.
         if merge:
-            source = self._find_rom(merge, preferred_machines=(parent_name, romof), rom_index=rom_index)
+            source = self._find_rom(
+                merge,
+                preferred_machines=(romof, parent_name),
+                rom_index=rom_index,
+            )
             if source is not None:
                 source_machine, source_rom = source
-                if source_machine != game.machine_name or source_rom.display_name != rom.display_name:
+                if source_machine != game.machine_name:
                     return RomReconstructionPlan(
                         game.machine_name,
                         rom.display_name,
                         source_machine,
                         source_rom.display_name,
                         RomSourceKind.MERGED,
-                        "merge resolvido pela identidade do nome da ROM",
+                        "merge resolvido por maquina explicitamente relacionada",
                     )
                 return RomReconstructionPlan(
                     game.machine_name,
@@ -125,16 +129,13 @@ class ArcadeRomReconstructionPlanner:
                     "merge referencia a propria ROM do machine set",
                 )
 
-            # Um ``merge`` explicito sem ROM de origem catalogada nao pode ser
-            # convertido em uma ROM propria por fallback. Isso esconderia uma
-            # dependencia semantica e produziria conjuntos incorretos.
             return RomReconstructionPlan(
                 game.machine_name,
                 rom.display_name,
                 None,
                 merge,
                 RomSourceKind.MISSING,
-                "merge definido, mas a ROM de origem nao foi localizada no catalogo",
+                "merge definido, mas nao foi localizado em romof ou parent",
             )
 
         if romof and romof != game.machine_name and romof in catalog:
@@ -185,19 +186,18 @@ class ArcadeRomReconstructionPlanner:
             return None
 
         preferred = {value.casefold() for value in preferred_machines if value}
-        preferred_candidates = tuple(item for item in candidates if item[0].casefold() in preferred)
+        preferred_candidates = tuple(
+            item for item in candidates if item[0].casefold() in preferred
+        )
         if len(preferred_candidates) == 1:
             return preferred_candidates[0]
-        if len(preferred_candidates) > 1:
-            return None
-
-        if len(candidates) == 1:
-            return candidates[0]
         return None
 
     @staticmethod
     def _find_same_rom(game: ArcadeGame, rom_name: str) -> ArcadeRom | None:
-        matches = tuple(rom for rom in game.roms if rom.display_name.casefold() == rom_name.casefold())
+        matches = tuple(
+            rom for rom in game.roms if rom.display_name.casefold() == rom_name.casefold()
+        )
         return matches[0] if len(matches) == 1 else None
 
     @staticmethod
