@@ -24,6 +24,7 @@ from ..runtime.paths import database_path, scans_root
 from ..services.arcade.chd_audit import ArcadeChdAuditService, ChdAuditResult
 from ..services.arcade.scan_comparison import ArcadeScanComparisonService, MachineComparison, ScanComparisonResult
 from ..services.chd_header import ChdFormatError, ChdHeaderReader
+from .mame_filter_page import MameFilterPage
 
 _STATUS_LABELS = {
     RomStatus.OK: "OK", RomStatus.REPAIRABLE: "RECONSTRUÍVEL", RomStatus.INCOMPLETE: "INCOMPLETO",
@@ -88,14 +89,21 @@ class _ArcadeStudioWorker(QObject):
         return ArcadeScanComparisonService().compare(xml_text, self.scan_path)
 
 class ArcadeStudioPage(QWidget):
-    """Painel central do catálogo MAME, comparação física e reconstrução."""
+    """Painel central do catálogo MAME, filtros, comparação física e reconstrução."""
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent); self._database = database_path(); self._comparison = None; self._last_chd_audit = None
         self._worker_thread = None; self._worker = None; self._build_ui(); self._start_import_load()
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self); title = QLabel("ARCADE STUDIO"); title.setProperty("role", "title"); layout.addWidget(title)
         intro = QLabel("ListXML MAME = conteúdo esperado. O banco SERM preserva as importações ListXML. Scan JSON = inventário físico produzido pelo scan completo. O Studio confronta os dois sem executar o scan novamente."); intro.setWordWrap(True); layout.addWidget(intro)
-        self.tabs = QTabWidget(); self.tabs.addTab(self._catalog_tab(), "Catálogo / Comparação"); self.tabs.addTab(self._chd_tab(), "Auditoria CHD"); self.tabs.addTab(self._reconstruction_tab(), "Reconstrução"); layout.addWidget(self.tabs, 1)
+        self.tabs = QTabWidget()
+        self.tabs.addTab(self._catalog_tab(), "Catálogo / Comparação")
+        self.mame_filter_tab = MameFilterPage(self)
+        self.tabs.addTab(self.mame_filter_tab, "Filtros MAME")
+        self.tabs.addTab(self._chd_tab(), "Auditoria CHD")
+        self.tabs.addTab(self._reconstruction_tab(), "Reconstrução")
+        self.tabs.currentChanged.connect(self._tab_changed)
+        layout.addWidget(self.tabs, 1)
     def _catalog_tab(self) -> QWidget:
         page = QWidget(); layout = QVBoxLayout(page); source_box = QGroupBox("Fontes da comparação"); source_form = QFormLayout(source_box)
         listxml_row = QHBoxLayout(); self.listxml_choice = QComboBox(); self.listxml_choice.setMinimumWidth(500); self.listxml_choice.currentIndexChanged.connect(self._listxml_changed); reload_catalog = QPushButton("ATUALIZAR LISTXML"); reload_catalog.clicked.connect(self._start_import_load); listxml_row.addWidget(self.listxml_choice, 1); listxml_row.addWidget(reload_catalog); source_form.addRow("ListXML / banco SERM:", listxml_row)
@@ -113,6 +121,9 @@ class ArcadeStudioPage(QWidget):
         page = QWidget(); layout = QVBoxLayout(page); box = QGroupBox("Auditoria da origem física"); form = QFormLayout(box); self.chd_source = QLineEdit(); self.chd_source.setReadOnly(True); choose_source = QPushButton("SELECIONAR PASTA…"); choose_source.clicked.connect(self._choose_chd_source); source_row = QHBoxLayout(); source_row.addWidget(self.chd_source, 1); source_row.addWidget(choose_source); form.addRow("Pasta CHD:", source_row); self.chd_audit_button = QPushButton("AUDITAR CHDS"); self.chd_audit_button.clicked.connect(self._audit_chds); form.addRow("Ação:", self.chd_audit_button); layout.addWidget(box); self.chd_summary = QLabel("Selecione uma pasta contendo CHDs para iniciar a auditoria."); self.chd_summary.setWordWrap(True); layout.addWidget(self.chd_summary); self.chd_table = QTableWidget(0, 7); self.chd_table.setHorizontalHeaderLabels(["Status", "Machine", "Disco", "Arquivo", "Raw SHA1", "Versão", "Detalhes"]); self.chd_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows); self.chd_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers); self.chd_table.horizontalHeader().setStretchLastSection(True); self.chd_table.setAlternatingRowColors(True); self.chd_table.itemSelectionChanged.connect(self._show_chd_audit_selection); layout.addWidget(self.chd_table, 1); self.chd_progress = QProgressBar(); self.chd_progress.setRange(0, 1); self.chd_progress.setValue(0); layout.addWidget(self.chd_progress); detail_box = QGroupBox("Validação individual"); detail_form = QFormLayout(detail_box); self.chd_path = QLineEdit(); self.chd_path.setReadOnly(True); choose_file = QPushButton("SELECIONAR CHD…"); choose_file.clicked.connect(self._choose_chd); file_row = QHBoxLayout(); file_row.addWidget(self.chd_path, 1); file_row.addWidget(choose_file); detail_form.addRow("Arquivo:", file_row); self.chd_result = QListWidget(); detail_form.addRow("Cabeçalho:", self.chd_result); layout.addWidget(detail_box); return page
     def _reconstruction_tab(self) -> QWidget:
         page = QWidget(); layout = QVBoxLayout(page); warning = QLabel("A reconstrução física será executada exclusivamente pelo SERM. O plano usa parent/merge e as identidades físicas auditadas; nenhuma ferramenta externa participa do backend."); warning.setWordWrap(True); layout.addWidget(warning); self.reconstruction_machine = QLineEdit(); self.reconstruction_machine.setPlaceholderText("machine"); self.reconstruction_disk = QLineEdit(); self.reconstruction_disk.setPlaceholderText("nome do disco/CHD"); form = QFormLayout(); form.addRow("Machine:", self.reconstruction_machine); form.addRow("Disco:", self.reconstruction_disk); layout.addLayout(form); self.reconstruction_result = QLabel("Selecione uma machine no resultado da comparação para preparar o plano."); self.reconstruction_result.setWordWrap(True); layout.addWidget(self.reconstruction_result); layout.addStretch(); return page
+    def _tab_changed(self, index: int) -> None:
+        if index == 1 and hasattr(self, "mame_filter_tab"):
+            self.mame_filter_tab.refresh()
     def closeEvent(self, event) -> None:
         if self._worker_thread is not None and self._worker_thread.isRunning(): self._worker_thread.quit(); self._worker_thread.wait(2000)
         super().closeEvent(event)
