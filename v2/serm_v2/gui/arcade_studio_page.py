@@ -10,27 +10,74 @@ import sqlite3
 from pathlib import Path
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
     QProgressBar,
     QPushButton,
+    QSplitter,
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,
+    QTreeWidget,
+    QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
+from ..models.arcade import RomStatus
 from ..runtime.paths import database_path
 from ..services.arcade.chd_audit import ArcadeChdAuditService, ChdAuditResult
 from ..services.chd_header import ChdFormatError, ChdHeaderReader
+
+
+_STATUS_LABELS = {
+    RomStatus.OK: "OK",
+    RomStatus.REPAIRABLE: "RECONSTRUÍVEL",
+    RomStatus.INCOMPLETE: "INCOMPLETO",
+    RomStatus.MISSING: "AUSENTE",
+    RomStatus.INVALID: "INVÁLIDO",
+    RomStatus.UNKNOWN: "NÃO AUDITADO",
+}
+
+_STATUS_COLORS = {
+    RomStatus.OK: QColor("#36c96f"),
+    RomStatus.REPAIRABLE: QColor("#f0c43c"),
+    RomStatus.INCOMPLETE: QColor("#f39c3d"),
+    RomStatus.MISSING: QColor("#8b9299"),
+    RomStatus.INVALID: QColor("#e05252"),
+    RomStatus.UNKNOWN: QColor("#737b84"),
+}
+
+
+def _status_icon(status: RomStatus, size: int = 16) -> QIcon:
+    """Cria um ícone vetorial simples e consistente sem depender de assets externos."""
+    color = _STATUS_COLORS[status]
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setPen(QColor("#15191d"))
+    painter.setBrush(color)
+    painter.drawEllipse(2, 2, size - 4, size - 4)
+    painter.end()
+    return QIcon(pixmap)
+
+
+def _set_status_visual(item: QTableWidgetItem | QTreeWidgetItem, status: RomStatus) -> None:
+    """Aplica ícone, texto e cor ao item conforme o estado da reconstrução."""
+    item.setIcon(_status_icon(status))
+    item.setForeground(QColor("#e8edf2"))
+    item.setBackground(_STATUS_COLORS[status].darker(420))
+    item.setToolTip(_STATUS_LABELS[status])
 
 
 class ArcadeStudioPage(QWidget):
@@ -76,15 +123,32 @@ class ArcadeStudioPage(QWidget):
 
         self.catalog_status = QLabel("Nenhum catálogo carregado.")
         layout.addWidget(self.catalog_status)
-        self.catalog_table = QTableWidget(0, 6)
+
+        splitter = QSplitter(Qt.Orientation.Vertical)
+        self.catalog_table = QTableWidget(0, 7)
         self.catalog_table.setHorizontalHeaderLabels(
-            ["Machine", "Descrição", "Ano", "Fabricante", "Parent", "ROMs / CHDs"]
+            ["Status", "Machine", "Descrição", "Ano", "Fabricante", "Parent", "ROMs / CHDs"]
         )
         self.catalog_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.catalog_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.catalog_table.setAlternatingRowColors(True)
+        self.catalog_table.setSortingEnabled(True)
+        self.catalog_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.catalog_table.horizontalHeader().setStretchLastSection(True)
         self.catalog_table.itemSelectionChanged.connect(self._show_machine)
-        layout.addWidget(self.catalog_table, 1)
+        splitter.addWidget(self.catalog_table)
+
+        tree_box = QGroupBox("Árvore de ROMs / CHDs — status da reconstrução")
+        tree_layout = QVBoxLayout(tree_box)
+        self.rom_tree = QTreeWidget()
+        self.rom_tree.setHeaderLabels(["Componente", "Status", "Origem / Hash", "Detalhes"])
+        self.rom_tree.setAlternatingRowColors(True)
+        self.rom_tree.setRootIsDecorated(True)
+        self.rom_tree.header().setStretchLastSection(True)
+        tree_layout.addWidget(self.rom_tree)
+        splitter.addWidget(tree_box)
+        splitter.setSizes([430, 300])
+        layout.addWidget(splitter, 1)
 
         self.catalog_details = QLabel("Selecione uma machine para visualizar os componentes.")
         self.catalog_details.setWordWrap(True)
@@ -94,7 +158,6 @@ class ArcadeStudioPage(QWidget):
     def _chd_tab(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
-
         box = QGroupBox("Auditoria da origem física")
         form = QFormLayout(box)
         self.chd_source = QLineEdit()
@@ -105,16 +168,13 @@ class ArcadeStudioPage(QWidget):
         source_row.addWidget(self.chd_source, 1)
         source_row.addWidget(choose_source)
         form.addRow("Pasta CHD:", source_row)
-
         self.chd_audit_button = QPushButton("AUDITAR CHDS")
         self.chd_audit_button.clicked.connect(self._audit_chds)
         form.addRow("Ação:", self.chd_audit_button)
         layout.addWidget(box)
-
         self.chd_summary = QLabel("Selecione uma pasta contendo CHDs para iniciar a auditoria.")
         self.chd_summary.setWordWrap(True)
         layout.addWidget(self.chd_summary)
-
         self.chd_table = QTableWidget(0, 7)
         self.chd_table.setHorizontalHeaderLabels(
             ["Status", "Machine", "Disco", "Arquivo", "Raw SHA1", "Versão", "Detalhes"]
@@ -123,13 +183,12 @@ class ArcadeStudioPage(QWidget):
         self.chd_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.chd_table.horizontalHeader().setStretchLastSection(True)
         self.chd_table.setAlternatingRowColors(True)
+        self.chd_table.itemSelectionChanged.connect(self._show_chd_audit_selection)
         layout.addWidget(self.chd_table, 1)
-
         self.chd_progress = QProgressBar()
         self.chd_progress.setRange(0, 1)
         self.chd_progress.setValue(0)
         layout.addWidget(self.chd_progress)
-
         detail_box = QGroupBox("Validação individual")
         detail_form = QFormLayout(detail_box)
         self.chd_path = QLineEdit()
@@ -155,7 +214,6 @@ class ArcadeStudioPage(QWidget):
         )
         warning.setWordWrap(True)
         layout.addWidget(warning)
-
         self.reconstruction_machine = QLineEdit()
         self.reconstruction_machine.setPlaceholderText("machine (ex.: sf2, outrun, etc.)")
         self.reconstruction_disk = QLineEdit()
@@ -164,13 +222,16 @@ class ArcadeStudioPage(QWidget):
         form.addRow("Machine:", self.reconstruction_machine)
         form.addRow("Disco:", self.reconstruction_disk)
         layout.addLayout(form)
-        self.reconstruction_result = QLabel(
-            "Selecione uma machine no catálogo para preparar o plano."
-        )
+        self.reconstruction_result = QLabel("Selecione uma machine no catálogo para preparar o plano.")
         self.reconstruction_result.setWordWrap(True)
         layout.addWidget(self.reconstruction_result)
         layout.addStretch()
         return page
+
+    @staticmethod
+    def _catalog_status() -> RomStatus:
+        """Até a auditoria física, o catálogo não deve afirmar que uma ROM existe."""
+        return RomStatus.UNKNOWN
 
     def refresh(self) -> None:
         """Atualiza o catálogo da última importação MAME concluída."""
@@ -184,6 +245,7 @@ class ArcadeStudioPage(QWidget):
                 if import_row is None:
                     self.catalog_status.setText("Nenhuma importação MAME concluída.")
                     self.catalog_table.setRowCount(0)
+                    self.rom_tree.clear()
                     return
                 import_id = int(import_row["id"])
                 text = self.search.text().strip()
@@ -200,19 +262,26 @@ class ArcadeStudioPage(QWidget):
                 ).fetchall()
                 self.catalog_status.setText(
                     f"Importação {import_id} | MAME {import_row['mame_build'] or '—'} | "
-                    f"{import_row['machine_count']:,} machines | exibindo {len(rows):,}"
+                    f"{import_row['machine_count']:,} machines | exibindo {len(rows):,} | "
+                    "status físico: não auditado"
                 )
+                self.catalog_table.setSortingEnabled(False)
                 self.catalog_table.setRowCount(len(rows))
+                status = self._catalog_status()
                 for index, row in enumerate(rows):
+                    status_item = QTableWidgetItem(_STATUS_LABELS[status])
+                    _set_status_visual(status_item, status)
+                    self.catalog_table.setItem(index, 0, status_item)
                     values = (
                         row["name"], row["description"], row["year"],
                         row["manufacturer"], row["cloneof"],
                         f"{row['rom_count']:,} / {row['disk_count']:,}",
                     )
-                    for column, value in enumerate(values):
+                    for column, value in enumerate(values, start=1):
                         item = QTableWidgetItem("" if value is None else str(value))
                         item.setData(Qt.ItemDataRole.UserRole, int(row["id"]))
                         self.catalog_table.setItem(index, column, item)
+                self.catalog_table.setSortingEnabled(True)
                 self.catalog_table.resizeColumnsToContents()
         except sqlite3.Error as exc:
             self.catalog_status.setText(f"Erro ao consultar catálogo: {exc}")
@@ -221,7 +290,7 @@ class ArcadeStudioPage(QWidget):
         rows = self.catalog_table.selectionModel().selectedRows()
         if not rows:
             return
-        machine_id = self.catalog_table.item(rows[0].row(), 0).data(Qt.ItemDataRole.UserRole)
+        machine_id = self.catalog_table.item(rows[0].row(), 1).data(Qt.ItemDataRole.UserRole)
         try:
             with sqlite3.connect(self._database) as db:
                 db.row_factory = sqlite3.Row
@@ -240,10 +309,12 @@ class ArcadeStudioPage(QWidget):
                     (machine_id,),
                 ).fetchall()
             self.reconstruction_machine.setText(str(machine["name"]))
+            status = self._catalog_status()
             self.catalog_details.setText(
                 f"{machine['name']} | parent={machine['cloneof'] or '—'} | romof={machine['romof'] or '—'} | "
-                f"ROMs={len(roms):,} | CHDs={len(disks):,}"
+                f"ROMs={len(roms):,} | CHDs={len(disks):,} | reconstrução={_STATUS_LABELS[status]}"
             )
+            self._populate_rom_tree(machine, roms, disks)
             if disks:
                 self.reconstruction_disk.setText(str(disks[0]["name"]))
                 self.reconstruction_result.setText(
@@ -256,6 +327,42 @@ class ArcadeStudioPage(QWidget):
                 self.reconstruction_result.setText("A machine selecionada não possui CHD catalogado.")
         except sqlite3.Error as exc:
             self.catalog_details.setText(f"Erro: {exc}")
+
+    def _populate_rom_tree(self, machine: sqlite3.Row, roms: list[sqlite3.Row], disks: list[sqlite3.Row]) -> None:
+        self.rom_tree.clear()
+        status = self._catalog_status()
+        root = QTreeWidgetItem([str(machine["name"]), _STATUS_LABELS[status], "machine", str(machine["description"] or "")])
+        _set_status_visual(root, status)
+        root.setExpanded(True)
+        self.rom_tree.addTopLevelItem(root)
+
+        rom_group = QTreeWidgetItem([f"ROMs ({len(roms):,})", _STATUS_LABELS[status], "catálogo MAME", ""])
+        _set_status_visual(rom_group, status)
+        rom_group.setExpanded(True)
+        root.addChild(rom_group)
+        for rom in roms:
+            item = QTreeWidgetItem([
+                str(rom["name"]),
+                _STATUS_LABELS[status],
+                str(rom["sha1"] or rom["crc"] or "—"),
+                f"{rom['size'] or 0:,} bytes | merge={rom['merge'] or '—'}",
+            ])
+            _set_status_visual(item, status)
+            rom_group.addChild(item)
+
+        disk_group = QTreeWidgetItem([f"CHDs ({len(disks):,})", _STATUS_LABELS[status], "catálogo MAME", ""])
+        _set_status_visual(disk_group, status)
+        disk_group.setExpanded(True)
+        root.addChild(disk_group)
+        for disk in disks:
+            item = QTreeWidgetItem([
+                str(disk["name"]),
+                _STATUS_LABELS[status],
+                str(disk["sha1"] or "—"),
+                f"MD5={disk['md5'] or '—'} | merge={disk['merge'] or '—'}",
+            ])
+            _set_status_visual(item, status)
+            disk_group.addChild(item)
 
     def _choose_chd_source(self) -> None:
         path = QFileDialog.getExistingDirectory(self, "Selecionar pasta de CHDs")
@@ -270,10 +377,7 @@ class ArcadeStudioPage(QWidget):
         self.chd_audit_button.setEnabled(False)
         self.chd_progress.setRange(0, 0)
         try:
-            result = ArcadeChdAuditService().audit(
-                source=Path(source_text),
-                database=self._database,
-            )
+            result = ArcadeChdAuditService().audit(source=Path(source_text), database=self._database)
             self._last_chd_audit = result
             self._show_chd_audit(result)
         except (OSError, RuntimeError, sqlite3.Error) as exc:
@@ -293,20 +397,18 @@ class ArcadeStudioPage(QWidget):
         self.chd_table.setRowCount(len(result.records))
         for row_index, record in enumerate(result.records):
             values = (
-                record.status,
-                record.machine_name or "—",
-                record.disk_name or "—",
-                record.path or "—",
-                record.actual_sha1 or record.expected_sha1 or "—",
-                record.version if record.version is not None else "—",
-                record.message,
+                record.status, record.machine_name or "—", record.disk_name or "—",
+                record.path or "—", record.actual_sha1 or record.expected_sha1 or "—",
+                record.version if record.version is not None else "—", record.message,
             )
             for column, value in enumerate(values):
                 item = QTableWidgetItem(str(value))
                 item.setData(Qt.ItemDataRole.UserRole, record.path)
+                if column == 0:
+                    status_map = {"OK": RomStatus.OK, "MISSING": RomStatus.MISSING, "AMBIGUOUS": RomStatus.REPAIRABLE, "INVALID": RomStatus.INVALID, "ORPHAN": RomStatus.INCOMPLETE}
+                    _set_status_visual(item, status_map.get(str(value).upper(), RomStatus.UNKNOWN))
                 self.chd_table.setItem(row_index, column, item)
         self.chd_table.resizeColumnsToContents()
-        self.chd_table.itemSelectionChanged.connect(self._show_chd_audit_selection)
 
     def _show_chd_audit_selection(self) -> None:
         selected = self.chd_table.selectionModel().selectedRows()
@@ -329,14 +431,10 @@ class ArcadeStudioPage(QWidget):
             self.chd_result.addItem(QListWidgetItem(f"ERRO: {exc}"))
             return
         values = (
-            ("Versão", header.version),
-            ("Tamanho lógico", f"{header.logical_bytes:,} bytes"),
-            ("Hunk", f"{header.hunk_bytes:,} bytes"),
-            ("Raw SHA1", header.raw_sha1 or "—"),
-            ("SHA1 do CHD", header.sha1 or "—"),
-            ("MD5", header.md5 or "—"),
-            ("Parent SHA1", header.parent_sha1 or "—"),
-            ("Tamanho do arquivo", f"{header.file_size:,} bytes"),
+            ("Versão", header.version), ("Tamanho lógico", f"{header.logical_bytes:,} bytes"),
+            ("Hunk", f"{header.hunk_bytes:,} bytes"), ("Raw SHA1", header.raw_sha1 or "—"),
+            ("SHA1 do CHD", header.sha1 or "—"), ("MD5", header.md5 or "—"),
+            ("Parent SHA1", header.parent_sha1 or "—"), ("Tamanho do arquivo", f"{header.file_size:,} bytes"),
         )
         for label, value in values:
             self.chd_result.addItem(QListWidgetItem(f"{label}: {value}"))
