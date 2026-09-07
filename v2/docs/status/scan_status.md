@@ -1,48 +1,67 @@
-# Status do Scan de ROMs e CHDs
+# Status do scan
 
-## Estado atual
+## Estado
 
-**FUNCIONAL PARA TESTES** — 2026-08-20
+**Implementação ativa em V2 — setembro de 2026.**
 
-O scanner já é utilizável para testes de reconstrução e foi validado com um
-set pequeno contendo ROMs e CHDs. CHDs válidos podem ser utilizados pela
-reconstrução e pelo MAME.
+A V2 possui engine e services dedicados a scan, persistência, checkpoints, cache, filtros e páginas de GUI. O scanner ainda está em consolidação para suportar de forma uniforme diferentes famílias de catálogo.
 
-## Regras que não podem ser quebradas durante a otimização
+## Pipeline atual
 
-1. O LISTXML filtrado continua sendo a fonte de verdade.
-2. ROMs devem procurar primeiro o ZIP/diretório da machine.
-3. A busca de ROMs reaproveitáveis fora da machine não pode ser eliminada;
-   ela deve ser desacoplada do caminho crítico do scan.
-4. CHDs só devem ser procurados em:
+```text
+Catalog
+  ↓
+Scan settings
+  ↓
+Filter pipeline
+  ↓
+Filesystem discovery
+  ↓
+File metadata / hashes
+  ↓
+Matching
+  ↓
+Persistent scan result
+  ↓
+Reconstruction candidates
+```
 
-   `<rom_path>/<machine>/<disk>.chd`
+## Invariantes MAME/CHD
 
-   Não deve existir busca global de `.chd`, nem busca dentro de ZIPs.
-5. CHD inexistente deve resultar em `MISSING` imediatamente após o teste de
-   existência do caminho esperado.
-6. O scan não deve calcular SHA-1 de CHDs ausentes.
-7. A validação criptográfica e `chdman verify` pertencem à etapa de validação
-   da reconstrução, quando o CHD realmente existe.
-8. O JSONL continua sendo o registro de auditoria e recuperação do scan.
-9. Persistência e indexação não devem bloquear o processamento físico das
-   machines.
+1. O catálogo ingerido é a referência das máquinas e dependências.
+2. A machine deve ser verificada primeiro nos caminhos diretamente relacionados a ela.
+3. Busca alternativa de ROMs pode existir como índice separado, sem bloquear o caminho crítico.
+4. CHD deve ser procurado no caminho esperado da machine; não fazer busca global indiscriminada.
+5. CHD ausente pode ser classificado imediatamente como ausente, sem calcular SHA-1 de um arquivo inexistente.
+6. Verificação profunda de CHD pertence à validação quando o arquivo existe.
+7. JSONL e/ou persistência equivalente devem permitir auditoria e recuperação do processamento.
+8. Persistência e indexação não devem transformar uma operação de scan em uma varredura redundante do disco.
 
-## Gargalo identificado
+## Desempenho
 
-O caminho antigo podia construir um índice global de todos os ZIPs quando uma
-ROM não era encontrada localmente. Em fullsets isso transforma uma ausência
-simples em uma varredura massiva do HDD.
+O caminho crítico deve privilegiar:
 
-A otimização deve separar:
+- acesso local à machine;
+- cache de metadados quando válido;
+- checkpoints para retomada;
+- processamento incremental;
+- buffering de persistência;
+- paralelismo somente onde não comprometer consistência ou I/O.
 
-- **scan crítico:** verificar somente os arquivos diretamente relacionados à
-  machine;
-- **indexação de fontes alternativas:** processo secundário, persistente e
-  incremental;
-- **reconstrução:** consultar o índice de fontes alternativas quando
-  necessário.
+Índices de fontes alternativas devem ser construídos incrementalmente e reutilizados pela reconstrução.
 
-Também foi identificado que `flush()` por registro no JSONL é inadequado para
-um volume muito grande de registros. A persistência deve ser incremental, mas
-com buffering, sem exigir flush físico a cada ROM.
+## Classificação
+
+Os resultados devem distinguir, conforme o modelo do catálogo:
+
+- conteúdo encontrado e compatível;
+- conteúdo ausente;
+- conteúdo incorreto;
+- conteúdo potencialmente reutilizável;
+- estado inconclusivo/erro.
+
+A classificação final não deve ser confundida com a heurística utilizada para localizar um candidato.
+
+## Regra de arquitetura
+
+O scanner não depende da GUI. A GUI consome resultados e fornece comandos/configurações; filesystem traversal, hashing, matching, checkpoints e persistência pertencem aos serviços.

@@ -1,264 +1,74 @@
-# Reconstrução no SERM
+# Reconstrução
 
-**Produto:** Strife Emulator and Roms Manager (SERM)
-**Referência:** 29/08/2026
+## Objetivo
 
-A reconstrução é dividida por domínio de origem. MAME já possui suas regras definidas; consoles utilizarão catálogos próprios e não devem ser tratados como uma extensão do LISTXML.
+Reconstrução converte conteúdo disponível no filesystem em uma organização compatível com um catálogo e um destino de execução, usando evidências do scan e regras do sistema.
 
-```text
-Reconstrução
-├── MAME
-├── Consoles
-│   ├── No-Intro
-│   ├── Redump
-│   └── Amiga / WHDLoad / Retroplay
-└── RetroArch BIOS
-```
+Reconstrução não é scan: **scan observa; reconstrução transforma.**
 
-## 1. Regras comuns
-
-A unidade de validade é o artefato físico esperado pelo catálogo/fonte. Nome sozinho nunca é identidade suficiente quando hashes estiverem disponíveis.
-
-Fluxo comum:
+## Pipeline
 
 ```text
-catálogo / dataset
- ↓
-item lógico
- ↓
-evidência física
- ↓
-hash matching
- ↓
-Reconstruction Planner
- ↓
-staging
- ↓
-ArchiveService / CHDService
- ↓
-validação
- ↓
-publicação atômica
-```
-
-Origens são somente leitura. Nenhuma reconstrução pode modificar, mover, apagar ou renomear conteúdo de origem.
-
-Não manter cache permanente de ROMs. Staging é temporário e deve ser limpo ao final.
-
-## 2. MAME
-
-O fluxo MAME continua baseado em LISTXML, Scan e `current_scan.jsonl`:
-
-```text
-MAME listxml
- ↓
-Dataset
- ↓
-Scan
- ↓
-current_scan.jsonl
- ↓
-Dependency Resolver
- ↓
-ROM / BIOS / device / sample / disk / CHD
- ↓
-Reconstrução
-```
-
-A reconstrução utiliza a origem registrada pelo Scan e não deve fazer nova varredura global quando a evidência já estiver disponível.
-
-### ZIP
-
-ROMs são transferidas individualmente em streaming, renomeadas conforme o set e validadas antes da publicação.
-
-### CHD MAME
-
-CHDs existentes são validados pelo mecanismo próprio do MAME e tratados como artefatos de disco, não como ZIPs.
-
-### Parent / Clone
-
-A resolução utiliza as relações do LISTXML. Split, Merged e Non-Merged permanecem conforme o modelo MAME já definido e devem ser validados com fixtures reais antes de serem considerados finais.
-
-## 3. Consoles — No-Intro
-
-No-Intro é a fonte de referência para conjuntos de cartuchos/mídias digitais suportados.
-
-O DAT Manager baixará e manterá localmente as versões mais recentes disponíveis, sem baixar ROMs automaticamente.
-
-### Modelo lógico
-
-```text
-NoIntroGame
-├── name
-├── cloneof / parent
-├── metadata
-└── roms[]
-    ├── name
-    ├── size
-    ├── crc32
-    ├── md5
-    └── sha1
-```
-
-O parser deve preservar os campos relevantes do DAT e não reduzir um jogo a um único arquivo quando existirem múltiplas ROMs.
-
-### Matching
-
-Prioridade conceitual:
-
-```text
-SHA1
- ↓
-MD5
- ↓
-CRC32 + tamanho
-```
-
-O nome físico pode estar errado e ainda assim o conteúdo ser reconhecido.
-
-### Reconstrução
-
-Exemplo:
-
-```text
-arquivo existente: Sonic.bin
+Catalog + scan evidence
         ↓
-SHA1 corresponde ao DAT
+Dependency resolver
         ↓
-nome esperado: Sonic The Hedgehog (USA).md
+Candidate selection
         ↓
-renomear no destino
+Plan
         ↓
-criar ZIP
+Staging
         ↓
-validar contra DAT
+Archive / CHD / filesystem transform
+        ↓
+Validation
+        ↓
+Atomic publish
 ```
 
-A operação deve evitar reprocessamento quando o conteúdo já estiver correto.
+## Princípios
 
-## 4. Consoles — Redump
+- origens permanecem somente leitura;
+- nenhum arquivo parcial deve aparecer no destino final;
+- operações destrutivas devem ocorrer apenas em destino explicitamente controlado;
+- hashes e tamanhos devem ser validados quando a fonte fornecer esses dados;
+- dependências precisam ser resolvidas antes da publicação;
+- falhas devem permitir diagnóstico e retomada quando possível.
 
-Redump é tratado como domínio orientado a discos, não como No-Intro para CDs.
+## Matching
 
-O modelo deverá preservar, conforme os dados disponíveis:
+O nome de arquivo é auxiliar. Matching deve priorizar evidências fortes como hash, tamanho, identidade catalogada e relações parent/clone/dependência.
 
-- sistema;
-- título;
-- edição;
-- versão;
-- serial;
-- região;
-- idiomas;
-- hashes e demais metadados de identificação do disco.
+O sistema deve registrar a evidência que levou a uma correspondência quando houver ambiguidade.
 
-### Fluxo
+## Staging
+
+A transformação deve ocorrer em área temporária. A publicação só acontece depois da validação do resultado.
 
 ```text
-Redump catalog
- ↓
-Disc
- ↓
-matching
- ↓
-Disc Image
- ↓
-CHD Builder
- ↓
-CHD validation
- ↓
-CHD final
+source → staging → validate → destination
 ```
 
-**CHD é o formato preferencial de saída para discos** quando o sistema e a mídia forem compatíveis.
+## MAME
 
-ISO/BIN-CUE podem ser usados como fontes/intermediários quando necessários. O projeto não deve converter cegamente uma imagem sem preservar faixas, áudio e demais características relevantes da mídia.
+MAME possui semântica própria para parent/clone, ROMs compartilhadas, device ROMs, BIOS e CHDs. O resolver deve respeitar essas relações e não tratá-las como uma simples lista plana de arquivos.
 
-O `CHDService` permanece separado do `ArchiveService`.
+## Consoles / No-Intro
 
-## 5. Amiga — WHDLoad / Retroplay
+A reconstrução deve respeitar a identidade e o nome definidos pelo DAT aplicável. Variantes, regiões e revisões não devem ser misturadas por heurística fraca.
 
-Amiga possui semântica própria. O catálogo planejado utilizará o ecossistema WHDLoad/Retroplay e sua distribuição/índice, incluindo a fonte de download usada pelo GamesNostalgia quando aplicável.
+## Discos / Redump / CHD
 
-O modelo deverá representar:
+Discos devem ser tratados como mídia estruturada. CHD é uma representação específica e deve ser criada/validada por ferramentas compatíveis quando exigido pelo workflow.
 
-```text
-AmigaPackage
-├── title
-├── version
-├── variant
-├── platform / chipset
-├── language
-├── media type
-└── archive file
-```
+## Arquivos
 
-Formatos como LHA/LZX não devem ser tratados como ZIP apenas por conveniência. O suporte a esses formatos deve ser explicitamente implementado quando entrar em escopo.
+Operações de ZIP/7Z/RAR devem passar pelo serviço de arquivo. O serviço deve encapsular diferenças entre bibliotecas Python e executáveis externos.
 
-## 6. RetroArch BIOS
+## Segurança
 
-BIOS de RetroArch é um domínio separado. O catálogo deve ser derivado dos metadados `.info`/fontes confiáveis do ecossistema.
+Entradas externas devem ser consideradas não confiáveis. Extração deve impedir path traversal e links maliciosos quando o formato permitir. Conteúdo não deve ser executado como parte da validação.
 
-Objetivo:
+## Estado
 
-```text
-catalogar
- ↓
-scan/hash
- ↓
-classificar
-├── OK
-├── renomeável
-├── movível
-├── reconstruível
-└── MISSING
- ↓
-operar somente o necessário
-```
-
-A validação deve ser rápida e não fazer nova varredura global desnecessária.
-
-## 7. ArchiveService
-
-Todos os domínios que precisarem manipular arquivos compactados devem utilizar a infraestrutura comum:
-
-```text
-ArchiveService
-├── ZIP → zipfile
-├── 7Z → 7z.exe / py7zr
-└── RAR → backend externo quando necessário
-```
-
-Para reconstrução, o serviço deve suportar criação de ZIP, inclusão/substituição/renomeação quando necessário, teste de integridade, staging e publicação atômica.
-
-## 8. Residual
-
-O residual representa somente requisitos que não puderam ser satisfeitos. Um artefato validado e publicado não deve permanecer como pendência.
-
-No MAME, `current_reconstruction.jsonl` continua sendo o mecanismo atual. Para consoles, o formato de manifesto deve ser definido junto com o Console Reconstruction Service.
-
-## 9. Segurança
-
-- nunca modificar origem;
-- rejeitar path traversal;
-- não publicar arquivo parcial;
-- validar conteúdo antes da publicação;
-- utilizar temporários no destino;
-- limpar temporários após sucesso/falha;
-- não baixar ROMs apenas para atualizar catálogo;
-- não executar arquivos de conteúdo durante validação.
-
-## 10. Próximas etapas
-
-1. Catalog Manager;
-2. No-Intro DAT Manager/Parser;
-3. fixtures reais com Mega Drive/Genesis;
-4. Console Game/ROM/Parent-Clone model;
-5. hash matcher;
-6. ZIP Builder;
-7. validador DAT;
-8. Redump provider/parser;
-9. Disc model;
-10. CHD Builder;
-11. Amiga/Retroplay catalog;
-12. RetroArch BIOS reconstruction;
-13. migração gradual da reconstrução MAME para o ArchiveService.
+Planos e resultados de reconstrução devem poder ser associados à versão do catálogo e às evidências do scan que os originaram. Uma reconstrução antiga não deve ser apresentada como validação automática de um catálogo mais novo.

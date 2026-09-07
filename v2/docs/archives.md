@@ -1,105 +1,31 @@
-# Arquivos compactados e integridade — SERM
+# ArchiveService
 
-**Referência:** 29/08/2026
-
-## Papel
-
-O `ArchiveService` é a infraestrutura única para operações com arquivos compactados. Ele deve ser reutilizado por reconstrução MAME, reconstrução No-Intro, downloads RetroArch, shaders e demais funcionalidades que manipulem ZIP/7Z/RAR.
-
-```text
-ArchiveService
-├── inspeção
-├── listagem
-├── teste
-├── extração
-├── criação
-└── edição controlada
-```
+O ArchiveService encapsula operações sobre arquivos compactados para impedir que regras de ZIP/7Z/RAR sejam espalhadas pelos services.
 
 ## Backends
 
-### ZIP
-
-Usar `zipfile` da biblioteca padrão do Python como backend principal.
-
-### 7Z
-
-Preferência:
-
 ```text
-7z.exe detectado no Windows
-        ↓
-       usar
-
-7z.exe ausente
-        ↓
-      py7zr
+ZIP → Python zipfile
+7Z  → 7z.exe preferencial / backend Python quando suportado
+RAR → backend externo quando necessário
 ```
 
-A detecção procura o executável no PATH e em locais usuais de instalação do Windows. O SERM não altera o PATH do usuário nem exige instalação externa para funcionar.
+## Responsabilidades
 
-### RAR
-
-RAR é suportado como capacidade futura/condicional. O SERM não deve tornar WinRAR obrigatório. Quando um backend externo for necessário, sua disponibilidade deve ser detectada explicitamente.
-
-## Criação de ZIP
-
-Criação é uma operação crítica da reconstrução.
-
-```text
-arquivos
- ↓
-ZIP temporário no destino
- ↓
-teste de integridade
- ↓
-os.replace()
- ↓
-ZIP final
-```
-
-O temporário deve possuir extensão reconhecível pelo serviço ou ser testado explicitamente pelo formato conhecido.
-
-Nunca publicar ZIP parcial.
-
-## Edição
-
-O serviço deverá suportar, quando necessário:
-
-- adicionar;
-- substituir;
-- remover;
-- renomear;
-- criar a partir de conjunto de arquivos.
-
-A implementação deve evitar descompactar/recompactar um conjunto inteiro quando uma estratégia segura e eficiente puder executar a operação necessária diretamente.
+- identificar formato;
+- listar conteúdo;
+- testar integridade quando suportado;
+- extrair para staging seguro;
+- criar/atualizar arquivos quando o workflow exigir;
+- controlar temporários;
+- publicar atomicamente.
 
 ## Segurança
 
-Extrações devem rejeitar caminhos que escapem do destino, incluindo traversal relativo e caminhos absolutos.
+Entradas de archive são não confiáveis. Extração deve validar caminhos e impedir path traversal. Links e objetos especiais devem ser tratados conservadoramente.
 
-Arquivos temporários devem ser limpos em sucesso e falha.
+## Relação com reconstrução
 
-Conteúdo baixado não deve ser executado durante validação de arquivo.
+ArchiveService não decide qual ROM pertence a uma machine. Ele executa operações de arquivo solicitadas pelo serviço de reconstrução.
 
-## Identidade de ROM
-
-Nome de arquivo não define identidade quando hashes estiverem disponíveis. Reconstrução deve utilizar a evidência do catálogo/Scan.
-
-## Relação com CHD
-
-CHD não é um archive genérico. Operações de CHD pertencem ao `CHDService`, usando ferramentas e validações próprias do formato/MAME.
-
-Para discos de consoles, o `CHDService` deverá permitir construção de CHD a partir de imagens compatíveis com a fonte Redump.
-
-## Testes obrigatórios
-
-- ZIP create/list/extract/test;
-- ZIP atomic publication;
-- path traversal;
-- arquivos grandes;
-- 7Z com 7z.exe;
-- 7Z sem 7z.exe usando py7zr;
-- RAR quando backend estiver implementado;
-- falha de extração sem resíduos;
-- falha de criação sem arquivo final parcial.
+CHD possui tratamento específico e não deve ser confundido com um archive genérico.
