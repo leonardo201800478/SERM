@@ -9,7 +9,7 @@ agnostica ao armazenamento fisico: nao verifica arquivos no disco.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import StrEnum
 
 from ...models.arcade import ArcadeGame, ArcadePlatform, ArcadeSet, ArcadeSetType
@@ -22,6 +22,7 @@ class SetBuildDecision(StrEnum):
     DEPENDENCY = "dependency"
     EXCLUDED = "excluded"
     MISSING_DEPENDENCY = "missing_dependency"
+    UNSATISFIED_DEPENDENCY = "unsatisfied_dependency"
     CYCLE = "cycle"
 
 
@@ -46,6 +47,7 @@ class SetBuildResult:
     arcade_set: ArcadeSet
     traces: tuple[SetBuildTrace, ...]
     missing_dependencies: tuple[str, ...] = ()
+    unsatisfied_dependencies: tuple[str, ...] = ()
     cycles: tuple[tuple[str, ...], ...] = ()
 
     @property
@@ -58,7 +60,11 @@ class SetBuildResult:
 
     @property
     def is_valid(self) -> bool:
-        return not self.missing_dependencies and not self.cycles
+        return not (
+            self.missing_dependencies
+            or self.unsatisfied_dependencies
+            or self.cycles
+        )
 
 
 class ArcadeSetBuilder:
@@ -90,6 +96,7 @@ class ArcadeSetBuilder:
 
         included: dict[str, SetBuildTrace] = {}
         missing: set[str] = set()
+        unsatisfied: set[str] = set()
         cycles: list[tuple[str, ...]] = []
 
         def visit(machine_name: str, dependency_of: str | None, stack: tuple[str, ...]) -> None:
@@ -98,7 +105,14 @@ class ArcadeSetBuilder:
                 if cycle not in cycles:
                     cycles.append(cycle)
                 return
-            if machine_name in included:
+            existing = included.get(machine_name)
+            if existing is not None:
+                if dependency_of is None and existing.decision is SetBuildDecision.DEPENDENCY:
+                    included[machine_name] = SetBuildTrace(
+                        machine_name,
+                        SetBuildDecision.SELECTED,
+                        "maquina selecionada",
+                    )
                 return
             game = catalog.get(machine_name)
             if game is None:
@@ -112,13 +126,25 @@ class ArcadeSetBuilder:
                 visit(dependency, machine_name, stack + (machine_name,))
 
             if self._metadata_flag(game, "is_bios") and not include_bios:
+                decision = SetBuildDecision.EXCLUDED
+                reason = "BIOS desabilitado"
+                if dependency_of is not None:
+                    unsatisfied.add(machine_name)
+                    decision = SetBuildDecision.UNSATISFIED_DEPENDENCY
+                    reason = f"BIOS necessario para {dependency_of}, mas BIOS esta desabilitado"
                 included[machine_name] = SetBuildTrace(
-                    machine_name, SetBuildDecision.EXCLUDED, "BIOS desabilitado", dependency_of
+                    machine_name, decision, reason, dependency_of
                 )
                 return
             if self._metadata_flag(game, "is_device") and not include_devices:
+                decision = SetBuildDecision.EXCLUDED
+                reason = "device desabilitado"
+                if dependency_of is not None:
+                    unsatisfied.add(machine_name)
+                    decision = SetBuildDecision.UNSATISFIED_DEPENDENCY
+                    reason = f"device necessario para {dependency_of}, mas devices estao desabilitados"
                 included[machine_name] = SetBuildTrace(
-                    machine_name, SetBuildDecision.EXCLUDED, "device desabilitado", dependency_of
+                    machine_name, decision, reason, dependency_of
                 )
                 return
 
@@ -132,6 +158,15 @@ class ArcadeSetBuilder:
         for machine in sorted(missing):
             included[machine] = SetBuildTrace(
                 machine, SetBuildDecision.MISSING_DEPENDENCY, "dependencia nao encontrada"
+            )
+
+        for machine in sorted(unsatisfied):
+            trace = included[machine]
+            included[machine] = SetBuildTrace(
+                machine,
+                SetBuildDecision.UNSATISFIED_DEPENDENCY,
+                trace.reason,
+                trace.dependency_of,
             )
 
         ordered_names = sorted(
@@ -153,6 +188,7 @@ class ArcadeSetBuilder:
             arcade_set=result_set,
             traces=tuple(included[machine] for machine in sorted(included)),
             missing_dependencies=tuple(sorted(missing)),
+            unsatisfied_dependencies=tuple(sorted(unsatisfied)),
             cycles=tuple(cycles),
         )
 
