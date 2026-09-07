@@ -1,163 +1,58 @@
-# Banco de dados do ARCADE MANAGER
+# Banco de dados V2
 
-**Referência:** 23/08/2026
+## Papel
 
-SQLite é o banco principal. O schema e as migrations presentes no repositório são a autoridade para qualquer alteração.
+O banco local é o estado persistente administrado pelo SERM. Ele guarda metadados, relações, configurações, catálogo normalizado e estado operacional de scans.
 
-## Regra de alteração
+**Não** é um armazenamento dos ROMs físicos.
 
-Antes de modificar tabelas:
-
-1. consultar schema/migrations;
-2. consultar modelos;
-3. consultar repositories/services;
-4. localizar consumidores;
-5. avaliar compatibilidade;
-6. alterar migration;
-7. executar testes.
-
-Documentação nunca substitui o schema real.
-
-## Papel do banco
-
-O banco persiste dados estruturais, catálogo, configurações de domínio, filtros, perfis e metadados.
-
-O `current_scan.jsonl` continua sendo o manifesto físico de uma execução de Scan e não deve ser substituído por consultas improvisadas da GUI.
-
-## Separação do núcleo de ROM
+## Stack
 
 ```text
-MAME/listxml
-   ↓
-dataset/modelos
-   ↓
+Python
+  ↓
+SQLAlchemy 2.x
+  ↓
 SQLite
-
-filesystem
-   ↓
-ScanResult
-   ↓
-current_scan.jsonl
+  ↑
+versioned SQL migrations
 ```
 
-A reconstrução consome o manifesto físico produzido pelo Scan.
+As versões e dependências oficiais estão definidas em `pyproject.toml`.
 
-## Domínios futuros
+## Estrutura
 
-A evolução do banco deverá separar claramente:
+`serm_v2/database/` contém:
 
-### Biblioteca
+- `engine.py` — criação/configuração do engine;
+- `bootstrap.py` — inicialização do banco e aplicação das migrations;
+- `models/` — modelos ORM quando aplicáveis;
+- `migrations/` — evolução versionada do schema.
 
-- machine;
-- ROM;
-- disk;
-- CHD;
-- BIOS;
-- device;
-- sample;
-- parent/clone;
-- dependências.
+## Princípios
 
-### Emuladores
+1. O schema V2 não replica o banco V1.
+2. Cada mudança estrutural deve possuir migration.
+3. Migrations aplicadas são imutáveis.
+4. Catálogos externos são normalizados antes de serem tratados como dados V2.
+5. Caminhos físicos continuam referências para recursos externos.
+6. Dados de scan devem ser persistíveis e reprocessáveis.
 
-- emulator;
-- backend;
-- installation;
-- runtime capability;
-- emulator configuration metadata.
+## Migrations
 
-### RetroArch
+As migrations são numeradas e devem ser aplicadas em ordem. A árvore atual contém migrations para configuração, localização, catálogo MAME, dados brutos, classificação, metadados, CHD/scan e pipelines auxiliares.
 
-- retroarch installation;
-- core;
-- core version;
-- core installation;
-- core source/provider.
+Há migrations com numeração histórica coincidente entre domínios diferentes. Antes de criar uma nova migration, deve-se verificar a sequência efetivamente existente no diretório para evitar colisões.
 
-### Plugins
+## Integridade
 
-- plugin;
-- plugin version;
-- plugin installation;
-- plugin compatibility;
-- plugin configuration.
+Alterações de banco devem ser acompanhadas de:
 
-### Controles
+- teste de bootstrap em banco limpo;
+- teste de upgrade a partir do estado anterior relevante;
+- verificação das constraints e índices;
+- compatibilidade com os services que consomem o schema.
 
-- physical device;
-- hardware profile;
-- control profile;
-- control family;
-- control mapping;
-- machine override.
+## Localização do banco
 
-### Hardware arcade
-
-- arcade hardware profile;
-- wheel rotation;
-- pedals;
-- transmission;
-- analog ranges;
-- specialized controls.
-
-### Force Feedback
-
-- FFB profile;
-- FFB family assignment;
-- FFB game override;
-- plugin association.
-
-### Downloads
-
-- provider;
-- package;
-- version;
-- download source;
-- installed package;
-- download job/history quando necessário.
-
-## Regra de normalização
-
-Não duplicar uma machine/ROM para representar diferentes modos de execução.
-
-```text
-Machine
- ├── MAME backend
- ├── FBNeo backend
- └── RetroArch + core
-```
-
-As relações de execução devem apontar para a mesma entidade lógica.
-
-## Regra de herança
-
-Perfis de controle e FFB devem poder possuir herança:
-
-```text
-Global
- ↓
-Family
- ↓
-Machine
-```
-
-O override específico deve vencer o perfil genérico.
-
-## Migrações
-
-A expansão deverá ocorrer em migrations incrementais. Não remodelar o banco inteiro de uma vez apenas por causa da nova arquitetura.
-
-Cada nova entidade deve ser implementada somente após auditar seus consumidores.
-
-## Pendências
-
-- completar persistência estrutural do listxml;
-- Dependency Resolver;
-- entidades de emuladores/backends;
-- RetroArch/core;
-- plugins;
-- controles/perfis;
-- hardware arcade;
-- FFB;
-- download manager;
-- testes de migration e integração.
+A arquitetura permite separar o estado do aplicativo do diretório de instalação e também suporta um modo portable. A política concreta de paths deve ser mantida no runtime/config, não espalhada pelos services.
