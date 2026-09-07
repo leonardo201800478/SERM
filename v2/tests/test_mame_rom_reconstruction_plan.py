@@ -9,6 +9,7 @@ def rom(machine: str, name: str, **metadata: object) -> ArcadeRom:
     return ArcadeRom(
         machine_name=machine,
         display_name=name,
+        platform="mame",
         metadata=metadata,
     )
 
