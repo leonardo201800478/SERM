@@ -353,7 +353,7 @@ class ReconstructionService:
         temp = Path(temp_name)
         try:
             with zipfile.ZipFile(temp, "w", compression=zipfile.ZIP_STORED) as zout:
-                for member, (source, name) in unique.items():
+                for _member, (source, name) in unique.items():
                     with zipfile.ZipFile(source, "r") as zin:
                         info = zin.getinfo(name)
                         with (

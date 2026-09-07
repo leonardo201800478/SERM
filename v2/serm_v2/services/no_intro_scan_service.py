@@ -466,7 +466,7 @@ class NoIntroScanService:
         if extension:
             tags.append(f"extension:{extension}")
         tags.extend(f"region:{r}" for r in dict.fromkeys(regions))
-        tags.extend(f"language:{l}" for l in dict.fromkeys(languages))
+        tags.extend(f"language:{language}" for language in dict.fromkeys(languages))
         base = re.sub(r"^\[BIOS\]\s*", "", game_name, flags=re.I)
         base = re.sub(r"\s+\([^()]*\)", "", base)
         base = re.sub(r"\s+\[[^\]]*\]", "", base)
