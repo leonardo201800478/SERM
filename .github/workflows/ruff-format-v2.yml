@@ -1,0 +1,48 @@
+name: Ruff V2 format and lint
+
+on:
+  push:
+    branches:
+      - feature/arcade-studio-catalog
+
+permissions:
+  contents: write
+
+jobs:
+  ruff:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: v2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install Ruff
+        run: python -m pip install "ruff>=0.12,<1"
+
+      - name: Format
+        run: ruff format .
+
+      - name: Autofix lint
+        run: ruff check . --fix
+
+      - name: Commit corrections
+        working-directory: .
+        run: |
+          if git diff --quiet; then
+            echo "No Ruff corrections needed."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add v2
+          git commit -m "style: apply Ruff corrections to V2"
+          git push
