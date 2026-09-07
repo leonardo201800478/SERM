@@ -23,7 +23,6 @@ classifiers = [
 dependencies = [
     "PySide6>=6.8,<7",
     "SQLAlchemy>=2.0,<3",
-    "alembic>=1.16,<2",
 ]
 
 [project.optional-dependencies]
