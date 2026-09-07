@@ -61,10 +61,10 @@ def _configure_splitter(splitter: QSplitter, object_name: str, sizes: list[int])
     splitter.setChildrenCollapsible(False)
     splitter.setHandleWidth(5)
     splitter.setOpaqueResize(True)
-    splitter.setStyleSheet(SPLITTER_STYLE)
     for index in range(splitter.count()):
         splitter.setCollapsible(index, False)
     splitter.setSizes(sizes)
+    splitter.setStyleSheet(SPLITTER_STYLE)
 
 
 def _collect_emulator_cards(home) -> list[QWidget]:
@@ -77,7 +77,6 @@ def _collect_emulator_cards(home) -> list[QWidget]:
         card = entry[0].parentWidget()
         if card is not None and card not in cards:
             cards.append(card)
-
         old_progress = entry[3]
         if old_progress is None:
             continue
@@ -98,7 +97,6 @@ def _build_arcade_splitter(cards: list[QWidget]) -> QSplitter:
     right.addWidget(cards[3])
     _configure_splitter(left, "splitterEmulatorsLeft", [1, 1])
     _configure_splitter(right, "splitterEmulatorsRight", [1, 1])
-
     outer = QSplitter(Qt.Orientation.Horizontal)
     outer.addWidget(left)
     outer.addWidget(right)
@@ -117,7 +115,6 @@ def _build_progress_row(page: QWidget) -> tuple[QProgressBar, QLabel, QWidget]:
     progress.setStyleSheet(XP_PROGRESS_STYLE)
     progress.setMinimumHeight(18)
     progress.setMaximumHeight(18)
-
     status_row = QWidget(page)
     status_layout = QHBoxLayout(status_row)
     status_layout.setContentsMargins(0, 0, 0, 0)
@@ -134,49 +131,38 @@ def _replace_arcade_cards(home) -> bool:
     tabs = getattr(home, "home_tabs", None)
     if tabs is None or tabs.count() == 0:
         return False
-
     page = tabs.widget(0)
     if page is None or page.property("arcade_refined"):
         return False
-
     layout = page.layout()
     if layout is None:
         return False
-
     cards = _collect_emulator_cards(home)
     if len(cards) != 4:
         return False
-
     frame = next((w for w in page.findChildren(QFrame) if w.layout() is not None), None)
     if frame is None:
         return False
-
     index = layout.indexOf(frame)
     if index < 0:
         return False
-
     layout.removeWidget(frame)
     splitter = _build_arcade_splitter(cards)
-
     container = QWidget(page)
     container.setObjectName("emulatorCardsContainer")
     container_layout = QVBoxLayout(container)
     container_layout.setContentsMargins(0, 0, 0, 0)
     container_layout.addWidget(splitter)
     layout.insertWidget(index, container, 1)
-
     frame.setParent(None)
     frame.deleteLater()
-
     progress, status_label, status_row = _build_progress_row(page)
     layout.insertWidget(index + 1, status_row)
-
     home.home_progress = progress
     home.home_progress_label = status_label
     for key in home.EMULATORS:
         entry = home.cards[key]
         home.cards[key] = (entry[0], entry[1], entry[2], progress, entry[4])
-
     page.setProperty("arcade_refined", True)
     return True
 
@@ -194,24 +180,20 @@ def _refine_retroarch_splitter(home) -> bool:
     retro_log = getattr(home, "retro_log", None)
     if layout is None or core_list is None or retro_log is None:
         return False
-
     list_index = layout.indexOf(core_list)
     log_index = layout.indexOf(retro_log)
     if list_index < 0 or log_index < 0:
         return False
-
     log_label = None
     if log_index > 0:
         candidate = layout.itemAt(log_index - 1).widget()
         if isinstance(candidate, QLabel) and candidate.text().strip() == "Log RetroArch":
             log_label = candidate
             layout.removeWidget(candidate)
-
     layout.removeWidget(core_list)
     layout.removeWidget(retro_log)
     splitter = QSplitter(Qt.Orientation.Vertical)
     splitter.addWidget(core_list)
-
     log_panel = QWidget(page)
     log_layout = QVBoxLayout(log_panel)
     log_layout.setContentsMargins(0, 0, 0, 0)
@@ -221,14 +203,12 @@ def _refine_retroarch_splitter(home) -> bool:
     splitter.addWidget(log_panel)
     _configure_splitter(splitter, "splitterRetroArchCatalogLog", [3, 2])
     layout.insertWidget(min(list_index, log_index), splitter, 1)
-
     retro_progress = getattr(home, "retro_progress", None)
     if retro_progress is not None:
         retro_progress.setObjectName("xpProgress")
         retro_progress.setStyleSheet(XP_PROGRESS_STYLE)
         retro_progress.setMinimumHeight(18)
         retro_progress.setMaximumHeight(18)
-
     page.setProperty("retro_splitter_refined", True)
     return True
 
@@ -241,38 +221,33 @@ def _set_compact_font(widget: QWidget, point_size: float) -> None:
 
 
 def _refine_arcade_studio(window) -> bool:
-    """Compacta o Arcade Studio para privilegiar os dados operacionais na área útil."""
+    """Compacta o Arcade Studio sem impor altura artificial ao conteúdo principal."""
     studio = getattr(window, "arcade_studio_tab", None)
     if studio is None or studio.property("layout_refined"):
         return False
-
     page_layout = studio.layout()
     if page_layout is None:
         return False
-
     page_layout.setContentsMargins(0, 0, 0, 0)
     page_layout.setSpacing(4)
-
-    # Tipografia ligeiramente menor no Studio, preservando destaque do título.
     for child in studio.findChildren(QWidget):
         _set_compact_font(child, 9.0)
     title = studio.findChild(QLabel, "", options=Qt.FindChildOption.FindDirectChildrenOnly)
     if title is not None:
         _set_compact_font(title, 14.0)
         title.setMaximumHeight(26)
-
     intro = page_layout.itemAt(1).widget() if page_layout.count() > 1 else None
     if isinstance(intro, QLabel):
         intro.setMaximumHeight(28)
         intro.setWordWrap(False)
-
     tabs = getattr(studio, "tabs", None)
     if isinstance(tabs, QTabWidget):
         tabs.setDocumentMode(True)
         tabs.setUsesScrollButtons(False)
-        tabs.setMaximumHeight(30)
+        tabs.setMinimumHeight(30)
+        tabs.setMaximumHeight(16777215)
+        tabs.tabBar().setFixedHeight(28)
         _set_compact_font(tabs, 9.0)
-
     catalog = tabs.widget(0) if isinstance(tabs, QTabWidget) else None
     if catalog is None:
         return False
@@ -280,7 +255,6 @@ def _refine_arcade_studio(window) -> bool:
     if catalog_layout is not None:
         catalog_layout.setContentsMargins(2, 2, 2, 2)
         catalog_layout.setSpacing(3)
-
     source_box = catalog.findChild(QGroupBox, "", options=Qt.FindChildOption.FindDirectChildrenOnly)
     if source_box is not None:
         source_box.setMaximumHeight(145)
@@ -289,25 +263,21 @@ def _refine_arcade_studio(window) -> bool:
             source_layout.setContentsMargins(7, 5, 7, 5)
             source_layout.setVerticalSpacing(2)
             source_layout.setHorizontalSpacing(7)
-
     for edit in catalog.findChildren(QLineEdit):
         edit.setMinimumHeight(22)
         edit.setMaximumHeight(24)
     for button in catalog.findChildren(QPushButton):
         button.setMinimumHeight(22)
         button.setMaximumHeight(25)
-
     progress = getattr(studio, "load_progress", None)
     if isinstance(progress, QProgressBar):
         progress.setMinimumHeight(11)
         progress.setMaximumHeight(11)
-
     for label_name in ("scan_info", "comparison_status", "catalog_details"):
         label = getattr(studio, label_name, None)
         if isinstance(label, QLabel):
             label.setMaximumHeight(25 if label_name != "catalog_details" else 28)
             label.setWordWrap(False)
-
     table = getattr(studio, "catalog_table", None)
     if isinstance(table, QTableWidget):
         table.verticalHeader().setDefaultSectionSize(21)
@@ -319,7 +289,6 @@ def _refine_arcade_studio(window) -> bool:
         header.setSectionResizeMode(8, QHeaderView.ResizeMode.Stretch)
         table.setWordWrap(False)
         table.setAlternatingRowColors(True)
-
     tree = getattr(studio, "rom_tree", None)
     if isinstance(tree, QTreeWidget):
         tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
@@ -329,17 +298,17 @@ def _refine_arcade_studio(window) -> bool:
         tree.header().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         tree.setUniformRowHeights(True)
         tree.setIndentation(16)
-
-    splitter = getattr(studio, "catalog_table", None)
     splitters = catalog.findChildren(QSplitter)
     if splitters:
         main_splitter = splitters[0]
         main_splitter.setChildrenCollapsible(False)
         main_splitter.setStretchFactor(0, 58)
         main_splitter.setStretchFactor(1, 42)
-        QTimer.singleShot(0, lambda s=main_splitter: s.setSizes([max(260, int(s.height() * 0.58)), max(180, int(s.height() * 0.42))]))
-
-    # O título recebe um nome para permitir refinamentos futuros sem varrer widgets.
+        def _set_studio_split_sizes() -> None:
+            height = main_splitter.height()
+            if height > 0:
+                main_splitter.setSizes([max(260, int(height * 0.58)), max(180, int(height * 0.42))])
+        QTimer.singleShot(0, _set_studio_split_sizes)
     if title is not None:
         title.setObjectName("arcadeStudioTitle")
     studio.setProperty("layout_refined", True)
@@ -350,20 +319,15 @@ def apply_ui_refinement(window) -> dict[str, bool]:
     """Aplica a segunda camada visual sem alterar serviços ou lógica funcional."""
     for widget in window.findChildren(QProgressBar):
         widget.setMaximumHeight(max(widget.maximumHeight(), 18))
-
     home = getattr(window, "home_section", None)
     arcade_studio = _refine_arcade_studio(window)
     if home is None:
         return {"arcade": False, "retroarch": False, "arcade_studio": arcade_studio}
-
     arcade = _replace_arcade_cards(home)
     retroarch = _refine_retroarch_splitter(home)
-
-    # Consoles mantêm o stylesheet global do tema de fósforo/pixel.
     for console in window.findChildren(type(home.log_view)):
         console.setStyleSheet("")
         console.setObjectName("logConsole")
-
     return {"arcade": arcade, "retroarch": retroarch, "arcade_studio": arcade_studio}
 
 
