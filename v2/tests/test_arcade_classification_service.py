@@ -75,7 +75,10 @@ def test_mame_control_schema_is_understood() -> None:
 
     result = ArcadeClassificationService().classify(game)
 
-    assert ArcadeInputType.STEERING_WHEEL in result.inputs
+    # MAME's generic ``paddle`` control is an analog input; it is not
+    # sufficient evidence by itself to classify a physical steering wheel.
+    assert ArcadeInputType.ANALOG in result.inputs
+    assert ArcadeInputType.STEERING_WHEEL not in result.inputs
     assert ArcadeInputType.PEDALS in result.inputs
     assert ArcadeInputType.BUTTONS_4 in result.inputs
 
