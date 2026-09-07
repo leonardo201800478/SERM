@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 from serm_v2.models.arcade import ArcadePlatform, PlayabilityStatus
+from serm_v2.models.arcade_classification import ArcadeContentType
 from serm_v2.services.arcade.filter_engine import ArcadeFilterEngine
 from serm_v2.services.arcade.mame_filter_v2_service import MameFilterV2Service
 
@@ -11,6 +12,7 @@ def _state(**overrides):
         categories=[], subcategories=[], content=[], playability=[], genre=[], hardware=[], manufacturer=[], series=[], input=[], wheel=[],
         title_query="", full_text="", rom_query="", parent_query="", clone_query="", video_query="", audio_query="", screen_query="", orientation="all", cabinet_query="", channels_query="",
         year_from=None, year_to=None, type_filter="all",
+        mamecab_only=True,
         mame_include_bios=False, mame_include_devices=False, mame_include_optional=True, mame_include_chd=True,
         mame_working_only=False, mame_clone_policy="with_clones", mame_set_type="split", database_path=None,
     )
@@ -71,3 +73,16 @@ def test_non_matching_advanced_query_produces_zero_machines():
     state = _state(title_query="this-machine-does-not-exist")
     result = ArcadeFilterEngine().apply(games, MameFilterV2Service._rules(state, games))
     assert result.included_count == 0
+
+
+def test_mamecab_only_is_inclusive_arcade_filter_and_can_be_disabled():
+    games = MameFilterV2Service._games({"evidence": [
+        {"machine_name": "pacman", "description": "Pac-Man", "categories": ["Arcade"]},
+        {"machine_name": "nes", "description": "Nintendo Entertainment System", "categories": ["Console"]},
+    ]})
+    arcade = ArcadeFilterEngine().apply(games, MameFilterV2Service._rules(_state(mamecab_only=True)))
+    all_content = ArcadeFilterEngine().apply(games, MameFilterV2Service._rules(_state(mamecab_only=False)))
+    assert [item.game.machine_name for item in arcade.games] == ["pacman"]
+    assert {item.game.machine_name for item in all_content.games} == {"pacman", "nes"}
+    assert ArcadeContentType.ARCADE in MameFilterV2Service._rules(_state()).included_content_types
+    assert not MameFilterV2Service._rules(_state(mamecab_only=False)).included_content_types
