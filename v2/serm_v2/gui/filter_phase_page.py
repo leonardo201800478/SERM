@@ -165,13 +165,8 @@ class _GenericFilterTab(QWidget):
             run_id = uuid4().hex[:16]
             out_dir = scans_root() / "filtered" / str(self.source).casefold().replace("-", "_")
             out_dir.mkdir(parents=True, exist_ok=True)
-            label = (
-                str(payload.get("catalog_label") or "catalog").replace("/", "_").replace("\\", "_")
-            )
-            out = (
-                out_dir
-                / f"{self.source}_{label}_{payload.get('scan_type', 'full')}_FILTER_{run_id}.json"
-            )
+            label = str(payload.get("catalog_label") or "catalog").replace("/", "_").replace("\\", "_")
+            out = out_dir / f"{self.source}_{label}_{payload.get('scan_type', 'full')}_FILTER_{run_id}.json"
             source_count = len(payload.get("evidence", []))
             result = {
                 "format": "SERM-FILTER-V2",
@@ -189,29 +184,20 @@ class _GenericFilterTab(QWidget):
                 "input_count": source_count,
                 "output_count": len(evidence),
                 "filtered_count": source_count - len(evidence),
-                "filter_counts": {
-                    "status": "current_or_duplicate"
-                    if self.keep_duplicates.isChecked()
-                    else "current_only"
-                },
-                "filters": {
-                    "current_only": self.current_only.isChecked(),
-                    "keep_duplicates": self.keep_duplicates.isChecked(),
-                },
+                "filter_counts": {"status": "current_or_duplicate" if self.keep_duplicates.isChecked() else "current_only"},
+                "filters": {"current_only": self.current_only.isChecked(), "keep_duplicates": self.keep_duplicates.isChecked()},
                 "evidence": evidence,
             }
             out.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
             result["filtered_file_path"] = str(out)
             ScanRepository(database_path()).save_filter_result(result)
-            self.result.setText(
-                f"ARQUIVO FILTRADO GERADO\n{out}\nentrada={source_count:,} | saída={len(evidence):,}"
-            )
+            self.result.setText(f"ARQUIVO FILTRADO GERADO\n{out}\nentrada={source_count:,} | saída={len(evidence):,}")
         except (OSError, ValueError, TypeError) as exc:
             QMessageBox.critical(self, "Filtragem", f"Falha ao gerar arquivo filtrado:\n{exc}")
 
 
 class _MameFilterTab(QWidget):
-    """Guia MAME com filtros fundamentais e seleção CATLIST persistida por perfil."""
+    """Guia MAME com semântica direta: verde permanece, vermelho é excluído."""
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -226,11 +212,10 @@ class _MameFilterTab(QWidget):
         title.setProperty("role", "title")
         layout.addWidget(title)
         desc = QLabel(
-            "Entrada: somente scan MAME concluído. Saída: novo snapshot filtrado. O scan bruto permanece imutável."
+            "SEMÂNTICA: ✓ verde = permanece no set | ✕ vermelho = excluído. Mechanical e Fruit Machines começam excluídos por padrão."
         )
         desc.setWordWrap(True)
         layout.addWidget(desc)
-
         box = QGroupBox("1. Scan completo")
         v = QVBoxLayout(box)
         self.scan_combo = QComboBox()
@@ -240,7 +225,6 @@ class _MameFilterTab(QWidget):
         self.scan_info.setWordWrap(True)
         v.addWidget(self.scan_info)
         layout.addWidget(box)
-
         profile_box = QGroupBox("2. Perfil")
         pv = QVBoxLayout(profile_box)
         self.profile_combo = QComboBox()
@@ -250,20 +234,21 @@ class _MameFilterTab(QWidget):
         self.save_profile_button.clicked.connect(self._save_profile)
         pv.addWidget(self.save_profile_button)
         layout.addWidget(profile_box)
-
-        fundamental = QGroupBox("Filtros fundamentais")
+        fundamental = QGroupBox("3. Categorias fundamentais")
         fv = QVBoxLayout(fundamental)
         self.fundamental_checks: dict[str, QCheckBox] = {}
         for key, definition in FILTER_DEFINITIONS.items():
-            check = QCheckBox(str(definition["label"]))
+            check = QCheckBox(f"✓ {definition['label']}")
             check.setToolTip(str(definition["description"]))
             check.setChecked(DEFAULT_FILTERS[key])
+            check.setStyleSheet(
+                "QCheckBox { color: #b02020; } QCheckBox:checked { color: #198754; font-weight: 600; }"
+            )
             check.stateChanged.connect(self._rules_changed)
             self.fundamental_checks[key] = check
             fv.addWidget(check)
         layout.addWidget(fundamental)
-
-        catlist = QGroupBox("CATLIST — excluir categorias e subcategorias")
+        catlist = QGroupBox("4. CATLIST — categorias e subcategorias")
         cv = QVBoxLayout(catlist)
         self.catlist_tree = QTreeWidget()
         self.catlist_tree.setHeaderLabels(("Categoria / subcategoria", "Máquinas"))
@@ -272,13 +257,12 @@ class _MameFilterTab(QWidget):
         self.catlist_tree.itemChanged.connect(self._catlist_changed)
         cv.addWidget(self.catlist_tree)
         catlist_hint = QLabel(
-            "Marque uma categoria para excluir todas as suas máquinas, ou marque apenas subcategorias específicas. A seleção é salva por perfil."
+            "✓ verde = categoria permanece. ✕ vermelho = categoria é excluída. Todas começam incluídas; desmarque somente o que não deseja no set."
         )
         catlist_hint.setWordWrap(True)
         cv.addWidget(catlist_hint)
         layout.addWidget(catlist, 1)
-
-        advanced = QGroupBox("Seleção de set")
+        advanced = QGroupBox("5. Política de set")
         av = QVBoxLayout(advanced)
         self.clone_policy = QComboBox()
         self.clone_policy.addItem("Com clones", "with_clones")
@@ -289,16 +273,10 @@ class _MameFilterTab(QWidget):
         self.include_devices = QCheckBox("Incluir Devices")
         self.include_optional = QCheckBox("Incluir ROMs opcionais")
         self.working_only = QCheckBox("Somente máquinas working")
-        for check in (
-            self.include_bios,
-            self.include_devices,
-            self.include_optional,
-            self.working_only,
-        ):
+        for check in (self.include_bios, self.include_devices, self.include_optional, self.working_only):
             check.stateChanged.connect(self._rules_changed)
             av.addWidget(check)
         layout.addWidget(advanced)
-
         self.preview = QLabel("Selecione um scan para calcular o resultado.")
         self.preview.setWordWrap(True)
         layout.addWidget(self.preview)
@@ -321,16 +299,12 @@ class _MameFilterTab(QWidget):
         try:
             with sqlite3.connect(database_path()) as connection:
                 connection.row_factory = sqlite3.Row
-                rows = connection.execute(
-                    "SELECT * FROM scan_runs WHERE status='completed' AND lower(source)='mame' ORDER BY started_at DESC"
-                ).fetchall()
+                rows = connection.execute("SELECT * FROM scan_runs WHERE status='completed' AND lower(source)='mame' ORDER BY started_at DESC").fetchall()
         except sqlite3.Error:
             rows = []
         for row in rows:
             data = dict(row)
-            self.scan_combo.addItem(
-                f"{data['catalog_label'] or 'MAME'} › {data['scan_type']} | {data['scan_id']}", data
-            )
+            self.scan_combo.addItem(f"{data['catalog_label'] or 'MAME'} › {data['scan_type']} | {data['scan_id']}", data)
         self.scan_combo.blockSignals(False)
 
     def _refresh_profiles(self) -> None:
@@ -341,15 +315,7 @@ class _MameFilterTab(QWidget):
                 for item in raw:
                     if isinstance(item, dict):
                         try:
-                            profiles.append(
-                                FilterProfileData(
-                                    **{
-                                        k: v
-                                        for k, v in item.items()
-                                        if k in FilterProfileData.__dataclass_fields__
-                                    }
-                                )
-                            )
+                            profiles.append(FilterProfileData(**{k: v for k, v in item.items() if k in FilterProfileData.__dataclass_fields__}))
                         except (TypeError, ValueError):
                             pass
         except (OSError, ValueError, TypeError):
@@ -363,7 +329,6 @@ class _MameFilterTab(QWidget):
         self.profile_combo.blockSignals(False)
 
     def _refresh_catlist(self) -> None:
-        """Carrega o catálogo CATLIST disponível sem selecionar nada por padrão."""
         self._catlist_loading = True
         self.catlist_tree.blockSignals(True)
         self.catlist_tree.clear()
@@ -371,7 +336,6 @@ class _MameFilterTab(QWidget):
             rows = MameCategoryFilterService.tree(database_path())
         except (OSError, sqlite3.Error, TypeError, ValueError):
             rows = []
-
         categories: dict[str, QTreeWidgetItem] = {}
         for row in rows:
             category = str(row.get("category") or "[Sem categoria]")
@@ -381,13 +345,13 @@ class _MameFilterTab(QWidget):
             if parent is None:
                 parent = QTreeWidgetItem(self.catlist_tree, [category, ""])
                 parent.setFlags(parent.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-                parent.setCheckState(0, Qt.CheckState.Unchecked)
+                parent.setCheckState(0, Qt.CheckState.Checked)
                 parent.setData(0, Qt.ItemDataRole.UserRole, ("category", category))
                 categories[category] = parent
             if subcategory:
                 child = QTreeWidgetItem(parent, [subcategory, f"{machines:,}"])
                 child.setFlags(child.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-                child.setCheckState(0, Qt.CheckState.Unchecked)
+                child.setCheckState(0, Qt.CheckState.Checked)
                 child.setData(0, Qt.ItemDataRole.UserRole, ("subcategory", subcategory))
             else:
                 parent.setText(1, f"{machines:,}")
@@ -400,35 +364,21 @@ class _MameFilterTab(QWidget):
 
     def _load_catlist_for_current_profile(self) -> None:
         profile = self.profile_combo.currentData()
-        values = (
-            MameCategoryFilterService.load(profile.profile_id)
-            if isinstance(profile, FilterProfileData)
-            else {"categories": [], "subcategories": []}
-        )
-        selected_categories = set(values.get("categories", []))
-        selected_subcategories = set(values.get("subcategories", []))
+        values = MameCategoryFilterService.load(profile.profile_id) if isinstance(profile, FilterProfileData) else {"categories": [], "subcategories": []}
+        excluded_categories = set(values.get("categories", []))
+        excluded_subcategories = set(values.get("subcategories", []))
         self._catlist_loading = True
         self.catlist_tree.blockSignals(True)
         for index in range(self.catlist_tree.topLevelItemCount()):
             parent = self.catlist_tree.topLevelItem(index)
-            category_data = parent.data(0, Qt.ItemDataRole.UserRole)
-            if isinstance(category_data, tuple) and category_data[0] == "category":
-                parent.setCheckState(
-                    0,
-                    Qt.CheckState.Checked
-                    if category_data[1] in selected_categories
-                    else Qt.CheckState.Unchecked,
-                )
+            data = parent.data(0, Qt.ItemDataRole.UserRole)
+            category = str(data[1]) if isinstance(data, tuple) and data[0] == "category" else ""
+            parent.setCheckState(0, Qt.CheckState.Unchecked if category in excluded_categories else Qt.CheckState.Checked)
             for child_index in range(parent.childCount()):
                 child = parent.child(child_index)
                 child_data = child.data(0, Qt.ItemDataRole.UserRole)
-                if isinstance(child_data, tuple) and child_data[0] == "subcategory":
-                    child.setCheckState(
-                        0,
-                        Qt.CheckState.Checked
-                        if child_data[1] in selected_subcategories
-                        else Qt.CheckState.Unchecked,
-                    )
+                subcategory = str(child_data[1]) if isinstance(child_data, tuple) and child_data[0] == "subcategory" else ""
+                child.setCheckState(0, Qt.CheckState.Unchecked if subcategory in excluded_subcategories else Qt.CheckState.Checked)
         self.catlist_tree.blockSignals(False)
         self._catlist_loading = False
 
@@ -445,9 +395,7 @@ class _MameFilterTab(QWidget):
             self.scan_info.setText("Nenhum scan selecionado.")
             self.apply_button.setEnabled(False)
             return
-        self.scan_info.setText(
-            f"Entrada: {data.get('scan_file_path')}\nCURRENT={self._status_count(data, 'CURRENT'):,} | MISSING={self._status_count(data, 'MISSING'):,} | WRONG={self._status_count(data, 'WRONG'):,}"
-        )
+        self.scan_info.setText(f"Entrada: {data.get('scan_file_path')}\nCURRENT={self._status_count(data, 'CURRENT'):,} | MISSING={self._status_count(data, 'MISSING'):,} | WRONG={self._status_count(data, 'WRONG'):,}")
         self.apply_button.setEnabled(Path(str(data.get("scan_file_path") or "")).is_file())
         self._update_preview()
 
@@ -476,15 +424,7 @@ class _MameFilterTab(QWidget):
             profile = existing
         else:
             now = datetime.now(UTC).isoformat()
-            profile = FilterProfileData(
-                source="MAME",
-                system=str(data.get("system", "MAME")),
-                dat_path=data.get("dat_path"),
-                profile_id=uuid4().hex,
-                name=f"MAME — {data.get('system', 'MAME')} — filtro",
-                created_at=now,
-                updated_at=now,
-            )
+            profile = FilterProfileData(source="MAME", system=str(data.get("system", "MAME")), dat_path=data.get("dat_path"), profile_id=uuid4().hex, name=f"MAME — {data.get('system', 'MAME')} — filtro", created_at=now, updated_at=now)
         profile.mame_clone_policy = str(self.clone_policy.currentData())
         profile.mame_include_bios = self.include_bios.isChecked()
         profile.mame_include_devices = self.include_devices.isChecked()
@@ -494,30 +434,24 @@ class _MameFilterTab(QWidget):
         return profile
 
     def _current_category_values(self) -> dict[str, list[str]]:
+        # O serviço persiste somente as exceções: itens desmarcados são excluídos.
         categories: set[str] = set()
         subcategories: set[str] = set()
         for index in range(self.catlist_tree.topLevelItemCount()):
             parent = self.catlist_tree.topLevelItem(index)
-            if parent.checkState(0) == Qt.CheckState.Checked:
-                data = parent.data(0, Qt.ItemDataRole.UserRole)
-                if isinstance(data, tuple) and data[0] == "category":
-                    categories.add(str(data[1]))
+            parent_data = parent.data(0, Qt.ItemDataRole.UserRole)
+            if parent.checkState(0) != Qt.CheckState.Checked and isinstance(parent_data, tuple) and parent_data[0] == "category":
+                categories.add(str(parent_data[1]))
             for child_index in range(parent.childCount()):
                 child = parent.child(child_index)
-                if child.checkState(0) != Qt.CheckState.Checked:
-                    continue
-                data = child.data(0, Qt.ItemDataRole.UserRole)
-                if isinstance(data, tuple) and data[0] == "subcategory":
-                    subcategories.add(str(data[1]))
-        return {
-            "categories": sorted(categories),
-            "subcategories": sorted(subcategories),
-        }
+                child_data = child.data(0, Qt.ItemDataRole.UserRole)
+                if child.checkState(0) != Qt.CheckState.Checked and isinstance(child_data, tuple) and child_data[0] == "subcategory":
+                    subcategories.add(str(child_data[1]))
+        return {"categories": sorted(categories), "subcategories": sorted(subcategories)}
 
     def _catlist_changed(self, *_args) -> None:
-        if self._catlist_loading:
-            return
-        self._update_preview()
+        if not self._catlist_loading:
+            self._update_preview()
 
     def _rules_changed(self, *_args) -> None:
         self._update_preview()
@@ -533,15 +467,7 @@ class _MameFilterTab(QWidget):
                 for item in raw:
                     if isinstance(item, dict):
                         try:
-                            profiles.append(
-                                FilterProfileData(
-                                    **{
-                                        k: v
-                                        for k, v in item.items()
-                                        if k in FilterProfileData.__dataclass_fields__
-                                    }
-                                )
-                            )
+                            profiles.append(FilterProfileData(**{k: v for k, v in item.items() if k in FilterProfileData.__dataclass_fields__}))
                         except (TypeError, ValueError):
                             pass
         except (OSError, ValueError, TypeError):
@@ -549,14 +475,8 @@ class _MameFilterTab(QWidget):
         profiles = [item for item in profiles if item.profile_id != profile.profile_id]
         profiles.append(profile)
         self._profiles_path.parent.mkdir(parents=True, exist_ok=True)
-        self._profiles_path.write_text(
-            json.dumps([asdict(item) for item in profiles], indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
-        MameFundamentalFilterService.save(
-            profile.profile_id,
-            {key: check.isChecked() for key, check in self.fundamental_checks.items()},
-        )
+        self._profiles_path.write_text(json.dumps([asdict(item) for item in profiles], indent=2, ensure_ascii=False), encoding="utf-8")
+        MameFundamentalFilterService.save(profile.profile_id, {key: check.isChecked() for key, check in self.fundamental_checks.items()})
         MameCategoryFilterService.save(profile.profile_id, self._current_category_values())
 
     def _update_preview(self) -> None:
@@ -573,13 +493,11 @@ class _MameFilterTab(QWidget):
         values = {key: check.isChecked() for key, check in self.fundamental_checks.items()}
         category_values = self._current_category_values()
         try:
-            result = ScanFilterService.preview_mame(
-                path, profile, values, category_values
-            )
-            catlist_count = int(result.get("filter_counts", {}).get("catlist", 0))
+            result = ScanFilterService.preview_mame(path, profile, values, category_values)
+            counts = result.get("filter_counts", {})
             self.preview.setText(
-                f"Preview: entrada={result['input_count']:,} | selecionadas={result['output_count']:,} | excluídas={result['filtered_count']:,}\n"
-                f"CATLIST={catlist_count:,} | seleção: {len(category_values['categories'])} categoria(s), {len(category_values['subcategories'])} subcategoria(s)"
+                f"Preview: entrada={result['input_count']:,} | PERMANECEM={result['output_count']:,} | EXCLUÍDAS={result['filtered_count']:,}\n"
+                f"CATLIST={int(counts.get('catlist', 0)):,} | fundamentais={sum(int(v) for k, v in counts.items() if k not in {'catlist', 'bios', 'device', 'optional', 'not_working', 'clone'}):,}"
             )
         except Exception as exc:
             self.preview.setText(f"Preview indisponível: {type(exc).__name__}: {exc}")
@@ -598,14 +516,10 @@ class _MameFilterTab(QWidget):
         values = {key: check.isChecked() for key, check in self.fundamental_checks.items()}
         category_values = self._current_category_values()
         try:
-            result = ScanFilterService.apply_mame(
-                path, profile, values, category_values
-            )
+            result = ScanFilterService.apply_mame(path, profile, values, category_values)
             self._save_profile()
             ScanRepository(database_path()).save_filter_result(result)
-            self.result_label.setText(
-                f"ARQUIVO FILTRADO GERADO\n{result['filtered_file_path']}\nentrada={result['input_count']:,} | saída={result['output_count']:,}"
-            )
+            self.result_label.setText(f"ARQUIVO FILTRADO GERADO\n{result['filtered_file_path']}\nentrada={result['input_count']:,} | saída={result['output_count']:,}")
         except Exception as exc:
             QMessageBox.critical(self, "Filtragem", f"Falha ao gerar arquivo filtrado:\n{exc}")
 
@@ -621,9 +535,7 @@ class FilteringPhasePage(QWidget):
         title = QLabel("2 — FILTRAGEM DE ROMS")
         title.setProperty("role", "title")
         layout.addWidget(title)
-        description = QLabel(
-            "DAT completo → Scan bruto → esta fase seleciona o que deve seguir para a reconstrução. Nenhuma guia de filtragem executa novo scan."
-        )
+        description = QLabel("DAT completo → Scan bruto → esta fase seleciona o que deve seguir para a reconstrução. Nenhuma guia de filtragem executa novo scan.")
         description.setWordWrap(True)
         layout.addWidget(description)
         self.tabs = QTabWidget()
