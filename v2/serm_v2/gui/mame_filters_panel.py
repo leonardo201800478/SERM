@@ -29,7 +29,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..models.arcade import PlayabilityStatus
 from ..models.arcade_classification import (
     ArcadeContentType,
     ArcadeGenre,
@@ -147,6 +146,7 @@ class MameFiltersPanel(QWidget):
         self._scan_path: Path | None = None
         self._worker: _FilterWorker | None = None
         self._facets_loaded = False
+        self._pending_preview = False
         self._facet_widgets: dict[str, QListWidget] = {}
         self._facet_info: dict[str, QLabel] = {}
         self._preview_timer = QTimer(self)
@@ -268,12 +268,11 @@ class MameFiltersPanel(QWidget):
             grid.addWidget(check, index // 3, index % 3)
         layout.addWidget(box)
 
-        explanation = QGroupBox("COMO ESTE FILTRO FUNCIONA")
+        explanation = QGroupBox("SEMÂNTICA DOS FILTROS")
         ev = QVBoxLayout(explanation)
-        ev.addWidget(QLabel("☑ marcado = EXCLUIR machines dessa classe"))
-        ev.addWidget(QLabel("☐ desmarcado = não aplicar exclusão"))
-        ev.addWidget(QLabel("Os filtros de classificação das outras abas funcionam no sentido oposto: seleção = INCLUIR."))
-        ev.addWidget(QLabel("Sem nenhuma seleção de inclusão, a dimensão não restringe o catálogo."))
+        ev.addWidget(QLabel("EXCLUSÕES: marque uma classe para RETIRAR machines."))
+        ev.addWidget(QLabel("INCLUSÕES: selecione uma opção nas outras abas para MANTER somente machines que atendam a ela."))
+        ev.addWidget(QLabel("Sem seleção de inclusão em uma dimensão = essa dimensão não restringe as machines."))
         layout.addWidget(explanation)
         layout.addStretch()
         return page
@@ -285,11 +284,8 @@ class MameFiltersPanel(QWidget):
         grid.setHorizontalSpacing(8)
         grid.setVerticalSpacing(8)
         for index, (key, title) in enumerate(self._FACETS[:3]):
-            grid.addWidget(
-                self._facet_box(key, f"INCLUIR • {title}"),
-                0,
-                index,
-            )
+            grid.addWidget(self._facet_box(key, f"INCLUIR • {title}"), 0, index)
+            grid.setColumnStretch(index, 1)
         grid.setRowStretch(0, 1)
         return page
 
@@ -301,11 +297,7 @@ class MameFiltersPanel(QWidget):
         grid.setVerticalSpacing(8)
         for index, (key, title) in enumerate(self._FACETS[3:]):
             row, column = divmod(index, 3)
-            grid.addWidget(
-                self._facet_box(key, f"INCLUIR • {title}"),
-                row,
-                column,
-            )
+            grid.addWidget(self._facet_box(key, f"INCLUIR • {title}"), row, column)
         for column in range(3):
             grid.setColumnStretch(column, 1)
         for row in range(2):
@@ -327,7 +319,7 @@ class MameFiltersPanel(QWidget):
         widget.itemSelectionChanged.connect(self._changed)
         self._facet_widgets[key] = widget
         layout.addWidget(widget, 1)
-        hint = QLabel("Selecionar = INCLUIR • Ctrl/Shift para múltiplas opções")
+        hint = QLabel("Selecionar = INCLUIR")
         layout.addWidget(hint)
         return box
 
@@ -399,6 +391,7 @@ class MameFiltersPanel(QWidget):
         value = self.scan_combo.currentData()
         self._scan_path = Path(str(value)) if value else None
         self._facets_loaded = False
+        self._pending_preview = False
         if self._scan_path is None or not self._scan_path.is_file():
             self.result.setText("Nenhum snapshot JSON válido em data/scans/mame.")
             self.apply.setEnabled(False)
@@ -416,43 +409,49 @@ class MameFiltersPanel(QWidget):
         self._worker = _FilterWorker(operation, self._scan_path, self._state())
         self._worker.ready.connect(self._worker_ready)
         self._worker.failed.connect(self._worker_failed)
+        self._worker.finished.connect(self._worker_finished)
         self._worker.start()
+
+    def _worker_finished(self) -> None:
+        worker = self._worker
+        self._worker = None
+        if worker is not None:
+            worker.deleteLater()
+        if self._pending_preview and self._facets_loaded:
+            self._pending_preview = False
+            self._start_preview()
 
     def _worker_ready(self, operation: str, payload) -> None:
         if operation == "facets":
             self._populate_facets(payload)
             self._facets_loaded = True
             self.apply.setEnabled(True)
-            total = self._machine_count()
-            self._set_summary(total, total, 0)
-            self.result.setText(
-                f"{total:,} MACHINES carregadas.\n"
-                "EXCLUSÕES: marcadas na aba EXCLUSÕES. "
-                "INCLUSÕES: selecione opções nas abas CLASSIFICAÇÃO e HARDWARE."
+            total = sum(
+                int(entry.get("count") or 0)
+                for entry in payload.get("content", [])
             )
-            self._start_preview()
-        elif operation == "preview":
+            self._set_summary(total, total, 0)
+            self._pending_preview = True
+            self.result.setText(
+                f"{total:,} MACHINES carregadas. "
+                "EXCLUSÕES estão na primeira aba; INCLUSÕES nas demais."
+            )
+        elif operation in {"preview", "apply"}:
             total = int(payload.get("input_count", 0))
             kept = int(payload.get("output_count", 0))
             excluded = int(payload.get("filtered_count", 0))
             self._set_summary(total, kept, excluded)
             self.result.setText(self._format_preview(payload))
-        else:
-            total = int(payload.get("input_count", 0))
-            kept = int(payload.get("output_count", 0))
-            excluded = int(payload.get("filtered_count", 0))
-            self._set_summary(total, kept, excluded)
-            self.result.setText(
-                self._format_preview(payload)
-                + f"\nFILTER JSON: {payload.get('filtered_file_path', '—')}"
-            )
-            self.apply.setEnabled(True)
-        self._worker = None
+            if operation == "apply":
+                self.result.setText(
+                    self._format_preview(payload)
+                    + f"\nFILTER JSON: {payload.get('filtered_file_path', '—')}"
+                )
+                self.apply.setEnabled(True)
 
     def _worker_failed(self, message: str) -> None:
         self.result.setText(f"Falha no filtro MAME V2: {message}")
         self.apply.setEnabled(bool(self._facets_loaded))
-        self._worker = None
 
     def _populate_facets(self, facets: dict[str, list[dict[str, object]]]) -> None:
         for key, widget in self._facet_widgets.items():
@@ -471,7 +470,7 @@ class MameFiltersPanel(QWidget):
                 widget.addItem(item)
             widget.blockSignals(False)
             self._facet_info[key].setText(
-                f"{len(values):,} classificações • contagem em MACHINES"
+                f"{len(values):,} opções • contagem exclusivamente em MACHINES"
                 if values
                 else "Nenhuma classificação disponível no snapshot"
             )
@@ -512,6 +511,7 @@ class MameFiltersPanel(QWidget):
 
     def _start_preview(self) -> None:
         if self._worker and self._worker.isRunning():
+            self._pending_preview = True
             return
         self._start_worker("preview")
 
