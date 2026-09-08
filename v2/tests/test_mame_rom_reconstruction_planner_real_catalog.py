@@ -65,16 +65,12 @@ def _load_games(db: sqlite3.Connection, import_id: int) -> tuple[ArcadeGame, ...
     )
     for row in rows:
         metadata: dict[str, object] = {}
-        if _text(row["merge"]):
-            metadata["merge"] = row["merge"]
-        if _text(row["sha1"]):
-            metadata["sha1"] = row["sha1"]
-        if _text(row["crc"]):
-            metadata["crc"] = row["crc"]
+        for key in ("merge", "sha1", "crc", "status"):
+            value = _text(row[key])
+            if value is not None:
+                metadata[key] = value
         if row["size"] is not None:
             metadata["size"] = row["size"]
-        if _text(row["status"]):
-            metadata["status"] = row["status"]
         roms_by_machine[int(row["machine_id"])].append(
             ArcadeRom(
                 machine_name="",
@@ -97,8 +93,9 @@ def _load_games(db: sqlite3.Connection, import_id: int) -> tuple[ArcadeGame, ...
             for rom in roms_by_machine.get(int(machine["id"]), ())
         )
         metadata: dict[str, object] = {}
-        if _text(machine["romof"]):
-            metadata["romof"] = machine["romof"]
+        romof = _text(machine["romof"])
+        if romof is not None:
+            metadata["romof"] = romof
         games.append(
             ArcadeGame(
                 machine_name=machine_name,
@@ -112,46 +109,32 @@ def _load_games(db: sqlite3.Connection, import_id: int) -> tuple[ArcadeGame, ...
     return tuple(games)
 
 
-def _load_merge_rows(
-    db: sqlite3.Connection, import_id: int
-) -> list[sqlite3.Row]:
-    db.row_factory = sqlite3.Row
-    return db.execute(
-        """
-        SELECT r.machine_id, m.name AS machine_name,
-               r.name AS rom_name, r.merge AS merge_name,
-               m.cloneof, m.romof
-        FROM mame_rom r
-        JOIN mame_machine m ON m.id = r.machine_id
-        WHERE m.import_id = ?
-          AND trim(COALESCE(r.merge, '')) <> ''
-        ORDER BY r.machine_id, r.id
-        """,
-        (import_id,),
-    ).fetchall()
+def _build_relation_index(
+    games: tuple[ArcadeGame, ...],
+) -> dict[str, tuple[tuple[str, ArcadeRom], ...]]:
+    index: dict[str, list[tuple[str, ArcadeRom]]] = defaultdict(list)
+    for game in games:
+        for rom in game.roms:
+            index[_norm(rom.display_name)].append((game.machine_name, rom))
+    return {name: tuple(items) for name, items in index.items()}
 
 
-def _find_source(
+def _expected_source(
     game: ArcadeGame,
-    rom: sqlite3.Row,
-    games_by_name: dict[str, ArcadeGame],
+    rom: ArcadeRom,
+    relation_index: dict[str, tuple[tuple[str, ArcadeRom], ...]],
 ) -> tuple[RomSourceKind, str | None, str]:
-    """Resolve a real row using the same explicit MAME relations as the planner."""
-    merge_name = _text(rom["merge_name"])
+    merge_name = _text(rom.metadata.get("merge"))
     assert merge_name
-    candidates: list[tuple[str, ArcadeRom]] = []
-    normalized = _norm(merge_name)
-    for candidate_game in games_by_name.values():
-        for candidate_rom in candidate_game.roms:
-            if _norm(candidate_rom.display_name) == normalized:
-                candidates.append((candidate_game.machine_name, candidate_rom))
+    candidates = relation_index.get(_norm(merge_name), ())
+    romof = _text(game.metadata.get("romof"))
+    parent_name = _text(game.parent_name)
 
-    preferred = (
+    for kind, machine_name in (
         (RomSourceKind.SELF, game.machine_name),
-        (RomSourceKind.ROMOF, _text(rom["romof"])),
-        (RomSourceKind.PARENT, _text(rom["cloneof"])),
-    )
-    for kind, machine_name in preferred:
+        (RomSourceKind.ROMOF, romof),
+        (RomSourceKind.PARENT, parent_name),
+    ):
         if not machine_name:
             continue
         matches = tuple(
@@ -170,78 +153,68 @@ def test_real_catalog_planner_matches_relation_evidence():
     with sqlite3.connect(DB_FILE) as db:
         import_id = _latest_import(db)
         games = _load_games(db, import_id)
-        merge_rows = _load_merge_rows(db, import_id)
 
     assert games, "Catalogo MAME vazio."
-    assert merge_rows, "Nenhuma ROM com merge no catalogo real."
-
+    relation_index = _build_relation_index(games)
     result = ArcadeRomReconstructionPlanner().plan(games)
-    planned_by_key: dict[tuple[str, str], list] = defaultdict(list)
-    for item in result.items:
-        if item.source_kind is not RomSourceKind.MISSING or item.rom_name:
-            planned_by_key[(_norm(item.machine_name), _norm(item.rom_name))].append(item)
 
-    games_by_name = {_norm(game.machine_name): game for game in games}
     expected_counts: Counter[RomSourceKind] = Counter()
     actual_counts: Counter[RomSourceKind] = Counter()
     checked = 0
     mismatches: list[str] = []
+    plan_index = 0
 
-    for row in merge_rows:
-        game = games_by_name[_norm(row["machine_name"])]
-        expected_kind, expected_machine, expected_rom = _find_source(
-            game, row, games_by_name
-        )
-        key = (_norm(row["machine_name"]), _norm(row["rom_name"]))
-        candidates = planned_by_key[key]
-        matching = [
-            item
-            for item in candidates
-            if _norm(item.source_rom_name) == _norm(row["merge_name"])
-        ]
+    for game in games:
+        for rom in game.roms:
+            actual = result.items[plan_index]
+            plan_index += 1
+            merge_name = _text(rom.metadata.get("merge"))
+            if merge_name is None:
+                continue
 
-        expected_counts[expected_kind] += 1
-        if len(matching) != 1:
-            mismatches.append(
-                f"{row['machine_name']}::{row['rom_name']} "
-                f"merge={row['merge_name']} planner_items={len(matching)}"
+            expected_kind, expected_machine, expected_rom = _expected_source(
+                game, rom, relation_index
             )
-            continue
+            expected_counts[expected_kind] += 1
+            actual_counts[actual.source_kind] += 1
+            checked += 1
 
-        actual = matching[0]
-        actual_counts[actual.source_kind] += 1
-        checked += 1
-        if actual.source_kind is not expected_kind:
-            mismatches.append(
-                f"{row['machine_name']}::{row['rom_name']} "
-                f"expected={expected_kind.value} actual={actual.source_kind.value}"
-            )
-        elif expected_machine is not None and _norm(actual.source_machine) != _norm(expected_machine):
-            mismatches.append(
-                f"{row['machine_name']}::{row['rom_name']} "
-                f"expected_machine={expected_machine} actual_machine={actual.source_machine}"
-            )
-        elif _norm(actual.source_rom_name) != _norm(expected_rom):
-            mismatches.append(
-                f"{row['machine_name']}::{row['rom_name']} "
-                f"expected_rom={expected_rom} actual_rom={actual.source_rom_name}"
-            )
+            if actual.source_kind is not expected_kind:
+                mismatches.append(
+                    f"{game.machine_name}::{rom.display_name} "
+                    f"merge={merge_name} expected={expected_kind.value} "
+                    f"actual={actual.source_kind.value}"
+                )
+                continue
+            if expected_machine is not None and _norm(actual.source_machine) != _norm(expected_machine):
+                mismatches.append(
+                    f"{game.machine_name}::{rom.display_name} "
+                    f"merge={merge_name} expected_machine={expected_machine} "
+                    f"actual_machine={actual.source_machine}"
+                )
+                continue
+            if _norm(actual.source_rom_name) != _norm(expected_rom):
+                mismatches.append(
+                    f"{game.machine_name}::{rom.display_name} "
+                    f"merge={merge_name} expected_rom={expected_rom} "
+                    f"actual_rom={actual.source_rom_name}"
+                )
 
+    assert plan_index == len(result.items)
     print(f"\nIMPORT ID: {import_id}")
     print(f"MAQUINAS: {len(games)}")
-    print(f"ROMS COM MERGE VERIFICADAS: {len(merge_rows)}")
+    print(f"ROMS COM MERGE VERIFICADAS: {checked}")
     print("EVIDENCIA ESPERADA:")
     for kind in RomSourceKind:
         print(f"  {kind.value:<10}: {expected_counts[kind]:>8}")
     print("DECISAO DO PLANNER:")
     for kind in RomSourceKind:
         print(f"  {kind.value:<10}: {actual_counts[kind]:>8}")
-    print(f"CORRESPONDENCIAS UNICAS: {checked}")
     print(f"DIVERGENCIAS: {len(mismatches)}")
     if mismatches:
         print("PRIMEIRAS DIVERGENCIAS:")
         for mismatch in mismatches[:20]:
             print(f"  {mismatch}")
 
+    assert checked > 0, "Nenhuma ROM com merge foi encontrada no catalogo real."
     assert not mismatches, "Planner divergiu da evidencia relacional do catalogo real."
-    assert checked == len(merge_rows), "Nem todas as ROMs com merge tiveram correspondencia unica."
