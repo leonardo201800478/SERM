@@ -13,7 +13,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 
-from ...models.arcade import ArcadeGame, ArcadeRom, RomStatus
+from ...models.arcade import ArcadeGame, ArcadeRom
 from .rom_reconstruction_plan import ArcadeRomReconstructionPlanner, RomSourceKind
 
 
@@ -125,14 +125,12 @@ class ArcadeRomReconstructionEngine:
     @staticmethod
     def _find_rom_by_name(game: ArcadeGame, rom_name: str) -> ArcadeRom | None:
         """Localiza a ROM pelo nome XML, sem confundir nome da maquina com nome da ROM."""
-        normalized = rom_name.casefold()
+        normalized = rom_name.strip().casefold()
         matches = tuple(
             rom for rom in game.roms if rom.display_name.strip().casefold() == normalized
         )
         if len(matches) == 1:
             return matches[0]
-        if len(matches) > 1:
-            return None
         return None
 
     @staticmethod
