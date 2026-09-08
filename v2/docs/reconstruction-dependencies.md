@@ -2,97 +2,129 @@
 
 ## Objetivo
 
-A reconstrução não trata uma machine como um ZIP isolado. O LISTXML define uma
-grafo de dependências que pode envolver parent/clone, `merge`, BIOS, devices e
-samples. O projeto resolve esse grafo antes da escrita física.
+A reconstrução não trata uma machine como um ZIP isolado. O ListXML define um grafo de dependências que pode envolver parent/clone, `romof`, `merge`, BIOS, devices, samples e CHDs. O SERM resolve essas dimensões em etapas distintas antes da materialização física.
 
-## Estados da ROM
+A implementação atual deve ser entendida em três camadas:
 
-A decisão de uma ROM mantém duas dimensões:
+```text
+ArcadeGame / ArcadeRom / ArcadeDisk
+            ↓
+ArcadeRomReconstructionPlanner
+            ↓
+ArcadeRomReconstructionEngine
+            ↓
+ArcadeReconstructionManifestBuilder
+            ↓
+Materializer
+```
 
-- estado físico: `valid`, `missing`, `invalid`, `error`;
-- estado documental MAME: `good`, `baddump`, `nodump`.
+O planner MAME-aware decide a origem lógica; o engine resolve a evidência física; o manifesto consolida o destino. A escrita física permanece separada dessa decisão.
 
-Uma ROM `baddump` que corresponde ao dump conhecido é utilizável. Uma ROM
-`nodump` ausente não deve ser procurada indefinidamente, pois o MAME não
-conhece um dump funcional para ela.
+## ROM: duas dimensões de estado
 
-## Parent/clone
+A decisão de uma ROM mantém separadas:
 
-`cloneof` e `romof` formam a dependência estrutural. A resolução percorre a
-cadeia até a raiz e detecta ciclos ou parents inexistentes.
+- **estado documental MAME:** por exemplo `good`, `baddump`, `nodump`;
+- **evidência física do scan:** arquivo encontrado, ausente, inválido ou erro.
+
+O catálogo informa o conteúdo esperado; somente o scan informa se o conteúdo foi encontrado no filesystem.
+
+## Parent/clone e `romof`
+
+`cloneof` e `romof` são relações entre machine sets. Não devem ser confundidas com `merge`, que referencia uma ROM.
+
+A cadeia parent/clone deve ser percorrida explicitamente e ciclos devem ser rejeitados. Uma relação `romof` só deve ser usada quando a máquina de origem estiver presente no catálogo e a ROM correspondente puder ser resolvida.
 
 ## `merge`
 
-Uma ROM com `merge="X"` é fornecida pelo set `X`. O arquivo não deve ser
-copiado novamente no clone em Split. Em Non-Merged a ROM fornecida deve ser
-materializada no set do clone. Em Merged ela pertence ao ZIP do parent raiz,
-junto com os dados dos clones selecionados.
+`merge="X"` representa o nome da ROM de origem. O planner procura primeiro a própria máquina e depois as máquinas explicitamente relacionadas por `romof` e parent.
+
+Uma correspondência global em uma máquina não relacionada é rejeitada. Isso evita transformar coincidência de nomes em dependência falsa.
+
+Duplicatas do mesmo nome dentro de uma máquina são resolvidas deterministicamente somente quando SHA1/CRC/size identificam o mesmo conteúdo físico. Identidades conflitantes permanecem ambíguas.
+
+A auditoria do catálogo real do SERM validou 179.667 relações `merge` com:
+
+```text
+SELF       167.637
+MERGED      12.030
+PARENT           0
+ROMOF            0
+MISSING          0
+DIVERGÊNCIAS     0
+```
 
 ## Modos de armazenamento
 
-### Split
+### SPLIT
 
 ```text
-parent.zip -> ROMs do parent
-clone.zip  -> somente ROMs exclusivas do clone
+parent.zip -> ROMs pertencentes ao parent
+clone.zip  -> ROMs exclusivas do clone
 ```
 
-O parent continua sendo uma dependência necessária para executar o clone.
+Uma ROM resolvida em outro machine set não é duplicada no clone.
 
-### Non-Merged
+### NON_MERGED
 
 ```text
-clone.zip -> ROMs próprias + ROMs herdadas do parent/merge
+clone.zip -> ROMs próprias + componentes compartilhados necessários
 ```
 
-Cada set deve ser autocontido quanto às ROMs de sistema que pertencem à cadeia
-parent/clone.
+Cada set deve ser autocontido quanto às dependências que o catálogo determina como necessárias.
 
-### Merged
+### FULL_MERGED
 
 ```text
 parent.zip -> ROMs do parent + ROMs dos clones selecionados
 ```
 
-O clone não recebe um ZIP próprio para as ROMs que foram incorporadas ao
-merged set.
+A família utiliza o archive da raiz. A deduplicação ocorre pela origem física, e não por nomes coincidentes.
 
 ## BIOS
 
-BIOS não é tratada como uma ROM arbitrária a ser jogada dentro de qualquer ZIP.
-O resolver identifica a BIOS selecionada e a machine BIOS correspondente pelo
-`biosset`. O BIOS set permanece um artefato externo (`biosname.zip`).
+BIOS é dependência de sistema e possui semântica própria. Não deve ser incorporada arbitrariamente ao ZIP de uma máquina apenas porque seu conteúdo é uma ROM.
 
-Se `include_bios=false`, a dependência é deliberadamente excluída e a decisão
-fica registrada; isso não deve ser confundido com uma BIOS inexistente.
+O tratamento definitivo de seleção, inclusão/exclusão e materialização de BIOS é uma etapa ainda pendente da Meta 2 do roadmap. Até sua conclusão, a documentação não deve afirmar que todo o grafo de BIOS já está materializado pelo pipeline V2.
 
 ## Devices
 
-`device_ref` gera uma dependência explícita. O device possui seu próprio set e
-pode ter parent/clone próprio. Ele não é incorporado arbitrariamente ao ZIP do
-jogo. O plano expõe o arquivo externo esperado, por exemplo `device.zip`.
+Device sets também são dependências externas ao archive comum do jogo. O tratamento completo de device graph é parte da Meta 2.
 
 ## Samples
 
-Samples são dependências externas a `samples/<name>.zip`. A opção
-`include_samples` controla se entram no plano de construção.
+Samples devem permanecer como dependência externa quando exigidos pelo catálogo. O tratamento completo de samples é parte da Meta 2.
+
+## CHD
+
+CHDs são tratados por `ArcadeChdReconstructionEngine` e `ArcadeDisk`, em pipeline separado de ROM ZIP. O manifesto mantém `MaterializationKind.CHD` distinto de `ROM`.
+
+O tratamento completo de delta CHD e sua materialização física deve ser validado contra famílias reais antes de ser considerado concluído.
 
 ## Segurança
 
-O resolver nunca cria uma ROM virtual como válida. A definição do LISTXML só
-diz o que deveria existir; a evidência física continua vindo exclusivamente do
-scan. Se uma dependência necessária não foi escaneada, a reconstrução deve
-registrar isso como bloqueador, nunca assumir que o arquivo existe.
+O resolver não cria uma ROM virtual como válida. A definição do ListXML só informa o que deveria existir; a evidência física continua vindo do scan.
 
-## Componentes
+A materialização deve obedecer:
 
-- `app/core/services/mame_dependency_resolver.py`: grafo de dependências;
-- `app/core/services/mame_archive_layout.py`: localização lógica das ROMs;
-- `app/core/services/mame_build_planner.py`: plano unificado;
-- `app/core/services/dependency_aware_reconstruction.py`: ponte entre scan e
-  plano de reconstrução.
+```text
+source → staging → validate → atomic publish
+```
 
-O motor físico existente continua responsável por streaming, hash, staging,
-retry e publicação atômica. A camada MAME-aware decide **o que** precisa ser
-construído; o motor físico decide **como** copiar e validar os bytes.
+A origem permanece somente leitura. Conflitos de destino, identidade física ambígua, dependências não resolvidas e arquivos ausentes devem bloquear a publicação em vez de produzir uma reconstrução silenciosamente incorreta.
+
+## Componentes V2 atuais
+
+- `serm_v2/models/arcade.py` — modelo lógico de games, ROMs e discos;
+- `serm_v2/services/arcade/rom_reconstruction_plan.py` — plano de origem lógica;
+- `serm_v2/services/arcade/rom_reconstruction.py` — resolução da evidência física;
+- `serm_v2/services/arcade/set_layout.py` — planejamento SPLIT/NON_MERGED/FULL_MERGED;
+- `serm_v2/services/arcade/reconstruction_manifest.py` — manifesto unificado;
+- `serm_v2/services/arcade/chd_reconstruction.py` — reconstrução CHD;
+- `serm_v2/services/arcade/materializer.py` — materialização física.
+
+Não utilizar caminhos históricos `app/core/services/...` como referência da arquitetura V2.
+
+## Estado
+
+A resolução de ROM e o manifesto possuem cobertura automatizada e foram confrontados com o catálogo real. A execução física completa e a validação abrangente de BIOS/devices/samples ainda pertencem às próximas metas do roadmap.
