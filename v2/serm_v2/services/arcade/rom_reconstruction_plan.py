@@ -200,15 +200,59 @@ class ArcadeRomReconstructionPlanner:
             if len(matches) == 1:
                 return matches[0]
             if len(matches) > 1:
+                # ListXML pode conter a mesma ROM mais de uma vez dentro do
+                # mesmo machine set. Se todos os registros duplicados carregam
+                # exatamente a mesma identidade fisica (SHA1/CRC/size), eles
+                # representam a mesma ROM e podem ser resolvidos
+                # deterministicamente. Se a identidade divergir, a origem
+                # continua ambigua e nao deve ser inventada pelo planner.
+                identical = cls._identical_physical_identity(
+                    rom for _, rom in matches
+                )
+                if identical:
+                    return matches[0]
                 return None
         return None
+
+    @classmethod
+    def _identical_physical_identity(cls, roms: Iterable[ArcadeRom]) -> bool:
+        identities = [cls._physical_identity(rom) for rom in roms]
+        if not identities or any(identity is None for identity in identities):
+            return False
+        return len(set(identities)) == 1
+
+    @classmethod
+    def _physical_identity(cls, rom: ArcadeRom) -> tuple[str, str, int] | None:
+        metadata = rom.metadata
+        sha1 = cls._text(metadata.get("sha1"))
+        crc = cls._text(metadata.get("crc"))
+        size = metadata.get("size")
+
+        if sha1 is None and crc is None and size is None:
+            return None
+
+        normalized_size: int | None
+        try:
+            normalized_size = int(size) if size is not None else None
+        except (TypeError, ValueError):
+            normalized_size = None
+
+        return (
+            (sha1 or "").casefold(),
+            (crc or "").casefold(),
+            normalized_size if normalized_size is not None else -1,
+        )
 
     @staticmethod
     def _find_same_rom(game: ArcadeGame, rom_name: str) -> ArcadeRom | None:
         matches = tuple(
             rom for rom in game.roms if rom.display_name.casefold() == rom_name.casefold()
         )
-        return matches[0] if len(matches) == 1 else None
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1 and ArcadeRomReconstructionPlanner._identical_physical_identity(matches):
+            return matches[0]
+        return None
 
     @staticmethod
     def _text(value: object) -> str | None:
