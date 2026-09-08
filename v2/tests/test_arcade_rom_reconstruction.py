@@ -6,9 +6,9 @@ from serm_v2.services.arcade.rom_reconstruction import (
 )
 
 
-def rom(name: str, **metadata: object) -> ArcadeRom:
+def rom(name: str, *, machine: str | None = None, **metadata: object) -> ArcadeRom:
     return ArcadeRom(
-        machine_name=name,
+        machine_name=machine or name,
         display_name=name,
         platform=ArcadePlatform.MAME,
         metadata=metadata,
@@ -74,3 +74,34 @@ def test_missing_rom_is_reported() -> None:
     assert result.items[0].kind is RomMatchKind.MISSING
     assert result.missing_count == 1
     assert not result.is_complete
+
+
+def test_rom_lookup_uses_display_name_not_machine_name() -> None:
+    result = ArcadeRomReconstructionEngine().reconstruct(
+        [game("pacman", rom("pacman.6e", machine="pacman", sha1="ABC123"))],
+        [PhysicalRom("pacman.6e", 4096, sha1="ABC123")],
+    )
+
+    item = result.items[0]
+    assert item.rom_name == "pacman.6e"
+    assert item.kind is RomMatchKind.SHA1
+    assert item.match is not None
+    assert item.match.path == "pacman.6e"
+
+
+def test_merged_rom_uses_source_machine_and_source_rom_name() -> None:
+    parent_rom = rom("shared.bin", machine="parent", sha1="ABC123", merge=None)
+    clone_rom = rom("clone_alias.bin", machine="clone", sha1="ABC123", merge="shared.bin")
+
+    result = ArcadeRomReconstructionEngine().reconstruct(
+        [game("parent", parent_rom), game("clone", clone_rom)],
+        [PhysicalRom("shared.bin", 4096, sha1="ABC123")],
+    )
+
+    clone_result = next(item for item in result.items if item.machine_name == "clone")
+    assert clone_result.rom_name == "clone_alias.bin"
+    assert clone_result.source_machine == "parent"
+    assert clone_result.source_rom_name == "shared.bin"
+    assert clone_result.kind is RomMatchKind.SHA1
+    assert clone_result.match is not None
+    assert clone_result.match.path == "shared.bin"
