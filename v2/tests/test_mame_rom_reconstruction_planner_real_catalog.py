@@ -2,7 +2,7 @@
 
 O teste e somente leitura. Ele converte o ultimo import ListXML concluido
 para os modelos de dominio do V2 e compara a decisao do planejador com as
-evidencias relacionais do proprio catalogo.
+evidencias relacionais e de identidade fisica do proprio catalogo.
 
 Para uma ROM que possui ``merge``, ``merge`` identifica a ROM de origem. O
 ``romof``/``cloneof`` da maquina identifica em qual machine set relacionado
@@ -10,6 +10,12 @@ essa ROM pode ser localizada. Por isso a origem resolvida por ``merge`` e
 classificada como ``MERGED`` quando vem de outra maquina, mesmo que a maquina
 seja alcancada pela relacao ``romof``. ``ROMOF`` e ``PARENT`` ficam reservados
 para a heranca por mesmo nome de ROM quando nao existe ``merge`` explicito.
+
+Quando existem registros duplicados com o mesmo nome dentro de uma maquina,
+a identidade fisica SHA1/CRC/size e usada para distinguir uma duplicacao
+representacional de uma ambiguidade real. Duplicatas fisicamente identicas
+sao uma unica origem deterministica; identidades diferentes permanecem
+ambiguas.
 """
 
 from __future__ import annotations
@@ -45,6 +51,29 @@ def _text(value: object) -> str | None:
 
 def _norm(value: object) -> str:
     return str(value or "").strip().casefold()
+
+
+def _physical_identity(rom: ArcadeRom) -> tuple[str, str, int] | None:
+    metadata = rom.metadata
+    sha1 = _text(metadata.get("sha1"))
+    crc = _text(metadata.get("crc"))
+    size = metadata.get("size")
+    if sha1 is None and crc is None and size is None:
+        return None
+    try:
+        normalized_size = int(size) if size is not None else None
+    except (TypeError, ValueError):
+        normalized_size = None
+    return (
+        (sha1 or "").casefold(),
+        (crc or "").casefold(),
+        normalized_size if normalized_size is not None else -1,
+    )
+
+
+def _identical_physical_identity(roms: tuple[ArcadeRom, ...]) -> bool:
+    identities = [_physical_identity(rom) for rom in roms]
+    return bool(identities) and all(identity is not None for identity in identities) and len(set(identities)) == 1
 
 
 def _load_games(db: sqlite3.Connection, import_id: int) -> tuple[ArcadeGame, ...]:
@@ -137,10 +166,6 @@ def _expected_source(
     romof = _text(game.metadata.get("romof"))
     parent_name = _text(game.parent_name)
 
-    # Para merge, o atributo identifica explicitamente a ROM de origem.
-    # A relacao da maquina apenas restringe onde essa ROM pode ser procurada.
-    # Portanto, uma origem em outra maquina e MERGED, independentemente de a
-    # maquina ter sido encontrada por romof ou cloneof/parent.
     for machine_name in (game.machine_name, romof, parent_name):
         if not machine_name:
             continue
@@ -152,6 +177,10 @@ def _expected_source(
                 return RomSourceKind.SELF, matches[0][0], matches[0][1].display_name
             return RomSourceKind.MERGED, matches[0][0], matches[0][1].display_name
         if len(matches) > 1:
+            if _identical_physical_identity(tuple(item[1] for item in matches)):
+                if _norm(machine_name) == _norm(game.machine_name):
+                    return RomSourceKind.SELF, matches[0][0], matches[0][1].display_name
+                return RomSourceKind.MERGED, matches[0][0], matches[0][1].display_name
             return RomSourceKind.MISSING, None, "ambiguous"
 
     return RomSourceKind.MISSING, None, "unresolved"
@@ -197,10 +226,6 @@ def test_real_catalog_planner_matches_relation_evidence():
                 )
                 continue
 
-            # MISSING deliberadamente preserva o nome de merge como
-            # source_rom_name. A evidencia "ambiguous"/"unresolved" nao e um
-            # nome de ROM e nao deve ser comparada ao plano. O contrato a ser
-            # validado nesse caso e exclusivamente a classificacao MISSING.
             if actual.source_kind is RomSourceKind.MISSING:
                 continue
 
