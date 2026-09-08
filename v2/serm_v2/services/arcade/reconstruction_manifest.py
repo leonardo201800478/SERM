@@ -86,17 +86,25 @@ class ArcadeReconstructionManifestBuilder:
         for game in catalog.values():
             layout_entry = layout_by_machine[game.machine_name]
             for rom in game.roms:
-                result = rom_by_key.get((game.machine_name, rom.machine_name))
-                if result is None or result.kind is not RomMatchKind.SHA1 and result.kind is not RomMatchKind.MD5 and result.kind is not RomMatchKind.CRC_SIZE:
+                result = rom_by_key.get((game.machine_name, rom.display_name))
+                if result is None or result.kind not in {
+                    RomMatchKind.SHA1,
+                    RomMatchKind.MD5,
+                    RomMatchKind.CRC_SIZE,
+                }:
                     if result is not None:
                         unresolved.append(
-                            f"ROM {game.machine_name}/{rom.machine_name}: {result.kind.value}"
+                            f"ROM {game.machine_name}/{rom.display_name}: {result.kind.value}"
                         )
                     else:
-                        unresolved.append(f"ROM {game.machine_name}/{rom.machine_name}: sem resultado")
+                        unresolved.append(
+                            f"ROM {game.machine_name}/{rom.display_name}: sem resultado"
+                        )
                     continue
                 if result.match is None:
-                    unresolved.append(f"ROM {game.machine_name}/{rom.machine_name}: sem arquivo fisico")
+                    unresolved.append(
+                        f"ROM {game.machine_name}/{rom.display_name}: sem arquivo fisico"
+                    )
                     continue
 
                 # SPLIT mantém dependencias no archive de origem; uma ROM
@@ -104,7 +112,7 @@ class ArcadeReconstructionManifestBuilder:
                 if set_type is ArcadeSetType.SPLIT and result.source_machine != game.machine_name:
                     continue
 
-                member_name = PurePosixPath(result.source_rom_name or rom.machine_name).name
+                member_name = PurePosixPath(result.source_rom_name or rom.display_name).name
                 archive = f"{layout_entry.archive_name}.zip"
                 destination = f"{archive}!/{member_name}"
                 self._append_unique(
@@ -138,7 +146,11 @@ class ArcadeReconstructionManifestBuilder:
                         )
                         continue
                     source_machine = result.source_machine or game.machine_name
-                    directory_machine = roots[game.machine_name] if set_type is ArcadeSetType.FULL_MERGED else source_machine
+                    directory_machine = (
+                        roots[game.machine_name]
+                        if set_type is ArcadeSetType.FULL_MERGED
+                        else source_machine
+                    )
                     member_name = PurePosixPath(disk.name).name + ".chd"
                     destination = f"{directory_machine}/{member_name}"
                     self._append_unique(
