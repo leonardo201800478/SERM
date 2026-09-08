@@ -186,12 +186,21 @@ class ArcadeRomReconstructionPlanner:
         if not candidates:
             return None
 
-        preferred = {value.casefold() for value in preferred_machines if value}
-        preferred_candidates = tuple(
-            item for item in candidates if item[0].casefold() in preferred
-        )
-        if len(preferred_candidates) == 1:
-            return preferred_candidates[0]
+        # A ordem e semantica: o machine atual tem prioridade para self-merge;
+        # depois romof, que representa a origem de ROM explicitamente indicada;
+        # por fim parent/clone. Nao devemos transformar essas relacoes em um
+        # conjunto, pois isso perderia a prioridade e produziria ambiguidade
+        # artificial quando mais de uma maquina relacionada contem o mesmo nome.
+        for machine_name in preferred_machines:
+            if not machine_name:
+                continue
+            matches = tuple(
+                item for item in candidates if item[0].casefold() == machine_name.casefold()
+            )
+            if len(matches) == 1:
+                return matches[0]
+            if len(matches) > 1:
+                return None
         return None
 
     @staticmethod
