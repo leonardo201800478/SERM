@@ -143,8 +143,8 @@ def test_duplicate_rom_name_inside_target_machine_is_not_guessed():
         ),
     )
 
-    assert items[1].source_kind is RomSourceKind.MISSING
-    assert items[1].source_machine is None
+    assert items[2].source_kind is RomSourceKind.MISSING
+    assert items[2].source_machine is None
 
 
 def test_merge_target_with_different_identity_is_still_logically_resolved():
