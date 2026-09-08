@@ -8,7 +8,7 @@ Para uma ROM que possui ``merge``, ``merge`` identifica a ROM de origem. O
 ``romof``/``cloneof`` da maquina identifica em qual machine set relacionado
 essa ROM pode ser localizada. Por isso a origem resolvida por ``merge`` e
 classificada como ``MERGED`` quando vem de outra maquina, mesmo que a maquina
-seja alcançada pela relacao ``romof``. ``ROMOF`` e ``PARENT`` ficam reservados
+seja alcancada pela relacao ``romof``. ``ROMOF`` e ``PARENT`` ficam reservados
 para a heranca por mesmo nome de ROM quando nao existe ``merge`` explicito.
 """
 
@@ -196,6 +196,14 @@ def test_real_catalog_planner_matches_relation_evidence():
                     f"actual={actual.source_kind.value}"
                 )
                 continue
+
+            # MISSING deliberadamente preserva o nome de merge como
+            # source_rom_name. A evidencia "ambiguous"/"unresolved" nao e um
+            # nome de ROM e nao deve ser comparada ao plano. O contrato a ser
+            # validado nesse caso e exclusivamente a classificacao MISSING.
+            if actual.source_kind is RomSourceKind.MISSING:
+                continue
+
             if expected_machine is not None and _norm(actual.source_machine) != _norm(expected_machine):
                 mismatches.append(
                     f"{game.machine_name}::{rom.display_name} "
