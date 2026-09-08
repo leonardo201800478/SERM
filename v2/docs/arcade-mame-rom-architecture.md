@@ -67,7 +67,7 @@ A prioridade atual é:
 3. parent;
 4. própria máquina (`SELF`).
 
-Para `merge`, o valor é interpretado como **nome de ROM**, não como nome de máquina. A busca considera a máquina atual e as máquinas explicitamente relacionadas. Uma correspondência global arbitrária é rejeitada para evitar dependências inventadas.
+Para `merge`, o valor é interpretado como **nome de ROM**, não como nome de máquina. A busca considera, nesta ordem, a máquina atual, a máquina indicada por `romof` e a máquina parent. Uma correspondência global arbitrária em máquina não relacionada é rejeitada para evitar dependências inventadas.
 
 O resultado é um `RomReconstructionPlan` contendo:
 
@@ -99,8 +99,6 @@ Uma identidade que encontra vários arquivos físicos é marcada como `AMBIGUOUS
 ## 5. Duplicatas no catálogo
 
 O ListXML/catálogo pode conter registros com o mesmo nome lógico dentro de uma máquina. Isso não significa necessariamente que existam duas ROMs físicas diferentes.
-
-O planner distingue:
 
 ### Duplicatas fisicamente idênticas
 
@@ -158,6 +156,8 @@ merge   = relação ROM → ROM
 
 Essa distinção é uma das regras centrais da arquitetura do SERM.
 
+No catálogo real auditado, os 140.153 registros com `cloneof` também possuíam `romof`; não houve casos `cloneof_only`. Isso é uma característica observada neste snapshot do catálogo, não uma regra geral do MAME.
+
 ## 8. Layout físico
 
 O `ArcadeSetLayoutPlanner` traduz a estrutura lógica para três layouts.
@@ -198,6 +198,8 @@ Antes da escrita, o manifesto detecta:
 - identidades físicas ausentes;
 - destinos duplicados com a mesma origem;
 - destinos em conflito com origens físicas diferentes.
+
+Uma regressão específica foi adicionada para uma máquina contendo três ROMs distintas (`maincpu.bin`, `soundcpu.bin` e `gfx.bin`): o manifesto deve produzir três entradas independentes, demonstrando que a identidade do resultado não pode ser reduzida ao nome da máquina.
 
 ## 10. CHD é outra classe de componente
 
@@ -245,21 +247,76 @@ São falhas explícitas:
 - tratar CHD como ROM ZIP;
 - ignorar BIOS/device obrigatório.
 
-## 14. Validação realizada
+## 14. Validação executada
 
-A implementação foi validada em camadas:
+A validação foi feita em camadas, do comportamento unitário ao catálogo MAME real.
 
-- casos semânticos de planner;
-- auditoria do catálogo MAME real;
-- reconstrução física por SHA1/MD5/CRC+size;
-- integração planner → reconstruction;
-- manifestação de SPLIT/NON_MERGED/FULL_MERGED;
-- CHD;
-- prevenção de colisões de múltiplas ROMs por máquina.
+### Reconstrução e materialização
 
-A auditoria real do planner validou 179.667 relações `merge` com zero divergências.
+```text
+31 passed in 0.33s
+```
 
-## 15. Referências primárias
+Inclui planner, integração, manifesto, Set Builder e CHD, além da regressão que garante múltiplas ROMs distintas na mesma máquina.
+
+### Casos semânticos de merge
+
+```text
+10 passed in 0.17s
+```
+
+Inclui duplicatas com identidade física idêntica e duplicatas com identidade física conflitante.
+
+### Auditoria do planner no catálogo real
+
+```text
+IMPORT ID: 1
+MAQUINAS: 50.368
+ROMS COM MERGE VERIFICADAS: 179.667
+
+SELF       167.637
+MERGED      12.030
+PARENT           0
+ROMOF            0
+MISSING          0
+DIVERGENCIAS     0
+```
+
+O resultado esperado derivado da evidência catalogada coincide exatamente com a decisão do planner.
+
+### Amostra dirigida do catálogo real
+
+```text
+15 casos
+5 SELF
+5 ROMOF
+5 AMBIGUOUS
+0 UNRELATED
+0 UNRESOLVED
+```
+
+A amostra foi somente de leitura e não alterou o banco.
+
+### Catálogo e relações observadas
+
+No snapshot auditado existem 50.368 máquinas, 371.752 ROMs e 1.402 discos. Foram observados 27.730 registros com `cloneof`, 29.425 com `romof` e 179.667 com `merge`. A auditoria também encontrou 41.008 identidades SHA1 compartilhadas entre máquinas.
+
+Esses números descrevem o snapshot usado nos testes; não devem ser tratados como constantes do MAME.
+
+## 15. O que a arquitetura garante
+
+A partir dos contratos implementados e dos testes executados, o pipeline garante as seguintes propriedades:
+
+1. **identidade dimensional correta:** máquina e ROM permanecem em chaves distintas;
+2. **origem lógica explícita:** `merge`, `romof`, parent e self não são reduzidos a uma busca textual genérica;
+3. **determinismo:** duplicatas fisicamente idênticas podem ser resolvidas de forma estável;
+4. **segurança:** identidades físicas conflitantes permanecem ambíguas;
+5. **separação de camadas:** catálogo, plano lógico, evidência física e manifesto não se confundem;
+6. **isolamento de CHD:** discos seguem pipeline próprio;
+7. **auditabilidade:** o planner pode ser comparado com evidência derivada do catálogo sem modificar a base;
+8. **materialização sem colisão:** várias ROMs da mesma máquina podem coexistir no manifesto.
+
+## 16. Referências primárias
 
 - MAME Documentation — *About ROMs and Sets*.
 - MAME Documentation — *Common Issues*.
