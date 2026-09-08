@@ -127,13 +127,58 @@ def test_parent_inheritance_is_used_when_same_name_exists_only_in_parent():
     assert items[1].source_machine == "parent"
 
 
-def test_duplicate_rom_name_inside_target_machine_is_not_guessed():
+def test_identical_duplicate_rom_identity_inside_target_machine_is_resolved():
     items = plan(
         game(
             "parent",
             roms=[
-                rom("parent", "shared.bin"),
-                rom("parent", "shared.bin"),
+                rom(
+                    "parent",
+                    "shared.bin",
+                    sha1="1111111111111111111111111111111111111111",
+                    crc="aaaaaaaa",
+                    size=256,
+                ),
+                rom(
+                    "parent",
+                    "shared.bin",
+                    sha1="1111111111111111111111111111111111111111",
+                    crc="aaaaaaaa",
+                    size=256,
+                ),
+            ],
+        ),
+        game(
+            "clone",
+            parent="parent",
+            roms=[rom("clone", "local.bin", merge="shared.bin")],
+        ),
+    )
+
+    assert items[2].source_kind is RomSourceKind.MERGED
+    assert items[2].source_machine == "parent"
+    assert items[2].source_rom_name == "shared.bin"
+
+
+def test_duplicate_rom_name_with_different_identity_stays_ambiguous():
+    items = plan(
+        game(
+            "parent",
+            roms=[
+                rom(
+                    "parent",
+                    "shared.bin",
+                    sha1="1111111111111111111111111111111111111111",
+                    crc="aaaaaaaa",
+                    size=256,
+                ),
+                rom(
+                    "parent",
+                    "shared.bin",
+                    sha1="2222222222222222222222222222222222222222",
+                    crc="bbbbbbbb",
+                    size=512,
+                ),
             ],
         ),
         game(
