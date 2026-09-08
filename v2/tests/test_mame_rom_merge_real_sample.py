@@ -14,6 +14,7 @@ from pathlib import Path
 DB_FILE = Path(__file__).resolve().parents[1] / "data" / "database" / "serm.db"
 SAMPLE_SIZE = 30
 CANDIDATE_LIMIT = 1000
+SQLITE_PARAMETER_CHUNK = 900
 
 
 def _latest_import(db: sqlite3.Connection) -> int:
@@ -44,27 +45,41 @@ def _candidate_rows(db: sqlite3.Connection, import_id: int) -> list[sqlite3.Row]
     ).fetchall()
 
 
-def _targets(
+def _targets_by_merge_name(
     db: sqlite3.Connection,
     import_id: int,
-    merge_name: str,
-) -> list[sqlite3.Row]:
+    merge_names: set[str],
+) -> dict[str, list[sqlite3.Row]]:
+    """Busca todos os alvos da amostra em poucas consultas, evitando N+1."""
     db.row_factory = sqlite3.Row
-    return db.execute(
-        """
-        SELECT t.machine_id, m.name AS machine_name,
-               t.name AS rom_name, t.sha1, t.crc, t.size
-        FROM mame_rom t
-        JOIN mame_machine m ON m.id = t.machine_id
-        WHERE m.import_id = ?
-          AND lower(t.name) = lower(?)
-        ORDER BY t.machine_id
-        """,
-        (import_id, merge_name),
-    ).fetchall()
+    result: dict[str, list[sqlite3.Row]] = {}
+    names = sorted(name for name in merge_names if name)
+
+    for start in range(0, len(names), SQLITE_PARAMETER_CHUNK):
+        chunk = names[start : start + SQLITE_PARAMETER_CHUNK]
+        placeholders = ",".join("?" for _ in chunk)
+        rows = db.execute(
+            f"""
+            SELECT t.machine_id, m.name AS machine_name,
+                   t.name AS rom_name, t.sha1, t.crc, t.size
+            FROM mame_rom t
+            JOIN mame_machine m ON m.id = t.machine_id
+            WHERE m.import_id = ?
+              AND lower(t.name) IN ({placeholders})
+            ORDER BY t.machine_id
+            """,
+            (import_id, *chunk),
+        ).fetchall()
+        for row in rows:
+            result.setdefault(row["rom_name"].casefold(), []).append(row)
+
+    return result
 
 
-def _relation(row: sqlite3.Row, targets: list[sqlite3.Row]) -> tuple[str, sqlite3.Row | None]:
+def _relation(
+    row: sqlite3.Row,
+    targets: list[sqlite3.Row],
+) -> tuple[str, sqlite3.Row | None]:
     machine = row["machine_name"].casefold()
     romof = (row["romof"] or "").casefold()
     cloneof = (row["cloneof"] or "").casefold()
@@ -111,16 +126,31 @@ def _select_stratified(
     db: sqlite3.Connection,
     import_id: int,
 ) -> list[tuple[sqlite3.Row, str, sqlite3.Row | None]]:
+    candidates = _candidate_rows(db, import_id)
+    targets_by_name = _targets_by_merge_name(
+        db,
+        import_id,
+        {row["merge_name"].casefold() for row in candidates},
+    )
+
     selected: list[tuple[sqlite3.Row, str, sqlite3.Row | None]] = []
     seen: set[tuple[int, str]] = set()
-    buckets = {"SELF": 0, "ROMOF": 0, "CLONEOF/PARENT": 0, "AMBIGUOUS": 0, "UNRELATED": 0, "UNRESOLVED": 0}
+    buckets = {
+        "SELF": 0,
+        "ROMOF": 0,
+        "CLONEOF/PARENT": 0,
+        "AMBIGUOUS": 0,
+        "UNRELATED": 0,
+        "UNRESOLVED": 0,
+    }
     target_per_bucket = 5
 
-    for row in _candidate_rows(db, import_id):
+    for row in candidates:
         key = (int(row["machine_id"]), row["rom_name"].casefold())
         if key in seen:
             continue
-        kind, target = _relation(row, _targets(db, import_id, row["merge_name"]))
+        targets = targets_by_name.get(row["merge_name"].casefold(), [])
+        kind, target = _relation(row, targets)
         if buckets.get(kind, 0) >= target_per_bucket:
             continue
         buckets[kind] = buckets.get(kind, 0) + 1
