@@ -1,8 +1,7 @@
-"""Amostra pequena e estratificada do catalogo real para validar merge.
+"""Amostra dirigida do catalogo real para validar casos nao triviais de merge.
 
-A amostra nao usa os primeiros registros do banco, pois isso tende a produzir
-apenas self-merge. Em vez disso, coleta candidatos limitados e distribui os
-casos entre self, romof, parent e destinos externos/nao resolvidos. O teste nao
+A selecao e feita diretamente pelos relacionamentos existentes no catalogo,
+em vez de depender da ordem alfabetica dos primeiros registros. O teste nao
 altera o banco.
 """
 
@@ -12,9 +11,17 @@ import sqlite3
 from pathlib import Path
 
 DB_FILE = Path(__file__).resolve().parents[1] / "data" / "database" / "serm.db"
-SAMPLE_SIZE = 30
-CANDIDATE_LIMIT = 1000
-SQLITE_PARAMETER_CHUNK = 900
+PER_BUCKET = 5
+
+
+BUCKETS = (
+    "SELF",
+    "ROMOF",
+    "CLONEOF/PARENT",
+    "AMBIGUOUS",
+    "UNRELATED",
+    "UNRESOLVED",
+)
 
 
 def _latest_import(db: sqlite3.Connection) -> int:
@@ -26,10 +33,8 @@ def _latest_import(db: sqlite3.Connection) -> int:
     return int(row[0])
 
 
-def _candidate_rows(db: sqlite3.Connection, import_id: int) -> list[sqlite3.Row]:
-    db.row_factory = sqlite3.Row
-    return db.execute(
-        """
+def _candidate_query(bucket: str) -> str:
+    base = """
         SELECT r.machine_id, m.name AS machine_name,
                m.cloneof, m.romof,
                r.name AS rom_name, r.merge AS merge_name,
@@ -38,65 +43,142 @@ def _candidate_rows(db: sqlite3.Connection, import_id: int) -> list[sqlite3.Row]
         JOIN mame_machine m ON m.id = r.machine_id
         WHERE m.import_id = ?
           AND trim(COALESCE(r.merge, '')) <> ''
-        ORDER BY lower(m.name), lower(r.name)
-        LIMIT ?
+    """
+
+    target_count = """
+        (SELECT COUNT(*)
+           FROM mame_rom t
+           JOIN mame_machine tm ON tm.id = t.machine_id
+          WHERE tm.import_id = m.import_id
+            AND lower(t.name) = lower(r.merge))
+    """
+
+    if bucket == "SELF":
+        return base + """
+          AND EXISTS (
+              SELECT 1 FROM mame_rom t
+              JOIN mame_machine tm ON tm.id = t.machine_id
+              WHERE tm.import_id = m.import_id
+                AND tm.name = m.name
+                AND lower(t.name) = lower(r.merge)
+          )
+          ORDER BY lower(m.name), lower(r.name)
+          LIMIT ?
+        """
+
+    if bucket == "ROMOF":
+        return base + """
+          AND trim(COALESCE(m.romof, '')) <> ''
+          AND EXISTS (
+              SELECT 1 FROM mame_rom t
+              JOIN mame_machine tm ON tm.id = t.machine_id
+              WHERE tm.import_id = m.import_id
+                AND lower(tm.name) = lower(m.romof)
+                AND lower(t.name) = lower(r.merge)
+          )
+          ORDER BY lower(m.name), lower(r.name)
+          LIMIT ?
+        """
+
+    if bucket == "CLONEOF/PARENT":
+        return base + """
+          AND trim(COALESCE(m.cloneof, '')) <> ''
+          AND EXISTS (
+              SELECT 1 FROM mame_rom t
+              JOIN mame_machine tm ON tm.id = t.machine_id
+              WHERE tm.import_id = m.import_id
+                AND lower(tm.name) = lower(m.cloneof)
+                AND lower(t.name) = lower(r.merge)
+          )
+          ORDER BY lower(m.name), lower(r.name)
+          LIMIT ?
+        """
+
+    if bucket == "AMBIGUOUS":
+        return base + f"""
+          AND {target_count} > 1
+          AND NOT EXISTS (
+              SELECT 1 FROM mame_rom t
+              JOIN mame_machine tm ON tm.id = t.machine_id
+              WHERE tm.import_id = m.import_id
+                AND lower(tm.name) = lower(m.name)
+                AND lower(t.name) = lower(r.merge)
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM mame_rom t
+              JOIN mame_machine tm ON tm.id = t.machine_id
+              WHERE tm.import_id = m.import_id
+                AND lower(tm.name) = lower(m.romof)
+                AND lower(t.name) = lower(r.merge)
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM mame_rom t
+              JOIN mame_machine tm ON tm.id = t.machine_id
+              WHERE tm.import_id = m.import_id
+                AND lower(tm.name) = lower(m.cloneof)
+                AND lower(t.name) = lower(r.merge)
+          )
+          ORDER BY lower(m.name), lower(r.name)
+          LIMIT ?
+        """
+
+    if bucket == "UNRELATED":
+        return base + f"""
+          AND {target_count} > 0
+          AND NOT EXISTS (
+              SELECT 1 FROM mame_rom t
+              JOIN mame_machine tm ON tm.id = t.machine_id
+              WHERE tm.import_id = m.import_id
+                AND lower(tm.name) IN (
+                    lower(m.name), lower(m.romof), lower(m.cloneof)
+                )
+                AND lower(t.name) = lower(r.merge)
+          )
+          ORDER BY lower(m.name), lower(r.name)
+          LIMIT ?
+        """
+
+    return base + f"""
+          AND {target_count} = 0
+          ORDER BY lower(m.name), lower(r.name)
+          LIMIT ?
+    """
+
+
+def _targets(
+    db: sqlite3.Connection,
+    import_id: int,
+    merge_name: str,
+) -> list[sqlite3.Row]:
+    db.row_factory = sqlite3.Row
+    return db.execute(
+        """
+        SELECT t.machine_id, m.name AS machine_name,
+               t.name AS rom_name, t.sha1, t.crc, t.size
+        FROM mame_rom t
+        JOIN mame_machine m ON m.id = t.machine_id
+        WHERE m.import_id = ?
+          AND lower(t.name) = lower(?)
+        ORDER BY t.machine_id
         """,
-        (import_id, CANDIDATE_LIMIT),
+        (import_id, merge_name),
     ).fetchall()
 
 
-def _targets_by_merge_name(
-    db: sqlite3.Connection,
-    import_id: int,
-    merge_names: set[str],
-) -> dict[str, list[sqlite3.Row]]:
-    """Busca todos os alvos da amostra em poucas consultas, evitando N+1."""
-    db.row_factory = sqlite3.Row
-    result: dict[str, list[sqlite3.Row]] = {}
-    names = sorted(name for name in merge_names if name)
-
-    for start in range(0, len(names), SQLITE_PARAMETER_CHUNK):
-        chunk = names[start : start + SQLITE_PARAMETER_CHUNK]
-        placeholders = ",".join("?" for _ in chunk)
-        rows = db.execute(
-            f"""
-            SELECT t.machine_id, m.name AS machine_name,
-                   t.name AS rom_name, t.sha1, t.crc, t.size
-            FROM mame_rom t
-            JOIN mame_machine m ON m.id = t.machine_id
-            WHERE m.import_id = ?
-              AND lower(t.name) IN ({placeholders})
-            ORDER BY t.machine_id
-            """,
-            (import_id, *chunk),
-        ).fetchall()
-        for row in rows:
-            result.setdefault(row["rom_name"].casefold(), []).append(row)
-
-    return result
-
-
-def _relation(
-    row: sqlite3.Row,
-    targets: list[sqlite3.Row],
-) -> tuple[str, sqlite3.Row | None]:
+def _relation(row: sqlite3.Row, targets: list[sqlite3.Row]) -> tuple[str, sqlite3.Row | None]:
     machine = row["machine_name"].casefold()
     romof = (row["romof"] or "").casefold()
     cloneof = (row["cloneof"] or "").casefold()
 
-    # Keep the same semantic priority as the production planner: self, romof,
-    # then parent. An unrelated global name match is never accepted.
-    preferred = (
+    for kind, preferred_machine in (
         ("SELF", machine),
         ("ROMOF", romof),
         ("CLONEOF/PARENT", cloneof),
-    )
-    for kind, preferred_machine in preferred:
+    ):
         if not preferred_machine:
             continue
         matches = [
-            target
-            for target in targets
+            target for target in targets
             if target["machine_name"].casefold() == preferred_machine
         ]
         if len(matches) == 1:
@@ -104,9 +186,7 @@ def _relation(
         if len(matches) > 1:
             return "AMBIGUOUS", None
 
-    if targets:
-        return "UNRELATED", None
-    return "UNRESOLVED", None
+    return ("UNRELATED" if targets else "UNRESOLVED"), None
 
 
 def _identity(row: sqlite3.Row, target: sqlite3.Row | None) -> str:
@@ -122,74 +202,38 @@ def _identity(row: sqlite3.Row, target: sqlite3.Row | None) -> str:
     return "UNKNOWN"
 
 
-def _select_stratified(
-    db: sqlite3.Connection,
-    import_id: int,
-) -> list[tuple[sqlite3.Row, str, sqlite3.Row | None]]:
-    candidates = _candidate_rows(db, import_id)
-    targets_by_name = _targets_by_merge_name(
-        db,
-        import_id,
-        {row["merge_name"].casefold() for row in candidates},
-    )
-
-    selected: list[tuple[sqlite3.Row, str, sqlite3.Row | None]] = []
-    seen: set[tuple[int, str]] = set()
-    buckets = {
-        "SELF": 0,
-        "ROMOF": 0,
-        "CLONEOF/PARENT": 0,
-        "AMBIGUOUS": 0,
-        "UNRELATED": 0,
-        "UNRESOLVED": 0,
-    }
-    target_per_bucket = 5
-
-    for row in candidates:
-        key = (int(row["machine_id"]), row["rom_name"].casefold())
-        if key in seen:
-            continue
-        targets = targets_by_name.get(row["merge_name"].casefold(), [])
-        kind, target = _relation(row, targets)
-        if buckets.get(kind, 0) >= target_per_bucket:
-            continue
-        buckets[kind] = buckets.get(kind, 0) + 1
-        seen.add(key)
-        selected.append((row, kind, target))
-        if len(selected) >= SAMPLE_SIZE:
-            break
-
-    return selected
-
-
-def test_real_merge_sample_is_bounded_and_stratified():
+def test_real_merge_sample_covers_nontrivial_categories():
     assert DB_FILE.exists(), f"Banco nao encontrado: {DB_FILE}"
 
     with sqlite3.connect(DB_FILE) as db:
         import_id = _latest_import(db)
-        selected = _select_stratified(db, import_id)
-        assert 0 < len(selected) <= SAMPLE_SIZE
+        db.row_factory = sqlite3.Row
+        selected: list[tuple[str, sqlite3.Row]] = []
 
-        relation_counts: dict[str, int] = {}
-        identity_counts: dict[str, int] = {}
+        for bucket in BUCKETS:
+            rows = db.execute(_candidate_query(bucket), (import_id, PER_BUCKET)).fetchall()
+            print(f"\n[{bucket}] candidatos={len(rows)}")
+            for row in rows:
+                selected.append((bucket, row))
+                targets = _targets(db, import_id, row["merge_name"])
+                relation, target = _relation(row, targets)
+                identity = _identity(row, target)
+                target_name = target["machine_name"] if target else "-"
+                print(
+                    f"  {row['machine_name']} :: {row['rom_name']} "
+                    f"merge={row['merge_name']} -> {relation} "
+                    f"target={target_name} identity={identity}"
+                )
 
-        for row, relation, target in selected:
-            relation_counts[relation] = relation_counts.get(relation, 0) + 1
-            identity = _identity(row, target)
-            identity_counts[identity] = identity_counts.get(identity, 0) + 1
-            target_name = target["machine_name"] if target else "-"
-            print(
-                f"  {row['machine_name']} :: {row['rom_name']} "
-                f"merge={row['merge_name']} -> {relation} "
-                f"target={target_name} identity={identity}"
-            )
+        assert selected, "Nenhum caso real de merge foi encontrado."
 
-        print(f"IMPORT ID: {import_id}")
-        print(f"AMOSTRA: {len(selected)}/{SAMPLE_SIZE} (candidatos limitados a {CANDIDATE_LIMIT})")
-        print("RELACOES:")
-        for key, value in sorted(relation_counts.items()):
-            print(f"  {key:<22}: {value:>3}")
-        print("IDENTIDADE:")
-        for key, value in sorted(identity_counts.items()):
-            print(f"  {key:<22}: {value:>3}")
-        print("RESULTADO: amostra limitada e estratificada; nenhuma alteracao no banco.")
+        counts: dict[str, int] = {}
+        for bucket, _ in selected:
+            counts[bucket] = counts.get(bucket, 0) + 1
+
+        print(f"\nIMPORT ID: {import_id}")
+        print(f"TOTAL AMOSTRADO: {len(selected)}")
+        print("COBERTURA:")
+        for bucket in BUCKETS:
+            print(f"  {bucket:<18}: {counts.get(bucket, 0):>3}")
+        print("RESULTADO: amostra dirigida; nenhuma alteracao no banco.")
