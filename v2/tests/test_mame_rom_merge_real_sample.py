@@ -60,29 +60,38 @@ def _targets(
     ).fetchall()
 
 
-def _relation(row: sqlite3.Row, targets: list[sqlite3.Row]) -> str:
+def _select_target(
+    row: sqlite3.Row,
+    targets: list[sqlite3.Row],
+) -> tuple[str, sqlite3.Row | None]:
+    """Aplica a mesma prioridade semantica usada pelo planejador.
+
+    A existencia de varias maquinas com o mesmo nome de ROM nao e, por si,
+uma ambiguidade. A prioridade e: propria maquina, romof e parent/clone.
+    Ambiguidade existe quando ha mais de uma candidata dentro da primeira
+    relacao aplicavel.
+    """
     machine = row["machine_name"]
-    romof = (row["romof"] or "").casefold()
-    cloneof = (row["cloneof"] or "").casefold()
+    preferred = (
+        ("SELF", machine),
+        ("ROMOF", row["romof"]),
+        ("CLONEOF/PARENT", row["cloneof"]),
+    )
 
-    preferred = []
-    for target in targets:
-        target_machine = target["machine_name"]
-        target_key = target_machine.casefold()
-        if target_key == machine.casefold():
-            preferred.append(("SELF", target))
-        elif romof and target_key == romof:
-            preferred.append(("ROMOF", target))
-        elif cloneof and target_key == cloneof:
-            preferred.append(("CLONEOF/PARENT", target))
+    for kind, preferred_machine in preferred:
+        if not preferred_machine:
+            continue
+        matches = [
+            target
+            for target in targets
+            if target["machine_name"].casefold() == preferred_machine.casefold()
+        ]
+        if len(matches) == 1:
+            return kind, matches[0]
+        if len(matches) > 1:
+            return "AMBIGUOUS", None
 
-    if not preferred:
-        return "UNRELATED/UNRESOLVED"
-
-    kinds = {kind for kind, _ in preferred}
-    if len(preferred) > 1 or len(kinds) > 1:
-        return "AMBIGUOUS"
-    return preferred[0][0]
+    return "UNRELATED/UNRESOLVED", None
 
 
 def _identity(row: sqlite3.Row, target: sqlite3.Row) -> str:
@@ -111,25 +120,18 @@ def test_real_merge_sample_is_bounded_and_inspectable():
 
         for row in rows:
             targets = _targets(db, import_id, row["merge_name"])
-            relation = _relation(row, targets)
+            relation, target = _select_target(row, targets)
             relation_counts[relation] = relation_counts.get(relation, 0) + 1
 
-            related_targets = [
-                target
-                for target in targets
-                if target["machine_name"].casefold()
-                in {
-                    row["machine_name"].casefold(),
-                    (row["romof"] or "").casefold(),
-                    (row["cloneof"] or "").casefold(),
-                }
-            ]
-            if len(related_targets) == 1:
-                identity = _identity(row, related_targets[0])
-                identity_counts[identity] = identity_counts.get(identity, 0) + 1
-            else:
-                identity_counts["UNKNOWN"] = identity_counts.get("UNKNOWN", 0) + 1
+            identity = _identity(row, target) if target is not None else "UNKNOWN"
+            identity_counts[identity] = identity_counts.get(identity, 0) + 1
 
+            print(
+                f"  {row['machine_name']} :: {row['rom_name']}"
+                f" merge={row['merge_name']} -> {relation}"
+                f" target={(target['machine_name'] if target else '-') }"
+                f" identity={identity}"
+            )
             inspected += 1
 
         print(f"IMPORT ID: {import_id}")
