@@ -92,21 +92,22 @@ class ArcadeRomReconstructionEngine:
         index = self._build_index(physical)
         plans = ArcadeRomReconstructionPlanner().plan(catalog_games)
         results: list[RomReconstruction] = []
+        games_by_name = {game.machine_name: game for game in catalog_games}
 
         for plan in plans.items:
-            game = next(game for game in catalog_games if game.machine_name == plan.machine_name)
-            rom = next(rom for rom in game.roms if rom.machine_name == plan.rom_name)
+            game = games_by_name[plan.machine_name]
+            rom = self._find_rom_by_name(game, plan.rom_name)
+            if rom is None:
+                raise ValueError(
+                    f"ROM planejada nao encontrada na maquina {game.machine_name}: {plan.rom_name}"
+                )
+
             source_rom = rom
             if plan.source_machine and plan.source_machine != game.machine_name:
-                source_game = next(
-                    (item for item in catalog_games if item.machine_name == plan.source_machine),
-                    None,
-                )
-                if source_game is not None:
-                    source_rom = next(
-                        (item for item in source_game.roms if item.machine_name == plan.source_rom_name),
-                        rom,
-                    )
+                source_game = games_by_name.get(plan.source_machine)
+                if source_game is not None and plan.source_rom_name:
+                    source_rom = self._find_rom_by_name(source_game, plan.source_rom_name) or rom
+
             results.append(
                 self._resolve(
                     plan.machine_name,
@@ -120,6 +121,19 @@ class ArcadeRomReconstructionEngine:
             )
 
         return ReconstructionResult(items=tuple(results))
+
+    @staticmethod
+    def _find_rom_by_name(game: ArcadeGame, rom_name: str) -> ArcadeRom | None:
+        """Localiza a ROM pelo nome XML, sem confundir nome da maquina com nome da ROM."""
+        normalized = rom_name.casefold()
+        matches = tuple(
+            rom for rom in game.roms if rom.display_name.strip().casefold() == normalized
+        )
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            return None
+        return None
 
     @staticmethod
     def _build_index(inventory: tuple[PhysicalRom, ...]) -> Mapping[str, tuple[PhysicalRom, ...]]:
@@ -160,17 +174,17 @@ class ArcadeRomReconstructionEngine:
             candidates = index.get(key, ())
             if len(candidates) == 1:
                 return RomReconstruction(
-                    machine_name, rom.machine_name, candidates[0], kind, (),
+                    machine_name, rom.display_name, candidates[0], kind, (),
                     source_machine, source_rom_name, source_kind,
                 )
             if len(candidates) > 1:
                 return RomReconstruction(
-                    machine_name, rom.machine_name, None, RomMatchKind.AMBIGUOUS,
+                    machine_name, rom.display_name, None, RomMatchKind.AMBIGUOUS,
                     candidates, source_machine, source_rom_name, source_kind,
                 )
 
         return RomReconstruction(
-            machine_name, rom.machine_name, None, RomMatchKind.MISSING, (),
+            machine_name, rom.display_name, None, RomMatchKind.MISSING, (),
             source_machine, source_rom_name, source_kind,
         )
 
