@@ -15,11 +15,12 @@ def rom(name: str, *, machine: str | None = None, **metadata: object) -> ArcadeR
     )
 
 
-def game(name: str, *roms: ArcadeRom) -> ArcadeGame:
+def game(name: str, *roms: ArcadeRom, parent: str | None = None) -> ArcadeGame:
     return ArcadeGame(
         machine_name=name,
         display_name=name,
         platform=ArcadePlatform.MAME,
+        parent_name=parent,
         roms=tuple(roms),
     )
 
@@ -90,11 +91,11 @@ def test_rom_lookup_uses_display_name_not_machine_name() -> None:
 
 
 def test_merged_rom_uses_source_machine_and_source_rom_name() -> None:
-    parent_rom = rom("shared.bin", machine="parent", sha1="ABC123", merge=None)
+    parent_rom = rom("shared.bin", machine="parent", sha1="ABC123")
     clone_rom = rom("clone_alias.bin", machine="clone", sha1="ABC123", merge="shared.bin")
 
     result = ArcadeRomReconstructionEngine().reconstruct(
-        [game("parent", parent_rom), game("clone", clone_rom)],
+        [game("parent", parent_rom), game("clone", clone_rom, parent="parent")],
         [PhysicalRom("shared.bin", 4096, sha1="ABC123")],
     )
 
