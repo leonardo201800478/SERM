@@ -83,12 +83,25 @@ def _load_targets(
         FROM mame_rom r
         JOIN mame_machine m ON m.id = r.machine_id
         WHERE m.import_id = ?
-        """,
+        """
+        ,
         (import_id,),
     )
     for row in rows:
         index.setdefault(_norm(row["rom_name"]), []).append(row)
     return index
+
+
+def _matches_for_machine(
+    candidates: list[sqlite3.Row], machine_name: str | None
+) -> list[sqlite3.Row]:
+    if not machine_name:
+        return []
+    preferred = _norm(machine_name)
+    return [
+        target for target in candidates
+        if _norm(target["machine_name"]) == preferred
+    ]
 
 
 def _classify(
@@ -97,23 +110,16 @@ def _classify(
     targets: dict[str, list[sqlite3.Row]],
 ) -> tuple[str, sqlite3.Row | None]:
     machine_name, cloneof, romof = machines[int(row["machine_id"])]
-    machine = _norm(machine_name)
     candidates = targets.get(_norm(row["merge_name"]), [])
 
     preferred = (
-        ("SELF", machine),
+        ("SELF", machine_name),
         ("ROMOF", romof),
         ("CLONEOF/PARENT", cloneof),
     )
 
     for kind, preferred_machine in preferred:
-        if not preferred_machine:
-            continue
-        matches = [
-            target
-            for target in candidates
-            if _norm(target["machine_name"]) == preferred_machine
-        ]
+        matches = _matches_for_machine(candidates, preferred_machine)
         if len(matches) == 1:
             return kind, matches[0]
         if len(matches) > 1:
@@ -141,6 +147,50 @@ def _identity(row: sqlite3.Row, target: sqlite3.Row | None) -> str:
     return "UNKNOWN"
 
 
+def _relation_matrix(
+    roms: list[sqlite3.Row],
+    machines: dict[int, tuple[str, str, str]],
+    targets: dict[str, list[sqlite3.Row]],
+) -> dict[str, int]:
+    """Conta evidencias de relacao sem aplicar a prioridade do planner."""
+    counts = {
+        "self": 0,
+        "romof": 0,
+        "cloneof": 0,
+        "cloneof_only": 0,
+        "romof_and_cloneof": 0,
+        "unrelated": 0,
+        "unresolved": 0,
+        "duplicate_target_same_machine": 0,
+    }
+
+    for row in roms:
+        machine_name, cloneof, romof = machines[int(row["machine_id"])]
+        candidates = targets.get(_norm(row["merge_name"]), [])
+        self_matches = _matches_for_machine(candidates, machine_name)
+        romof_matches = _matches_for_machine(candidates, romof)
+        clone_matches = _matches_for_machine(candidates, cloneof)
+
+        if self_matches:
+            counts["self"] += 1
+        if romof_matches:
+            counts["romof"] += 1
+        if clone_matches:
+            counts["cloneof"] += 1
+        if clone_matches and not romof_matches:
+            counts["cloneof_only"] += 1
+        if clone_matches and romof_matches:
+            counts["romof_and_cloneof"] += 1
+        if len(self_matches) > 1 or len(romof_matches) > 1 or len(clone_matches) > 1:
+            counts["duplicate_target_same_machine"] += 1
+        if not candidates:
+            counts["unresolved"] += 1
+        elif not self_matches and not romof_matches and not clone_matches:
+            counts["unrelated"] += 1
+
+    return counts
+
+
 def test_real_merge_sample_covers_nontrivial_categories():
     assert DB_FILE.exists(), f"Banco nao encontrado: {DB_FILE}"
 
@@ -148,6 +198,13 @@ def test_real_merge_sample_covers_nontrivial_categories():
         import_id = _latest_import(db)
         roms, machines = _load_catalog(db, import_id)
         targets = _load_targets(db, import_id)
+
+        matrix = _relation_matrix(roms, machines, targets)
+        print(f"\nIMPORT ID: {import_id}")
+        print(f"ROMs COM MERGE: {len(roms)}")
+        print("MATRIZ DE EVIDENCIAS (sem prioridade):")
+        for key, value in matrix.items():
+            print(f"  {key:<32}: {value:>8}")
 
         selected: list[tuple[str, sqlite3.Row, sqlite3.Row | None]] = []
         seen: set[tuple[int, str, str]] = set()
@@ -165,18 +222,18 @@ def test_real_merge_sample_covers_nontrivial_categories():
             selected.append((bucket, row, target))
             counts[bucket] = counts.get(bucket, 0) + 1
 
-            machine_name = machines[int(row["machine_id"])][0]
+            machine_name, cloneof, romof = machines[int(row["machine_id"])]
             target_name = target["machine_name"] if target else "-"
             print(
                 f"  {machine_name} :: {row['rom_name']} "
                 f"merge={row['merge_name']} -> {bucket} "
-                f"target={target_name} identity={_identity(row, target)}"
+                f"target={target_name} identity={_identity(row, target)} "
+                f"romof={romof or '-'} cloneof={cloneof or '-'}"
             )
 
             if all(counts.get(bucket, 0) >= PER_BUCKET for bucket in BUCKETS):
                 break
 
-        print(f"\nIMPORT ID: {import_id}")
         print(f"TOTAL AMOSTRADO: {len(selected)}")
         print("COBERTURA:")
         for bucket in BUCKETS:
