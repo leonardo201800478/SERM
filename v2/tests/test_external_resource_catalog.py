@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from zipfile import ZipFile
 
@@ -38,9 +39,7 @@ def test_catalog_deduplicates_by_provider_platform_name_version() -> None:
         url="https://example.invalid/x",
         storage=ResourceStorage.CACHE_ONLY,
     )
-    replacement = ExternalResource(
-        **{**resource.__dict__, "resource_id": "two"}
-    )
+    replacement = replace(resource, resource_id="two")
     catalog = ExternalResourceCatalog((resource, replacement))
     assert len(catalog) == 1
     assert catalog.get("provider", "mame", "x", "1") == replacement
