@@ -1,0 +1,83 @@
+from __future__ import annotations
+
+from pathlib import Path
+from zipfile import ZipFile
+
+import pytest
+
+from serm_v2.models.external_resource import (
+    ExternalResource,
+    ExternalResourceType,
+    ExtractionMode,
+    ResourceStorage,
+)
+from serm_v2.services.arcade.download_manager import DownloadManager
+from serm_v2.services.arcade.progetto_snaps_provider import ProgettoSnapsProvider
+from serm_v2.services.arcade.resource_catalog import ExternalResourceCatalog
+
+
+def test_progetto_snaps_catalog_separates_metadata_and_samples() -> None:
+    resources = ProgettoSnapsProvider().resources("0.289")
+    by_name = {resource.name: resource for resource in resources}
+
+    assert by_name["catver"].storage is ResourceStorage.SERM_METADATA
+    assert by_name["catver"].resource_type is ExternalResourceType.METADATA
+    assert by_name["samples-fullpack"].storage is ResourceStorage.MAME_SOURCE
+    assert by_name["samples-fullpack"].resource_type is ExternalResourceType.SAMPLE
+    assert by_name["samples-fullpack"].url.endswith("/samples/packs/MAME_samples_289.zip")
+
+
+def test_catalog_deduplicates_by_provider_platform_name_version() -> None:
+    resource = ExternalResource(
+        resource_id="one",
+        provider="provider",
+        platform="mame",
+        name="x",
+        version="1",
+        resource_type=ExternalResourceType.METADATA,
+        url="https://example.invalid/x",
+        storage=ResourceStorage.CACHE_ONLY,
+    )
+    replacement = ExternalResource(
+        **{**resource.__dict__, "resource_id": "two"}
+    )
+    catalog = ExternalResourceCatalog((resource, replacement))
+    assert len(catalog) == 1
+    assert catalog.get("provider", "mame", "x", "1") == replacement
+
+
+def test_archive_member_rejects_path_traversal() -> None:
+    resource = ExternalResource(
+        resource_id="x",
+        provider="p",
+        platform="mame",
+        name="x",
+        version="1",
+        resource_type=ExternalResourceType.METADATA,
+        url="https://example.invalid/x",
+        storage=ResourceStorage.CACHE_ONLY,
+        archive_member="../escape.ini",
+    )
+    with pytest.raises(ValueError):
+        resource.safe_member()
+
+
+def test_download_manager_extracts_archive_without_escape(tmp_path: Path) -> None:
+    archive = tmp_path / "sample.zip"
+    with ZipFile(archive, "w") as package:
+        package.writestr("safe/file.ini", "ok")
+
+    resource = ExternalResource(
+        resource_id="x",
+        provider="p",
+        platform="mame",
+        name="x",
+        version="1",
+        resource_type=ExternalResourceType.METADATA,
+        url="https://example.invalid/x",
+        storage=ResourceStorage.CACHE_ONLY,
+        extraction=ExtractionMode.ARCHIVE,
+    )
+    manager = DownloadManager(tmp_path / "cache")
+    extracted = manager.extract(resource, archive)
+    assert (extracted / "safe/file.ini").read_text() == "ok"
