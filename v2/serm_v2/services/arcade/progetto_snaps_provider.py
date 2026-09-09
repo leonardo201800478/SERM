@@ -16,27 +16,27 @@ from .resource_catalog import ExternalResourceCatalog
 
 
 class ProgettoSnapsProvider:
-    """Catalogo declarativo inicial dos recursos suportados pelo SERM."""
+    """Catalogo declarativo dos recursos MAME relevantes ao SERM."""
 
     provider = "progetto_snaps"
     base_url = "https://www.progettosnaps.net"
     samples_url = f"{base_url}/samples/"
+    support_url = f"{base_url}/support/"
 
-    def resources(self, version: str = "0.289") -> tuple[ExternalResource, ...]:
-        """Retorna recursos MAME conhecidos para uma versao.
+    _METADATA = (
+        ("catver", "0.289", "/catver/", "CatVer.ini"),
+        ("series", "0.289", "/series/", "Series.ini"),
+        ("languages", "0.289", "/languages/", "Languages.ini"),
+        ("gameinit", "0.289", "/gameinit/", "GameInit.dat"),
+        ("bestgames", "0.280", "/bestgames/", "BestGames.ini"),
+        ("command", "0.273", "/command/", "Command.dat"),
+    )
 
-        Metadados sao armazenados no SERM; samples permanecem como recurso
-        fisico da origem MAME. Os arquivos de classificacao devem ser
-        descobertos pelo conteudo do pacote durante a etapa de ingestao, e nao
-        por nomes de ZIP codificados no restante da aplicacao.
-        """
+    def resources(self) -> tuple[ExternalResource, ...]:
+        """Retorna os recursos atualmente publicados, independentemente da versao MAME."""
         resources = [
-            self._metadata("catver", version, "pS_CatVer_289.zip" if version == "0.289" else None),
-            self._metadata("series", version, "pS_Series_289.zip" if version == "0.289" else None),
-            self._metadata("languages", version, "pS_Languages_289.zip" if version == "0.289" else None),
-            self._metadata("gameinit", version, "pS_gameinit_289.zip" if version == "0.289" else None),
-            self._metadata("command", version, "pS_Command_273.zip" if version == "0.273" else None),
-            self._metadata("bestgames", version, "pS_BestGames_280.zip" if version == "0.280" else None),
+            self._metadata(name, version, page, filename)
+            for name, version, page, filename in self._METADATA
         ]
         resources.append(
             ExternalResource(
@@ -50,19 +50,23 @@ class ProgettoSnapsProvider:
                 storage=ResourceStorage.MAME_SOURCE,
                 extraction=ExtractionMode.ARCHIVE,
                 required=False,
-                notes="FullPack oficial/unofficial de samples 0.289; validar conteudo antes de publicar.",
-                metadata={"listing_url": self.samples_url},
+                notes="FullPack MAME Samples 0.289; validar conteudo antes de publicar.",
+                metadata={"listing_url": self.samples_url, "package_count": 75},
             )
         )
-        return tuple(resource for resource in resources if resource is not None)
+        return tuple(resources)
 
-    def catalog(self, version: str = "0.289") -> ExternalResourceCatalog:
+    def catalog(self) -> ExternalResourceCatalog:
         """Constroi um catalogo pronto para consulta."""
-        return ExternalResourceCatalog(self.resources(version))
+        return ExternalResourceCatalog(self.resources())
 
-    def _metadata(self, name: str, version: str, filename: str | None) -> ExternalResource | None:
-        if filename is None:
-            return None
+    def _metadata(
+        self,
+        name: str,
+        version: str,
+        page: str,
+        filename: str,
+    ) -> ExternalResource:
         return ExternalResource(
             resource_id=f"mame-{name}",
             provider=self.provider,
@@ -70,12 +74,12 @@ class ProgettoSnapsProvider:
             name=name,
             version=version,
             resource_type=ExternalResourceType.METADATA,
-            url=f"{self.base_url}/support/",
+            url=f"{self.base_url}{page}",
             storage=ResourceStorage.SERM_METADATA,
             extraction=ExtractionMode.ARCHIVE,
             required=False,
-            notes=f"Pacote de referencia: {filename}. Descoberta de membros deve usar o manifesto do pacote.",
-            metadata={"package_filename": filename},
+            notes=f"Recurso publicado como {filename}; a pagina do provider resolve o download real.",
+            metadata={"discovery_url": f"{self.base_url}{page}", "filename": filename},
         )
 
 
