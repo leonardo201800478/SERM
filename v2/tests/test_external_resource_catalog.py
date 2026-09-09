@@ -18,11 +18,14 @@ from serm_v2.services.arcade.resource_catalog import ExternalResourceCatalog
 
 
 def test_progetto_snaps_catalog_separates_metadata_and_samples() -> None:
-    resources = ProgettoSnapsProvider().resources("0.289")
+    resources = ProgettoSnapsProvider().resources()
     by_name = {resource.name: resource for resource in resources}
 
+    assert by_name["catver"].version == "0.289"
     assert by_name["catver"].storage is ResourceStorage.SERM_METADATA
     assert by_name["catver"].resource_type is ExternalResourceType.METADATA
+    assert by_name["bestgames"].version == "0.280"
+    assert by_name["command"].version == "0.273"
     assert by_name["samples-fullpack"].storage is ResourceStorage.MAME_SOURCE
     assert by_name["samples-fullpack"].resource_type is ExternalResourceType.SAMPLE
     assert by_name["samples-fullpack"].url.endswith("/samples/packs/MAME_samples_289.zip")
