@@ -28,6 +28,7 @@ from ..services.arcade.projeto_snaps_provider import ProgettoSnapsProvider
 
 LOGGER = logging.getLogger(__name__)
 SNAPS_HOME = "https://www.progettosnaps.net/"
+MAME_DAT_INDEX = "https://www.progettosnaps.net/dats/MAME/"
 MAME_NOT_CONFIGURED = "MAME não configurado"
 
 
@@ -57,6 +58,7 @@ class ProgettoSnapsPage(QWidget):
     EXPECTED_SUPPORT = (
         ("dats/command.dat", "DAT", "Comandos"),
         ("dats/gameinit.dat", "DAT", "Inicializacao"),
+        ("dats/messinfo.dat", "DAT", "Sistemas nao-arcade 0.289"),
         ("folders/bestgames.ini", "INI", "Melhores jogos"),
         ("folders/catlist.ini", "INI", "Categorias"),
         ("folders/genre.ini", "INI", "Generos"),
@@ -109,18 +111,24 @@ class ProgettoSnapsPage(QWidget):
         self.category_button.clicked.connect(lambda: self._sync_folder_pack("category"))
         self.version_button = QPushButton("Atualizar Version 0.289")
         self.version_button.clicked.connect(lambda: self._sync_folder_pack("version"))
+        self.messinfo_button = QPushButton("Atualizar MESSINFO 0.289")
+        self.messinfo_button.clicked.connect(self._sync_messinfo)
         self.samples_button = QPushButton("Baixar Samples FullPack")
         self.samples_button.clicked.connect(self._sync_samples)
         open_folder = QPushButton("Abrir pasta MAME")
         open_folder.clicked.connect(self._open_root)
+        open_dat = QPushButton("MAME DAT 0.289")
+        open_dat.clicked.connect(lambda: webbrowser.open(MAME_DAT_INDEX))
         open_site = QPushButton("Site oficial")
         open_site.clicked.connect(lambda: webbrowser.open(SNAPS_HOME))
         for button in (
             self.update_button,
             self.category_button,
             self.version_button,
+            self.messinfo_button,
             self.samples_button,
             open_folder,
+            open_dat,
             open_site,
         ):
             actions.addWidget(button)
@@ -267,6 +275,23 @@ class ProgettoSnapsPage(QWidget):
         )
         self._connect_worker(worker)
 
+    def _sync_messinfo(self) -> None:
+        root = self._normalized_root()
+        if root is None:
+            self._show_mame_warning()
+            return
+        resource = self._resource("messinfo")
+        self._start_busy("Baixando e instalando MESSINFO 0.289…")
+        worker = _SyncWorker(
+            lambda: self._manager.install_tree(
+                self._manager.acquire(resource),
+                root / "dats",
+                replace_existing=True,
+                flatten=True,
+            )
+        )
+        self._connect_worker(worker)
+
     def _sync_samples(self) -> None:
         root = self._normalized_root()
         if root is None:
@@ -296,20 +321,24 @@ class ProgettoSnapsPage(QWidget):
         worker.signals.error.connect(self._sync_error)
         self._pool.start(worker)
 
+    def _set_download_buttons_enabled(self, enabled: bool) -> None:
+        for button in (
+            self.update_button,
+            self.category_button,
+            self.version_button,
+            self.messinfo_button,
+            self.samples_button,
+        ):
+            button.setEnabled(enabled)
+
     def _start_busy(self, message: str) -> None:
         self.status_label.setText(message)
         self.progress.show()
-        self.update_button.setEnabled(False)
-        self.category_button.setEnabled(False)
-        self.version_button.setEnabled(False)
-        self.samples_button.setEnabled(False)
+        self._set_download_buttons_enabled(False)
 
     def _sync_finished(self, result: object) -> None:
         self.progress.hide()
-        self.update_button.setEnabled(True)
-        self.category_button.setEnabled(True)
-        self.version_button.setEnabled(True)
-        self.samples_button.setEnabled(True)
+        self._set_download_buttons_enabled(True)
         count = len(result) if isinstance(result, tuple) else 0
         self.status_label.setText(
             f"Sincronização concluída: {count} arquivo(s) processado(s)."
@@ -318,10 +347,7 @@ class ProgettoSnapsPage(QWidget):
 
     def _sync_error(self, message: str) -> None:
         self.progress.hide()
-        self.update_button.setEnabled(True)
-        self.category_button.setEnabled(True)
-        self.version_button.setEnabled(True)
-        self.samples_button.setEnabled(True)
+        self._set_download_buttons_enabled(True)
         self.status_label.setText("Falha na sincronização")
         QMessageBox.critical(self, "progetto-SNAPS", message)
 
