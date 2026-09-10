@@ -28,19 +28,65 @@ class ProgettoSnapsProvider:
         "pS_SupportFiles_288.zip&tipo=support_pack"
     )
 
+    # O SupportFiles Pack oficial contem sete DATs e dez INIs. O messinfo.dat
+    # e mantido fora deste conjunto porque o SERM instala explicitamente a
+    # versao 0.289 do pacote MESSINFO.
     _SUPPORT_MEMBERS = {
         "dats/command.dat": "mame_dats",
         "dats/gameinit.dat": "mame_dats",
+        "dats/history.dat": "mame_dats",
+        "dats/mameinfo.dat": "mame_dats",
+        "dats/hiscore.dat": "mame_dats",
+        "dats/unoffsysinfo.dat": "mame_dats",
         "folders/bestgames.ini": "mame_folders",
         "folders/catlist.ini": "mame_folders",
+        "folders/freeplay.ini": "mame_folders",
         "folders/genre.ini": "mame_folders",
         "folders/languages.ini": "mame_folders",
+        "folders/monochrome.ini": "mame_folders",
+        "folders/nplayers.ini": "mame_folders",
+        "folders/resolution.ini": "mame_folders",
+        "folders/screenless.ini": "mame_folders",
         "folders/series.ini": "mame_folders",
-        "folders/gameinit.ini": "mame_folders",
     }
 
+    # Pacote category 0.289 publicado pelo site oficial.
+    _CATEGORY_MEMBERS = (
+        "ArcadeWokingParents.ini",
+        "Artwork_Necessary.ini",
+        "Bootleg.ini",
+        "Category.ini",
+        "CHD.ini",
+        "CHD_Working.ini",
+        "Clones Arcade.ini",
+        "Driver.ini",
+        "FreePlay.ini",
+        "MAME.ini",
+        "MAME_BIOS.ini",
+        "MAME_NOBIOS.ini",
+        "Mechanicals Arcade.ini",
+        "MESS.ini",
+        "MonoChrome.ini",
+        "Non Bootleg.ini",
+        "Non Mechanicals Arcade.ini",
+        "Not Working Arcade.ini",
+        "Parents Arcade.ini",
+        "Prototype.ini",
+        "Resolution.ini",
+        "Screenless.ini",
+        "Use Software.ini",
+        "Working Arcade.ini",
+        "Working Arcade Clean.ini",
+    )
+
+    _VERSION_MEMBERS = (
+        "Version.ini",
+        "Version_NEW.ini",
+        "Version_ON.ini",
+    )
+
     def resources(self) -> tuple[ExternalResource, ...]:
-        """Retorna suporte principal, dados complementares e samples."""
+        """Retorna suporte principal, classificacoes e samples."""
         return (
             ExternalResource(
                 resource_id="mame-support-files",
@@ -54,8 +100,9 @@ class ProgettoSnapsProvider:
                 extraction=ExtractionMode.ARCHIVE,
                 required=False,
                 notes=(
-                    "Pacote oficial de suporte MAME. O SERM publica somente "
-                    "command.dat, gameinit.dat e os INI principais na arvore MAME."
+                    "Pacote oficial de suporte MAME. O SERM publica os DATs e "
+                    "INIs oficiais do SupportFiles Pack, mantendo messinfo.dat "
+                    "em seu pacote 0.289 dedicado."
                 ),
                 metadata={
                     "members": self._SUPPORT_MEMBERS,
@@ -69,6 +116,7 @@ class ProgettoSnapsProvider:
                 filename="pS_category_289.zip",
                 package_type="category",
                 destination="folders",
+                expected_members=self._CATEGORY_MEMBERS,
             ),
             self._special_package(
                 name="version",
@@ -76,6 +124,7 @@ class ProgettoSnapsProvider:
                 filename="pS_version_289.zip",
                 package_type="version",
                 destination="folders",
+                expected_members=self._VERSION_MEMBERS,
             ),
             ExternalResource(
                 resource_id="mame-messinfo",
@@ -150,6 +199,7 @@ class ProgettoSnapsProvider:
         filename: str,
         package_type: str,
         destination: str,
+        expected_members: tuple[str, ...],
     ) -> ExternalResource:
         """Cria os pacotes category/version mantendo a URL oficial."""
         return ExternalResource(
@@ -171,6 +221,7 @@ class ProgettoSnapsProvider:
                 "support_root": self.support_url,
                 "destination": destination,
                 "package_type": package_type,
+                "expected_members": expected_members,
             },
         )
 
