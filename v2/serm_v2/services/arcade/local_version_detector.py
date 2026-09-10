@@ -6,15 +6,16 @@ import re
 from pathlib import Path
 
 
-_VERSION_RE = re.compile(r"\b(0\.\d{3})\b")
-_MAME_VERSION_RE = re.compile(r"\bMAME\s+(0\.\d{3})\b", re.IGNORECASE)
+_VERSION_RE = re.compile(r"\b(?:v(?:ersion)?\s*)?(0\.\d{3})\b", re.IGNORECASE)
+_MAME_VERSION_RE = re.compile(r"\bMAME\s+v?(0\.\d{3})\b", re.IGNORECASE)
 
 
 def detect_local_version(path: Path) -> str | None:
     """Retorna a versão encontrada no próprio arquivo ou no nome do ZIP.
 
-    A ordem de prioridade é: cabeçalho explícito MAME, versão no cabeçalho,
-    versão no nome do arquivo. Somente o início de arquivos de texto é lido.
+    A ordem de prioridade é: cabeçalho explícito MAME, versão declarada no
+    cabeçalho, versão no nome do arquivo. Somente o início de arquivos de
+    texto é lido.
     """
     path = Path(path)
     if not path.is_file():
@@ -35,8 +36,10 @@ def detect_local_version(path: Path) -> str | None:
     if explicit:
         return explicit.group(1)
 
-    # O projeto-SNAPS normalmente declara a versão no comentário inicial,
-    # portanto limitamos a busca genérica à região inicial do arquivo.
+    # Os DATs do projeto-SNAPS podem declarar a versão como "v0.289" ou
+    # "Version 0.289", enquanto os INIs normalmente usam apenas "0.289".
+    # A busca fica limitada ao início do arquivo para evitar capturar números
+    # pertencentes ao conteúdo das entradas.
     header = text[:16 * 1024]
     generic = _VERSION_RE.search(header)
     if generic:
