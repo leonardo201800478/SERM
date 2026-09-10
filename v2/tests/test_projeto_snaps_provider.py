@@ -38,6 +38,17 @@ def test_support_manifest_does_not_claim_external_files() -> None:
     assert "folders/gameinit.ini" not in members
 
 
+def test_nplayers_uses_planet_emulation_mirror() -> None:
+    provider = ProgettoSnapsProvider()
+    resource = next(item for item in provider.resources() if item.name == "nplayers")
+
+    assert resource.version == "0.278"
+    assert resource.url == provider.NPLAYERS_ARCHIVE
+    assert resource.url == "https://www.planetemu.net/php/utilitaires/?action=download&id=181"
+    assert resource.metadata["members"] == {"nplayers.ini": "mame_folders"}
+    assert resource.metadata["original_source"] == "https://nplayers.arcadebelgium.be/"
+
+
 def test_category_and_version_manifests_are_complete() -> None:
     provider = ProgettoSnapsProvider()
     resources = {item.name: item for item in provider.resources()}
@@ -69,6 +80,7 @@ def test_catalog_contains_all_projeto_snaps_resources() -> None:
 
     assert {item.resource_id for item in resources} == {
         "mame-support-files",
+        "mame-nplayers",
         "mame-category",
         "mame-version",
         "mame-messinfo",
