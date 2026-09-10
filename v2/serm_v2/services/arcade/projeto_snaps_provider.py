@@ -29,11 +29,10 @@ class ProgettoSnapsProvider:
     )
 
     # O SupportFiles Pack nao e um espelho de todos os links exibidos na
-    # pagina de suporte. History.dat, mameinfo.dat, hiscore.dat e
-    # unoffsysinfo.dat sao referencias externas mantidas por terceiros e,
-    # portanto, nao pertencem ao ZIP pS_SupportFiles_288.zip. O SERM deve
-    # instalar somente os membros que realmente fazem parte do pacote
-    # oficial que esta baixando.
+    # pagina de suporte. History.dat, mameinfo.dat, hiscore.dat,
+    # unoffsysinfo.dat e nplayers.ini sao referencias externas mantidas
+    # fora do ZIP pS_SupportFiles_288.zip. O SERM deve instalar somente os
+    # membros que realmente fazem parte do pacote oficial que esta baixando.
     _SUPPORT_MEMBERS = {
         "dats/command.dat": "mame_dats",
         "dats/gameinit.dat": "mame_dats",
@@ -43,7 +42,6 @@ class ProgettoSnapsProvider:
         "folders/genre.ini": "mame_folders",
         "folders/languages.ini": "mame_folders",
         "folders/monochrome.ini": "mame_folders",
-        "folders/nplayers.ini": "mame_folders",
         "folders/resolution.ini": "mame_folders",
         "folders/screenless.ini": "mame_folders",
         "folders/series.ini": "mame_folders",
@@ -101,9 +99,9 @@ class ProgettoSnapsProvider:
                 notes=(
                     "Pacote oficial de suporte MAME. O SERM publica somente "
                     "os membros realmente presentes no SupportFiles Pack; "
-                    "history.dat, mameinfo.dat, hiscore.dat e unoffsysinfo.dat "
-                    "sao referencias externas na pagina oficial e nao fazem "
-                    "parte deste ZIP."
+                    "history.dat, mameinfo.dat, hiscore.dat, unoffsysinfo.dat "
+                    "e nplayers.ini sao referencias externas na pagina oficial "
+                    "e nao fazem parte deste ZIP."
                 ),
                 metadata={
                     "members": self._SUPPORT_MEMBERS,
