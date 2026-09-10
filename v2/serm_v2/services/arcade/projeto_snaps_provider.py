@@ -18,6 +18,7 @@ class ProgettoSnapsProvider:
     base_url = "https://www.progettosnaps.net"
     support_url = f"{base_url}/support/"
     samples_url = f"{base_url}/samples/"
+    mame_dat_url = f"{base_url}/dats/MAME/"
 
     # O site oficial identifica este como o pacote de suporte mais recente
     # (0.288), mesmo enquanto category/version ja possuem pacotes 0.289.
@@ -39,7 +40,7 @@ class ProgettoSnapsProvider:
     }
 
     def resources(self) -> tuple[ExternalResource, ...]:
-        """Retorna suporte principal, pacotes complementares e samples."""
+        """Retorna suporte principal, dados complementares e samples."""
         return (
             ExternalResource(
                 resource_id="mame-support-files",
@@ -75,6 +76,44 @@ class ProgettoSnapsProvider:
                 filename="pS_version_289.zip",
                 package_type="version",
                 destination="folders",
+            ),
+            ExternalResource(
+                resource_id="mame-messinfo",
+                provider=self.provider,
+                platform="mame",
+                name="messinfo",
+                version="0.289",
+                resource_type=ExternalResourceType.METADATA,
+                url=f"{base_url}/download/?file=pS_messinfo_289.zip&tipo=messinfo",
+                storage=ResourceStorage.MAME_SOURCE,
+                extraction=ExtractionMode.ARCHIVE,
+                required=False,
+                notes=(
+                    "MESSINFO.dat oficial 0.289. Apesar do nome historico, "
+                    "o arquivo acompanha sistemas nao-arcade dentro do MAME."
+                ),
+                metadata={
+                    "support_root": self.support_url,
+                    "destination": "dats",
+                    "archive_members": ("messinfo.dat",),
+                },
+            ),
+            ExternalResource(
+                resource_id="mame-dat-index",
+                provider=self.provider,
+                platform="mame",
+                name="mame-dat-index",
+                version="0.289",
+                resource_type=ExternalResourceType.METADATA,
+                url=self.mame_dat_url,
+                storage=ResourceStorage.CACHE_ONLY,
+                extraction=ExtractionMode.NONE,
+                required=False,
+                notes=(
+                    "Indice oficial dos DATs MAME. O SERM consulta este catalogo "
+                    "antes de materializar o DAT como dado de auditoria."
+                ),
+                metadata={"listing_url": self.mame_dat_url},
             ),
             ExternalResource(
                 resource_id="mame-samples-fullpack",
