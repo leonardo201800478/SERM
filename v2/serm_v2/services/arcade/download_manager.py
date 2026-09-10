@@ -17,8 +17,6 @@ from .latest_resource_resolver import LatestResourceResolver
 
 
 class DestinationAction(StrEnum):
-    """Decisao tomada para um arquivo no destino."""
-
     CREATE = "create"
     REUSE = "reuse"
     REPLACE = "replace"
@@ -36,20 +34,10 @@ class DownloadManager:
     def archive_path(self, resource: ExternalResource) -> Path:
         """Retorna o caminho canonico do pacote no cache."""
         suffix = ".zip" if resource.extraction is ExtractionMode.ARCHIVE else ""
-        return self.cache_dir / resource.provider / resource.platform / resource.name / resource.version / (
-            resource.name + suffix
-        )
+        return self.cache_dir / resource.provider / resource.platform / resource.name / resource.version / (resource.name + suffix)
 
     def download(self, resource: ExternalResource) -> Path:
-        """Baixa atomicamente e reutiliza um pacote ja validado.
-
-        Recursos externos podem declarar URLs alternativas em
-        ``metadata[\"fallback_urls\"]``. A URL principal e sempre tentada
-        primeiro; os fallbacks so entram em acao quando a transferencia falha.
-        A validacao do arquivo continua obrigatoria antes de publicar o cache.
-        A descoberta de versao acontece antes de definir o caminho do cache,
-        portanto uma versao nova nunca sobrescreve silenciosamente a anterior.
-        """
+        """Baixa atomicamente, resolvendo a ultima versao antes do cache."""
         resource = self._latest_resolver.resolve(resource)
         target = self.archive_path(resource)
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -64,10 +52,7 @@ class DownloadManager:
                 with tempfile.NamedTemporaryFile(prefix=".download-", dir=target.parent, delete=False) as tmp:
                     temporary = Path(tmp.name)
                 try:
-                    request = urllib.request.Request(
-                        url,
-                        headers=self._request_headers(resource, url),
-                    )
+                    request = urllib.request.Request(url, headers=self._request_headers(resource, url))
                     with urllib.request.urlopen(request, timeout=60) as response, temporary.open("wb") as output:
                         shutil.copyfileobj(response, output, length=1024 * 1024)
                     self._validate(temporary, resource)
@@ -80,7 +65,6 @@ class DownloadManager:
                     if temporary is not None:
                         temporary.unlink(missing_ok=True)
                         temporary = None
-
             if last_error is not None:
                 raise last_error
             raise RuntimeError(f"nenhuma URL disponivel para {resource.name}")
@@ -90,13 +74,11 @@ class DownloadManager:
 
     @staticmethod
     def _download_urls(resource: ExternalResource) -> tuple[str, ...]:
-        """Retorna URL principal seguida das alternativas declaradas."""
         fallback_urls = resource.metadata.get("fallback_urls", ())
         if isinstance(fallback_urls, str):
             fallback_urls = (fallback_urls,)
         if not isinstance(fallback_urls, (tuple, list)):
             raise ValueError(f"fallback_urls invalido para {resource.name}")
-
         urls: list[str] = [resource.url]
         for url in fallback_urls:
             if not isinstance(url, str) or not url:
@@ -107,11 +89,7 @@ class DownloadManager:
 
     @staticmethod
     def _request_headers(resource: ExternalResource, url: str) -> dict[str, str]:
-        """Monta cabecalhos conservadores para servidores que exigem contexto HTTP."""
-        headers = {
-            "User-Agent": "SERM/2.x (+https://github.com/leonardo201800478/SERM)",
-            "Accept": "*/*",
-        }
+        headers = {"User-Agent": "SERM/2.x (+https://github.com/leonardo201800478/SERM)", "Accept": "*/*"}
         support_root = resource.metadata.get("support_root")
         original_source = resource.metadata.get("original_source")
         if isinstance(support_root, str) and support_root:
@@ -136,29 +114,14 @@ class DownloadManager:
         return destination
 
     def acquire(self, resource: ExternalResource) -> Path:
-        """Baixa e extrai mantendo o resultado fora da instalacao MAME."""
-        resolved = self._latest_resolver.resolve(resource)
-        return self.extract(resolved, self.download(resolved))
+        """Baixa e extrai; ``download`` ja resolve a versao mais recente."""
+        return self.extract(resource, self.download(resource))
 
-    def install_members(
-        self,
-        resource: ExternalResource,
-        extracted: Path,
-        destination_root: Path,
-        *,
-        replace_existing: bool = False,
-    ) -> tuple[tuple[str, Path, DestinationAction], ...]:
-        """Publica membros mapeados em dats/folders/samples/metadata.
-
-        Alguns pacotes externos usam uma pasta-raiz ou diferem apenas em
-        capitalizacao nos nomes internos do ZIP. O mapa do recurso continua
-        canonico, mas a resolucao aceita esses dois formatos sem relaxar
-        a validacao de seguranca nem aceitar nomes ambiguos.
-        """
+    def install_members(self, resource: ExternalResource, extracted: Path, destination_root: Path, *, replace_existing: bool = False) -> tuple[tuple[str, Path, DestinationAction], ...]:
+        """Publica membros mapeados em dats/folders/samples/metadata."""
         members = resource.metadata.get("members")
         if not isinstance(members, dict):
             raise ValueError(f"recurso sem mapa de membros: {resource.name}")
-
         plan: list[tuple[Path, Path, str, DestinationAction]] = []
         extraction_root = extracted.resolve()
         files = tuple(path for path in extraction_root.rglob("*") if path.is_file())
@@ -170,36 +133,24 @@ class DownloadManager:
             if action is DestinationAction.BLOCK:
                 raise FileExistsError(f"conflito no destino: {destination}")
             plan.append((source, destination, str(archive_member), action))
-
         return self._publish_plan(plan)
 
     @staticmethod
-    def _resolve_member(
-        extraction_root: Path,
-        archive_member: str,
-        files: tuple[Path, ...],
-    ) -> Path:
-        """Resolve um membro esperado, tolerando raiz/capitalizacao do ZIP."""
+    def _resolve_member(extraction_root: Path, archive_member: str, files: tuple[Path, ...]) -> Path:
         relative_member = PurePosixPath(archive_member)
         if relative_member.is_absolute() or ".." in relative_member.parts:
             raise ValueError(f"membro inseguro: {archive_member}")
-
         exact = (extraction_root / relative_member).resolve()
         if os.path.commonpath((str(extraction_root), str(exact))) != str(extraction_root):
             raise ValueError(f"membro inseguro: {archive_member}")
         if exact.is_file():
             return exact
-
         expected_path = PurePosixPath(str(relative_member)).as_posix().casefold()
-        path_matches = [
-            path for path in files
-            if path.relative_to(extraction_root).as_posix().casefold() == expected_path
-        ]
+        path_matches = [path for path in files if path.relative_to(extraction_root).as_posix().casefold() == expected_path]
         if len(path_matches) == 1:
             return path_matches[0]
         if len(path_matches) > 1:
             raise FileExistsError(f"membro ambiguo no ZIP: {archive_member}")
-
         expected_name = relative_member.name.casefold()
         name_matches = [path for path in files if path.name.casefold() == expected_name]
         if len(name_matches) == 1:
@@ -208,20 +159,8 @@ class DownloadManager:
             raise FileExistsError(f"membro ambiguo no ZIP: {archive_member}")
         raise FileNotFoundError(f"membro esperado nao encontrado: {archive_member}")
 
-    def install_tree(
-        self,
-        extracted: Path,
-        destination: Path,
-        *,
-        replace_existing: bool = False,
-        flatten: bool = False,
-    ) -> tuple[tuple[str, Path, DestinationAction], ...]:
-        """Publica todos os arquivos extraidos, util para o MAME Samples FullPack.
-
-        Quando ``flatten`` e verdadeiro, somente o nome do arquivo e mantido
-        no destino. Isso e apropriado para os ZIPs de samples, que pertencem
-        diretamente a MAME/samples/.
-        """
+    def install_tree(self, extracted: Path, destination: Path, *, replace_existing: bool = False, flatten: bool = False) -> tuple[tuple[str, Path, DestinationAction], ...]:
+        """Publica todos os arquivos extraidos."""
         root = Path(extracted).resolve()
         destination = Path(destination)
         plan: list[tuple[Path, Path, str, DestinationAction]] = []
@@ -243,9 +182,7 @@ class DownloadManager:
         return DestinationAction.REPLACE if replace_existing else DestinationAction.BLOCK
 
     @staticmethod
-    def _publish_plan(
-        plan: list[tuple[Path, Path, str, DestinationAction]],
-    ) -> tuple[tuple[str, Path, DestinationAction], ...]:
+    def _publish_plan(plan: list[tuple[Path, Path, str, DestinationAction]]) -> tuple[tuple[str, Path, DestinationAction], ...]:
         for _source, destination, _member, _action in plan:
             destination.parent.mkdir(parents=True, exist_ok=True)
         for source, destination, _member, action in plan:
@@ -270,7 +207,6 @@ class DownloadManager:
 
     @staticmethod
     def sha256(path: Path) -> str:
-        """Calcula SHA-256 em streaming."""
         digest = hashlib.sha256()
         with path.open("rb") as stream:
             for block in iter(lambda: stream.read(1024 * 1024), b""):
