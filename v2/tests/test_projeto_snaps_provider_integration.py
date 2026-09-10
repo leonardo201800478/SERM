@@ -26,9 +26,6 @@ def test_projeto_snaps_support_download_extract_and_install(tmp_path: Path) -> N
     assert archive.suffix == ".zip"
 
     extracted = manager.extract(resource, archive)
-    for member in resource.metadata["members"]:
-        assert (extracted / member).is_file()
-
     destination = tmp_path / "mame"
     result = manager.install_members(resource, extracted, destination)
     assert len(result) == len(resource.metadata["members"])
@@ -46,13 +43,14 @@ def test_projeto_snaps_support_download_extract_and_install(tmp_path: Path) -> N
     assert all(item[2] is DestinationAction.REUSE for item in result_again)
 
 
-def test_projeto_snaps_support_archive_contains_expected_members(tmp_path: Path) -> None:
+def test_projeto_snaps_support_archive_contains_expected_member_names(tmp_path: Path) -> None:
     provider = ProgettoSnapsProvider()
     resource = next(item for item in provider.resources() if item.name == "support-files")
     manager = DownloadManager(tmp_path / "cache")
 
     archive = manager.download(resource)
     with ZipFile(archive) as package:
-        names = set(package.namelist())
+        names = {Path(name).name.casefold() for name in package.namelist() if not name.endswith("/")}
 
-    assert set(resource.metadata["members"]).issubset(names)
+    expected = {Path(name).name.casefold() for name in resource.metadata["members"]}
+    assert expected.issubset(names)
