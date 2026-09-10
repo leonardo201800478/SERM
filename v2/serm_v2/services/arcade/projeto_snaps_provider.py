@@ -27,19 +27,12 @@ class ProgettoSnapsProvider:
     nplayers_primary_url = "http://nplayers.arcadebelgium.be/files/nplayers0278.zip"
     nplayers_mirror_url = "https://www.planetemu.net/php/utilitaires/?action=download&id=181"
 
-    # O site oficial identifica este como o pacote de suporte mais recente
-    # (0.288), mesmo enquanto category/version ja possuem pacotes 0.289.
     SUPPORT_VERSION = "0.288"
     SUPPORT_ARCHIVE = (
         f"{base_url}/download/?file=%2Fsupport%2Fpacks%2F"
         "pS_SupportFiles_288.zip&tipo=support_pack"
     )
 
-    # O SupportFiles Pack nao e um espelho de todos os links exibidos na
-    # pagina de suporte. History.dat, mameinfo.dat, hiscore.dat,
-    # unoffsysinfo.dat e nplayers.ini sao referencias externas mantidas
-    # fora do ZIP pS_SupportFiles_288.zip. O SERM deve instalar somente os
-    # membros que realmente fazem parte do pacote oficial que esta baixando.
     _SUPPORT_MEMBERS = {
         "dats/command.dat": "mame_dats",
         "dats/gameinit.dat": "mame_dats",
@@ -57,7 +50,6 @@ class ProgettoSnapsProvider:
     NPLAYERS_VERSION = "0.278"
     NPLAYERS_ARCHIVE = nplayers_primary_url
 
-    # Pacote category 0.289 publicado pelo site oficial.
     _CATEGORY_MEMBERS = (
         "ArcadeWokingParents.ini",
         "Artwork_Necessary.ini",
@@ -93,7 +85,7 @@ class ProgettoSnapsProvider:
     )
 
     def resources(self) -> tuple[ExternalResource, ...]:
-        """Retorna suporte principal, classificacoes e samples."""
+        """Retorna recursos com descoberta automatica da ultima versao."""
         return (
             ExternalResource(
                 resource_id="mame-support-files",
@@ -109,14 +101,21 @@ class ProgettoSnapsProvider:
                 notes=(
                     "Pacote oficial de suporte MAME. O SERM publica somente "
                     "os membros realmente presentes no SupportFiles Pack; "
-                    "history.dat, mameinfo.dat, hiscore.dat, unoffsysinfo.dat "
-                    "e nplayers.ini sao referencias externas na pagina oficial "
-                    "e nao fazem parte deste ZIP."
+                    "referencias externas nao sao inventadas como membros do ZIP."
                 ),
                 metadata={
                     "members": self._SUPPORT_MEMBERS,
                     "support_root": self.support_url,
                     "destination": "MAME",
+                    "latest_discovery": {
+                        "strategy": "listing",
+                        "listing_url": self.support_url,
+                        "pattern": r"SupportFiles Pack\s*\((0\.\d+)\)",
+                        "url_template": (
+                            f"{self.base_url}/download/?file=%2Fsupport%2Fpacks%2F"
+                            "pS_SupportFiles_{version_compact}.zip&tipo=support_pack"
+                        ),
+                    },
                 },
             ),
             ExternalResource(
@@ -131,11 +130,8 @@ class ProgettoSnapsProvider:
                 extraction=ExtractionMode.ARCHIVE,
                 required=False,
                 notes=(
-                    "NPlayers.ini 0.278, publicado originalmente pelo projeto "
-                    "NPlayers/Arcade Belgium. O SERM tenta primeiro a fonte "
-                    "original e usa o Planet Emulation somente como fallback. "
-                    "O arquivo permite classificar jogos por numero de jogadores "
-                    "e modo simultaneo/alternado e e instalado em MAME/folders/."
+                    "NPlayers.ini publicado originalmente pelo projeto NPlayers/Arcade Belgium. "
+                    "A fonte original e tentada primeiro e o Planet Emulation permanece como fallback."
                 ),
                 metadata={
                     "members": {"nplayers.ini": "mame_folders"},
@@ -143,6 +139,16 @@ class ProgettoSnapsProvider:
                     "original_source": "https://nplayers.arcadebelgium.be/",
                     "fallback_urls": (self.nplayers_mirror_url,),
                     "destination": "folders",
+                    "latest_discovery": {
+                        "strategy": "probe",
+                        "start_version": self.NPLAYERS_VERSION,
+                        "max_ahead": 30,
+                        "stop_after_misses": 3,
+                        "url_template": (
+                            "http://nplayers.arcadebelgium.be/files/"
+                            "nplayers{version_compact}.zip"
+                        ),
+                    },
                 },
             ),
             self._special_package(
@@ -172,14 +178,20 @@ class ProgettoSnapsProvider:
                 storage=ResourceStorage.MAME_SOURCE,
                 extraction=ExtractionMode.ARCHIVE,
                 required=False,
-                notes=(
-                    "MESSINFO.dat oficial 0.289. Apesar do nome historico, "
-                    "o arquivo acompanha sistemas nao-arcade dentro do MAME."
-                ),
+                notes="MESSINFO.dat oficial; a versao e descoberta na pagina do projeto.",
                 metadata={
                     "support_root": self.support_url,
                     "destination": "dats",
                     "archive_members": ("messinfo.dat",),
+                    "latest_discovery": {
+                        "strategy": "listing",
+                        "listing_url": f"{self.base_url}/messinfo/",
+                        "pattern": r"\b(0\.\d{3})\s*:",
+                        "url_template": (
+                            f"{self.base_url}/download/?file=pS_messinfo_"
+                            "{version_compact}.zip&tipo=messinfo"
+                        ),
+                    },
                 },
             ),
             ExternalResource(
@@ -193,10 +205,7 @@ class ProgettoSnapsProvider:
                 storage=ResourceStorage.CACHE_ONLY,
                 extraction=ExtractionMode.NONE,
                 required=False,
-                notes=(
-                    "Indice oficial dos DATs MAME. O SERM consulta este catalogo "
-                    "antes de materializar o DAT como dado de auditoria."
-                ),
+                notes="Indice oficial dos DATs MAME; sua pagina e usada como fonte de versao.",
                 metadata={"listing_url": self.mame_dat_url},
             ),
             ExternalResource(
@@ -210,14 +219,17 @@ class ProgettoSnapsProvider:
                 storage=ResourceStorage.MAME_SOURCE,
                 extraction=ExtractionMode.ARCHIVE,
                 required=False,
-                notes=(
-                    "FullPack oficial de MAME Samples 0.289. Os ZIPs internos "
-                    "devem ser publicados diretamente em MAME/samples/."
-                ),
+                notes="FullPack oficial de MAME Samples; a versao e descoberta no indice de DATs.",
                 metadata={
                     "listing_url": self.samples_url,
                     "destination": "samples",
                     "install_all_members_to": "mame_samples",
+                    "latest_discovery": {
+                        "strategy": "listing",
+                        "listing_url": self.mame_dat_url,
+                        "pattern": r"\b(0\.\d{3})\b",
+                        "url_template": f"{self.base_url}/samples/packs/MAME_samples_{version_compact}.zip",
+                    },
                 },
             ),
         )
@@ -236,7 +248,7 @@ class ProgettoSnapsProvider:
         destination: str,
         expected_members: tuple[str, ...],
     ) -> ExternalResource:
-        """Cria os pacotes category/version mantendo a URL oficial."""
+        """Cria os pacotes category/version com descoberta automatica."""
         return ExternalResource(
             resource_id=f"mame-{name}",
             provider=self.provider,
@@ -251,12 +263,21 @@ class ProgettoSnapsProvider:
             storage=ResourceStorage.MAME_SOURCE,
             extraction=ExtractionMode.ARCHIVE,
             required=False,
-            notes=f"Pacote oficial {name}.ini {version}.",
+            notes=f"Pacote oficial {name}.ini; a versao e descoberta automaticamente.",
             metadata={
                 "support_root": self.support_url,
                 "destination": destination,
                 "package_type": package_type,
                 "expected_members": expected_members,
+                "latest_discovery": {
+                    "strategy": "listing",
+                    "listing_url": self.support_url,
+                    "pattern": rf"{name}\.ini\s*\((0\.\d+)\)",
+                    "url_template": (
+                        f"{self.base_url}/download/?file=%2Fsupport%2Fpacks%2F"
+                        f"pS_{name}_{{version_compact}}.zip&tipo={package_type}"
+                    ),
+                },
             },
         )
 
