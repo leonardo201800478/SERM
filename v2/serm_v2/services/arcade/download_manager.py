@@ -82,20 +82,26 @@ class DownloadManager:
         *,
         replace_existing: bool = False,
     ) -> tuple[tuple[str, Path, DestinationAction], ...]:
-        """Publica membros mapeados em dats/folders/samples/metadata."""
+        """Publica membros mapeados em dats/folders/samples/metadata.
+
+        Alguns pacotes externos usam uma pasta-raiz ou diferem apenas em
+        capitalizacao nos nomes internos do ZIP. O mapa do recurso continua
+        canonico, mas a resolucao aceita esses dois formatos sem relaxar a
+        validacao de seguranca nem aceitar nomes ambiguos.
+        """
         members = resource.metadata.get("members")
         if not isinstance(members, dict):
             raise ValueError(f"recurso sem mapa de membros: {resource.name}")
 
         plan: list[tuple[Path, Path, str, DestinationAction]] = []
         extraction_root = extracted.resolve()
+        files = tuple(path for path in extraction_root.rglob("*") if path.is_file())
         for archive_member, logical_destination in members.items():
-            source = (extracted / PurePosixPath(str(archive_member))).resolve()
-            if os.path.commonpath((str(extraction_root), str(source))) != str(extraction_root):
-                raise ValueError(f"membro inseguro: {archive_member}")
-            if not source.is_file():
-                raise FileNotFoundError(f"membro esperado nao encontrado: {archive_member}")
-
+            source = self._resolve_member(
+                extraction_root,
+                str(archive_member),
+                files,
+            )
             relative_dir = self._destination_dir(logical_destination)
             destination = Path(destination_root) / relative_dir / source.name
             action = self._plan_action(source, destination, replace_existing)
@@ -104,6 +110,42 @@ class DownloadManager:
             plan.append((source, destination, str(archive_member), action))
 
         return self._publish_plan(plan)
+
+    @staticmethod
+    def _resolve_member(
+        extraction_root: Path,
+        archive_member: str,
+        files: tuple[Path, ...],
+    ) -> Path:
+        """Resolve um membro esperado, tolerando raiz/capitalizacao do ZIP."""
+        relative_member = PurePosixPath(archive_member)
+        if relative_member.is_absolute() or ".." in relative_member.parts:
+            raise ValueError(f"membro inseguro: {archive_member}")
+
+        exact = (extraction_root / relative_member).resolve()
+        if os.path.commonpath((str(extraction_root), str(exact))) != str(extraction_root):
+            raise ValueError(f"membro inseguro: {archive_member}")
+        if exact.is_file():
+            return exact
+
+        expected_path = PurePosixPath(str(relative_member)).as_posix().casefold()
+        path_matches = [
+            path
+            for path in files
+            if path.relative_to(extraction_root).as_posix().casefold() == expected_path
+        ]
+        if len(path_matches) == 1:
+            return path_matches[0]
+        if len(path_matches) > 1:
+            raise FileExistsError(f"membro ambiguo no ZIP: {archive_member}")
+
+        expected_name = relative_member.name.casefold()
+        name_matches = [path for path in files if path.name.casefold() == expected_name]
+        if len(name_matches) == 1:
+            return name_matches[0]
+        if len(name_matches) > 1:
+            raise FileExistsError(f"membro ambiguo no ZIP: {archive_member}")
+        raise FileNotFoundError(f"membro esperado nao encontrado: {archive_member}")
 
     def install_tree(
         self,
