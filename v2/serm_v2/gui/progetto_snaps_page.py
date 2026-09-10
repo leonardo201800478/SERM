@@ -63,6 +63,8 @@ class ProgettoSnapsPage(QWidget):
         ("folders/languages.ini", "INI", "Idiomas"),
         ("folders/series.ini", "INI", "Series"),
         ("folders/gameinit.ini", "INI", "Inicializacao"),
+        ("folders/category.ini", "INI", "Categorias oficiais 0.289"),
+        ("folders/version.ini", "INI", "Versoes oficiais 0.289"),
     )
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -103,13 +105,24 @@ class ProgettoSnapsPage(QWidget):
         actions = QHBoxLayout()
         self.update_button = QPushButton("Baixar / Atualizar suporte")
         self.update_button.clicked.connect(self._sync_support)
+        self.category_button = QPushButton("Atualizar Category 0.289")
+        self.category_button.clicked.connect(lambda: self._sync_folder_pack("category"))
+        self.version_button = QPushButton("Atualizar Version 0.289")
+        self.version_button.clicked.connect(lambda: self._sync_folder_pack("version"))
         self.samples_button = QPushButton("Baixar Samples FullPack")
         self.samples_button.clicked.connect(self._sync_samples)
         open_folder = QPushButton("Abrir pasta MAME")
         open_folder.clicked.connect(self._open_root)
         open_site = QPushButton("Site oficial")
         open_site.clicked.connect(lambda: webbrowser.open(SNAPS_HOME))
-        for button in (self.update_button, self.samples_button, open_folder, open_site):
+        for button in (
+            self.update_button,
+            self.category_button,
+            self.version_button,
+            self.samples_button,
+            open_folder,
+            open_site,
+        ):
             actions.addWidget(button)
         root.addLayout(actions)
 
@@ -237,6 +250,23 @@ class ProgettoSnapsPage(QWidget):
         )
         self._connect_worker(worker)
 
+    def _sync_folder_pack(self, name: str) -> None:
+        root = self._normalized_root()
+        if root is None:
+            self._show_mame_warning()
+            return
+        resource = self._resource(name)
+        self._start_busy(f"Baixando e instalando {name.title()}…")
+        worker = _SyncWorker(
+            lambda: self._manager.install_tree(
+                self._manager.acquire(resource),
+                root / "folders",
+                replace_existing=True,
+                flatten=True,
+            )
+        )
+        self._connect_worker(worker)
+
     def _sync_samples(self) -> None:
         root = self._normalized_root()
         if root is None:
@@ -270,11 +300,15 @@ class ProgettoSnapsPage(QWidget):
         self.status_label.setText(message)
         self.progress.show()
         self.update_button.setEnabled(False)
+        self.category_button.setEnabled(False)
+        self.version_button.setEnabled(False)
         self.samples_button.setEnabled(False)
 
     def _sync_finished(self, result: object) -> None:
         self.progress.hide()
         self.update_button.setEnabled(True)
+        self.category_button.setEnabled(True)
+        self.version_button.setEnabled(True)
         self.samples_button.setEnabled(True)
         count = len(result) if isinstance(result, tuple) else 0
         self.status_label.setText(
@@ -285,6 +319,8 @@ class ProgettoSnapsPage(QWidget):
     def _sync_error(self, message: str) -> None:
         self.progress.hide()
         self.update_button.setEnabled(True)
+        self.category_button.setEnabled(True)
+        self.version_button.setEnabled(True)
         self.samples_button.setEnabled(True)
         self.status_label.setText("Falha na sincronização")
         QMessageBox.critical(self, "progetto-SNAPS", message)
