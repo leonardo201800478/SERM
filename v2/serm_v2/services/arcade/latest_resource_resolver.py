@@ -116,11 +116,17 @@ class LatestResourceResolver:
     def _headers(resource: ExternalResource) -> dict[str, str]:
         headers = {
             "User-Agent": "SERM/2.x (+https://github.com/leonardo201800478/SERM)",
-            "Accept": "text/html,application/zip,*/*",
+            "Accept": "text/html,application/zip,application/octet-stream,*/*",
         }
-        referer = resource.metadata.get("support_root") or resource.metadata.get("original_source")
-        if isinstance(referer, str) and referer:
-            headers["Referer"] = referer
+        source_page = resource.metadata.get("source_page")
+        support_root = resource.metadata.get("support_root")
+        original_source = resource.metadata.get("original_source")
+        if isinstance(source_page, str) and source_page:
+            headers["Referer"] = source_page
+        elif isinstance(support_root, str) and support_root:
+            headers["Referer"] = support_root
+        elif isinstance(original_source, str) and original_source:
+            headers["Referer"] = original_source
         return headers
 
 
