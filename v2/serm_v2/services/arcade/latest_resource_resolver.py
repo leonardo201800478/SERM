@@ -6,9 +6,27 @@ import re
 import urllib.error
 import urllib.request
 from dataclasses import replace
+from html.parser import HTMLParser
 from typing import Any
+from urllib.parse import urljoin
 
 from ...models.external_resource import ExternalResource
+
+
+class _HrefParser(HTMLParser):
+    """Extrai hrefs de uma pagina sem depender de bibliotecas externas."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.hrefs: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.casefold() != "a":
+            return
+        for name, value in attrs:
+            if name.casefold() == "href" and value:
+                self.hrefs.append(value)
+                break
 
 
 class LatestResourceResolver:
@@ -22,6 +40,8 @@ class LatestResourceResolver:
         try:
             if strategy == "listing":
                 version, url = self._from_listing(resource, spec)
+            elif strategy == "link":
+                version, url = self._from_link_listing(resource, spec)
             elif strategy == "probe":
                 version, url = self._from_probe(resource, spec)
             else:
@@ -49,6 +69,33 @@ class LatestResourceResolver:
             return resource.version, resource.url
         version = versions[-1]
         return version, self._format_url(url_template, version)
+
+    def _from_link_listing(self, resource: ExternalResource, spec: dict[str, Any]) -> tuple[str | None, str | None]:
+        listing_url = spec.get("listing_url")
+        href_pattern = spec.get("href_pattern")
+        if not isinstance(listing_url, str) or not listing_url:
+            raise ValueError(f"listing_url ausente para {resource.name}")
+        if not isinstance(href_pattern, str) or not href_pattern:
+            raise ValueError(f"href_pattern ausente para {resource.name}")
+
+        body = self._fetch_text(listing_url, resource)
+        parser = _HrefParser()
+        parser.feed(body)
+        matches: list[tuple[str, str]] = []
+        for href in parser.hrefs:
+            match = re.search(href_pattern, href, flags=re.IGNORECASE)
+            if match is None:
+                continue
+            if match.lastindex:
+                version = match.group(1)
+            else:
+                version = resource.version
+            matches.append((version, urljoin(listing_url, href)))
+
+        if not matches:
+            return resource.version, resource.url
+        version, url = max(matches, key=lambda item: self._version_key(item[0]))
+        return version, url
 
     def _from_probe(self, resource: ExternalResource, spec: dict[str, Any]) -> tuple[str | None, str | None]:
         url_template = spec.get("url_template")
