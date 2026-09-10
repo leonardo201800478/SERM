@@ -1,10 +1,11 @@
-"""GUI para instalar e validar o suporte MAME do progetto-SNAPS."""
+"""GUI para instalar e validar o suporte MAME do projeto-SNAPS."""
 from __future__ import annotations
 
 import json
 import logging
 import os
 import webbrowser
+from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Qt, Signal
@@ -27,6 +28,7 @@ from ..services.arcade.projeto_snaps_provider import ProgettoSnapsProvider
 
 LOGGER = logging.getLogger(__name__)
 SNAPS_HOME = "https://www.progettosnaps.net/"
+MAME_NOT_CONFIGURED = "MAME não configurado"
 
 
 class _WorkerSignals(QObject):
@@ -35,7 +37,7 @@ class _WorkerSignals(QObject):
 
 
 class _SyncWorker(QRunnable):
-    def __init__(self, operation) -> None:
+    def __init__(self, operation: Callable[[], object]) -> None:
         super().__init__()
         self.operation = operation
         self.signals = _WorkerSignals()
@@ -44,7 +46,7 @@ class _SyncWorker(QRunnable):
         try:
             self.signals.finished.emit(self.operation())
         except Exception as exc:  # noqa: BLE001
-            LOGGER.exception("Falha na sincronizacao do progetto-SNAPS")
+            LOGGER.exception("Falha na sincronizacao do projeto-SNAPS")
             self.signals.error.emit(str(exc))
 
 
@@ -75,7 +77,8 @@ class ProgettoSnapsPage(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(18, 18, 18, 18)
         root.setSpacing(12)
-        title = QLabel("progetto-SNAPS — MAME Support Files")
+
+        title = QLabel("projeto-SNAPS — MAME Support Files")
         title.setObjectName("pageTitle")
         subtitle = QLabel(
             "Instale os arquivos oficiais de suporte do MAME em dats, folders e samples. "
@@ -87,8 +90,10 @@ class ProgettoSnapsPage(QWidget):
 
         location = QGroupBox("MAME configurado no SERM")
         location_layout = QHBoxLayout(location)
-        self.location_label = QLabel("MAME não configurado")
-        self.location_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.location_label = QLabel(MAME_NOT_CONFIGURED)
+        self.location_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
         location_layout.addWidget(self.location_label, 1)
         refresh = QPushButton("Atualizar")
         refresh.clicked.connect(self._scan_local)
@@ -111,7 +116,9 @@ class ProgettoSnapsPage(QWidget):
         self.status_label = QLabel("Status: não verificado")
         root.addWidget(self.status_label)
         self.table = QTableWidget(len(self.EXPECTED_SUPPORT) + 1, 4)
-        self.table.setHorizontalHeaderLabels(("Arquivo / recurso", "Tipo", "Descrição", "Status local"))
+        self.table.setHorizontalHeaderLabels(
+            ("Arquivo / recurso", "Tipo", "Descrição", "Status local")
+        )
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
         for row, (relative, kind, description) in enumerate(self.EXPECTED_SUPPORT):
@@ -119,6 +126,7 @@ class ProgettoSnapsPage(QWidget):
             self.table.setItem(row, 1, QTableWidgetItem(kind))
             self.table.setItem(row, 2, QTableWidgetItem(description))
             self.table.setItem(row, 3, QTableWidgetItem("—"))
+
         sample_row = len(self.EXPECTED_SUPPORT)
         self.table.setItem(sample_row, 0, QTableWidgetItem("samples/*.zip"))
         self.table.setItem(sample_row, 1, QTableWidgetItem("SAMPLES"))
@@ -127,6 +135,7 @@ class ProgettoSnapsPage(QWidget):
         self.table.resizeColumnsToContents()
         self.table.horizontalHeader().setStretchLastSection(True)
         root.addWidget(self.table, 1)
+
         self.progress = QProgressBar()
         self.progress.setRange(0, 0)
         self.progress.hide()
@@ -148,24 +157,32 @@ class ProgettoSnapsPage(QWidget):
 
     def _normalized_root(self) -> Path | None:
         executable = self._mapped_executable()
-        if executable is None:
-            return None
-        return executable.parent
+        return executable.parent if executable is not None else None
 
     def _scan_local(self) -> None:
         executable = self._mapped_executable()
-        root = executable.parent if executable is not None else None
-        if root is None:
-            self.location_label.setText("MAME não configurado — use Diretórios → MAME")
-            self.status_label.setText("Status: nenhum executável MAME válido está configurado")
-            for row in range(self.table.rowCount()):
-                item = self.table.item(row, 3)
-                if item is not None:
-                    item.setText("—")
+        if executable is None:
+            self._clear_local_status()
             return
-
+        root = executable.parent
         self.location_label.setText(str(executable))
-        exe_status = "OK" if executable.is_file() else "não encontrado"
+        present = self._scan_support_files(root)
+        sample_count = self._sample_count(root)
+        self._set_scan_status(present, sample_count)
+
+    def _clear_local_status(self) -> None:
+        self.location_label.setText(
+            f"{MAME_NOT_CONFIGURED} — use Diretórios → MAME"
+        )
+        self.status_label.setText(
+            "Status: nenhum executável MAME válido está configurado"
+        )
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, 3)
+            if item is not None:
+                item.setText("—")
+
+    def _scan_support_files(self, root: Path) -> int:
         present = 0
         for row, (relative, _kind, _description) in enumerate(self.EXPECTED_SUPPORT):
             exists = (root / relative).is_file()
@@ -173,29 +190,40 @@ class ProgettoSnapsPage(QWidget):
             item = self.table.item(row, 3)
             if item is not None:
                 item.setText("Instalado" if exists else "Ausente")
+        return present
+
+    @staticmethod
+    def _sample_count(root: Path) -> int:
         sample_dir = root / "samples"
-        sample_count = sum(1 for item in sample_dir.glob("*.zip") if item.is_file()) if sample_dir.is_dir() else 0
+        if not sample_dir.is_dir():
+            return 0
+        return sum(1 for item in sample_dir.glob("*.zip") if item.is_file())
+
+    def _set_scan_status(self, present: int, sample_count: int) -> None:
         sample_row = len(self.EXPECTED_SUPPORT)
         item = self.table.item(sample_row, 3)
         if item is not None:
             item.setText(f"{sample_count} ZIP(s)" if sample_count else "Ausente")
         self.status_label.setText(
-            f"MAME.exe: {exe_status} | Suporte: {present}/{len(self.EXPECTED_SUPPORT)} | Samples: {sample_count} ZIP(s)"
+            f"MAME.exe: OK | Suporte: {present}/{len(self.EXPECTED_SUPPORT)} | "
+            f"Samples: {sample_count} ZIP(s)"
         )
 
     def _resource(self, name: str):
-        """Resolve um recurso pelo nome e produz erro diagnóstico quando ausente."""
+        """Resolve um recurso e produz erro diagnóstico quando ausente."""
         resources = self._provider.resources()
         for resource in resources:
             if resource.name == name or resource.resource_id == f"mame-{name}":
                 return resource
         available = ", ".join(resource.name for resource in resources) or "nenhum"
-        raise LookupError(f"Recurso progetto-SNAPS '{name}' não encontrado. Disponíveis: {available}")
+        raise LookupError(
+            f"Recurso progetto-SNAPS '{name}' não encontrado. Disponíveis: {available}"
+        )
 
     def _sync_support(self) -> None:
         root = self._normalized_root()
         if root is None:
-            QMessageBox.warning(self, "MAME não configurado", "Configure primeiro o executável do MAME em Diretórios → MAME.")
+            self._show_mame_warning()
             return
         resource = self._resource("support-files")
         self._start_busy("Baixando e instalando SupportFiles…")
@@ -207,14 +235,12 @@ class ProgettoSnapsPage(QWidget):
                 replace_existing=True,
             )
         )
-        worker.signals.finished.connect(self._sync_finished)
-        worker.signals.error.connect(self._sync_error)
-        self._pool.start(worker)
+        self._connect_worker(worker)
 
     def _sync_samples(self) -> None:
         root = self._normalized_root()
         if root is None:
-            QMessageBox.warning(self, "MAME não configurado", "Configure primeiro o executável do MAME em Diretórios → MAME.")
+            self._show_mame_warning()
             return
         resource = self._resource("samples-fullpack")
         self._start_busy("Baixando e instalando Samples FullPack 0.289…")
@@ -226,6 +252,16 @@ class ProgettoSnapsPage(QWidget):
                 flatten=True,
             )
         )
+        self._connect_worker(worker)
+
+    def _show_mame_warning(self) -> None:
+        QMessageBox.warning(
+            self,
+            MAME_NOT_CONFIGURED,
+            "Configure primeiro o executável do MAME em Diretórios → MAME.",
+        )
+
+    def _connect_worker(self, worker: _SyncWorker) -> None:
         worker.signals.finished.connect(self._sync_finished)
         worker.signals.error.connect(self._sync_error)
         self._pool.start(worker)
@@ -241,7 +277,9 @@ class ProgettoSnapsPage(QWidget):
         self.update_button.setEnabled(True)
         self.samples_button.setEnabled(True)
         count = len(result) if isinstance(result, tuple) else 0
-        self.status_label.setText(f"Sincronização concluída: {count} arquivo(s) processado(s).")
+        self.status_label.setText(
+            f"Sincronização concluída: {count} arquivo(s) processado(s)."
+        )
         self._scan_local()
 
     def _sync_error(self, message: str) -> None:
