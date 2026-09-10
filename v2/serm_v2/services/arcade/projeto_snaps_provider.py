@@ -20,7 +20,7 @@ class ProgettoSnapsProvider:
     samples_url = f"{base_url}/samples/"
     mame_dat_url = f"{base_url}/dats/MAME/"
 
-    nplayers_primary_url = "http://nplayers.arcadebelgium.be/files/nplayers0278.zip"
+    nplayers_primary_url = "https://nplayers.arcadebelgium.be/files/nplayers0278.zip"
     nplayers_mirror_url = "https://www.planetemu.net/php/utilitaires/?action=download&id=181"
 
     SUPPORT_VERSION = "0.288"
@@ -79,7 +79,7 @@ class ProgettoSnapsProvider:
                     "latest_discovery": {
                         "strategy": "probe", "start_version": self.NPLAYERS_VERSION, "max_ahead": 30,
                         "stop_after_misses": 3, "fallback_only_version": self.NPLAYERS_VERSION,
-                        "url_template": "http://nplayers.arcadebelgium.be/files/nplayers{version_compact}.zip",
+                        "url_template": "https://nplayers.arcadebelgium.be/files/nplayers{version_compact}.zip",
                     },
                 },
             ),
@@ -111,7 +111,7 @@ class ProgettoSnapsProvider:
                 storage=ResourceStorage.MAME_SOURCE, extraction=ExtractionMode.ARCHIVE, required=False,
                 notes="FullPack oficial de MAME Samples; a versao e descoberta no indice de DATs.",
                 metadata={
-                    "listing_url": self.samples_url, "destination": "samples", "install_all_members_to": "mame_samples",
+                    "listing_url": self.samples_url, "source_page": self.samples_url, "destination": "samples", "install_all_members_to": "mame_samples",
                     "latest_discovery": {
                         "strategy": "listing", "listing_url": self.mame_dat_url, "pattern": r"\b(0\.\d{3})\b",
                         "url_template": f"{self.base_url}/samples/packs/MAME_samples_{{version_compact}}.zip",
