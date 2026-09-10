@@ -9,11 +9,10 @@ def test_support_manifest_matches_pack_members() -> None:
     members = resource.metadata["members"]
 
     assert isinstance(members, dict)
-    assert len(members) == 13
+    assert len(members) == 12
     assert {
         "dats/command.dat",
         "dats/gameinit.dat",
-        "dats/unoffsysinfo.dat",
         "folders/bestgames.ini",
         "folders/catlist.ini",
         "folders/freeplay.ini",
@@ -27,7 +26,7 @@ def test_support_manifest_matches_pack_members() -> None:
     } == set(members)
 
 
-def test_support_manifest_does_not_claim_external_dat_files() -> None:
+def test_support_manifest_does_not_claim_external_files() -> None:
     provider = ProgettoSnapsProvider()
     resource = next(item for item in provider.resources() if item.name == "support-files")
     members = resource.metadata["members"]
@@ -35,6 +34,7 @@ def test_support_manifest_does_not_claim_external_dat_files() -> None:
     assert "dats/history.dat" not in members
     assert "dats/mameinfo.dat" not in members
     assert "dats/hiscore.dat" not in members
+    assert "dats/unoffsysinfo.dat" not in members
     assert "folders/gameinit.ini" not in members
 
 
