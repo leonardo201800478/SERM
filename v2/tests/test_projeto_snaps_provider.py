@@ -55,17 +55,17 @@ def test_nplayers_uses_official_arcade_belgium_source_with_mirror_fallback() -> 
     )
 
 
-def test_samples_fullpack_uses_dedicated_samples_listing() -> None:
+def test_samples_fullpack_uses_published_samples_link() -> None:
     provider = ProgettoSnapsProvider()
     resource = next(item for item in provider.resources() if item.name == "samples-fullpack")
 
     assert resource.version == "0.289"
-    assert resource.url.endswith("/samples/packs/MAME_samples_289.zip")
+    assert resource.url == provider.samples_url
     assert resource.metadata["source_page"] == provider.samples_url
-    assert resource.metadata["listing_url"] == provider.samples_url
     discovery = resource.metadata["latest_discovery"]
+    assert discovery["strategy"] == "link"
     assert discovery["listing_url"] == provider.samples_url
-    assert discovery["pattern"] == r"MAME_samples_(0\.\d{3})\.zip"
+    assert discovery["href_pattern"] == r"MAME_samples_(0\.\d{3})\.zip"
 
 
 def test_category_and_version_manifests_are_complete() -> None:
