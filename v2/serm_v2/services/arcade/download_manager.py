@@ -1,4 +1,4 @@
-"""Download/cache/extraction primitives for external Arcade Studio resources."""
+"""Primitivas de download, cache, extracao e publicacao de recursos externos."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from ...models.external_resource import ExternalResource, ExtractionMode
 
 
 class DestinationAction(StrEnum):
-    """Decision for an existing destination file."""
+    """Decisao tomada para um arquivo no destino."""
 
     CREATE = "create"
     REUSE = "reuse"
@@ -24,25 +24,21 @@ class DestinationAction(StrEnum):
 
 
 class DownloadManager:
-    """Acquires resources without blindly writing to the MAME installation.
-
-    Acquisition lives in cache/source. Publication is an explicit second step
-    so the destination can be inspected before a file is replaced.
-    """
+    """Adquire recursos fora da instalacao e publica somente em etapa explicita."""
 
     def __init__(self, cache_dir: Path, source_dir: Path | None = None) -> None:
         self.cache_dir = Path(cache_dir)
         self.source_dir = Path(source_dir) if source_dir is not None else None
 
     def archive_path(self, resource: ExternalResource) -> Path:
-        """Return the canonical cache path for an acquired archive/file."""
+        """Retorna o caminho canonico do pacote no cache."""
         suffix = ".zip" if resource.extraction is ExtractionMode.ARCHIVE else ""
         return self.cache_dir / resource.provider / resource.platform / resource.name / resource.version / (
             resource.name + suffix
         )
 
     def download(self, resource: ExternalResource) -> Path:
-        """Download atomically and reuse an already validated cache entry."""
+        """Baixa atomicamente e reutiliza um pacote ja validado."""
         target = self.archive_path(resource)
         target.parent.mkdir(parents=True, exist_ok=True)
         if target.is_file() and self._matches(target, resource):
@@ -60,7 +56,7 @@ class DownloadManager:
             temporary.unlink(missing_ok=True)
 
     def extract(self, resource: ExternalResource, archive: Path) -> Path:
-        """Extract to cache with path-traversal protection."""
+        """Extrai ZIP com protecao contra path traversal."""
         if resource.extraction is not ExtractionMode.ARCHIVE:
             return archive
         destination = archive.parent / "extracted"
@@ -75,9 +71,8 @@ class DownloadManager:
         return destination
 
     def acquire(self, resource: ExternalResource) -> Path:
-        """Download and extract, keeping the result outside the MAME destination."""
-        archive = self.download(resource)
-        return self.extract(resource, archive)
+        """Baixa e extrai mantendo o resultado fora da instalacao MAME."""
+        return self.extract(resource, self.download(resource))
 
     def install_members(
         self,
@@ -87,12 +82,7 @@ class DownloadManager:
         *,
         replace_existing: bool = False,
     ) -> tuple[tuple[str, Path, DestinationAction], ...]:
-        """Install mapped archive members into exact MAME subdirectories.
-
-        All destination conflicts are preflighted before the first write. This
-        prevents a multi-file package from being partially published when a
-        later member is blocked.
-        """
+        """Publica membros mapeados em dats/folders/samples/metadata."""
         members = resource.metadata.get("members")
         if not isinstance(members, dict):
             raise ValueError(f"recurso sem mapa de membros: {resource.name}")
@@ -108,28 +98,59 @@ class DownloadManager:
 
             relative_dir = self._destination_dir(logical_destination)
             destination = Path(destination_root) / relative_dir / source.name
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            if not destination.exists():
-                action = DestinationAction.CREATE
-            elif self.sha256(destination) == self.sha256(source):
-                action = DestinationAction.REUSE
-            elif replace_existing:
-                action = DestinationAction.REPLACE
-            else:
-                action = DestinationAction.BLOCK
+            action = self._plan_action(source, destination, replace_existing)
             if action is DestinationAction.BLOCK:
-                raise FileExistsError(
-                    f"conflito no destino: {destination}; valide ou permita substituicao explicitamente"
-                )
+                raise FileExistsError(f"conflito no destino: {destination}")
             plan.append((source, destination, str(archive_member), action))
 
-        for source, destination, _archive_member, action in plan:
+        return self._publish_plan(plan)
+
+    def install_tree(
+        self,
+        extracted: Path,
+        destination: Path,
+        *,
+        replace_existing: bool = False,
+        flatten: bool = False,
+    ) -> tuple[tuple[str, Path, DestinationAction], ...]:
+        """Publica todos os arquivos extraidos, util para o MAME Samples FullPack.
+
+        Quando ``flatten`` e verdadeiro, somente o nome do arquivo e mantido
+        no destino. Isso e apropriado para os ZIPs de samples, que pertencem
+        diretamente a MAME/samples/.
+        """
+        root = Path(extracted).resolve()
+        destination = Path(destination)
+        plan: list[tuple[Path, Path, str, DestinationAction]] = []
+        for source in sorted(path for path in root.rglob("*") if path.is_file()):
+            relative = source.relative_to(root)
+            target = destination / (Path(relative).name if flatten else relative)
+            action = self._plan_action(source, target, replace_existing)
+            if action is DestinationAction.BLOCK:
+                raise FileExistsError(f"conflito no destino: {target}")
+            plan.append((source, target, relative.as_posix(), action))
+        return self._publish_plan(plan)
+
+    @staticmethod
+    def _plan_action(source: Path, destination: Path, replace_existing: bool) -> DestinationAction:
+        if not destination.exists():
+            return DestinationAction.CREATE
+        if DownloadManager.sha256(destination) == DownloadManager.sha256(source):
+            return DestinationAction.REUSE
+        return DestinationAction.REPLACE if replace_existing else DestinationAction.BLOCK
+
+    @staticmethod
+    def _publish_plan(
+        plan: list[tuple[Path, Path, str, DestinationAction]],
+    ) -> tuple[tuple[str, Path, DestinationAction], ...]:
+        for _source, destination, _member, _action in plan:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+        for source, destination, _member, action in plan:
             if action is DestinationAction.REUSE:
                 continue
             temporary = destination.with_name(f".{destination.name}.serm-tmp")
             shutil.copy2(source, temporary)
             os.replace(temporary, destination)
-
         return tuple((member, destination, action) for _source, destination, member, action in plan)
 
     @staticmethod
@@ -146,7 +167,7 @@ class DownloadManager:
 
     @staticmethod
     def sha256(path: Path) -> str:
-        """Calculate SHA-256 in streaming mode."""
+        """Calcula SHA-256 em streaming."""
         digest = hashlib.sha256()
         with path.open("rb") as stream:
             for block in iter(lambda: stream.read(1024 * 1024), b""):
