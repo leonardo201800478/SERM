@@ -7,7 +7,7 @@ import os
 import webbrowser
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
+from PySide6.QtCore import QObject, QRunnable, QThreadPool, Qt, Signal
 from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
