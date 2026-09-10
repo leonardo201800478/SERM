@@ -1,16 +1,29 @@
 """GUI para instalar e validar o suporte MAME do progetto-SNAPS."""
 from __future__ import annotations
 
+import json
 import logging
 import os
 import webbrowser
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
-from PySide6.QtWidgets import QFileDialog, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QProgressBar, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QProgressBar,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
+from ..runtime.paths import data_root
 from ..services.arcade.download_manager import DownloadManager
-from ..services.arcade.progetto_snaps_provider import ProgettoSnapsProvider
+from ..services.arcade.projeto_snaps_provider import ProgettoSnapsProvider
 
 LOGGER = logging.getLogger(__name__)
 SNAPS_HOME = "https://www.progettosnaps.net/"
@@ -38,6 +51,7 @@ class _SyncWorker(QRunnable):
 class ProgettoSnapsPage(QWidget):
     """Gerencia MAME/dats, MAME/folders e MAME/samples."""
 
+    PATHS_FILE = data_root() / "emulator_paths.json"
     EXPECTED_SUPPORT = (
         ("dats/command.dat", "DAT", "Comandos"),
         ("dats/gameinit.dat", "DAT", "Inicializacao"),
@@ -63,22 +77,22 @@ class ProgettoSnapsPage(QWidget):
         root.setSpacing(12)
         title = QLabel("progetto-SNAPS — MAME Support Files")
         title.setObjectName("pageTitle")
-        subtitle = QLabel("Instale os arquivos oficiais de suporte do MAME em dats, folders e samples.")
+        subtitle = QLabel(
+            "Instale os arquivos oficiais de suporte do MAME em dats, folders e samples. "
+            "O SERM utiliza o executável MAME já configurado em Diretórios."
+        )
         subtitle.setWordWrap(True)
         root.addWidget(title)
         root.addWidget(subtitle)
 
-        location = QGroupBox("Instalação do MAME")
+        location = QGroupBox("MAME configurado no SERM")
         location_layout = QHBoxLayout(location)
-        self.root_edit = QLineEdit()
-        self.root_edit.setPlaceholderText("Pasta que contém mame.exe")
-        browse = QPushButton("Selecionar…")
-        browse.clicked.connect(self._choose_root)
-        scan = QPushButton("Verificar")
-        scan.clicked.connect(self._scan_local)
-        location_layout.addWidget(self.root_edit, 1)
-        location_layout.addWidget(browse)
-        location_layout.addWidget(scan)
+        self.location_label = QLabel("MAME não configurado")
+        self.location_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        location_layout.addWidget(self.location_label, 1)
+        refresh = QPushButton("Atualizar")
+        refresh.clicked.connect(self._scan_local)
+        location_layout.addWidget(refresh)
         root.addWidget(location)
 
         actions = QHBoxLayout()
@@ -118,29 +132,40 @@ class ProgettoSnapsPage(QWidget):
         self.progress.hide()
         root.addWidget(self.progress)
 
-    def _normalized_root(self) -> Path | None:
-        raw = self.root_edit.text().strip()
-        if not raw:
+    def _mapped_executable(self) -> Path | None:
+        """Read the single MAME executable already persisted by SERM."""
+        try:
+            value = json.loads(self.PATHS_FILE.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
             return None
-        root = Path(os.path.expandvars(os.path.expanduser(raw))).resolve()
-        return root if root.is_dir() else None
+        if not isinstance(value, dict):
+            return None
+        raw = value.get("mame_executable")
+        if not isinstance(raw, str) or not raw.strip():
+            return None
+        executable = Path(os.path.expandvars(os.path.expanduser(raw))).resolve()
+        return executable if executable.is_file() else None
 
-    def _choose_root(self) -> None:
-        selected = QFileDialog.getExistingDirectory(self, "Selecionar pasta do MAME")
-        if selected:
-            self.root_edit.setText(selected)
-            self._scan_local()
+    def _normalized_root(self) -> Path | None:
+        executable = self._mapped_executable()
+        if executable is None:
+            return None
+        return executable.parent
 
     def _scan_local(self) -> None:
-        root = self._normalized_root()
+        executable = self._mapped_executable()
+        root = executable.parent if executable is not None else None
         if root is None:
-            self.status_label.setText("Status: selecione uma pasta válida do MAME")
+            self.location_label.setText("MAME não configurado — use Diretórios → MAME")
+            self.status_label.setText("Status: nenhum executável MAME válido está configurado")
             for row in range(self.table.rowCount()):
                 item = self.table.item(row, 3)
                 if item is not None:
                     item.setText("—")
             return
-        exe_status = "OK" if (root / "mame.exe").is_file() else "não encontrado"
+
+        self.location_label.setText(str(executable))
+        exe_status = "OK" if executable.is_file() else "não encontrado"
         present = 0
         for row, (relative, _kind, _description) in enumerate(self.EXPECTED_SUPPORT):
             exists = (root / relative).is_file()
@@ -154,19 +179,34 @@ class ProgettoSnapsPage(QWidget):
         item = self.table.item(sample_row, 3)
         if item is not None:
             item.setText(f"{sample_count} ZIP(s)" if sample_count else "Ausente")
-        self.status_label.setText(f"MAME.exe: {exe_status} | Suporte: {present}/{len(self.EXPECTED_SUPPORT)} | Samples: {sample_count} ZIP(s)")
+        self.status_label.setText(
+            f"MAME.exe: {exe_status} | Suporte: {present}/{len(self.EXPECTED_SUPPORT)} | Samples: {sample_count} ZIP(s)"
+        )
 
     def _resource(self, name: str):
-        return next(item for item in self._provider.resources() if item.name == name)
+        """Resolve um recurso pelo nome e produz erro diagnóstico quando ausente."""
+        resources = self._provider.resources()
+        for resource in resources:
+            if resource.name == name or resource.resource_id == f"mame-{name}":
+                return resource
+        available = ", ".join(resource.name for resource in resources) or "nenhum"
+        raise LookupError(f"Recurso progetto-SNAPS '{name}' não encontrado. Disponíveis: {available}")
 
     def _sync_support(self) -> None:
         root = self._normalized_root()
         if root is None:
-            QMessageBox.warning(self, "MAME não configurado", "Selecione primeiro a pasta que contém mame.exe.")
+            QMessageBox.warning(self, "MAME não configurado", "Configure primeiro o executável do MAME em Diretórios → MAME.")
             return
         resource = self._resource("support-files")
         self._start_busy("Baixando e instalando SupportFiles…")
-        worker = _SyncWorker(lambda: self._manager.install_members(resource, self._manager.acquire(resource), root, replace_existing=True))
+        worker = _SyncWorker(
+            lambda: self._manager.install_members(
+                resource,
+                self._manager.acquire(resource),
+                root,
+                replace_existing=True,
+            )
+        )
         worker.signals.finished.connect(self._sync_finished)
         worker.signals.error.connect(self._sync_error)
         self._pool.start(worker)
@@ -174,11 +214,18 @@ class ProgettoSnapsPage(QWidget):
     def _sync_samples(self) -> None:
         root = self._normalized_root()
         if root is None:
-            QMessageBox.warning(self, "MAME não configurado", "Selecione primeiro a pasta que contém mame.exe.")
+            QMessageBox.warning(self, "MAME não configurado", "Configure primeiro o executável do MAME em Diretórios → MAME.")
             return
         resource = self._resource("samples-fullpack")
         self._start_busy("Baixando e instalando Samples FullPack 0.289…")
-        worker = _SyncWorker(lambda: self._manager.install_tree(self._manager.acquire(resource), root / "samples", replace_existing=True, flatten=True))
+        worker = _SyncWorker(
+            lambda: self._manager.install_tree(
+                self._manager.acquire(resource),
+                root / "samples",
+                replace_existing=True,
+                flatten=True,
+            )
+        )
         worker.signals.finished.connect(self._sync_finished)
         worker.signals.error.connect(self._sync_error)
         self._pool.start(worker)
