@@ -3,19 +3,16 @@ from __future__ import annotations
 from serm_v2.services.arcade.projeto_snaps_provider import ProgettoSnapsProvider
 
 
-def test_support_manifest_covers_official_support_files() -> None:
+def test_support_manifest_matches_pack_members() -> None:
     provider = ProgettoSnapsProvider()
     resource = next(item for item in provider.resources() if item.name == "support-files")
     members = resource.metadata["members"]
 
     assert isinstance(members, dict)
-    assert len(members) == 16
+    assert len(members) == 13
     assert {
         "dats/command.dat",
         "dats/gameinit.dat",
-        "dats/history.dat",
-        "dats/mameinfo.dat",
-        "dats/hiscore.dat",
         "dats/unoffsysinfo.dat",
         "folders/bestgames.ini",
         "folders/catlist.ini",
@@ -28,6 +25,17 @@ def test_support_manifest_covers_official_support_files() -> None:
         "folders/screenless.ini",
         "folders/series.ini",
     } == set(members)
+
+
+def test_support_manifest_does_not_claim_external_dat_files() -> None:
+    provider = ProgettoSnapsProvider()
+    resource = next(item for item in provider.resources() if item.name == "support-files")
+    members = resource.metadata["members"]
+
+    assert "dats/history.dat" not in members
+    assert "dats/mameinfo.dat" not in members
+    assert "dats/hiscore.dat" not in members
+    assert "folders/gameinit.ini" not in members
 
 
 def test_category_and_version_manifests_are_complete() -> None:
