@@ -18,6 +18,24 @@ Consulte o [Roadmap da V2](phases.md) para metas, critérios de saída e ordem o
 - [Reconstrução](reconstruction.md) — ciclo lógico → físico → manifesto → materialização.
 - [Dependências MAME](reconstruction-dependencies.md) — parent/clone, `romof`, `merge`, BIOS, devices, samples e CHD.
 
+### Aquisição de recursos externos
+
+A infraestrutura inicial de aquisição está em desenvolvimento na Meta 2.1 do roadmap. Ela separa provider, catálogo, cache/source e destino MAME. O primeiro provider é o Progetto-SNAPS e os recursos selecionados são tratados como pacotes versionados, não como arquivos copiados cegamente.
+
+Pacotes atualmente mapeados:
+
+- CatVer/CatList/Genre 0.289;
+- BestGames 0.280;
+- Series 0.289;
+- Languages 0.289;
+- GameInit 0.289;
+- Command 0.273;
+- MAME Samples FullPack 0.289.
+
+O SERM distingue `dats/`, `folders/`, `samples/` e metadados próprios. Arquivos existentes no destino são comparados antes da publicação: conteúdo idêntico pode ser reutilizado; conteúdo diferente bloqueia por padrão e só pode ser substituído por uma decisão explícita.
+
+O provider não substitui o catálogo MAME nem a reconstrução: aquisição alimenta a origem, e o pipeline continua responsável por scan, dependências, plano e materialização.
+
 ## Ordem de autoridade
 
 Quando houver divergência entre documentos, use esta ordem:
@@ -75,6 +93,8 @@ O planner real também foi confrontado diretamente com a evidência do catálogo
 - contrato completo do scan MAME;
 - grafo completo de BIOS/devices/samples;
 - validação de delta CHD em famílias reais;
+- validação do FullPack de Samples e aquisição incremental;
+- persistência do catálogo de recursos externos;
 - prova end-to-end da materialização física dos três layouts;
 - re-scan do destino reconstruído;
 - integração completa do pipeline na GUI;
