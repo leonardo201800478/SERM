@@ -27,12 +27,15 @@ class LatestResourceResolver:
             else:
                 raise ValueError(f"estrategia de descoberta desconhecida: {strategy}")
         except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError):
-            # Falha na consulta de catalogo nao deve impedir o uso da ultima
-            # versao conhecida pelo provider nem inutilizar o cache local.
             return resource
         if not version or not url:
             return resource
-        return replace(resource, version=version, url=url)
+
+        metadata = dict(resource.metadata)
+        fallback_only_version = spec.get("fallback_only_version")
+        if fallback_only_version is not None and version != fallback_only_version:
+            metadata["fallback_urls"] = ()
+        return replace(resource, version=version, url=url, metadata=metadata)
 
     def _from_listing(self, resource: ExternalResource, spec: dict[str, Any]) -> tuple[str | None, str | None]:
         listing_url = spec.get("listing_url")
@@ -64,8 +67,7 @@ class LatestResourceResolver:
         best_version = start_version
         misses = 0
         for offset in range(1, max_ahead + 1):
-            candidate_key = self._increment_version(current, offset)
-            candidate = ".".join(str(part) for part in candidate_key)
+            candidate = ".".join(str(part) for part in self._increment_version(current, offset))
             url = self._format_url(url_template, candidate)
             if self._url_exists(url, resource):
                 best_version = candidate
