@@ -1,240 +1,207 @@
-"""Interface gráfica para gerenciamento dos recursos do projeto-SNAPS."""
-
+"""GUI para instalar e validar o suporte MAME do progetto-SNAPS."""
 from __future__ import annotations
 
 import logging
 import os
+import webbrowser
 from pathlib import Path
-from urllib.parse import urljoin
-from urllib.request import Request, urlopen
 
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
-from PySide6.QtWidgets import (
-    QFileDialog,
-    QFrame,
-    QGridLayout,
-    QGroupBox,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QPushButton,
-    QProgressBar,
-    QTableWidget,
-    QTableWidgetItem,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QFileDialog, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QProgressBar, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
+
+from ..services.arcade.download_manager import DownloadManager
+from ..services.arcade.progetto_snaps_provider import ProgettoSnapsProvider
 
 LOGGER = logging.getLogger(__name__)
 SNAPS_HOME = "https://www.progettosnaps.net/"
-SNAPS_SNAPSHOTS = urljoin(SNAPS_HOME, "snapshots/")
-SNAPS_DATS = urljoin(SNAPS_HOME, "dats/")
 
 
 class _WorkerSignals(QObject):
-    """Sinais emitidos por tarefas executadas fora da thread da interface."""
-
     finished = Signal(object)
     error = Signal(str)
 
 
-class _FetchWorker(QRunnable):
-    """Executa uma consulta HTTP simples sem bloquear a GUI."""
-
-    def __init__(self, url: str) -> None:
+class _SyncWorker(QRunnable):
+    def __init__(self, operation) -> None:
         super().__init__()
-        self.url = url
+        self.operation = operation
         self.signals = _WorkerSignals()
 
     def run(self) -> None:
-        """Baixa a página solicitada e devolve o conteúdo como texto."""
         try:
-            request = Request(self.url, headers={"User-Agent": "SERM-V2/2.0"})
-            with urlopen(request, timeout=15) as response:
-                self.signals.finished.emit(response.read().decode("utf-8", errors="replace"))
-        except Exception as exc:  # noqa: BLE001 - erro de rede deve chegar à GUI.
+            self.signals.finished.emit(self.operation())
+        except Exception as exc:  # noqa: BLE001
+            LOGGER.exception("Falha na sincronizacao do progetto-SNAPS")
             self.signals.error.emit(str(exc))
 
 
 class ProgettoSnapsPage(QWidget):
-    """Painel para acompanhar e validar uma coleção local do progetto-SNAPS."""
+    """Gerencia MAME/dats, MAME/folders e MAME/samples."""
 
-    CATEGORIES = (
-        ("Snap", "Snapshots principais", "0.288"),
-        ("Titles", "Tela de títulos", "0.288"),
-        ("ArtPreview", "Artwork Preview", "0.288"),
-        ("Bosses", "Chefes", "0.288"),
-        ("Ends", "Finais", "0.288"),
-        ("GameOver", "Telas de Game Over", "0.288"),
-        ("HowTo", "Instruções / How To", "0.288"),
-        ("Logo", "Logotipos", "0.288"),
-        ("Scores", "Pontuações", "0.288"),
-        ("Select", "Telas de seleção", "0.288"),
-        ("Versus", "Telas versus", "0.288"),
-        ("Warning", "Avisos", "0.288"),
+    EXPECTED_SUPPORT = (
+        ("dats/command.dat", "DAT", "Comandos"),
+        ("dats/gameinit.dat", "DAT", "Inicializacao"),
+        ("folders/bestgames.ini", "INI", "Melhores jogos"),
+        ("folders/catlist.ini", "INI", "Categorias"),
+        ("folders/genre.ini", "INI", "Generos"),
+        ("folders/languages.ini", "INI", "Idiomas"),
+        ("folders/series.ini", "INI", "Series"),
+        ("folders/gameinit.ini", "INI", "Inicializacao"),
     )
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._pool = QThreadPool.globalInstance()
+        self._provider = ProgettoSnapsProvider()
+        self._manager = DownloadManager(Path.home() / ".serm" / "cache")
         self._build_ui()
-        self.refresh()
+        self._scan_local()
 
     def _build_ui(self) -> None:
-        """Monta a interface, separando configuração, resumo e categorias."""
         root = QVBoxLayout(self)
         root.setContentsMargins(18, 18, 18, 18)
         root.setSpacing(12)
-
-        title = QLabel("progetto-SNAPS")
+        title = QLabel("progetto-SNAPS — MAME Support Files")
         title.setObjectName("pageTitle")
-        subtitle = QLabel(
-            "Gerencie snapshots do MAME, valide sua coleção local e acompanhe a versão do pacote."
-        )
+        subtitle = QLabel("Instale os arquivos oficiais de suporte do MAME em dats, folders e samples.")
         subtitle.setWordWrap(True)
         root.addWidget(title)
         root.addWidget(subtitle)
 
-        location = QGroupBox("Coleção local")
+        location = QGroupBox("Instalação do MAME")
         location_layout = QHBoxLayout(location)
         self.root_edit = QLineEdit()
-        self.root_edit.setPlaceholderText("Pasta raiz que contém as categorias do projeto-SNAPS")
+        self.root_edit.setPlaceholderText("Pasta que contém mame.exe")
         browse = QPushButton("Selecionar…")
         browse.clicked.connect(self._choose_root)
-        scan = QPushButton("Verificar coleção")
+        scan = QPushButton("Verificar")
         scan.clicked.connect(self._scan_local)
         location_layout.addWidget(self.root_edit, 1)
         location_layout.addWidget(browse)
         location_layout.addWidget(scan)
         root.addWidget(location)
 
-        summary = QFrame()
-        summary.setObjectName("snapsSummary")
-        summary_layout = QGridLayout(summary)
-        self.version_label = QLabel("MAME: —")
-        self.online_label = QLabel("Status: aguardando consulta")
-        self.local_label = QLabel("Coleção: não verificada")
-        refresh = QPushButton("Atualizar informações online")
-        refresh.clicked.connect(self._refresh_online)
-        open_site = QPushButton("Abrir projeto-SNAPS")
-        open_site.clicked.connect(lambda: self._open_url(SNAPS_HOME))
-        summary_layout.addWidget(self.version_label, 0, 0)
-        summary_layout.addWidget(self.online_label, 0, 1)
-        summary_layout.addWidget(self.local_label, 1, 0)
-        summary_layout.addWidget(refresh, 1, 1)
-        summary_layout.addWidget(open_site, 1, 2)
-        root.addWidget(summary)
+        actions = QHBoxLayout()
+        self.update_button = QPushButton("Baixar / Atualizar suporte")
+        self.update_button.clicked.connect(self._sync_support)
+        self.samples_button = QPushButton("Baixar Samples FullPack")
+        self.samples_button.clicked.connect(self._sync_samples)
+        open_folder = QPushButton("Abrir pasta MAME")
+        open_folder.clicked.connect(self._open_root)
+        open_site = QPushButton("Site oficial")
+        open_site.clicked.connect(lambda: webbrowser.open(SNAPS_HOME))
+        for button in (self.update_button, self.samples_button, open_folder, open_site):
+            actions.addWidget(button)
+        root.addLayout(actions)
 
-        self.table = QTableWidget(len(self.CATEGORIES), 5)
-        self.table.setHorizontalHeaderLabels(("Categoria", "Descrição", "Versão", "Local", "Ação"))
+        self.status_label = QLabel("Status: não verificado")
+        root.addWidget(self.status_label)
+        self.table = QTableWidget(len(self.EXPECTED_SUPPORT) + 1, 4)
+        self.table.setHorizontalHeaderLabels(("Arquivo / recurso", "Tipo", "Descrição", "Status local"))
         self.table.setAlternatingRowColors(True)
-        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.verticalHeader().setVisible(False)
-        self.table.setMinimumHeight(360)
-        for row, (name, description, version) in enumerate(self.CATEGORIES):
-            self.table.setItem(row, 0, QTableWidgetItem(name))
-            self.table.setItem(row, 1, QTableWidgetItem(description))
-            self.table.setItem(row, 2, QTableWidgetItem(version))
+        for row, (relative, kind, description) in enumerate(self.EXPECTED_SUPPORT):
+            self.table.setItem(row, 0, QTableWidgetItem(relative))
+            self.table.setItem(row, 1, QTableWidgetItem(kind))
+            self.table.setItem(row, 2, QTableWidgetItem(description))
             self.table.setItem(row, 3, QTableWidgetItem("—"))
-            button = QPushButton("Abrir página")
-            button.clicked.connect(lambda _checked=False, category=name: self._open_category(category))
-            self.table.setCellWidget(row, 4, button)
+        sample_row = len(self.EXPECTED_SUPPORT)
+        self.table.setItem(sample_row, 0, QTableWidgetItem("samples/*.zip"))
+        self.table.setItem(sample_row, 1, QTableWidgetItem("SAMPLES"))
+        self.table.setItem(sample_row, 2, QTableWidgetItem("MAME Samples FullPack 0.289"))
+        self.table.setItem(sample_row, 3, QTableWidgetItem("—"))
         self.table.resizeColumnsToContents()
         self.table.horizontalHeader().setStretchLastSection(True)
         root.addWidget(self.table, 1)
-
         self.progress = QProgressBar()
         self.progress.setRange(0, 0)
         self.progress.hide()
         root.addWidget(self.progress)
 
-        dat_button = QPushButton("Abrir página de DATs do projeto-SNAPS")
-        dat_button.clicked.connect(lambda: self._open_url(SNAPS_DATS))
-        root.addWidget(dat_button)
-
-    def refresh(self) -> None:
-        """Atualiza o estado da coleção sem executar uma operação de rede pesada."""
-        self._scan_local()
+    def _normalized_root(self) -> Path | None:
+        raw = self.root_edit.text().strip()
+        if not raw:
+            return None
+        root = Path(os.path.expandvars(os.path.expanduser(raw))).resolve()
+        return root if root.is_dir() else None
 
     def _choose_root(self) -> None:
-        """Seleciona a pasta raiz onde os recursos SNAPS estão armazenados."""
-        selected = QFileDialog.getExistingDirectory(self, "Selecionar coleção do projeto-SNAPS")
+        selected = QFileDialog.getExistingDirectory(self, "Selecionar pasta do MAME")
         if selected:
             self.root_edit.setText(selected)
             self._scan_local()
 
     def _scan_local(self) -> None:
-        """Verifica quais categorias do projeto-SNAPS existem na pasta configurada."""
-        raw_root = self.root_edit.text().strip()
-        if not raw_root:
-            self.local_label.setText("Coleção: não configurada")
+        root = self._normalized_root()
+        if root is None:
+            self.status_label.setText("Status: selecione uma pasta válida do MAME")
             for row in range(self.table.rowCount()):
                 self.table.item(row, 3).setText("—")
             return
+        exe_status = "OK" if (root / "mame.exe").is_file() else "não encontrado"
+        present = 0
+        for row, (relative, _kind, _description) in enumerate(self.EXPECTED_SUPPORT):
+            exists = (root / relative).is_file()
+            present += int(exists)
+            self.table.item(row, 3).setText("Instalado" if exists else "Ausente")
+        sample_dir = root / "samples"
+        sample_count = sum(1 for item in sample_dir.glob("*.zip") if item.is_file()) if sample_dir.is_dir() else 0
+        sample_row = len(self.EXPECTED_SUPPORT)
+        self.table.item(sample_row, 3).setText(f"{sample_count} ZIP(s)" if sample_count else "Ausente")
+        self.status_label.setText(f"MAME.exe: {exe_status} | Suporte: {present}/{len(self.EXPECTED_SUPPORT)} | Samples: {sample_count} ZIP(s)")
 
-        root = Path(os.path.expandvars(os.path.expanduser(raw_root)))
-        if not root.is_dir():
-            self.local_label.setText("Coleção: pasta inválida")
+    def _resource(self, name: str):
+        return next(item for item in self._provider.resources() if item.name == name)
+
+    def _sync_support(self) -> None:
+        root = self._normalized_root()
+        if root is None:
+            QMessageBox.warning(self, "MAME não configurado", "Selecione primeiro a pasta que contém mame.exe.")
             return
-
-        found = 0
-        for row, (category, _description, _version) in enumerate(self.CATEGORIES):
-            category_dir = self._find_category_dir(root, category)
-            status = "Encontrado" if category_dir else "Ausente"
-            if category_dir:
-                found += 1
-            self.table.item(row, 3).setText(status)
-        self.local_label.setText(f"Coleção: {found}/{len(self.CATEGORIES)} categorias encontradas")
-
-    @staticmethod
-    def _find_category_dir(root: Path, category: str) -> Path | None:
-        """Localiza uma pasta de categoria tolerando diferenças de maiúsculas/minúsculas."""
-        expected = category.casefold()
-        try:
-            return next((path for path in root.iterdir() if path.is_dir() and path.name.casefold() == expected), None)
-        except OSError as exc:
-            LOGGER.warning("Não foi possível ler %s: %s", root, exc)
-            return None
-
-    def _refresh_online(self) -> None:
-        """Consulta a página oficial sem bloquear a interface."""
-        self.progress.show()
-        self.online_label.setText("Status: consultando projeto-SNAPS…")
-        worker = _FetchWorker(SNAPS_HOME)
-        worker.signals.finished.connect(self._online_finished)
-        worker.signals.error.connect(self._online_error)
+        resource = self._resource("support-files")
+        self._start_busy("Baixando e instalando SupportFiles…")
+        worker = _SyncWorker(lambda: self._manager.install_members(resource, self._manager.acquire(resource), root, replace_existing=True))
+        worker.signals.finished.connect(self._sync_finished)
+        worker.signals.error.connect(self._sync_error)
         self._pool.start(worker)
 
-    def _online_finished(self, html: str) -> None:
-        """Interpreta a resposta oficial e atualiza o status da interface."""
+    def _sync_samples(self) -> None:
+        root = self._normalized_root()
+        if root is None:
+            QMessageBox.warning(self, "MAME não configurado", "Selecione primeiro a pasta que contém mame.exe.")
+            return
+        resource = self._resource("samples-fullpack")
+        self._start_busy("Baixando e instalando Samples FullPack 0.289…")
+        worker = _SyncWorker(lambda: self._manager.install_tree(self._manager.acquire(resource), root / "samples", replace_existing=True, flatten=True))
+        worker.signals.finished.connect(self._sync_finished)
+        worker.signals.error.connect(self._sync_error)
+        self._pool.start(worker)
+
+    def _start_busy(self, message: str) -> None:
+        self.status_label.setText(message)
+        self.progress.show()
+        self.update_button.setEnabled(False)
+        self.samples_button.setEnabled(False)
+
+    def _sync_finished(self, result: object) -> None:
         self.progress.hide()
-        if "0.289" in html:
-            self.version_label.setText("MAME: 0.289")
-        elif "0.288" in html:
-            self.version_label.setText("MAME: 0.288")
-        else:
-            self.version_label.setText("MAME: versão não identificada")
-        self.online_label.setText("Status: projeto-SNAPS acessível")
+        self.update_button.setEnabled(True)
+        self.samples_button.setEnabled(True)
+        count = len(result) if isinstance(result, tuple) else 0
+        self.status_label.setText(f"Sincronização concluída: {count} arquivo(s) processado(s).")
+        self._scan_local()
 
-    def _online_error(self, message: str) -> None:
-        """Apresenta uma falha de rede sem interromper a aplicação."""
+    def _sync_error(self, message: str) -> None:
         self.progress.hide()
-        self.online_label.setText("Status: falha na consulta online")
-        LOGGER.warning("Falha ao consultar projeto-SNAPS: %s", message)
+        self.update_button.setEnabled(True)
+        self.samples_button.setEnabled(True)
+        self.status_label.setText("Falha na sincronização")
+        QMessageBox.critical(self, "progetto-SNAPS", message)
 
-    def _open_category(self, category: str) -> None:
-        """Abre a página oficial correspondente à categoria de snapshots."""
-        del category
-        self._open_url(SNAPS_SNAPSHOTS)
+    def _open_root(self) -> None:
+        root = self._normalized_root()
+        if root is not None:
+            os.startfile(root)  # type: ignore[attr-defined]
 
-    @staticmethod
-    def _open_url(url: str) -> None:
-        """Abre um endereço oficial no navegador padrão do sistema."""
-        import webbrowser
 
-        webbrowser.open(url)
-
-    def closeEvent(self, event) -> None:
-        """Libera o widget normalmente quando a janela é encerrada."""
-        self._pool.clear()
-        super().closeEvent(event)
+__all__ = ["ProgettoSnapsPage"]
