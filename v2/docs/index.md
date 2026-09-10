@@ -35,6 +35,7 @@ A V1 é referência histórica e comportamental. A árvore ativa de `main` cont�
 | [`mame-semantic-validation.md`](mame-semantic-validation.md) | Auditorias, invariantes e regras semânticas do MAME |
 | [`arcade-mame-rom-architecture.md`](arcade-mame-rom-architecture.md) | Artigo aprofundado sobre a arquitetura de ROMs MAME no SERM V2 |
 | [`external-resources.md`](external-resources.md) | Catálogo, providers e aquisição de recursos externos |
+| [`projeto-snaps.md`](projeto-snaps.md) | Guia consolidado da integração projeto-SNAPS no Arcade Studio |
 | [`decisions/0003-mame-rom-reconstruction-architecture.md`](decisions/0003-mame-rom-reconstruction-architecture.md) | ADR-0003 e invariantes da reconstrução de ROMs |
 | [`reconstruction/multi-emulator-layout.md`](reconstruction/multi-emulator-layout.md) | Layout multi-emulador |
 | [`archives.md`](archives.md) | Operações com arquivos compactados |
@@ -69,7 +70,7 @@ A V1 é referência histórica e comportamental. A árvore ativa de `main` cont�
 
 ## Estado atual
 
-A V2 está em desenvolvimento **Alpha**. A árvore atual contém infraestrutura de GUI, gerenciamento de emuladores, banco/migrations, ingestão e normalização de catálogos, pipelines MAME, filtros, scan de ROMs/CHDs, reconstrução e integrações opcionais. O roadmap indica o trabalho futuro; documentos históricos não devem ser usados para inferir o estado atual.
+A V2 está em desenvolvimento **Alpha**. A integração inicial do projeto-SNAPS no Arcade Studio está concluída para esta etapa e documentada em [`projeto-snaps.md`](projeto-snaps.md). O restante da V2 continua em desenvolvimento conforme o roadmap.
 
 ## Manutenção da documentação
 
