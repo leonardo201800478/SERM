@@ -6,6 +6,7 @@ import hashlib
 import os
 import shutil
 import tempfile
+import urllib.error
 import urllib.request
 import zipfile
 from enum import StrEnum
@@ -38,22 +39,81 @@ class DownloadManager:
         )
 
     def download(self, resource: ExternalResource) -> Path:
-        """Baixa atomicamente e reutiliza um pacote ja validado."""
+        """Baixa atomicamente e reutiliza um pacote ja validado.
+
+        Recursos externos podem declarar URLs alternativas em
+        ``metadata["fallback_urls"]``. A URL principal e sempre tentada
+        primeiro; os fallbacks so entram em acao quando a transferencia falha.
+        A validacao do arquivo continua obrigatoria antes de publicar o cache.
+        """
         target = self.archive_path(resource)
         target.parent.mkdir(parents=True, exist_ok=True)
         if target.is_file() and self._matches(target, resource):
             return target
 
-        with tempfile.NamedTemporaryFile(prefix=".download-", dir=target.parent, delete=False) as tmp:
-            temporary = Path(tmp.name)
+        urls = self._download_urls(resource)
+        last_error: Exception | None = None
+        temporary: Path | None = None
         try:
-            with urllib.request.urlopen(resource.url, timeout=60) as response, temporary.open("wb") as output:
-                shutil.copyfileobj(response, output, length=1024 * 1024)
-            self._validate(temporary, resource)
-            os.replace(temporary, target)
-            return target
+            for url in urls:
+                with tempfile.NamedTemporaryFile(prefix=".download-", dir=target.parent, delete=False) as tmp:
+                    temporary = Path(tmp.name)
+                try:
+                    request = urllib.request.Request(
+                        url,
+                        headers=self._request_headers(resource, url),
+                    )
+                    with urllib.request.urlopen(request, timeout=60) as response, temporary.open("wb") as output:
+                        shutil.copyfileobj(response, output, length=1024 * 1024)
+                    self._validate(temporary, resource)
+                    os.replace(temporary, target)
+                    temporary = None
+                    return target
+                except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as exc:
+                    last_error = exc
+                finally:
+                    if temporary is not None:
+                        temporary.unlink(missing_ok=True)
+                        temporary = None
+
+            if last_error is not None:
+                raise last_error
+            raise RuntimeError(f"nenhuma URL disponivel para {resource.name}")
         finally:
-            temporary.unlink(missing_ok=True)
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+
+    @staticmethod
+    def _download_urls(resource: ExternalResource) -> tuple[str, ...]:
+        """Retorna URL principal seguida das alternativas declaradas."""
+        fallback_urls = resource.metadata.get("fallback_urls", ())
+        if isinstance(fallback_urls, str):
+            fallback_urls = (fallback_urls,)
+        if not isinstance(fallback_urls, (tuple, list)):
+            raise ValueError(f"fallback_urls invalido para {resource.name}")
+
+        urls: list[str] = [resource.url]
+        for url in fallback_urls:
+            if not isinstance(url, str) or not url:
+                raise ValueError(f"URL de fallback invalida para {resource.name}")
+            if url not in urls:
+                urls.append(url)
+        return tuple(urls)
+
+    @staticmethod
+    def _request_headers(resource: ExternalResource, url: str) -> dict[str, str]:
+        """Monta cabecalhos conservadores para servidores que exigem contexto HTTP."""
+        headers = {
+            "User-Agent": "SERM/2.x (+https://github.com/leonardo201800478/SERM)",
+            "Accept": "*/*",
+        }
+        support_root = resource.metadata.get("support_root")
+        original_source = resource.metadata.get("original_source")
+        if isinstance(support_root, str) and support_root:
+            headers["Referer"] = support_root
+        elif isinstance(original_source, str) and original_source:
+            headers["Referer"] = original_source
+        return headers
 
     def extract(self, resource: ExternalResource, archive: Path) -> Path:
         """Extrai ZIP com protecao contra path traversal."""
@@ -86,8 +146,8 @@ class DownloadManager:
 
         Alguns pacotes externos usam uma pasta-raiz ou diferem apenas em
         capitalizacao nos nomes internos do ZIP. O mapa do recurso continua
-        canonico, mas a resolucao aceita esses dois formatos sem relaxar a
-        validacao de seguranca nem aceitar nomes ambiguos.
+        canonico, mas a resolucao aceita esses dois formatos sem relaxar
+        a validacao de seguranca nem aceitar nomes ambiguos.
         """
         members = resource.metadata.get("members")
         if not isinstance(members, dict):
