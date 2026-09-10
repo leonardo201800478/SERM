@@ -17,7 +17,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QMessageBox,
     QPushButton,
     QProgressBar,
     QTableWidget,
@@ -225,7 +224,8 @@ class ProgettoSnapsPage(QWidget):
 
     def _open_category(self, category: str) -> None:
         """Abre a página oficial correspondente à categoria de snapshots."""
-        self._open_url(urljoin(SNAPS_SNAPSHOTS, ""))
+        del category
+        self._open_url(SNAPS_SNAPSHOTS)
 
     @staticmethod
     def _open_url(url: str) -> None:
