@@ -9,7 +9,7 @@ def test_support_manifest_matches_pack_members() -> None:
     members = resource.metadata["members"]
 
     assert isinstance(members, dict)
-    assert len(members) == 12
+    assert len(members) == 11
     assert {
         "dats/command.dat",
         "dats/gameinit.dat",
@@ -19,7 +19,6 @@ def test_support_manifest_matches_pack_members() -> None:
         "folders/genre.ini",
         "folders/languages.ini",
         "folders/monochrome.ini",
-        "folders/nplayers.ini",
         "folders/resolution.ini",
         "folders/screenless.ini",
         "folders/series.ini",
@@ -35,6 +34,7 @@ def test_support_manifest_does_not_claim_external_files() -> None:
     assert "dats/mameinfo.dat" not in members
     assert "dats/hiscore.dat" not in members
     assert "dats/unoffsysinfo.dat" not in members
+    assert "folders/nplayers.ini" not in members
     assert "folders/gameinit.ini" not in members
 
 
