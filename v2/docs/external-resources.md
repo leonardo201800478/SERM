@@ -1,6 +1,6 @@
-# Recursos externos e aquisicao MAME
+# Recursos externos e aquisição MAME
 
-O Arcade Studio pode consumir recursos publicados por providers externos, mas a aquisicao nunca escreve diretamente na instalacao do emulador.
+O Arcade Studio pode consumir recursos publicados por providers externos, mas a aquisição é separada da instalação física até a etapa explícita de publicação.
 
 ## Pipeline
 
@@ -9,26 +9,24 @@ Provider
    ↓
 Resource Catalog
    ↓
+Latest Resource Resolver
+   ↓
 Download Cache
    ↓
 Integrity validation
    ↓
 Safe extraction
    ↓
-SERM Source / MAME Source
+Explicit publication
    ↓
 Physical Scan
    ↓
 Dependency Resolution
    ↓
 Reconstruction
-   ↓
-Destination validation
-   ↓
-MAME destination
 ```
 
-A origem permanece somente leitura durante scan e reconstrução. O Download Manager prepara recursos em cache/source; a materialização continua sendo a única camada autorizada a publicar artefatos no destino.
+O Download Manager prepara recursos em cache/source. A publicação utiliza validação de destino e não deve sobrescrever arquivos diferentes silenciosamente.
 
 ## Resource Catalog
 
@@ -46,15 +44,15 @@ Cada recurso possui:
 - obrigatoriedade;
 - metadados do provider.
 
-A chave de deduplicação é `provider + platform + name + version`. O hash de conteúdo pode demonstrar que duas versões carregam o mesmo conteúdo e evitar aquisição redundante.
+A chave de deduplicação é `provider + platform + name + version`. O `LatestResourceResolver` deve ser consultado antes da aquisição quando o provider disponibilizar uma estratégia de descoberta de versão.
 
 ## Progetto-SNAPS
 
-O provider inicial é isolado em `ProgettoSnapsProvider`. Ele concentra URLs, versões e o mapeamento dos membros internos dos ZIPs.
+O provider `ProgettoSnapsProvider` isola as URLs, convenções de publicação e o mapeamento dos membros internos dos ZIPs. A V2 não deve espalhar regras específicas do site pela GUI ou pelo domínio.
 
-Recursos de referência analisados para esta etapa:
+Recursos atualmente integrados:
 
-| Recurso | Versão | Membros úteis | Destino |
+| Recurso | Versão de referência | Membros úteis | Destino |
 |---|---:|---|---|
 | CatVer | 0.289 | `catver.ini`; `catlist.ini`; `genre.ini`; complementos | SERM metadata / `folders` |
 | Series | 0.289 | `series.ini` | `folders` |
@@ -64,54 +62,47 @@ Recursos de referência analisados para esta etapa:
 | Command | 0.273 | `command.dat`; `command.ini` | `dats` / `folders` |
 | MAME Samples FullPack | 0.289 | 75 ZIPs | `samples` |
 
-As versões são independentes. O SERM não deve assumir que a versão de um recurso é igual à versão do MAME, porque alguns providers atualizam esses arquivos em cadências próprias.
+As versões são independentes. O SERM não deve assumir que a versão de um recurso é igual à versão do MAME.
 
-### Conteúdo efetivamente verificado nos pacotes de referência
+### Descoberta e atualização
 
-Os ZIPs fornecidos para esta etapa foram inspecionados diretamente. Eles contêm, entre outros arquivos de documentação, os seguintes membros:
+Quando o provider tiver uma fonte de listagem, probe ou link, o `LatestResourceResolver` pode descobrir a versão mais recente publicada antes do download. O pacote efetivamente adquirido é então identificado pelo nome lógico e pela versão resolvida.
+
+O provider de Samples utiliza a página dedicada de Samples do Progetto-SNAPS como origem de descoberta. O FullPack publicado nessa fonte é a unidade de aquisição; não se deve inferir sua versão a partir de um ZIP individual de sample.
+
+## Validação da versão instalada
+
+A GUI do projeto-SNAPS apresenta uma coluna **Versão detectada**. A versão exibida não depende exclusivamente do catálogo/cache do SERM: o arquivo instalado é a autoridade primária quando contém uma declaração de versão.
+
+A ordem de detecção é:
 
 ```text
-pS_CatVer_289.zip
-  catver.ini
-  UI_files/catlist.ini
-  UI_files/genre.ini
-  UI_files/genre_ows.ini
-  UI_files/mature.ini
-  UI_files/not_mature.ini
-
-pS_BestGames_280.zip
-  folders/bestgames.ini
-
-pS_Series_289.zip
-  folders/series.ini
-
-pS_Languages_289.zip
-  folders/languages.ini
-
-pS_gameinit_289.zip
-  dats/gameinit.dat
-  folders/gameinit.ini
-
-pS_Command_273.zip
-  dats/command.dat
-  folders/command.ini
+arquivo instalado
+   ↓
+ cabeçalho/conteúdo inicial
+   ↓
+nome do arquivo/ZIP
+   ↓
+cache do SERM
+   ↓
+—
 ```
 
-O provider não deve copiar `readme.txt`, diretórios vazios ou arquivos auxiliares não mapeados para o destino.
+O detector `detect_local_version()` limita a leitura de arquivos de texto ao início do arquivo. Ele reconhece, entre outros, versões explícitas como `MAME 0.289`, versões genéricas `0.289` e convenções publicadas nos nomes dos ZIPs, como `pS_category_289.zip`, `nplayers0278.zip` e `MAME_samples_289.zip`.
 
-### Semântica dos recursos
+Essa abordagem é especialmente importante para os `.ini` do projeto-SNAPS, que normalmente carregam a versão em comentários de cabeçalho. Para DATs, a declaração de versão no cabeçalho tem precedência sobre uma versão genérica encontrada posteriormente.
 
-- `CatList` e `Genre` enriquecem classificação; `CatVer` é uma classificação voltada principalmente a frontends e não substitui o catálogo nativo do MAME.
+### Samples
+
+O FullPack de Samples é extraído em vários ZIPs individuais dentro de `<MAME>/samples`. Como os arquivos individuais podem não carregar a versão do FullPack no próprio nome ou conteúdo, a GUI utiliza a proveniência do pacote no cache como fallback. Um sample individual não deve ser interpretado como se fosse, por si só, o manifesto de versão do FullPack.
+
+## Semântica dos recursos
+
+- `CatList` e `Genre` enriquecem classificação; `CatVer` é voltado principalmente a frontends e não substitui o catálogo nativo do MAME.
 - `Series` e `Languages` são dados de navegação/filtro.
-- `BestGames` é uma avaliação pessoal do autor e não deve ser tratada como verdade oficial ou como critério automático de reconstrução.
+- `BestGames` é curadoria pessoal e não deve ser tratada como verdade oficial nem como critério automático de reconstrução.
 - `GameInit` e `Command` são informações auxiliares de uso do MAME.
 - Samples são conteúdo físico e entram no grafo de dependências somente quando o catálogo MAME exigir sua presença.
-
-## Samples
-
-O Progetto-SNAPS informa que os samples adicionais são ZIPs com o mesmo nome do conjunto de ROMs e devem ser colocados na pasta `samples` do MAME. A página atualizada em agosto de 2026 lista o `MAME Samples FullPack 0.289` com 75 ZIPs e alerta que alguns conjuntos contêm arquivos falsos para fins de demonstração. Esses arquivos devem ser tratados como conteúdo não confiável até validação física.
-
-O provider usa o pacote FullPack como unidade de aquisição. A validação futura deve inspecionar os ZIPs internos contra as dependências do catálogo e impedir que conteúdo falso seja promovido para a origem física confiável.
 
 ## O que não deve ser duplicado
 
@@ -122,7 +113,7 @@ Portanto:
 - ROMs, BIOS, devices e CHDs continuam sujeitos ao catálogo e às identidades físicas MAME;
 - samples são dependências físicas separadas;
 - snapshots/artwork/cabinets são recursos de apresentação e não devem ser confundidos com conteúdo executável;
-- recursos externos somente enriquecem o catálogo quando sua informação não estiver adequadamente disponível na fonte primária.
+- recursos externos enriquecem o catálogo quando sua informação não estiver adequadamente disponível na fonte primária.
 
 ## Política de aquisição e destino
 
@@ -139,4 +130,4 @@ Não existe sobrescrita silenciosa e não existe exclusão automática de arquiv
 
 ## Segurança
 
-A extração deve rejeitar caminhos absolutos e `..`. Nenhum pacote externo pode sobrescrever um arquivo no destino final sem passar pela validação e política de materialização.
+A extração rejeita caminhos absolutos e `..`. Nenhum pacote externo pode sobrescrever um arquivo no destino final sem passar pela validação e política de publicação.
