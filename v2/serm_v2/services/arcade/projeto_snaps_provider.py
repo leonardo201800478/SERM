@@ -84,7 +84,7 @@ class ProgettoSnapsProvider:
                 name="messinfo",
                 version="0.289",
                 resource_type=ExternalResourceType.METADATA,
-                url=f"{base_url}/download/?file=pS_messinfo_289.zip&tipo=messinfo",
+                url=f"{self.base_url}/download/?file=pS_messinfo_289.zip&tipo=messinfo",
                 storage=ResourceStorage.MAME_SOURCE,
                 extraction=ExtractionMode.ARCHIVE,
                 required=False,
