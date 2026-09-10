@@ -19,6 +19,12 @@ class ProgettoSnapsProvider:
     support_url = f"{base_url}/support/"
     samples_url = f"{base_url}/samples/"
     mame_dat_url = f"{base_url}/dats/MAME/"
+
+    # NPlayers e uma referencia externa na pagina do progetto-SNAPS. O
+    # arquivo oficial e publicado diretamente pelo Arcade Belgium; o Planet
+    # Emulation permanece apenas como fallback porque pode bloquear clientes
+    # automatizados com HTTP 403.
+    nplayers_primary_url = "http://nplayers.arcadebelgium.be/files/nplayers0278.zip"
     nplayers_mirror_url = "https://www.planetemu.net/php/utilitaires/?action=download&id=181"
 
     # O site oficial identifica este como o pacote de suporte mais recente
@@ -48,11 +54,8 @@ class ProgettoSnapsProvider:
         "folders/series.ini": "mame_folders",
     }
 
-    # O espelho do Planet Emulation preserva o NPlayers.ini 0.278,
-    # publicado originalmente pelo mantenedor do projeto. Ele e mantido
-    # como recurso separado porque nao pertence ao SupportFiles Pack.
     NPLAYERS_VERSION = "0.278"
-    NPLAYERS_ARCHIVE = nplayers_mirror_url
+    NPLAYERS_ARCHIVE = nplayers_primary_url
 
     # Pacote category 0.289 publicado pelo site oficial.
     _CATEGORY_MEMBERS = (
@@ -128,15 +131,17 @@ class ProgettoSnapsProvider:
                 extraction=ExtractionMode.ARCHIVE,
                 required=False,
                 notes=(
-                    "NPlayers.ini 0.278. Espelho hospedado pelo Planet Emulation "
-                    "e creditado ao projeto NPlayers/Arcade Belgium. O arquivo "
-                    "permite classificar jogos por numero de jogadores e modo "
-                    "simultaneo/alternado. E instalado em MAME/folders/."
+                    "NPlayers.ini 0.278, publicado originalmente pelo projeto "
+                    "NPlayers/Arcade Belgium. O SERM tenta primeiro a fonte "
+                    "original e usa o Planet Emulation somente como fallback. "
+                    "O arquivo permite classificar jogos por numero de jogadores "
+                    "e modo simultaneo/alternado e e instalado em MAME/folders/."
                 ),
                 metadata={
                     "members": {"nplayers.ini": "mame_folders"},
-                    "source_page": "https://www.planetemu.net/utilitaires/mame",
+                    "source_page": self.support_url,
                     "original_source": "https://nplayers.arcadebelgium.be/",
+                    "fallback_urls": (self.nplayers_mirror_url,),
                     "destination": "folders",
                 },
             ),
