@@ -58,19 +58,19 @@ class ProgettoSnapsPage(QWidget):
     EXPECTED_SUPPORT = (
         ("dats/command.dat", "DAT", "Comandos"),
         ("dats/gameinit.dat", "DAT", "Inicializacao"),
-        ("dats/messinfo.dat", "DAT", "Sistemas nao-arcade 0.289"),
+        ("dats/messinfo.dat", "DAT", "Sistemas nao-arcade"),
         ("folders/bestgames.ini", "INI", "Melhores jogos"),
         ("folders/catlist.ini", "INI", "Categorias"),
         ("folders/freeplay.ini", "INI", "Free Play"),
         ("folders/genre.ini", "INI", "Generos"),
         ("folders/languages.ini", "INI", "Idiomas"),
         ("folders/monochrome.ini", "INI", "Monocromatico"),
-        ("folders/nplayers.ini", "INI", "Numero de jogadores — espelho Planet Emulation 0.278"),
+        ("folders/nplayers.ini", "INI", "Numero de jogadores"),
         ("folders/resolution.ini", "INI", "Resolucao"),
         ("folders/screenless.ini", "INI", "Sem tela"),
         ("folders/series.ini", "INI", "Series"),
-        ("folders/category.ini", "INI", "Categorias oficiais 0.289"),
-        ("folders/version.ini", "INI", "Versoes oficiais 0.289"),
+        ("folders/category.ini", "INI", "Categorias oficiais"),
+        ("folders/version.ini", "INI", "Versoes oficiais"),
     )
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -111,19 +111,19 @@ class ProgettoSnapsPage(QWidget):
         actions = QHBoxLayout()
         self.update_button = QPushButton("Baixar / Atualizar suporte")
         self.update_button.clicked.connect(self._sync_support)
-        self.nplayers_button = QPushButton("Atualizar NPlayers 0.278")
+        self.nplayers_button = QPushButton("Atualizar NPlayers")
         self.nplayers_button.clicked.connect(self._sync_nplayers)
-        self.category_button = QPushButton("Atualizar Category 0.289")
+        self.category_button = QPushButton("Atualizar Category")
         self.category_button.clicked.connect(lambda: self._sync_folder_pack("category"))
-        self.version_button = QPushButton("Atualizar Version 0.289")
+        self.version_button = QPushButton("Atualizar Version")
         self.version_button.clicked.connect(lambda: self._sync_folder_pack("version"))
-        self.messinfo_button = QPushButton("Atualizar MESSINFO 0.289")
+        self.messinfo_button = QPushButton("Atualizar MESSINFO")
         self.messinfo_button.clicked.connect(self._sync_messinfo)
         self.samples_button = QPushButton("Baixar Samples FullPack")
         self.samples_button.clicked.connect(self._sync_samples)
         open_folder = QPushButton("Abrir pasta MAME")
         open_folder.clicked.connect(self._open_root)
-        open_dat = QPushButton("MAME DAT 0.289")
+        open_dat = QPushButton("MAME DAT")
         open_dat.clicked.connect(lambda: webbrowser.open(MAME_DAT_INDEX))
         open_site = QPushButton("Site oficial")
         open_site.clicked.connect(lambda: webbrowser.open(SNAPS_HOME))
@@ -158,7 +158,7 @@ class ProgettoSnapsPage(QWidget):
         sample_row = len(self.EXPECTED_SUPPORT)
         self.table.setItem(sample_row, 0, QTableWidgetItem("samples/*.zip"))
         self.table.setItem(sample_row, 1, QTableWidgetItem("SAMPLES"))
-        self.table.setItem(sample_row, 2, QTableWidgetItem("MAME Samples FullPack 0.289"))
+        self.table.setItem(sample_row, 2, QTableWidgetItem("MAME Samples FullPack"))
         self.table.setItem(sample_row, 3, QTableWidgetItem("—"))
         self.table.resizeColumnsToContents()
         self.table.horizontalHeader().setStretchLastSection(True)
@@ -271,7 +271,7 @@ class ProgettoSnapsPage(QWidget):
             self._show_mame_warning()
             return
         resource = self._resource("nplayers")
-        self._start_busy("Baixando e instalando NPlayers 0.278…")
+        self._start_busy("Baixando e instalando NPlayers…")
         worker = _SyncWorker(
             lambda: self._manager.install_members(
                 resource,
@@ -305,7 +305,7 @@ class ProgettoSnapsPage(QWidget):
             self._show_mame_warning()
             return
         resource = self._resource("messinfo")
-        self._start_busy("Baixando e instalando MESSINFO 0.289…")
+        self._start_busy("Baixando e instalando MESSINFO…")
         worker = _SyncWorker(
             lambda: self._manager.install_tree(
                 self._manager.acquire(resource),
@@ -322,7 +322,7 @@ class ProgettoSnapsPage(QWidget):
             self._show_mame_warning()
             return
         resource = self._resource("samples-fullpack")
-        self._start_busy("Baixando e instalando Samples FullPack 0.289…")
+        self._start_busy("Baixando e instalando Samples FullPack…")
         worker = _SyncWorker(
             lambda: self._manager.install_tree(
                 self._manager.acquire(resource),
