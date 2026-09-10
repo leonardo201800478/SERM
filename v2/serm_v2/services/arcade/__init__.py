@@ -9,7 +9,9 @@ from .chd_reconstruction import (
     ChdReconstructionResult,
     PhysicalChd,
 )
+from .download_manager import DestinationAction, DownloadManager
 from .materializer import ArcadeSetMaterializer, MaterializationError
+from .projeto_snaps_provider import ProgettoSnapsProvider
 from .reconstruction_manifest import (
     ArcadeReconstructionManifestBuilder,
     MaterializationEntry,
@@ -29,6 +31,7 @@ from .rom_reconstruction_plan import (
     RomReconstructionPlanResult,
     RomSourceKind,
 )
+from .resource_catalog import ExternalResourceCatalog
 from .set_builder import (
     ArcadeSetBuilder,
     SetBuildDecision,
@@ -48,6 +51,10 @@ __all__ = [
     "ChdReconstructionPlan",
     "ChdReconstructionResult",
     "PhysicalChd",
+    "DestinationAction",
+    "DownloadManager",
+    "ProgettoSnapsProvider",
+    "ExternalResourceCatalog",
     "ArcadeSetMaterializer",
     "MaterializationError",
     "ArcadeReconstructionManifestBuilder",
