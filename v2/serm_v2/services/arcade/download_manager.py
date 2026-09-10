@@ -89,34 +89,24 @@ class DownloadManager:
     ) -> tuple[tuple[str, Path, DestinationAction], ...]:
         """Install mapped archive members into exact MAME subdirectories.
 
-        Provider metadata maps each archive member to ``mame_dats`` or
-        ``mame_folders`` (or another logical destination). Unknown mappings are
-        rejected. Existing identical files are reused; differing files block
-        publication unless the caller explicitly permits replacement.
+        All destination conflicts are preflighted before the first write. This
+        prevents a multi-file package from being partially published when a
+        later member is blocked.
         """
         members = resource.metadata.get("members")
         if not isinstance(members, dict):
             raise ValueError(f"recurso sem mapa de membros: {resource.name}")
 
-        result: list[tuple[str, Path, DestinationAction]] = []
+        plan: list[tuple[Path, Path, str, DestinationAction]] = []
+        extraction_root = extracted.resolve()
         for archive_member, logical_destination in members.items():
             source = (extracted / PurePosixPath(str(archive_member))).resolve()
-            extraction_root = extracted.resolve()
             if os.path.commonpath((str(extraction_root), str(source))) != str(extraction_root):
                 raise ValueError(f"membro inseguro: {archive_member}")
             if not source.is_file():
                 raise FileNotFoundError(f"membro esperado nao encontrado: {archive_member}")
-            if logical_destination == "mame_dats":
-                relative_dir = Path("dats")
-            elif logical_destination == "mame_folders":
-                relative_dir = Path("folders")
-            elif logical_destination == "mame_samples":
-                relative_dir = Path("samples")
-            elif logical_destination == "serm_metadata":
-                relative_dir = Path("serm_metadata")
-            else:
-                raise ValueError(f"destino externo desconhecido: {logical_destination}")
 
+            relative_dir = self._destination_dir(logical_destination)
             destination = Path(destination_root) / relative_dir / source.name
             destination.parent.mkdir(parents=True, exist_ok=True)
             if not destination.exists():
@@ -131,16 +121,28 @@ class DownloadManager:
                 raise FileExistsError(
                     f"conflito no destino: {destination}; valide ou permita substituicao explicitamente"
                 )
-            if action is DestinationAction.REPLACE:
-                temporary = destination.with_name(f".{destination.name}.serm-tmp")
-                shutil.copy2(source, temporary)
-                os.replace(temporary, destination)
-            elif action is DestinationAction.CREATE:
-                temporary = destination.with_name(f".{destination.name}.serm-tmp")
-                shutil.copy2(source, temporary)
-                os.replace(temporary, destination)
-            result.append((archive_member, destination, action))
-        return tuple(result)
+            plan.append((source, destination, str(archive_member), action))
+
+        for source, destination, _archive_member, action in plan:
+            if action is DestinationAction.REUSE:
+                continue
+            temporary = destination.with_name(f".{destination.name}.serm-tmp")
+            shutil.copy2(source, temporary)
+            os.replace(temporary, destination)
+
+        return tuple((member, destination, action) for _source, destination, member, action in plan)
+
+    @staticmethod
+    def _destination_dir(logical_destination: object) -> Path:
+        if logical_destination == "mame_dats":
+            return Path("dats")
+        if logical_destination == "mame_folders":
+            return Path("folders")
+        if logical_destination == "mame_samples":
+            return Path("samples")
+        if logical_destination == "serm_metadata":
+            return Path("serm_metadata")
+        raise ValueError(f"destino externo desconhecido: {logical_destination}")
 
     @staticmethod
     def sha256(path: Path) -> str:
