@@ -65,6 +65,7 @@ class ProgettoSnapsPage(QWidget):
         ("folders/genre.ini", "INI", "Generos"),
         ("folders/languages.ini", "INI", "Idiomas"),
         ("folders/monochrome.ini", "INI", "Monocromatico"),
+        ("folders/nplayers.ini", "INI", "Numero de jogadores — espelho Planet Emulation 0.278"),
         ("folders/resolution.ini", "INI", "Resolucao"),
         ("folders/screenless.ini", "INI", "Sem tela"),
         ("folders/series.ini", "INI", "Series"),
@@ -110,6 +111,8 @@ class ProgettoSnapsPage(QWidget):
         actions = QHBoxLayout()
         self.update_button = QPushButton("Baixar / Atualizar suporte")
         self.update_button.clicked.connect(self._sync_support)
+        self.nplayers_button = QPushButton("Atualizar NPlayers 0.278")
+        self.nplayers_button.clicked.connect(self._sync_nplayers)
         self.category_button = QPushButton("Atualizar Category 0.289")
         self.category_button.clicked.connect(lambda: self._sync_folder_pack("category"))
         self.version_button = QPushButton("Atualizar Version 0.289")
@@ -126,6 +129,7 @@ class ProgettoSnapsPage(QWidget):
         open_site.clicked.connect(lambda: webbrowser.open(SNAPS_HOME))
         for button in (
             self.update_button,
+            self.nplayers_button,
             self.category_button,
             self.version_button,
             self.messinfo_button,
@@ -261,6 +265,23 @@ class ProgettoSnapsPage(QWidget):
         )
         self._connect_worker(worker)
 
+    def _sync_nplayers(self) -> None:
+        root = self._normalized_root()
+        if root is None:
+            self._show_mame_warning()
+            return
+        resource = self._resource("nplayers")
+        self._start_busy("Baixando e instalando NPlayers 0.278…")
+        worker = _SyncWorker(
+            lambda: self._manager.install_members(
+                resource,
+                self._manager.acquire(resource),
+                root,
+                replace_existing=True,
+            )
+        )
+        self._connect_worker(worker)
+
     def _sync_folder_pack(self, name: str) -> None:
         root = self._normalized_root()
         if root is None:
@@ -327,6 +348,7 @@ class ProgettoSnapsPage(QWidget):
     def _set_download_buttons_enabled(self, enabled: bool) -> None:
         for button in (
             self.update_button,
+            self.nplayers_button,
             self.category_button,
             self.version_button,
             self.messinfo_button,
