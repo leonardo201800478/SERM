@@ -7,18 +7,8 @@ from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QSettings, QSize, Qt
 from PySide6.QtWidgets import (
-    QApplication,
-    QDockWidget,
-    QFrame,
-    QHBoxLayout,
-    QLabel,
-    QListWidget,
-    QListWidgetItem,
-    QMainWindow,
-    QStackedWidget,
-    QStyle,
-    QVBoxLayout,
-    QWidget,
+    QApplication, QDockWidget, QFrame, QHBoxLayout, QLabel, QListWidget,
+    QListWidgetItem, QMainWindow, QStackedWidget, QStyle, QVBoxLayout, QWidget,
 )
 
 from ..config.settings import Settings
@@ -225,7 +215,7 @@ class MainWindow(QMainWindow):
         """Adiciona o painel de logs à janela principal."""
         dock = QDockWidget("Logs", self)
         dock.setObjectName("logDock")
-        dock.setWidget(self.log_viewer)
+        dock.setWidget(self.log_viewer.create_console(dock))
         dock.setAllowedAreas(Qt.DockWidgetArea.BottomDockWidgetArea)
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, dock)
 
