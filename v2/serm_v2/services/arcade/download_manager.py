@@ -8,17 +8,26 @@ import shutil
 import tempfile
 import urllib.request
 import zipfile
-from pathlib import Path
+from enum import StrEnum
+from pathlib import Path, PurePosixPath
 
 from ...models.external_resource import ExternalResource, ExtractionMode
 
 
-class DownloadManager:
-    """Adquire recursos em cache sem escrever diretamente no destino MAME.
+class DestinationAction(StrEnum):
+    """Decision for an existing destination file."""
 
-    O manager valida tamanho/hash quando disponiveis, extrai ZIPs com protecao
-    contra path traversal e devolve somente caminhos dentro do cache/source.
-    A publicacao no destino continua sendo responsabilidade da materializacao.
+    CREATE = "create"
+    REUSE = "reuse"
+    REPLACE = "replace"
+    BLOCK = "block"
+
+
+class DownloadManager:
+    """Acquires resources without blindly writing to the MAME installation.
+
+    Acquisition lives in cache/source. Publication is an explicit second step
+    so the destination can be inspected before a file is replaced.
     """
 
     def __init__(self, cache_dir: Path, source_dir: Path | None = None) -> None:
@@ -26,14 +35,14 @@ class DownloadManager:
         self.source_dir = Path(source_dir) if source_dir is not None else None
 
     def archive_path(self, resource: ExternalResource) -> Path:
-        """Retorna o caminho canonico do arquivo adquirido no cache."""
+        """Return the canonical cache path for an acquired archive/file."""
         suffix = ".zip" if resource.extraction is ExtractionMode.ARCHIVE else ""
         return self.cache_dir / resource.provider / resource.platform / resource.name / resource.version / (
             resource.name + suffix
         )
 
     def download(self, resource: ExternalResource) -> Path:
-        """Baixa atomicamente um recurso e retorna seu caminho de cache."""
+        """Download atomically and reuse an already validated cache entry."""
         target = self.archive_path(resource)
         target.parent.mkdir(parents=True, exist_ok=True)
         if target.is_file() and self._matches(target, resource):
@@ -51,7 +60,7 @@ class DownloadManager:
             temporary.unlink(missing_ok=True)
 
     def extract(self, resource: ExternalResource, archive: Path) -> Path:
-        """Extrai um arquivo para cache de origem com path traversal bloqueado."""
+        """Extract to cache with path-traversal protection."""
         if resource.extraction is not ExtractionMode.ARCHIVE:
             return archive
         destination = archive.parent / "extracted"
@@ -66,13 +75,76 @@ class DownloadManager:
         return destination
 
     def acquire(self, resource: ExternalResource) -> Path:
-        """Executa download e extracao, mantendo tudo fora do destino MAME."""
+        """Download and extract, keeping the result outside the MAME destination."""
         archive = self.download(resource)
         return self.extract(resource, archive)
 
+    def install_members(
+        self,
+        resource: ExternalResource,
+        extracted: Path,
+        destination_root: Path,
+        *,
+        replace_existing: bool = False,
+    ) -> tuple[tuple[str, Path, DestinationAction], ...]:
+        """Install mapped archive members into exact MAME subdirectories.
+
+        Provider metadata maps each archive member to ``mame_dats`` or
+        ``mame_folders`` (or another logical destination). Unknown mappings are
+        rejected. Existing identical files are reused; differing files block
+        publication unless the caller explicitly permits replacement.
+        """
+        members = resource.metadata.get("members")
+        if not isinstance(members, dict):
+            raise ValueError(f"recurso sem mapa de membros: {resource.name}")
+
+        result: list[tuple[str, Path, DestinationAction]] = []
+        for archive_member, logical_destination in members.items():
+            source = (extracted / PurePosixPath(str(archive_member))).resolve()
+            extraction_root = extracted.resolve()
+            if os.path.commonpath((str(extraction_root), str(source))) != str(extraction_root):
+                raise ValueError(f"membro inseguro: {archive_member}")
+            if not source.is_file():
+                raise FileNotFoundError(f"membro esperado nao encontrado: {archive_member}")
+            if logical_destination == "mame_dats":
+                relative_dir = Path("dats")
+            elif logical_destination == "mame_folders":
+                relative_dir = Path("folders")
+            elif logical_destination == "mame_samples":
+                relative_dir = Path("samples")
+            elif logical_destination == "serm_metadata":
+                relative_dir = Path("serm_metadata")
+            else:
+                raise ValueError(f"destino externo desconhecido: {logical_destination}")
+
+            destination = Path(destination_root) / relative_dir / source.name
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            if not destination.exists():
+                action = DestinationAction.CREATE
+            elif self.sha256(destination) == self.sha256(source):
+                action = DestinationAction.REUSE
+            elif replace_existing:
+                action = DestinationAction.REPLACE
+            else:
+                action = DestinationAction.BLOCK
+            if action is DestinationAction.BLOCK:
+                raise FileExistsError(
+                    f"conflito no destino: {destination}; valide ou permita substituicao explicitamente"
+                )
+            if action is DestinationAction.REPLACE:
+                temporary = destination.with_name(f".{destination.name}.serm-tmp")
+                shutil.copy2(source, temporary)
+                os.replace(temporary, destination)
+            elif action is DestinationAction.CREATE:
+                temporary = destination.with_name(f".{destination.name}.serm-tmp")
+                shutil.copy2(source, temporary)
+                os.replace(temporary, destination)
+            result.append((archive_member, destination, action))
+        return tuple(result)
+
     @staticmethod
     def sha256(path: Path) -> str:
-        """Calcula SHA-256 em streaming."""
+        """Calculate SHA-256 in streaming mode."""
         digest = hashlib.sha256()
         with path.open("rb") as stream:
             for block in iter(lambda: stream.read(1024 * 1024), b""):
@@ -93,4 +165,4 @@ class DownloadManager:
             raise ValueError(f"SHA-256 inesperado para {resource.name}")
 
 
-__all__ = ["DownloadManager"]
+__all__ = ["DestinationAction", "DownloadManager"]
