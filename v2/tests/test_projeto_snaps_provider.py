@@ -44,12 +44,26 @@ def test_nplayers_uses_official_arcade_belgium_source_with_mirror_fallback() -> 
 
     assert resource.version == "0.278"
     assert resource.url == provider.NPLAYERS_ARCHIVE
-    assert resource.url == "http://nplayers.arcadebelgium.be/files/nplayers0278.zip"
+    assert resource.url == "https://nplayers.arcadebelgium.be/files/nplayers0278.zip"
     assert resource.metadata["members"] == {"nplayers.ini": "mame_folders"}
     assert resource.metadata["original_source"] == "https://nplayers.arcadebelgium.be/"
     assert resource.metadata["fallback_urls"] == (
         "https://www.planetemu.net/php/utilitaires/?action=download&id=181",
     )
+    assert resource.metadata["latest_discovery"]["url_template"].startswith(
+        "https://nplayers.arcadebelgium.be/files/"
+    )
+
+
+def test_samples_fullpack_uses_official_samples_page_as_source() -> None:
+    provider = ProgettoSnapsProvider()
+    resource = next(item for item in provider.resources() if item.name == "samples-fullpack")
+
+    assert resource.version == "0.289"
+    assert resource.url.endswith("/samples/packs/MAME_samples_289.zip")
+    assert resource.metadata["source_page"] == provider.samples_url
+    assert resource.metadata["listing_url"] == provider.samples_url
+    assert resource.metadata["latest_discovery"]["listing_url"] == provider.mame_dat_url
 
 
 def test_category_and_version_manifests_are_complete() -> None:
