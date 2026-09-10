@@ -58,7 +58,6 @@ class ProgettoSnapsPage(QWidget):
     EXPECTED_SUPPORT = (
         ("dats/command.dat", "DAT", "Comandos"),
         ("dats/gameinit.dat", "DAT", "Inicializacao"),
-        ("dats/unoffsysinfo.dat", "DAT", "Informacoes nao oficiais"),
         ("dats/messinfo.dat", "DAT", "Sistemas nao-arcade 0.289"),
         ("folders/bestgames.ini", "INI", "Melhores jogos"),
         ("folders/catlist.ini", "INI", "Categorias"),
@@ -66,7 +65,6 @@ class ProgettoSnapsPage(QWidget):
         ("folders/genre.ini", "INI", "Generos"),
         ("folders/languages.ini", "INI", "Idiomas"),
         ("folders/monochrome.ini", "INI", "Monocromatico"),
-        ("folders/nplayers.ini", "INI", "Numero de jogadores"),
         ("folders/resolution.ini", "INI", "Resolucao"),
         ("folders/screenless.ini", "INI", "Sem tela"),
         ("folders/series.ini", "INI", "Series"),
