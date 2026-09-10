@@ -28,15 +28,14 @@ class ProgettoSnapsProvider:
         "pS_SupportFiles_288.zip&tipo=support_pack"
     )
 
-    # O SupportFiles Pack oficial contem sete DATs e dez INIs. O messinfo.dat
-    # e mantido fora deste conjunto porque o SERM instala explicitamente a
-    # versao 0.289 do pacote MESSINFO.
+    # O SupportFiles Pack nao e um espelho de todos os links exibidos na
+    # pagina de suporte. History.dat, mameinfo.dat e hiscore.dat sao links
+    # externos mantidos por terceiros e, portanto, nao pertencem ao ZIP
+    # pS_SupportFiles_288.zip. O SERM deve instalar somente os membros que
+    # realmente fazem parte do pacote oficial que esta baixando.
     _SUPPORT_MEMBERS = {
         "dats/command.dat": "mame_dats",
         "dats/gameinit.dat": "mame_dats",
-        "dats/history.dat": "mame_dats",
-        "dats/mameinfo.dat": "mame_dats",
-        "dats/hiscore.dat": "mame_dats",
         "dats/unoffsysinfo.dat": "mame_dats",
         "folders/bestgames.ini": "mame_folders",
         "folders/catlist.ini": "mame_folders",
@@ -100,9 +99,10 @@ class ProgettoSnapsProvider:
                 extraction=ExtractionMode.ARCHIVE,
                 required=False,
                 notes=(
-                    "Pacote oficial de suporte MAME. O SERM publica os DATs e "
-                    "INIs oficiais do SupportFiles Pack, mantendo messinfo.dat "
-                    "em seu pacote 0.289 dedicado."
+                    "Pacote oficial de suporte MAME. O SERM publica somente "
+                    "os membros realmente presentes no SupportFiles Pack; "
+                    "history.dat, mameinfo.dat e hiscore.dat sao referencias "
+                    "externas na pagina oficial e nao fazem parte deste ZIP."
                 ),
                 metadata={
                     "members": self._SUPPORT_MEMBERS,
