@@ -19,6 +19,7 @@ class ProgettoSnapsProvider:
     support_url = f"{base_url}/support/"
     samples_url = f"{base_url}/samples/"
     mame_dat_url = f"{base_url}/dats/MAME/"
+    nplayers_mirror_url = "https://www.planetemu.net/php/utilitaires/?action=download&id=181"
 
     # O site oficial identifica este como o pacote de suporte mais recente
     # (0.288), mesmo enquanto category/version ja possuem pacotes 0.289.
@@ -46,6 +47,12 @@ class ProgettoSnapsProvider:
         "folders/screenless.ini": "mame_folders",
         "folders/series.ini": "mame_folders",
     }
+
+    # O espelho do Planet Emulation preserva o NPlayers.ini 0.278,
+    # publicado originalmente pelo mantenedor do projeto. Ele e mantido
+    # como recurso separado porque nao pertence ao SupportFiles Pack.
+    NPLAYERS_VERSION = "0.278"
+    NPLAYERS_ARCHIVE = nplayers_mirror_url
 
     # Pacote category 0.289 publicado pelo site oficial.
     _CATEGORY_MEMBERS = (
@@ -107,6 +114,30 @@ class ProgettoSnapsProvider:
                     "members": self._SUPPORT_MEMBERS,
                     "support_root": self.support_url,
                     "destination": "MAME",
+                },
+            ),
+            ExternalResource(
+                resource_id="mame-nplayers",
+                provider=self.provider,
+                platform="mame",
+                name="nplayers",
+                version=self.NPLAYERS_VERSION,
+                resource_type=ExternalResourceType.METADATA,
+                url=self.NPLAYERS_ARCHIVE,
+                storage=ResourceStorage.MAME_SOURCE,
+                extraction=ExtractionMode.ARCHIVE,
+                required=False,
+                notes=(
+                    "NPlayers.ini 0.278. Espelho hospedado pelo Planet Emulation "
+                    "e creditado ao projeto NPlayers/Arcade Belgium. O arquivo "
+                    "permite classificar jogos por numero de jogadores e modo "
+                    "simultaneo/alternado. E instalado em MAME/folders/."
+                ),
+                metadata={
+                    "members": {"nplayers.ini": "mame_folders"},
+                    "source_page": "https://www.planetemu.net/utilitaires/mame",
+                    "original_source": "https://nplayers.arcadebelgium.be/",
+                    "destination": "folders",
                 },
             ),
             self._special_package(
