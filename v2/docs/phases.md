@@ -97,6 +97,34 @@ Entregáveis:
 
 **Critério de saída:** qualquer dependência necessária tem origem explícita, estado e motivo de resolução.
 
+### Meta 2.1 — Aquisição controlada de recursos externos
+
+Esta meta é **subordinada às metas 1 e 2** e não altera a ordem de autoridade do catálogo MAME. O objetivo é eliminar a aquisição manual de recursos auxiliares sem permitir que um provider externo contorne scan, dependências ou reconstrução.
+
+Implementação iniciada:
+
+- `ExternalResource` para identidade/versionamento de pacotes externos;
+- `ExternalResourceCatalog` para deduplicação por provider/plataforma/nome/versão;
+- `ProgettoSnapsProvider` isolando URLs e layout do site;
+- `DownloadManager` com cache, download atômico e extração protegida contra path traversal;
+- mapeamento dos pacotes selecionados `CatVer`, `BestGames`, `Series`, `Languages`, `GameInit` e `Command`;
+- mapeamento do `MAME Samples FullPack 0.289`;
+- separação entre `dats/`, `folders/`, `samples/` e metadados do SERM;
+- instalação conservadora: `CREATE`, `REUSE`, `REPLACE` explícito ou `BLOCK` em conflito;
+- testes automatizados do catálogo, extração e conflitos de destino.
+
+Ainda pendente nesta meta:
+
+- descoberta automática da versão mais recente publicada pelo provider;
+- validação do conteúdo real do FullPack e de seus membros;
+- persistência do catálogo adquirido;
+- integração com os diretórios configurados pelo usuário;
+- ligação entre aquisição e grafo de dependências MAME;
+- atualização incremental baseada em conteúdo, e não apenas em versão;
+- integração com a GUI do Download Manager.
+
+**Critério de saída:** o SERM consegue adquirir um recurso externo, validá-lo, extrair somente o conteúdo mapeado e publicar no destino MAME sem sobrescrever silenciosamente um arquivo existente.
+
 ### Meta 3 — Fechar materialização física
 
 **Objetivo:** transformar o manifesto em arquivos reais sem corromper a origem.
@@ -176,11 +204,11 @@ Entregáveis:
 
 ## Fora da prioridade imediata
 
-- novos adapters de sistemas externos;
+- novos adapters de sistemas externos, além do provider Progetto-SNAPS já iniciado como infraestrutura controlada;
 - refinamentos cosméticos da GUI;
 - aceleração por GPU sem gargalo comprovado;
 - otimizações prematuras do scanner;
-- funcionalidades periféricas de aquisição.
+- funcionalidades periféricas de aquisição além da Meta 2.1.
 
 ## Critério de conclusão da V2
 
