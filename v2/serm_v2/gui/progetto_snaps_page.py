@@ -165,7 +165,7 @@ class ProgettoSnapsPage(QWidget):
         root.addWidget(self.status_label)
         self.table = QTableWidget(len(self.EXPECTED_SUPPORT) + 1, 5)
         self.table.setHorizontalHeaderLabels(
-            ("Arquivo / recurso", "Tipo", "Descrição", "Versão baixada", "Status local")
+            ("Arquivo / recurso", "Tipo", "Descrição", "Versão detectada", "Status local")
         )
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
@@ -270,8 +270,10 @@ class ProgettoSnapsPage(QWidget):
         for version_dir in resource_dir.iterdir():
             if not version_dir.is_dir():
                 continue
-            archive = version_dir / f"{resource_name}.zip"
-            if not archive.is_file():
+            # O cache normalmente usa ``<resource>.zip``. Também aceitamos
+            # qualquer arquivo regular na pasta de versão para manter a
+            # detecção compatível com archives publicados com outro nome.
+            if not any(path.is_file() for path in version_dir.iterdir()):
                 continue
             key = tuple(int(part) for part in re.findall(r"\d+", version_dir.name))
             candidates.append((key or (0,), version_dir.name))
@@ -403,19 +405,14 @@ class ProgettoSnapsPage(QWidget):
         )
         self._connect_worker(worker)
 
-    def _show_mame_warning(self) -> None:
-        QMessageBox.warning(
-            self,
-            MAME_NOT_CONFIGURED,
-            "Configure primeiro o executável do MAME em Diretórios → MAME.",
-        )
-
     def _connect_worker(self, worker: _SyncWorker) -> None:
         worker.signals.finished.connect(self._sync_finished)
         worker.signals.error.connect(self._sync_error)
         self._pool.start(worker)
 
-    def _set_download_buttons_enabled(self, enabled: bool) -> None:
+    def _start_busy(self, message: str) -> None:
+        self.status_label.setText(message)
+        self.progress.show()
         for button in (
             self.update_button,
             self.nplayers_button,
@@ -424,27 +421,35 @@ class ProgettoSnapsPage(QWidget):
             self.messinfo_button,
             self.samples_button,
         ):
-            button.setEnabled(enabled)
+            button.setEnabled(False)
 
-    def _start_busy(self, message: str) -> None:
-        self.status_label.setText(message)
-        self.progress.show()
-        self._set_download_buttons_enabled(False)
-
-    def _sync_finished(self, result: object) -> None:
+    def _finish_busy(self) -> None:
         self.progress.hide()
-        self._set_download_buttons_enabled(True)
-        count = len(result) if isinstance(result, tuple) else 0
-        self.status_label.setText(
-            f"Sincronização concluída: {count} arquivo(s) processado(s)."
-        )
+        for button in (
+            self.update_button,
+            self.nplayers_button,
+            self.category_button,
+            self.version_button,
+            self.messinfo_button,
+            self.samples_button,
+        ):
+            button.setEnabled(True)
+
+    def _sync_finished(self, _result: object) -> None:
+        self._finish_busy()
         self._scan_local()
 
     def _sync_error(self, message: str) -> None:
-        self.progress.hide()
-        self._set_download_buttons_enabled(True)
-        self.status_label.setText("Falha na sincronização")
-        QMessageBox.critical(self, "progetto-SNAPS", message)
+        self._finish_busy()
+        QMessageBox.critical(self, "Projeto-SNAPS", message)
+        self._scan_local()
+
+    def _show_mame_warning(self) -> None:
+        QMessageBox.warning(
+            self,
+            "MAME não configurado",
+            "Configure primeiro o executável MAME em Diretórios → MAME.",
+        )
 
     def _open_root(self) -> None:
         root = self._normalized_root()
