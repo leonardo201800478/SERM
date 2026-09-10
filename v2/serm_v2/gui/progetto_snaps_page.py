@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import webbrowser
 from collections.abc import Callable
 from pathlib import Path
@@ -55,6 +56,7 @@ class ProgettoSnapsPage(QWidget):
     """Gerencia MAME/dats, MAME/folders e MAME/samples."""
 
     PATHS_FILE = data_root() / "emulator_paths.json"
+    CACHE_DIR = Path.home() / ".serm" / "cache"
     EXPECTED_SUPPORT = (
         ("dats/command.dat", "DAT", "Comandos"),
         ("dats/gameinit.dat", "DAT", "Inicializacao"),
@@ -72,12 +74,29 @@ class ProgettoSnapsPage(QWidget):
         ("folders/category.ini", "INI", "Categorias oficiais"),
         ("folders/version.ini", "INI", "Versoes oficiais"),
     )
+    RESOURCE_BY_PATH = {
+        "dats/command.dat": "support-files",
+        "dats/gameinit.dat": "support-files",
+        "dats/messinfo.dat": "messinfo",
+        "folders/bestgames.ini": "support-files",
+        "folders/catlist.ini": "support-files",
+        "folders/freeplay.ini": "support-files",
+        "folders/genre.ini": "support-files",
+        "folders/languages.ini": "support-files",
+        "folders/monochrome.ini": "support-files",
+        "folders/nplayers.ini": "nplayers",
+        "folders/resolution.ini": "support-files",
+        "folders/screenless.ini": "support-files",
+        "folders/series.ini": "support-files",
+        "folders/category.ini": "category",
+        "folders/version.ini": "version",
+    }
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._pool = QThreadPool.globalInstance()
         self._provider = ProgettoSnapsProvider()
-        self._manager = DownloadManager(Path.home() / ".serm" / "cache")
+        self._manager = DownloadManager(self.CACHE_DIR)
         self._build_ui()
         self._scan_local()
 
@@ -143,9 +162,9 @@ class ProgettoSnapsPage(QWidget):
 
         self.status_label = QLabel("Status: não verificado")
         root.addWidget(self.status_label)
-        self.table = QTableWidget(len(self.EXPECTED_SUPPORT) + 1, 4)
+        self.table = QTableWidget(len(self.EXPECTED_SUPPORT) + 1, 5)
         self.table.setHorizontalHeaderLabels(
-            ("Arquivo / recurso", "Tipo", "Descrição", "Status local")
+            ("Arquivo / recurso", "Tipo", "Descrição", "Versão baixada", "Status local")
         )
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
@@ -154,12 +173,14 @@ class ProgettoSnapsPage(QWidget):
             self.table.setItem(row, 1, QTableWidgetItem(kind))
             self.table.setItem(row, 2, QTableWidgetItem(description))
             self.table.setItem(row, 3, QTableWidgetItem("—"))
+            self.table.setItem(row, 4, QTableWidgetItem("—"))
 
         sample_row = len(self.EXPECTED_SUPPORT)
         self.table.setItem(sample_row, 0, QTableWidgetItem("samples/*.zip"))
         self.table.setItem(sample_row, 1, QTableWidgetItem("SAMPLES"))
         self.table.setItem(sample_row, 2, QTableWidgetItem("MAME Samples FullPack"))
         self.table.setItem(sample_row, 3, QTableWidgetItem("—"))
+        self.table.setItem(sample_row, 4, QTableWidgetItem("—"))
         self.table.resizeColumnsToContents()
         self.table.horizontalHeader().setStretchLastSection(True)
         root.addWidget(self.table, 1)
@@ -206,19 +227,43 @@ class ProgettoSnapsPage(QWidget):
             "Status: nenhum executável MAME válido está configurado"
         )
         for row in range(self.table.rowCount()):
-            item = self.table.item(row, 3)
-            if item is not None:
-                item.setText("—")
+            for column in (3, 4):
+                item = self.table.item(row, column)
+                if item is not None:
+                    item.setText("—")
 
     def _scan_support_files(self, root: Path) -> int:
         present = 0
         for row, (relative, _kind, _description) in enumerate(self.EXPECTED_SUPPORT):
             exists = (root / relative).is_file()
             present += int(exists)
-            item = self.table.item(row, 3)
-            if item is not None:
-                item.setText("Instalado" if exists else "Ausente")
+            version_item = self.table.item(row, 3)
+            status_item = self.table.item(row, 4)
+            if version_item is not None:
+                version_item.setText(
+                    self._downloaded_version(self.RESOURCE_BY_PATH[relative]) if exists else "—"
+                )
+            if status_item is not None:
+                status_item.setText("Instalado" if exists else "Ausente")
         return present
+
+    def _downloaded_version(self, resource_name: str) -> str:
+        """Retorna a versão do pacote efetivamente presente no cache do SERM."""
+        resource_dir = self.CACHE_DIR / "progetto-snaps" / "mame" / resource_name
+        if not resource_dir.is_dir():
+            return "—"
+        candidates: list[tuple[tuple[int, ...], str]] = []
+        for version_dir in resource_dir.iterdir():
+            if not version_dir.is_dir():
+                continue
+            archive = version_dir / f"{resource_name}.zip"
+            if not archive.is_file():
+                continue
+            key = tuple(int(part) for part in re.findall(r"\d+", version_dir.name))
+            candidates.append((key or (0,), version_dir.name))
+        if not candidates:
+            return "—"
+        return max(candidates, key=lambda item: item[0])[1]
 
     @staticmethod
     def _sample_count(root: Path) -> int:
@@ -229,9 +274,14 @@ class ProgettoSnapsPage(QWidget):
 
     def _set_scan_status(self, present: int, sample_count: int) -> None:
         sample_row = len(self.EXPECTED_SUPPORT)
-        item = self.table.item(sample_row, 3)
-        if item is not None:
-            item.setText(f"{sample_count} ZIP(s)" if sample_count else "Ausente")
+        version_item = self.table.item(sample_row, 3)
+        status_item = self.table.item(sample_row, 4)
+        if version_item is not None:
+            version_item.setText(
+                self._downloaded_version("samples-fullpack") if sample_count else "—"
+            )
+        if status_item is not None:
+            status_item.setText(f"{sample_count} ZIP(s)" if sample_count else "Ausente")
         self.status_label.setText(
             f"MAME.exe: OK | Suporte: {present}/{len(self.EXPECTED_SUPPORT)} | "
             f"Samples: {sample_count} ZIP(s)"
