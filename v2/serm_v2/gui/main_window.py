@@ -7,9 +7,18 @@ from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QSettings, QSize, Qt
 from PySide6.QtWidgets import (
-    QApplication, QDockWidget, QFrame, QHBoxLayout, QLabel, QListWidget,
-    QListWidgetItem, QMainWindow, QPushButton, QStackedWidget, QStyle,
-    QVBoxLayout, QWidget,
+    QApplication,
+    QDockWidget,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QMainWindow,
+    QStackedWidget,
+    QStyle,
+    QVBoxLayout,
+    QWidget,
 )
 
 from ..config.settings import Settings
@@ -23,6 +32,7 @@ from .emulator_shaders_bezels_page import EmulatorShadersBezelsPage
 from .filter_phase_page import FilteringPhasePage
 from .home import HomePage
 from .log_handler import LogViewer
+from .mame_filter_page import MameFilterPage
 from .mame_scan_page import MameScanPage
 from .no_intro_filter_page import NoIntroFilterPage
 from .progetto_snaps_page import ProgettoSnapsPage
@@ -43,9 +53,10 @@ class MainWindow(QMainWindow):
         ("1 — Scan", "Auditoria completa contra DAT/catalogo", "SP_DriveHDIcon"),
         ("MAME — Scans", "Catálogo ListXML, construção do banco MAME, scans e histórico", "SP_DriveHDIcon"),
         ("2 — Filtragem", "Filtragem de fontes não-Arcade sobre scans já concluídos", "SP_FileDialogDetailedView"),
+        ("MAME — Filtros", "Filtros MAME separados por tipo de jogo e tipo de SET", "SP_FileDialogDetailedView"),
         ("No-Intro — Filtros", "Conteúdo, regiões, clones, hacks, traduções e 1G1R", "SP_FileDialogDetailedView"),
         ("3 — Reconstrução", "Montar o set a partir do arquivo filtrado", "SP_FileDialogInfoView"),
-        ("Scraper de DATs", "Importação e processamento de DATs", "SP_FileIcon"),
+        ("progetto-SNAPS", "Gerenciar snapshots e recursos visuais do MAME", "SP_FileIcon"),
     )
     _GEOMETRY_KEY = "main_window/geometry"
     _STATE_KEY = "main_window/state"
@@ -159,16 +170,64 @@ class MainWindow(QMainWindow):
         self.navigation.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.navigation.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
         for label, description, style_icon in self.NAV_ITEMS:
-            item = QListWidgetItem(self.style().standardIcon(getattr(QStyle, style_icon)), label); item.setToolTip(description); item.setData(Qt.ItemDataRole.UserRole, description); item.setSizeHint(QSize(0,46)); self.navigation.addItem(item)
-        sidebar_layout.addWidget(self.navigation,1)
-        footer = QLabel("SERM V2\nSistema de Emulação e ROM Management"); footer.setObjectName("navigationFooter"); footer.setWordWrap(True); sidebar_layout.addWidget(footer)
+            item = QListWidgetItem(self.style().standardIcon(getattr(QStyle, style_icon)), label)
+            item.setToolTip(description)
+            item.setData(Qt.ItemDataRole.UserRole, description)
+            item.setSizeHint(QSize(0, 46))
+            self.navigation.addItem(item)
+        sidebar_layout.addWidget(self.navigation, 1)
+        footer = QLabel("SERM V2\nSistema de Emulação e ROM Management")
+        footer.setObjectName("navigationFooter")
+        footer.setWordWrap(True)
+        sidebar_layout.addWidget(footer)
 
-        self.page_stack = QStackedWidget(); self.page_stack.setObjectName("pageStack")
-        self.home_section = HomePage(self); self.directories_tab = DirectoriesPage(self); self.tools_tab = ToolsDirectoriesPage(self); self.settings_tab = EmulatorSettingsPage(self); self.visuals_tab = EmulatorShadersBezelsPage(self); self.scan_tab = ScanPhasePage(self); self.mame_scan_tab = MameScanPage(self); self.filter_tab = FilteringPhasePage(self); self.mame_filter_tab = MameFilterPage(self); self.no_intro_filter_tab = NoIntroFilterPage(self); self.reconstruction_tab = ReconstructionPhasePage(self); self.dat_scraper_tab = DatScraperPage(self)
-        self.pages = (self.home_section,self.directories_tab,self.tools_tab,self.settings_tab,self.visuals_tab,self.scan_tab,self.mame_scan_tab,self.filter_tab,self.mame_filter_tab,self.no_intro_filter_tab,self.reconstruction_tab,self.dat_scraper_tab)
-        for page in self.pages: self.page_stack.addWidget(page)
-        root_layout.addWidget(sidebar); root_layout.addWidget(self.page_stack,1); self.setCentralWidget(root)
-        self.navigation.currentRowChanged.connect(self._on_navigation_changed); self.navigation.setCurrentRow(0)
+        self.page_stack = QStackedWidget()
+        self.page_stack.setObjectName("pageStack")
+        self.home_section = HomePage(self)
+        self.directories_tab = DirectoriesPage(self)
+        self.tools_tab = ToolsDirectoriesPage(self)
+        self.settings_tab = EmulatorSettingsPage(self)
+        self.visuals_tab = EmulatorShadersBezelsPage(self)
+        self.arcade_studio_tab = ArcadeStudioPage(self)
+        self.scan_tab = ScanPhasePage(self)
+        self.mame_scan_tab = MameScanPage(self)
+        self.filter_tab = FilteringPhasePage(self)
+        self.mame_filter_tab = MameFilterPage(self)
+        self.no_intro_filter_tab = NoIntroFilterPage(self)
+        self.reconstruction_tab = ReconstructionPhasePage(self)
+        self.dat_scraper_tab = DatScraperPage(self)
+        self.progetto_snaps_tab = ProgettoSnapsPage(self)
+        self.pages = (
+            self.home_section,
+            self.directories_tab,
+            self.tools_tab,
+            self.dat_scraper_tab,
+            self.settings_tab,
+            self.visuals_tab,
+            self.arcade_studio_tab,
+            self.scan_tab,
+            self.mame_scan_tab,
+            self.filter_tab,
+            self.mame_filter_tab,
+            self.no_intro_filter_tab,
+            self.reconstruction_tab,
+            self.progetto_snaps_tab,
+        )
+        for page in self.pages:
+            self.page_stack.addWidget(page)
+        root_layout.addWidget(sidebar)
+        root_layout.addWidget(self.page_stack, 1)
+        self.setCentralWidget(root)
+        self.navigation.currentRowChanged.connect(self._on_navigation_changed)
+        self.navigation.setCurrentRow(0)
+
+    def _build_log_dock(self) -> None:
+        """Adiciona o painel de logs à janela principal."""
+        dock = QDockWidget("Logs", self)
+        dock.setObjectName("logDock")
+        dock.setWidget(self.log_viewer)
+        dock.setAllowedAreas(Qt.DockWidgetArea.BottomDockWidgetArea)
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, dock)
 
     def _on_navigation_changed(self, index: int) -> None:
         if 0 <= index < len(self.pages):
