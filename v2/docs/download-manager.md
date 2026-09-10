@@ -1,6 +1,6 @@
 # Download Manager
 
-O Download Manager é responsável por aquisição de recursos externos e por separar download de ingestão.
+O Download Manager é responsável por aquisição de recursos externos e por separar download, extração e publicação.
 
 ## Pipeline
 
@@ -8,6 +8,8 @@ O Download Manager é responsável por aquisição de recursos externos e por se
 Provider
    ↓
 Resource Catalog
+   ↓
+Latest Resource Resolver
    ↓
 Download
    ↓
@@ -17,14 +19,12 @@ Integrity check
    ↓
 Safe extraction
    ↓
-Source repository
+Explicit publication
    ↓
 Scan / ingestion
-   ↓
-Explicit destination publication
 ```
 
-O Download Manager não deve escrever cegamente na instalação do emulador. Quando a etapa de publicação de recursos auxiliares estiver habilitada, ela deve usar o mesmo princípio de validação de destino adotado pela reconstrução.
+O Download Manager não deve escrever cegamente na instalação do emulador.
 
 ## Provider
 
@@ -40,9 +40,15 @@ O provider deve:
 - mapear somente membros úteis do pacote;
 - evitar que URLs e convenções do site vazem para o domínio.
 
-## Recursos atuais mapeados
+## Resolução da versão mais recente
 
-O provider possui referência explícita para:
+Antes do download, o `LatestResourceResolver` pode substituir a versão declarada no catálogo pela versão mais recente descoberta pelo provider. As estratégias disponíveis incluem listagem, probe e extração de links publicados.
+
+A regra operacional da V2 é: **quando a fonte permite descobrir uma versão mais recente, a aquisição deve utilizar essa versão; nunca criar uma versão por suposição a partir da versão do MAME.**
+
+## Recursos Progetto-SNAPS integrados
+
+O provider mantém atualmente referências para:
 
 - CatVer 0.289;
 - BestGames 0.280;
@@ -52,7 +58,7 @@ O provider possui referência explícita para:
 - Command 0.273;
 - MAME Samples FullPack 0.289.
 
-A versão de cada recurso é independente da versão do MAME. O provider não deve fabricar uma versão nova somente porque o MAME foi atualizado.
+Essas versões são referências do catálogo e podem ser substituídas pelo resolver quando uma fonte publicar uma versão mais recente.
 
 ## Princípios
 
@@ -66,10 +72,6 @@ A versão de cada recurso é independente da versão do MAME. O provider não de
 - reutilizar cache quando a identidade do recurso já for conhecida;
 - comparar hash para detectar conteúdo idêntico entre versões;
 - manter aquisição fora do destino até que a publicação seja explicitamente autorizada.
-
-## Separação
-
-Download Manager transporta recursos. Providers interpretam a fonte remota. O `ExternalResourceCatalog` mantém identidade e proveniência. Services de catálogo decidem como persistir e normalizar. O materializer decide quando um artefato pode ser publicado no destino.
 
 ## Publicação de arquivos auxiliares
 
@@ -92,6 +94,18 @@ Estados de destino:
 
 Não há exclusão automática de arquivos desconhecidos e não há sobrescrita silenciosa.
 
+## Detecção de versão local
+
+A GUI do projeto-SNAPS não considera a versão do cache como fonte primária para arquivos que já estejam instalados. O detector local procura primeiro a declaração no próprio arquivo e depois utiliza o nome do arquivo/ZIP. O cache é somente fallback.
+
+Para `.ini` e `.dat`, somente uma região inicial do arquivo é lida. Isso permite reconhecer cabeçalhos do projeto-SNAPS sem varrer arquivos inteiros.
+
+Para Samples, o FullPack é instalado como vários ZIPs individuais. Como esses ZIPs podem não declarar a versão do pacote individualmente, a proveniência do FullPack no cache é usada quando necessário.
+
+## Separação
+
+Download Manager transporta recursos. Providers interpretam a fonte remota. O `ExternalResourceCatalog` mantém identidade e proveniência. Services de catálogo decidem como persistir e normalizar. A publicação decide quando um artefato pode ser colocado no destino MAME.
+
 ## MAME / Progetto-SNAPS
 
-Metadados como CatVer, Series e Languages podem enriquecer o catálogo do SERM, mas não substituem o MAME ListXML como autoridade para identidade e relações das máquinas. `GameInit` e `Command` são informações auxiliares; `BestGames` é curadoria pessoal; Samples são recursos físicos separados e devem entrar no source repository MAME, sendo validados antes da reconstrução.
+Metadados como CatVer, Series e Languages podem enriquecer o catálogo do SERM, mas não substituem o MAME ListXML como autoridade para identidade e relações das máquinas. `GameInit` e `Command` são informações auxiliares; `BestGames` é curadoria pessoal; Samples são recursos físicos separados.
