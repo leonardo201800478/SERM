@@ -277,10 +277,16 @@ class ReconstructionService:
         total = len(archive_groups) + len(loose_items)
         created: list[str] = []
         errors: list[str] = []
-        done = cls._execute_archives(archive_groups, created, errors, total, progress_callback, cancel_callback)
-        cls._execute_loose_items(loose_items, created, errors, done, total, progress_callback, cancel_callback)
+        done = cls._execute_archives(
+            archive_groups, created, errors, total, progress_callback, cancel_callback
+        )
+        cls._execute_loose_items(
+            loose_items, created, errors, done, total, progress_callback, cancel_callback
+        )
         if errors:
-            raise ReconstructionError("Reconstrução concluída com erros:\n" + "\n".join(errors[:20]))
+            raise ReconstructionError(
+                "Reconstrução concluída com erros:\n" + "\n".join(errors[:20])
+            )
         return {
             "destination": str(destination),
             "filter_run_id": plan.filter_run_id,
@@ -347,10 +353,13 @@ class ReconstructionService:
         temp = Path(temp_name)
         try:
             with zipfile.ZipFile(temp, "w", compression=zipfile.ZIP_STORED) as zout:
-                for member, (source, name) in unique.items():
+                for _member, (source, name) in unique.items():
                     with zipfile.ZipFile(source, "r") as zin:
                         info = zin.getinfo(name)
-                        with zin.open(info, "r") as source_member, zout.open(info, "w") as target_member:
+                        with (
+                            zin.open(info, "r") as source_member,
+                            zout.open(info, "w") as target_member,
+                        ):
                             shutil.copyfileobj(source_member, target_member, length=1024 * 1024)
             temp.replace(output)
         finally:

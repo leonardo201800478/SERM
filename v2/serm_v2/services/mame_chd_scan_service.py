@@ -2,17 +2,24 @@
 
 from __future__ import annotations
 
-import hashlib
 import sqlite3
 from pathlib import Path
 
+from .chd_header import ChdFormatError, ChdHeaderReader
 from .rom_scan_service import ScanEvidence, _MachineResult
 
 
 class MameChdScanService:
-    """Localiza CHDs esperados e valida exclusivamente SHA1/MD5."""
+    """Localiza CHDs e valida a identidade lógica gravada no cabeçalho.
 
-    CHUNK_SIZE = 1024 * 1024
+    O SHA-1 do arquivo ``.chd`` não é comparado ao ListXML. O ListXML usa a
+    identidade do conteúdo lógico do disco; no CHD essa identidade está no
+    campo ``rawsha1`` do cabeçalho. Para V1/V2, que não possuem SHA-1, o MD5
+    lógico é usado quando o catálogo o fornece.
+    """
+
+    def __init__(self) -> None:
+        self.header_reader = ChdHeaderReader()
 
     def scan_machine(
         self,
@@ -61,9 +68,9 @@ class MameChdScanService:
             unit.files_examined += 1
             unit.items_examined += 1
             try:
-                actual_sha1, actual_md5, size = self._hash_file(path)
-                unit.bytes_read += size
-            except OSError as exc:
+                header = self.header_reader.read(path)
+                unit.bytes_read += min(path.stat().st_size, 4096)
+            except (OSError, ChdFormatError) as exc:
                 unit.errors += 1
                 unit.records.append(
                     ScanEvidence(
@@ -74,21 +81,36 @@ class MameChdScanService:
                         expected_md5=expected_md5,
                         path=str(path),
                         optional=optional,
-                        message="Falha ao calcular hash do CHD",
+                        message="Cabeçalho CHD inválido ou inacessível",
                         error=str(exc),
                     )
                 )
                 continue
 
-            sha1_ok = not expected_sha1 or actual_sha1 == expected_sha1
-            md5_ok = not expected_md5 or actual_md5 == expected_md5
-            has_expected_hash = bool(expected_sha1 or expected_md5)
-            status = "CURRENT" if has_expected_hash and sha1_ok and md5_ok else "WRONG"
+            actual_sha1 = (header.raw_sha1 or "").casefold()
+            actual_md5 = (header.md5 or "").casefold()
+            sha1_ok = bool(expected_sha1) and actual_sha1 == expected_sha1
+            md5_ok = bool(expected_md5) and actual_md5 == expected_md5
 
-            if status == "CURRENT":
-                message = "CHD encontrado; SHA1/MD5 correspondentes"
+            if expected_sha1:
+                status = "CURRENT" if sha1_ok else "WRONG"
+                message = (
+                    "CHD encontrado; Data SHA1 do cabeçalho corresponde ao ListXML"
+                    if sha1_ok
+                    else "CHD encontrado, mas Data SHA1 diverge do ListXML"
+                )
+            elif expected_md5 and header.md5:
+                status = "CURRENT" if md5_ok else "WRONG"
+                message = (
+                    "CHD encontrado; MD5 lógico corresponde ao ListXML"
+                    if md5_ok
+                    else "CHD encontrado, mas MD5 lógico diverge do ListXML"
+                )
             else:
-                message = "CHD encontrado, mas SHA1/MD5 divergem"
+                status = "UNVERIFIABLE"
+                message = (
+                    "CHD válido, mas o formato não expõe o hash exigido pelo catálogo"
+                )
 
             unit.records.append(
                 ScanEvidence(
@@ -106,9 +128,7 @@ class MameChdScanService:
             )
 
     @staticmethod
-    def _load_disks(
-        database: Path, import_id: int, machine: str
-    ) -> list[sqlite3.Row]:
+    def _load_disks(database: Path, import_id: int, machine: str) -> list[sqlite3.Row]:
         with sqlite3.connect(database) as connection:
             connection.row_factory = sqlite3.Row
             return connection.execute(
@@ -123,9 +143,7 @@ class MameChdScanService:
             ).fetchall()
 
     @staticmethod
-    def _find_chd(
-        machine: str, disk_name: str, sources: list[Path]
-    ) -> Path | None:
+    def _find_chd(machine: str, disk_name: str, sources: list[Path]) -> Path | None:
         filename = Path(disk_name).name
         if not filename.casefold().endswith(".chd"):
             filename = f"{filename}.chd"
@@ -138,24 +156,8 @@ class MameChdScanService:
 
         return None
 
-    @classmethod
-    def _hash_file(cls, path: Path) -> tuple[str, str, int]:
-        sha1 = hashlib.sha1(usedforsecurity=False)
-        md5 = hashlib.md5(usedforsecurity=False)
-        total = 0
-        with path.open("rb") as stream:
-            while True:
-                chunk = stream.read(cls.CHUNK_SIZE)
-                if not chunk:
-                    break
-                total += len(chunk)
-                sha1.update(chunk)
-                md5.update(chunk)
-        return sha1.hexdigest(), md5.hexdigest(), total
-
     @staticmethod
     def _cancelled(unit: _MachineResult) -> bool:
-        # O scanner principal continua responsável pelo cancelamento global.
         return False
 
 

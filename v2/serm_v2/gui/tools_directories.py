@@ -5,7 +5,18 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from PySide6.QtWidgets import QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QFileDialog,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ..integrations.launchbox import LaunchBoxIntegration
 from ..runtime.paths import integrations_root
@@ -89,9 +100,13 @@ class ToolsDirectoriesPage(QWidget):
         self.launchbox_status.setText("● Encontrado" if launchbox_found else "● Não encontrado")
 
         sevenzip = configured.get("sevenzip")
-        detected = Path(sevenzip) if sevenzip and Path(sevenzip).is_file() else EmulatorManager.find_7zip()
+        detected = (
+            Path(sevenzip) if sevenzip and Path(sevenzip).is_file() else EmulatorManager.find_7zip()
+        )
         self.sevenzip_edit.setText(str(detected or ""))
-        self.sevenzip_status.setText("● Encontrado" if detected and Path(detected).is_file() else "● Não encontrado")
+        self.sevenzip_status.setText(
+            "● Encontrado" if detected and Path(detected).is_file() else "● Não encontrado"
+        )
 
     def select_launchbox(self) -> None:
         """Seleciona manualmente o executável e grava a escolha imediatamente."""
@@ -147,7 +162,9 @@ class ToolsDirectoriesPage(QWidget):
         payload["launchbox"] = self.launchbox_edit.text().strip() or None
         payload["sevenzip"] = self.sevenzip_edit.text().strip() or None
         self.CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        self.CONFIG_PATH.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        self.CONFIG_PATH.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
         self.refresh()
 
 

@@ -72,9 +72,7 @@ def _install_core(
             if bad:
                 raise RuntimeError(f"ZIP corrompido do core: {bad}")
             dll_names = [
-                name
-                for name in package.namelist()
-                if name.casefold().endswith("_libretro.dll")
+                name for name in package.namelist() if name.casefold().endswith("_libretro.dll")
             ]
             if not dll_names:
                 raise RuntimeError(f"ZIP sem DLL libretro: {filename}")
@@ -131,10 +129,7 @@ def _install_frontend(
 
     try:
         if log:
-            log(
-                f"RETROARCH | canal={channel} | versão={version_label} | "
-                f"arquivo={archive_name}"
-            )
+            log(f"RETROARCH | canal={channel} | versão={version_label} | arquivo={archive_name}")
             log(f"DOWNLOAD | {url}")
         self._download_file(url, archive, progress, log)
 

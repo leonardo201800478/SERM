@@ -75,7 +75,9 @@ class MameVsyncService:
             "status": "reused",
         }
 
-    def _insert_entries(self, connection, source_id: int, path: Path, machines: dict, now: str, log):
+    def _insert_entries(
+        self, connection, source_id: int, path: Path, machines: dict, now: str, log
+    ):
         entries = resolved = unresolved = duplicates = 0
         seen: set[str] = set()
         for machine_name in self._entries(path):

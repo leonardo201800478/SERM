@@ -83,7 +83,8 @@ class ScanFileRepository:
         path = cls.build_path(result)
         path.parent.mkdir(parents=True, exist_ok=True)
         header = {
-            "format": "SERM-SCAN-V1",
+            "format": "SERM-SCAN-V2",
+            "schema_version": 2,
             "scan_id": result.scan_id,
             "profile_id": result.profile_id,
             "source": result.source,

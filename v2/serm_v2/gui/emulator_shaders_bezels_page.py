@@ -310,7 +310,9 @@ class EmulatorShadersBezelsPage(QWidget):
                     browse = QPushButton("...")
                     browse.setMaximumWidth(42)
                     browse.clicked.connect(
-                        lambda _=False, e=emulator, layer_name=layer, k=spec.key: self._browse(e, layer_name, k)
+                        lambda _=False, e=emulator, layer_name=layer, k=spec.key: self._browse(
+                            e, layer_name, k
+                        )
                     )
                     row_layout.addWidget(browse)
                 form.addRow(spec.label, row)

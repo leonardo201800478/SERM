@@ -1,10 +1,9 @@
-"""Gerenciador dedicado de scans MAME: novo scan e histórico persistido."""
+"""Gerenciador dedicado de scans MAME: histórico e execução de scans físicos."""
 
 from __future__ import annotations
 
 import json
 from datetime import datetime
-from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -26,7 +25,7 @@ from .scan_phase_page import _SystemScanTab
 
 
 class MameScanPage(QWidget):
-    """Tela MAME com configuração de scan, histórico e ciclo de vida dos scans."""
+    """Tela dedicada exclusivamente aos scans físicos MAME e seu histórico."""
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -39,8 +38,8 @@ class MameScanPage(QWidget):
         title.setProperty("role", "title")
         root.addWidget(title)
         description = QLabel(
-            "Cada execução cria um novo snapshot. Um scan concluído pode ser selecionado no histórico "
-            "ou excluído sem apagar os diretórios configurados para o próximo scan."
+            "Esta tela trata somente do scan físico dos arquivos MAME. A criação e atualização do banco "
+            "ListXML e das fontes auxiliares fica exclusivamente na aba MAME do Scraper de DATs."
         )
         description.setWordWrap(True)
         root.addWidget(description)

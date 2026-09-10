@@ -485,9 +485,7 @@ class MameDisplayResolver:
         cls, machine: str, payload: dict[str, object], source_name: str
     ) -> ExternalDisplayFact:
         raw = str(payload.get("value", ""))
-        width, height = cls._resolution(
-            payload.get("resolution") or payload.get("value")
-        )
+        width, height = cls._resolution(payload.get("resolution") or payload.get("value"))
         refresh = cls._number(payload.get("refresh"))
         if refresh is None and source_name.lower() == "vsync.ini":
             refresh = cls._number(payload.get("value"))

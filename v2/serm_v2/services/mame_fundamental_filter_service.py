@@ -1,7 +1,11 @@
 """Persistência dos filtros fundamentais do MAME por profile_id.
 
-A seleção das ROMs acontece somente depois do scan, sobre o snapshot bruto.
-Este serviço guarda apenas a configuração; não consulta o catálogo nem o
+A configuração usa semântica direta: ``True`` significa INCLUIR a categoria
+e ``False`` significa EXCLUIR. A interface apresenta a categoria incluída em
+verde e a categoria excluída em vermelho.
+
+A seleção acontece somente depois do scan, sobre o snapshot bruto. Este
+serviço guarda apenas a configuração; não consulta o catálogo nem o
 filesystem durante a auditoria.
 """
 
@@ -13,41 +17,52 @@ from typing import Final
 
 from ..runtime.paths import data_root
 
-FILTERS_FILE: Final[Path] = data_root() / "mame_fundamental_filters.json"
+# Arquivo V2 separado para não interpretar configurações criadas pela antiga
+# semântica, na qual True significava "excluir".
+FILTERS_FILE: Final[Path] = data_root() / "mame_fundamental_filters_v2.json"
 
+# True = permanece no set; False = é excluída.
 DEFAULT_FILTERS: Final[dict[str, bool]] = {
-    "mechanical": True,
+    "mechanical": False,
     "dance": True,
     "console": True,
     "handheld": True,
-    "fruit_machines": True,
+    "fruit_machines": False,
+    "quiz": True,
+    "tabletop": True,
 }
 
 FILTER_DEFINITIONS: Final[dict[str, dict[str, object]]] = {
     "mechanical": {
         "label": "Máquinas mecânicas / eletromecânicas",
-        "description": "Exclui Mechanical/Electromechanical e equivalentes.",
+        "description": "Verde = incluir no set. Vermelho = excluir Mechanical/Electromechanical e equivalentes.",
     },
     "dance": {
         "label": "Máquinas de dança",
-        "description": "Exclui máquinas classificadas como Dance.",
+        "description": "Verde = incluir no set. Vermelho = excluir máquinas classificadas como Dance.",
     },
     "console": {
         "label": "Consoles",
-        "description": "Exclui máquinas classificadas como console/game console.",
+        "description": "Verde = incluir no set. Vermelho = excluir máquinas classificadas como console/game console.",
     },
     "handheld": {
         "label": "Portáteis / Handhelds",
-        "description": "Exclui máquinas classificadas como handheld/portable.",
+        "description": "Verde = incluir no set. Vermelho = excluir máquinas classificadas como handheld/portable.",
     },
     "fruit_machines": {
         "label": "Fruit Machines e derivados",
-        "description": "Exclui Fruit Machine, Slot, Casino, Gambling, Redemption e Medal.",
+        "description": "Verde = incluir no set. Vermelho = excluir Fruit Machine, Slot, Casino, Gambling, Redemption e Medal.",
+    },
+    "quiz": {
+        "label": "Quiz / Trivia",
+        "description": "Verde = incluir no set. Vermelho = excluir máquinas classificadas como Quiz/Trivia.",
+    },
+    "tabletop": {
+        "label": "Tabletop",
+        "description": "Verde = incluir no set. Vermelho = excluir máquinas classificadas como Tabletop.",
     },
 }
 
-# Estes padrões são aplicados aos dados de classificação já congelados no
-# arquivo do scan. Não são consultados novamente no momento da filtragem.
 CATEGORY_PATTERNS: Final[dict[str, tuple[str, ...]]] = {
     "mechanical": ("mechanical", "electromechanical", "pinball"),
     "dance": ("dance",),
@@ -64,6 +79,8 @@ CATEGORY_PATTERNS: Final[dict[str, tuple[str, ...]]] = {
         "medal game",
         "medal_game",
     ),
+    "quiz": ("quiz", "trivia"),
+    "tabletop": ("tabletop", "table top"),
 }
 
 
@@ -107,10 +124,11 @@ class MameFundamentalFilterService:
         FILTERS_FILE.parent.mkdir(parents=True, exist_ok=True)
         FILTERS_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    @classmethod
-    def summary(cls, values: dict[str, bool]) -> str:
-        active = [key for key, enabled in values.items() if enabled]
-        return f"{len(active)} exclusões ativas" if active else "Nenhuma exclusão ativa"
+    @staticmethod
+    def summary(values: dict[str, bool]) -> str:
+        included = sum(1 for enabled in values.values() if enabled)
+        excluded = len(values) - included
+        return f"{included} incluída(s) | {excluded} excluída(s)"
 
 
 __all__ = [

@@ -349,55 +349,71 @@ class RomScanService:
         self._write_jsonl(
             stream,
             {
-                "record_type": "header", "format": "SERM-SCAN-V1",
-                "scan_id": result.scan_id, "profile_id": result.profile_id,
-                "source": result.source, "system": result.system,
-                "scan_type": result.scan_type, "catalog_label": result.catalog_label,
-                "catalog_hash": result.catalog_hash, "started_at": result.started_at,
+                "record_type": "header",
+                "format": "SERM-SCAN-V1",
+                "scan_id": result.scan_id,
+                "profile_id": result.profile_id,
+                "source": result.source,
+                "system": result.system,
+                "scan_type": result.scan_type,
+                "catalog_label": result.catalog_label,
+                "catalog_hash": result.catalog_hash,
+                "started_at": result.started_at,
                 "source_paths": [str(path) for path in sources],
                 "machine_count_expected": total,
-                "metadata": {"validation": "expected_driven", "persist_mode": "streaming", "filters_applied": False},
+                "metadata": {
+                    "validation": "expected_driven",
+                    "persist_mode": "streaming",
+                    "filters_applied": False,
+                },
             },
         )
 
     def _scan_mame_batches(
-        self, stream, result, machine_names, db_path, import_id, sources,
-        classification_columns, workers, batch_size, total,
+        self,
+        stream,
+        result,
+        machine_names,
+        db_path,
+        import_id,
+        sources,
+        classification_columns,
+        workers,
+        batch_size,
+        total,
     ):
         completed = 0
         for offset in range(0, total, batch_size):
-                if self._cancelled:
-                    break
-                batch = machine_names[offset : offset + batch_size]
-                with ThreadPoolExecutor(
-                    max_workers=workers, thread_name_prefix="mame-scan"
-                ) as executor:
-                    futures = {
-                        executor.submit(
-                            self._scan_machine,
-                            name,
-                            db_path,
-                            int(import_id),
-                            sources,
-                            classification_columns,
-                        ): name
-                        for name in batch
-                    }
-                    for future in as_completed(futures):
-                        if self._cancelled:
-                            break
-                        machine = futures[future]
-                        unit = future.result()
-                        self._write_machine(stream, unit)
-                        completed += 1
-                        self._merge_unit_stats(result, unit)
-                        if self.progress_callback:
-                            self.progress_callback(completed, total)
-                        if completed == 1 or completed % 25 == 0 or completed == total:
-                            self._log(
-                                "INFO", self._progress_message(result, machine, completed, total)
-                            )
-                stream.flush()
+            if self._cancelled:
+                break
+            batch = machine_names[offset : offset + batch_size]
+            with ThreadPoolExecutor(
+                max_workers=workers, thread_name_prefix="mame-scan"
+            ) as executor:
+                futures = {
+                    executor.submit(
+                        self._scan_machine,
+                        name,
+                        db_path,
+                        int(import_id),
+                        sources,
+                        classification_columns,
+                    ): name
+                    for name in batch
+                }
+                for future in as_completed(futures):
+                    if self._cancelled:
+                        break
+                    machine = futures[future]
+                    unit = future.result()
+                    self._write_machine(stream, unit)
+                    completed += 1
+                    self._merge_unit_stats(result, unit)
+                    if self.progress_callback:
+                        self.progress_callback(completed, total)
+                    if completed == 1 or completed % 25 == 0 or completed == total:
+                        self._log("INFO", self._progress_message(result, machine, completed, total))
+            stream.flush()
 
     def _scan_machine(
         self,
@@ -494,9 +510,7 @@ class RomScanService:
             if machine_dir.is_dir():
                 self._scan_loose(machine_dir, expected_by_name, unit)
 
-    def _append_missing_roms(
-        self, expected: list[_ExpectedRom], unit: _MachineResult
-    ) -> None:
+    def _append_missing_roms(self, expected: list[_ExpectedRom], unit: _MachineResult) -> None:
         found_names = {
             e.rom_name.casefold() for e in unit.records if e.status != "MISSING" and e.rom_name
         }

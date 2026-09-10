@@ -504,7 +504,9 @@ class EmulatorHomePage(QWidget):
             return
         destination = self.manager.roots.get("retroarch")
         if not destination:
-            selected = QFileDialog.getExistingDirectory(self, f"Instalar RetroArch {channel.title()} em", str(Path.home()))
+            selected = QFileDialog.getExistingDirectory(
+                self, f"Instalar RetroArch {channel.title()} em", str(Path.home())
+            )
             if not selected:
                 return
             destination = Path(selected).resolve()
@@ -515,8 +517,14 @@ class EmulatorHomePage(QWidget):
         self.manager.roots = paths
         self.retroarch = RetroArchManager(Path(destination))
         self._retro_channel = channel
-        self._append_retro_log(f"DOWNLOAD | RetroArch | canal={channel} | destino={Path(destination).resolve()}")
-        self._start_retro(lambda progress, log, c=channel, d=Path(destination): self.retroarch.install_frontend(d, channel=c, progress=progress, log=log))
+        self._append_retro_log(
+            f"DOWNLOAD | RetroArch | canal={channel} | destino={Path(destination).resolve()}"
+        )
+        self._start_retro(
+            lambda progress, log, c=channel, d=Path(destination): self.retroarch.install_frontend(
+                d, channel=c, progress=progress, log=log
+            )
+        )
 
     def refresh_cores(self) -> None:
         """Atualiza o índice oficial e mostra cores instalados, novos e CRC."""

@@ -18,7 +18,7 @@ def test_catalog_uses_direct_redump_urls(tmp_path: Path) -> None:
     """Redump entries use Redump datfile endpoints, not the GitHub mirror."""
     provider = RedumpProvider(root=tmp_path)
     entry = next(item for item in provider.fetch_catalog() if item.name == "Sony PlayStation 2.dat")
-    assert entry.url == "http://redump.org/datfile/ps2/"
+    assert entry.url == "https://redump.info/datfile/PS2"
     assert "raw.githubusercontent.com" not in entry.url
     assert "/datfile/" in entry.url
 
@@ -26,7 +26,7 @@ def test_catalog_uses_direct_redump_urls(tmp_path: Path) -> None:
 def test_direct_url_for_sega_cd() -> None:
     """Sega CD uses Redump's mcd endpoint."""
     assert RedumpProvider.direct_url_for_name("Sega Mega CD & Sega CD.dat") == (
-        "http://redump.org/datfile/mcd/"
+        "https://redump.info/datfile/MCD"
     )
 
 

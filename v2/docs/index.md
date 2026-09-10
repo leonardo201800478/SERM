@@ -32,6 +32,10 @@ A V1 é referência histórica e comportamental. A árvore ativa de `main` cont�
 | [`sets.md`](sets.md) | Sets e relações parent/clone |
 | [`reconstruction.md`](reconstruction.md) | Reconstrução e publicação |
 | [`reconstruction-dependencies.md`](reconstruction-dependencies.md) | Dependências de reconstrução |
+| [`mame-semantic-validation.md`](mame-semantic-validation.md) | Auditorias, invariantes e regras semânticas do MAME |
+| [`arcade-mame-rom-architecture.md`](arcade-mame-rom-architecture.md) | Artigo aprofundado sobre a arquitetura de ROMs MAME no SERM V2 |
+| [`external-resources.md`](external-resources.md) | Catálogo, providers e aquisição de recursos externos |
+| [`decisions/0003-mame-rom-reconstruction-architecture.md`](decisions/0003-mame-rom-reconstruction-architecture.md) | ADR-0003 e invariantes da reconstrução de ROMs |
 | [`reconstruction/multi-emulator-layout.md`](reconstruction/multi-emulator-layout.md) | Layout multi-emulador |
 | [`archives.md`](archives.md) | Operações com arquivos compactados |
 | [`chd-reconstruction.md`](chd-reconstruction.md) | CHD e validação |
@@ -41,7 +45,7 @@ A V1 é referência histórica e comportamental. A árvore ativa de `main` cont�
 | [`force-feedback.md`](force-feedback.md) | Force Feedback |
 | [`emulator-config-policy.md`](emulator-config-policy.md) | Política de configuração |
 | [`launchbox.md`](launchbox.md) | LaunchBox como provider opcional |
-| [`download-manager.md`](download-manager.md) | Aquisição e downloads |
+| [`download-manager.md`](download-manager.md) | Aquisição, cache, validação e downloads |
 | [`torrents.md`](torrents.md) | Torrents e aquisição |
 | [`status/scan_status.md`](status/scan_status.md) | Estado e invariantes do scanner |
 | [`phases.md`](phases.md) | Roadmap e critérios de conclusão |

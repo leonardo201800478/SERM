@@ -16,7 +16,9 @@ from time import perf_counter
 from ..runtime.paths import data_root, database_path
 from .mame_catalog_normalizer import MameCatalogNormalizer
 from .mame_classification_service import MameClassificationService
+from .mame_folder_filter_service import MameFolderFilterService
 from .mame_resolution_service import MameResolutionService
+from .mame_softwarelist_service import MameSoftwareListService
 from .mame_vsync_service import MameVsyncService
 from .sqlite_utils import require_lastrowid
 
@@ -35,16 +37,13 @@ class MameCatalogService:
     PARSER_VERSION = "catalog-2.0"
 
     def __init__(self, logger: Callable[[str], None] | None = None) -> None:
-        """Cria o serviço e conecta o logger opcional da GUI."""
         self.logger = logger or (lambda message: logging.getLogger(__name__).info(message))
         self.normalizer = MameCatalogNormalizer(logger=self.logger)
 
     def _log(self, message: str) -> None:
-        """Envia uma mensagem para a GUI e para o logging do aplicativo."""
         self.logger(message)
 
     def configured_executable(self) -> Path:
-        """Retorna o executável MAME explicitamente escolhido em Diretórios."""
         try:
             data = json.loads(self.PATHS_FILE.read_text(encoding="utf-8"))
         except (OSError, ValueError) as exc:
@@ -57,8 +56,8 @@ class MameCatalogService:
             raise MameCatalogError(f"Executável MAME configurado não encontrado: {executable}")
         return executable
 
-    def ingest(self, *, timeout: float = 180.0, force: bool = False) -> dict[str, object]:
-        """Captura o ListXML e, após sucesso, importa CATLIST, Resolution e Vsync."""
+    def ingest(self, *, timeout: float = 180.0, force: bool = False, include_auxiliary: bool = True) -> dict[str, object]:
+        """Captura ListXML e, quando solicitado, sincroniza as fontes auxiliares."""
         executable = self.configured_executable()
         started = perf_counter()
         run_id = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
@@ -69,9 +68,7 @@ class MameCatalogService:
         xml_text = self._run_mame(executable, timeout)
         raw_bytes = len(xml_text.encode("utf-8"))
         source_hash = hashlib.sha256(xml_text.encode("utf-8")).hexdigest()
-        self._log(
-            f"MAME | [{run_id}] | CAPTURE OK | tamanho={self._human_bytes(raw_bytes)} | sha256={source_hash[:16]}"
-        )
+        self._log(f"MAME | [{run_id}] | CAPTURE OK | tamanho={self._human_bytes(raw_bytes)} | sha256={source_hash[:16]}")
 
         try:
             root = ET.fromstring(xml_text)
@@ -81,9 +78,7 @@ class MameCatalogService:
             raise MameCatalogError(f"Raiz inesperada no ListXML: {root.tag}")
         machine_count = len(root.findall("machine"))
         build = root.attrib.get("build")
-        self._log(
-            f"MAME | [{run_id}] | PARSE OK | build={build or 'desconhecido'} | máquinas={machine_count:,}"
-        )
+        self._log(f"MAME | [{run_id}] | PARSE OK | build={build or 'desconhecido'} | máquinas={machine_count:,}")
 
         self.RAW_ROOT.mkdir(parents=True, exist_ok=True)
         source = self.RAW_ROOT / f"listxml-{source_hash[:16]}.xml"
@@ -108,56 +103,33 @@ class MameCatalogService:
                 (source_hash,),
             ).fetchone()
             if existing and not force:
-                self._log(
-                    f"MAME | [{run_id}] | DEDUP | import_id={existing[0]} | hash já persistido"
-                )
-                result = self._result(
-                    existing[0],
-                    existing[1],
-                    existing[2],
-                    Path(existing[3]) if existing[3] else source,
-                    source_hash,
-                    started,
-                    True,
-                    run_id,
-                )
+                self._log(f"MAME | [{run_id}] | DEDUP | import_id={existing[0]} | hash já persistido")
+                result = self._result(existing[0], existing[1], existing[2], Path(existing[3]) if existing[3] else source, source_hash, started, True, run_id)
                 db.commit()
-                result["ini_results"] = self._ingest_inis(executable.parent)
+                result["ini_results"] = self._ingest_inis(executable.parent) if include_auxiliary else []
+                result["auxiliary_ingested"] = bool(include_auxiliary)
                 return result
 
+            if existing and force:
+                self._log(f"MAME | [{run_id}] | FORCE | removendo import_id={existing[0]} antes da reconstrução")
+                db.execute("DELETE FROM mame_listxml_import WHERE id=?", (existing[0],))
+                db.commit()
+
             now = datetime.now(UTC).isoformat()
-            self._log(
-                f"MAME | [{run_id}] | DB | criando importação | tamanho={self._human_bytes(raw_bytes)}"
-            )
             cur = db.execute(
                 """INSERT INTO mame_listxml_import
                 (emulator_id,executable,mame_build,mame_config,debug,imported_at,source_hash,xml_path,machine_count,byte_length,parser_version,status)
                 VALUES(?,?,?,?,?,?,?,?,?,?,?,'captured')""",
-                (
-                    int(emulator[0]),
-                    str(executable),
-                    build,
-                    root.attrib.get("mameconfig"),
-                    root.attrib.get("debug"),
-                    now,
-                    source_hash,
-                    str(source),
-                    machine_count,
-                    raw_bytes,
-                    self.PARSER_VERSION,
-                ),
+                (int(emulator[0]), str(executable), build, root.attrib.get("mameconfig"), root.attrib.get("debug"), now, source_hash, str(source), machine_count, raw_bytes, self.PARSER_VERSION),
             )
             import_id = require_lastrowid(cur.lastrowid)
-            self._log(
-                f"MAME | [{run_id}] | DB | import_id={import_id} | salvando documento lossless"
-            )
             db.execute(
                 """INSERT INTO mame_listxml_document
                 (import_id,source_hash,encoding,xml_text,byte_length,stored_at)
                 VALUES(?,?,?,?,?,?)""",
                 (import_id, source_hash, "utf-8", xml_text, raw_bytes, now),
             )
-            self._log(f"MAME | [{run_id}] | CATALOG | iniciando normalização relacional")
+            self._log(f"MAME | [{run_id}] | CATALOG | normalização relacional iniciada")
             totals = self.normalizer.normalize(db, import_id, root)
             db.execute("UPDATE mame_listxml_import SET status='completed' WHERE id=?", (import_id,))
             db.commit()
@@ -165,149 +137,58 @@ class MameCatalogService:
 
         db_elapsed = perf_counter() - db_started
         elapsed = perf_counter() - started
-        self._log(
-            f"MAME | [{run_id}] | CATALOG OK | máquinas={totals['machines']:,} | ROMs={totals['roms']:,} | "
-            f"disks={totals['disks']:,} | displays={totals['displays']:,} | samples={totals['samples']:,} | "
-            f"chips={totals['chips']:,} | dispositivos={totals['devices']:,} | tempo={float(totals['elapsed_seconds']):.2f}s"
-        )
-        self._log(
-            f"MAME | [{run_id}] | DB OK | banco={self._human_bytes(db_size)} | tempo_db={db_elapsed:.2f}s"
-        )
-        self._log(
-            f"MAME | [{run_id}] | AUDITORIA | XML={self._human_bytes(raw_bytes)} | hash={source_hash[:16]} | máquinas={machine_count:,}"
-        )
-        self._log(
-            f"MAME | [{run_id}] | DONE | catálogo completo ingerido | tempo_total={elapsed:.2f}s"
-        )
-        result = self._result(
-            import_id, build, machine_count, source, source_hash, started, False, run_id, totals
-        )
-        result["ini_results"] = self._ingest_inis(executable.parent)
+        self._log(f"MAME | [{run_id}] | CATALOG OK | máquinas={totals['machines']:,} | ROMs={totals['roms']:,} | disks={totals['disks']:,} | displays={totals['displays']:,} | samples={totals['samples']:,} | chips={totals['chips']:,} | dispositivos={totals['devices']:,} | tempo={float(totals['elapsed_seconds']):.2f}s")
+        self._log(f"MAME | [{run_id}] | DB OK | banco={self._human_bytes(db_size)} | tempo_db={db_elapsed:.2f}s")
+        result = self._result(import_id, build, machine_count, source, source_hash, started, False, run_id, totals)
+        result["ini_results"] = self._ingest_inis(executable.parent) if include_auxiliary else []
+        result["auxiliary_ingested"] = bool(include_auxiliary)
+        self._log(f"MAME | [{run_id}] | DONE | catálogo completo ingerido | auxiliares={'sim' if include_auxiliary else 'não'} | tempo_total={elapsed:.2f}s")
         return result
 
     def _ingest_inis(self, mame_root: Path) -> list[tuple[str, dict[str, object]]]:
-        """Importa os INIs dependentes somente depois que o catálogo ListXML terminou."""
-        stages = (
-            ("CATLIST", MameClassificationService),
-            ("RESOLUTION", MameResolutionService),
-            ("VSYNC", MameVsyncService),
-        )
+        """Importa fontes auxiliares MAME, incluindo software lists de hash/*.xml."""
+        stages = (("CATLIST", MameClassificationService), ("RESOLUTION", MameResolutionService), ("VSYNC", MameVsyncService))
         results: list[tuple[str, dict[str, object]]] = []
-        total = len(stages)
-        self._log(
-            f"MAME | INIS | QUEUE | 1/{total} CATLIST → 2/{total} RESOLUTION → 3/{total} VSYNC"
-        )
-        for index, (name, service_class) in enumerate(stages, 1):
-            self._log(f"MAME | INIS | QUEUE | {index}/{total} | {name}")
+        for name, service_class in stages:
+            self._log(f"MAME | INIS | {name} | START")
             service = service_class(self.DB_FILE, mame_root)
             results.append((name, dict(service.ingest(logger=self._log))))
-        self._log("MAME | INIS | DONE | todas as fontes concluídas")
+        self._log("MAME | INIS | FOLDERS | START")
+        folder_result = MameFolderFilterService(self.DB_FILE, mame_root).ingest(logger=self._log)
+        results.append(("FOLDERS", dict(folder_result)))
+        hash_path = mame_root / "hash"
+        self._log("MAME | INIS | SOFTWARELISTS | START")
+        software_result = MameSoftwareListService(self.DB_FILE, hash_path).ingest(logger=self._log)
+        results.append(("SOFTWARELISTS", dict(software_result)))
+        self._log(f"MAME | INIS | DONE | fontes={len(results)} | folders={folder_result.get('files', 0):,} | softwarelists={software_result.get('files', 0):,} | software={software_result.get('software', 0):,}")
         return results
 
     @staticmethod
     def _run_mame(executable: Path, timeout: float) -> str:
-        """Executa MAME de modo seguro e retorna o XML completo."""
         try:
-            result = subprocess.run(
-                [str(executable), "-listxml"],
-                cwd=executable.parent,
-                stdin=subprocess.DEVNULL,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=timeout,
-                check=False,
-                shell=False,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            )
+            result = subprocess.run([str(executable), "-listxml"], cwd=executable.parent, stdin=subprocess.DEVNULL, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout, check=False, shell=False, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise MameCatalogError(f"Falha ao executar MAME -listxml: {exc}") from exc
         if result.returncode != 0:
-            raise MameCatalogError(
-                f"MAME -listxml retornou {result.returncode}: {result.stderr.strip()}"
-            )
+            raise MameCatalogError(f"MAME -listxml retornou {result.returncode}: {result.stderr.strip()}")
         if not result.stdout.strip():
             raise MameCatalogError("MAME -listxml retornou XML vazio.")
         return result.stdout
 
     @staticmethod
     def _validate_schema(db: sqlite3.Connection) -> None:
-        """Verifica o conjunto mínimo do catálogo relacional."""
-        required = {
-            "emulator_definition",
-            "mame_listxml_import",
-            "mame_listxml_document",
-            "mame_machine",
-            "mame_machine_metadata",
-            "mame_rom",
-            "mame_disk",
-            "mame_display",
-            "mame_sample",
-            "mame_chip",
-            "mame_device",
-            "mame_device_ref",
-            "mame_input",
-            "mame_control",
-            "mame_driver",
-            "mame_feature",
-            "mame_slot",
-            "mame_slot_option",
-            "mame_softwarelist",
-            "mame_ramoption",
-            "mame_dipswitch",
-            "mame_dipvalue",
-            "mame_configuration",
-            "mame_confsetting",
-            "mame_port",
-            "mame_adjuster",
-            "mame_biosset",
-        }
-        existing = {
-            row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")
-        }
+        required = {"emulator_definition", "mame_listxml_import", "mame_listxml_document", "mame_machine", "mame_machine_metadata", "mame_rom", "mame_disk", "mame_display", "mame_sample", "mame_chip", "mame_device", "mame_device_ref", "mame_input", "mame_control", "mame_feature", "mame_slot", "mame_slot_option", "mame_softwarelist", "mame_ramoption", "mame_dipswitch", "mame_dipvalue", "mame_configuration", "mame_confsetting", "mame_port", "mame_adjuster", "mame_biosset", "mame_folder_filter_source", "mame_folder_filter_entry", "mame_softwarelist_source", "mame_software", "mame_software_part", "mame_software_rom", "mame_software_disk", "mame_software_info"}
+        existing = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         missing = sorted(required - existing)
         if missing:
-            raise MameCatalogError(
-                "Schema MAME incompleto; migrations necessárias: " + ", ".join(missing)
-            )
+            raise MameCatalogError("Schema MAME incompleto; migrations necessárias: " + ", ".join(missing))
 
-    def _result(
-        self,
-        import_id: int,
-        build: str | None,
-        machines: int,
-        source: Path,
-        source_hash: str,
-        started: float,
-        deduplicated: bool,
-        run_id: str,
-        totals: dict[str, int | float] | None = None,
-    ) -> dict[str, object]:
-        """Monta o resultado padronizado da operação."""
+    def _result(self, import_id: int, build: str | None, machines: int, source: Path, source_hash: str, started: float, deduplicated: bool, run_id: str, totals: dict[str, int | float] | None = None) -> dict[str, object]:
         totals = totals or {}
-        return {
-            "import_id": import_id,
-            "mame_build": build,
-            "machine_count": int(machines),
-            "display_count": int(totals.get("displays", 0)),
-            "rom_count": int(totals.get("roms", 0)),
-            "disk_count": int(totals.get("disks", 0)),
-            "raw_xml": self.RAW_FILE,
-            "xml_path": source,
-            "database": self.DB_FILE,
-            "source_hash": source_hash,
-            "elapsed_seconds": perf_counter() - started,
-            "deduplicated": deduplicated,
-            "lossless": True,
-            "catalog_complete": True,
-            "profiles_generated": 0,
-            "run_id": run_id,
-        }
+        return {"import_id": import_id, "mame_build": build, "machine_count": int(machines), "display_count": int(totals.get("displays", 0)), "rom_count": int(totals.get("roms", 0)), "disk_count": int(totals.get("disks", 0)), "raw_xml": self.RAW_FILE, "xml_path": source, "database": self.DB_FILE, "source_hash": source_hash, "elapsed_seconds": perf_counter() - started, "deduplicated": deduplicated, "lossless": True, "catalog_complete": True, "profiles_generated": 0, "run_id": run_id}
 
     @staticmethod
     def _human_bytes(value: int) -> str:
-        """Converte bytes para uma unidade legível."""
         size = float(value)
         for unit in ("B", "KB", "MB", "GB", "TB"):
             if size < 1024 or unit == "TB":

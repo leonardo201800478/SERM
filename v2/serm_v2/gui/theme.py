@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
@@ -11,6 +12,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
+    QSizePolicy,
     QTabWidget,
 )
 
@@ -20,61 +22,15 @@ QMainWindow, QWidget#centralWidget { background-color:#1b1b1b; }
 QLabel { color:#dddddd; }
 QLabel[role="title"] { color:#fff; font-size:20pt; font-weight:900; padding:2px 0 7px 0; }
 QLabel[role="section"] { color:#d13d78; font-size:11pt; font-weight:800; padding:3px 0; }
-
-/* Navegação lateral principal */
-QFrame#navigationSidebar {
-    background:#151515;
-    border:1px solid #343434;
-    border-radius:10px;
-}
-QLabel#navigationBrand {
-    color:#ffffff;
-    font-size:24pt;
-    font-weight:950;
-    letter-spacing:2px;
-    padding:4px 0 0 0;
-}
-QLabel#navigationVersion {
-    color:#00c8d7;
-    font-size:7.5pt;
-    font-weight:800;
-    letter-spacing:1px;
-    padding-bottom:5px;
-}
-QListWidget#navigationList {
-    background:transparent;
-    border:0;
-    outline:none;
-    padding:2px;
-}
-QListWidget#navigationList::item {
-    color:#a8a8a8;
-    background:transparent;
-    border:1px solid transparent;
-    border-radius:7px;
-    padding:7px 10px;
-    min-height:30px;
-    font-size:10.5pt;
-    font-weight:700;
-}
-QListWidget#navigationList::item:hover {
-    color:#ffffff;
-    background:#242424;
-    border:1px solid #3e3e3e;
-}
-QListWidget#navigationList::item:selected {
-    color:#ffffff;
-    background:#3a1d2d;
-    border:1px solid #8d2857;
-    border-left:3px solid #00c8d7;
-}
-QLabel#navigationFooter {
-    color:#626262;
-    font-size:7.5pt;
-    padding:8px 5px 3px 5px;
-}
+QFrame#navigationSidebar { background:#151515; border:1px solid #343434; border-radius:10px; }
+QLabel#navigationBrand { color:#ffffff; font-size:24pt; font-weight:950; letter-spacing:2px; padding:4px 0 0 0; }
+QLabel#navigationVersion { color:#00c8d7; font-size:7.5pt; font-weight:800; letter-spacing:1px; padding-bottom:5px; }
+QListWidget#navigationList { background:transparent; border:0; outline:none; padding:2px; }
+QListWidget#navigationList::item { color:#a8a8a8; background:transparent; border:1px solid transparent; border-radius:7px; padding:7px 10px; min-height:30px; font-size:10.5pt; font-weight:700; }
+QListWidget#navigationList::item:hover { color:#ffffff; background:#242424; border:1px solid #3e3e3e; }
+QListWidget#navigationList::item:selected { color:#ffffff; background:#3a1d2d; border:1px solid #8d2857; border-left:3px solid #00c8d7; }
+QLabel#navigationFooter { color:#626262; font-size:7.5pt; padding:8px 5px 3px 5px; }
 QStackedWidget#pageStack { background:#1b1b1b; border:0; }
-
 QTabWidget::pane { background:#242424; border:1px solid #454545; border-top:2px solid #9c2f60; }
 QTabBar { background:#171717; }
 QTabBar::tab { background:#202020; color:#a9a9a9; border:1px solid #383838; border-bottom:none; padding:8px 18px 9px 18px; min-width:82px; margin-right:2px; }
@@ -156,12 +112,17 @@ def _refine_labels(root) -> tuple[int, int]:
             label.setStyleSheet("")
             _refresh_style(label, "role", "section")
             sections += 1
+        if len(text) > 72 and not label.objectName().startswith("navigation"):
+            label.setWordWrap(True)
+            label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+            label.setMinimumWidth(0)
     return titles, sections
 
 
 def _refine_buttons(root) -> None:
     for button in root.findChildren(QPushButton):
         button.setMinimumHeight(max(button.minimumHeight(), 30))
+        button.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         text = button.text().strip().casefold()
         role = None
         if any(token in text for token in ("selecionar pasta", "adicionar pasta", "selecionar diretório")):
@@ -188,36 +149,53 @@ def _refine_lists(root) -> None:
             widget.setMinimumHeight(max(widget.minimumHeight(), 140))
 
 
+def _refine_text_views(root) -> None:
+    for widget in root.findChildren(QPlainTextEdit):
+        widget.setReadOnly(True)
+        widget.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
+        widget.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        widget.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        widget.setMaximumBlockCount(max(widget.maximumBlockCount(), 3000))
+        widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        widget.setMinimumHeight(max(widget.minimumHeight(), 130))
+
+
 def refine_dashboard(root) -> dict[str, int]:
-    """Refina a composição das telas, incluindo a guia de diretórios."""
+    """Refina a composição das telas e mantém os textos responsivos."""
     root_layout = root.layout()
     if root_layout is not None:
         root_layout.setContentsMargins(10, 8, 10, 6)
         root_layout.setSpacing(6)
+        root_layout.setSizeConstraint(QLayout.SizeConstraint.SetDefaultConstraint)
     for layout in root.findChildren(QLayout):
         layout.setSpacing(6)
+        layout.setSizeConstraint(QLayout.SizeConstraint.SetDefaultConstraint)
     panels = _refine_frames(root)
     titles, sections = _refine_labels(root)
     _refine_buttons(root)
     _refine_lists(root)
-    for widget in root.findChildren(QPlainTextEdit):
-        widget.setMinimumHeight(max(widget.minimumHeight(), 150))
+    _refine_text_views(root)
     for widget in root.findChildren(QProgressBar):
         widget.setMaximumHeight(20)
     for widget in root.findChildren(QTabWidget):
         widget.setDocumentMode(True)
         widget.setUsesScrollButtons(False)
+        widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
     return {"panels": panels, "titles": titles, "sections": sections}
 
 
 def normalize_log_widgets(root) -> int:
-    """Padroniza todos os consoles QPlainTextEdit para o monitor de fósforo."""
+    """Padroniza consoles para o monitor de logs sem clipping horizontal."""
     widgets = root.findChildren(QPlainTextEdit)
     for widget in widgets:
         widget.setStyleSheet("")
         widget.setObjectName("logConsole")
         widget.setReadOnly(True)
+        widget.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
+        widget.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        widget.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         widget.setMaximumBlockCount(max(widget.maximumBlockCount(), 3000))
+        widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
     return len(widgets)
 
 

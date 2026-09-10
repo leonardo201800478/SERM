@@ -1,0 +1,82 @@
+name: Ruff V2 format and lint
+
+on:
+  push:
+    branches:
+      - feature/arcade-studio-catalog
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  ruff:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: v2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install Ruff
+        run: python -m pip install "ruff>=0.12,<1"
+
+      - name: Apply non-autofix Ruff corrections
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          replacements = {
+              "serm_v2/services/no_intro_scan_service.py": [
+                  (
+                      'tags.extend(f"language:{l}" for l in dict.fromkeys(languages))',
+                      'tags.extend(f"language:{language}" for language in dict.fromkeys(languages))',
+                  ),
+              ],
+              "serm_v2/services/reconstruction_service.py": [
+                  (
+                      "for member, (source, name) in unique.items():",
+                      "for _member, (source, name) in unique.items():",
+                  ),
+              ],
+          }
+
+          for relative_path, pairs in replacements.items():
+              path = Path(relative_path)
+              content = path.read_text(encoding="utf-8")
+              for old, new in pairs:
+                  if old not in content:
+                      raise SystemExit(f"Expected Ruff target not found: {path}: {old}")
+                  content = content.replace(old, new, 1)
+              path.write_text(content, encoding="utf-8", newline="\n")
+          PY
+
+      - name: Format
+        run: ruff format .
+
+      - name: Autofix lint
+        run: ruff check . --fix
+
+      - name: Verify lint
+        run: ruff check .
+
+      - name: Commit corrections
+        working-directory: .
+        run: |
+          if git diff --quiet; then
+            echo "No Ruff corrections needed."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add v2
+          git commit -m "style: resolve remaining Ruff findings"
+          git push

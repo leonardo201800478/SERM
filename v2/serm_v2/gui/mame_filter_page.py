@@ -8,14 +8,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QGroupBox,
     QHBoxLayout,
     QLabel,
-    QListWidget,
     QMessageBox,
     QPushButton,
     QTabWidget,
@@ -151,7 +149,13 @@ class MameFilterPage(QWidget):
         self.working_only = QCheckBox("Somente máquinas working")
         self.include_chd.setChecked(True)
         self.include_optional.setChecked(True)
-        for check in (self.include_bios, self.include_devices, self.include_chd, self.include_optional, self.working_only):
+        for check in (
+            self.include_bios,
+            self.include_devices,
+            self.include_chd,
+            self.include_optional,
+            self.working_only,
+        ):
             check.toggled.connect(self._update_preview)
             clone_layout.addWidget(check)
         layout.addWidget(clone_box)
@@ -177,7 +181,15 @@ class MameFilterPage(QWidget):
             if not isinstance(item, dict):
                 continue
             try:
-                profiles.append(FilterProfileData(**{k: v for k, v in item.items() if k in FilterProfileData.__dataclass_fields__}))
+                profiles.append(
+                    FilterProfileData(
+                        **{
+                            k: v
+                            for k, v in item.items()
+                            if k in FilterProfileData.__dataclass_fields__
+                        }
+                    )
+                )
             except (TypeError, ValueError):
                 continue
         return profiles
@@ -186,7 +198,6 @@ class MameFilterPage(QWidget):
         self.scan_combo.blockSignals(True)
         self.scan_combo.clear()
         for row in ScanRepository(database_path()).list_for_source("MAME"):
-            counts = self._counts(row)
             label = str(row.get("catalog_label") or "MAME")
             self.scan_combo.addItem(
                 f"{label} › {row.get('scan_type') or 'full'} | {row.get('scan_id')}", row
@@ -223,7 +234,11 @@ class MameFilterPage(QWidget):
         now = datetime.now(UTC).isoformat()
         profiles = self._read_profiles()
         existing = next(
-            (p for p in profiles if p.source == "MAME" and p.system == str(row.get("system") or "MAME")),
+            (
+                p
+                for p in profiles
+                if p.source == "MAME" and p.system == str(row.get("system") or "MAME")
+            ),
             None,
         )
         profile = existing or FilterProfileData(
@@ -298,7 +313,10 @@ class MameFilterPage(QWidget):
         profiles = [p for p in self._read_profiles() if p.profile_id != profile.profile_id]
         profiles.append(profile)
         self._profiles_path.parent.mkdir(parents=True, exist_ok=True)
-        self._profiles_path.write_text(json.dumps([asdict(p) for p in profiles], indent=2, ensure_ascii=False), encoding="utf-8")
+        self._profiles_path.write_text(
+            json.dumps([asdict(p) for p in profiles], indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
         MameFundamentalFilterService.save(profile.profile_id, self._values())
         self.result.setText(f"Filtros salvos: {profile.name} | SET={profile.mame_set_type}")
 
