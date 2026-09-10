@@ -218,7 +218,11 @@ class ProgettoSnapsPage(QWidget):
         self.location_label.setText(str(executable))
         present = self._scan_support_files(root)
         sample_count = self._sample_count(root)
-        self._set_scan_status(present, sample_count)
+        self._set_scan_status(root, sample_count)
+        self.status_label.setText(
+            f"MAME.exe: OK | Suporte: {present}/{len(self.EXPECTED_SUPPORT)} | "
+            f"Samples: {sample_count} ZIP(s)"
+        )
 
     def _clear_local_status(self) -> None:
         self.location_label.setText(
@@ -242,19 +246,19 @@ class ProgettoSnapsPage(QWidget):
             version_item = self.table.item(row, 3)
             status_item = self.table.item(row, 4)
             if version_item is not None:
-                version_item.setText(self._local_version(path) if exists else "—")
+                version_item.setText(
+                    self._local_version(path, relative) if exists else "—"
+                )
             if status_item is not None:
                 status_item.setText("Instalado" if exists else "Ausente")
         return present
 
-    def _local_version(self, path: Path) -> str:
-        """Detecta a versão no arquivo instalado e usa o cache somente como fallback."""
+    def _local_version(self, path: Path, relative: str) -> str:
+        """Detecta a versão no recurso instalado e usa o cache somente como fallback."""
         detected = detect_local_version(path)
         if detected is not None:
             return detected
-        resource_name = self.RESOURCE_BY_PATH.get(path.as_posix().replace("\\", "/").split("/", 1)[-1])
-        if resource_name is None:
-            resource_name = self.RESOURCE_BY_PATH.get(str(path).replace("\\", "/"), "")
+        resource_name = self.RESOURCE_BY_PATH.get(relative)
         return self._downloaded_version(resource_name) if resource_name else "—"
 
     def _downloaded_version(self, resource_name: str) -> str:
@@ -282,30 +286,26 @@ class ProgettoSnapsPage(QWidget):
             return 0
         return sum(1 for item in sample_dir.glob("*.zip") if item.is_file())
 
-    def _set_scan_status(self, present: int, sample_count: int) -> None:
+    def _set_scan_status(self, root: Path, sample_count: int) -> None:
         sample_row = len(self.EXPECTED_SUPPORT)
         version_item = self.table.item(sample_row, 3)
         status_item = self.table.item(sample_row, 4)
         if version_item is not None:
-            sample_dir = self._normalized_root()
             version = "—"
-            if sample_dir is not None and sample_count:
+            if sample_count:
                 sample_files = sorted(
-                    path for path in (sample_dir / "samples").glob("*.zip") if path.is_file()
+                    path for path in (root / "samples").glob("*.zip") if path.is_file()
                 )
                 for sample_file in sample_files:
-                    version = detect_local_version(sample_file)
-                    if version is not None:
+                    detected = detect_local_version(sample_file)
+                    if detected is not None:
+                        version = detected
                         break
-                if version is None:
+                if version == "—":
                     version = self._downloaded_version("samples-fullpack")
             version_item.setText(version)
         if status_item is not None:
             status_item.setText(f"{sample_count} ZIP(s)" if sample_count else "Ausente")
-        self.status_label.setText(
-            f"MAME.exe: OK | Suporte: {present}/{len(self.EXPECTED_SUPPORT)} | "
-            f"Samples: {sample_count} ZIP(s)"
-        )
 
     def _resource(self, name: str):
         """Resolve um recurso e produz erro diagnóstico quando ausente."""
