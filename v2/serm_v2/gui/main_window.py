@@ -25,6 +25,7 @@ from .home import HomePage
 from .log_handler import LogViewer
 from .mame_scan_page import MameScanPage
 from .no_intro_filter_page import NoIntroFilterPage
+from .progetto_snaps_page import ProgettoSnapsPage
 from .reconstruction_phase_page import ReconstructionPhasePage
 from .scan_phase_page import ScanPhasePage
 from .tools_directories import ToolsDirectoriesPage
@@ -44,6 +45,7 @@ class MainWindow(QMainWindow):
         ("2 — Filtragem", "Filtragem de fontes não-Arcade sobre scans já concluídos", "SP_FileDialogDetailedView"),
         ("No-Intro — Filtros", "Conteúdo, regiões, clones, hacks, traduções e 1G1R", "SP_FileDialogDetailedView"),
         ("3 — Reconstrução", "Montar o set a partir do arquivo filtrado", "SP_FileDialogInfoView"),
+        ("Scraper de DATs", "Importação e processamento de DATs", "SP_FileIcon"),
     )
     _GEOMETRY_KEY = "main_window/geometry"
     _STATE_KEY = "main_window/state"
@@ -157,63 +159,16 @@ class MainWindow(QMainWindow):
         self.navigation.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.navigation.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
         for label, description, style_icon in self.NAV_ITEMS:
-            item = QListWidgetItem(self.style().standardIcon(getattr(QStyle, style_icon)), label)
-            item.setToolTip(description)
-            item.setData(Qt.ItemDataRole.UserRole, description)
-            item.setSizeHint(QSize(0, 46))
-            self.navigation.addItem(item)
-        sidebar_layout.addWidget(self.navigation, 1)
-        footer = QLabel("SERM V2\nSistema de Emulação e ROM Management")
-        footer.setObjectName("navigationFooter")
-        footer.setWordWrap(True)
-        sidebar_layout.addWidget(footer)
-        self.page_stack = QStackedWidget()
-        self.page_stack.setObjectName("pageStack")
-        self.home_section = HomePage(self)
-        self.directories_tab = DirectoriesPage(self)
-        self.tools_tab = ToolsDirectoriesPage(self)
-        self.dat_scraper_tab = DatScraperPage(self)
-        self.settings_tab = EmulatorSettingsPage(self)
-        self.visuals_tab = EmulatorShadersBezelsPage(self)
-        self.arcade_studio_tab = ArcadeStudioPage(self)
-        self.scan_tab = ScanPhasePage(self)
-        self.mame_scan_tab = MameScanPage(self)
-        self.filter_tab = FilteringPhasePage(self)
-        self.no_intro_filter_tab = NoIntroFilterPage(self)
-        self.reconstruction_tab = ReconstructionPhasePage(self)
-        self.pages = (
-            self.home_section, self.directories_tab, self.tools_tab, self.dat_scraper_tab,
-            self.settings_tab, self.visuals_tab, self.arcade_studio_tab, self.scan_tab,
-            self.mame_scan_tab, self.filter_tab, self.no_intro_filter_tab, self.reconstruction_tab,
-        )
-        for page in self.pages:
-            self.page_stack.addWidget(page)
-        root_layout.addWidget(sidebar)
-        root_layout.addWidget(self.page_stack, 1)
-        self.setCentralWidget(root)
-        self.navigation.currentRowChanged.connect(self._on_navigation_changed)
-        self.navigation.setCurrentRow(0)
+            item = QListWidgetItem(self.style().standardIcon(getattr(QStyle, style_icon)), label); item.setToolTip(description); item.setData(Qt.ItemDataRole.UserRole, description); item.setSizeHint(QSize(0,46)); self.navigation.addItem(item)
+        sidebar_layout.addWidget(self.navigation,1)
+        footer = QLabel("SERM V2\nSistema de Emulação e ROM Management"); footer.setObjectName("navigationFooter"); footer.setWordWrap(True); sidebar_layout.addWidget(footer)
 
-    def _build_log_dock(self) -> None:
-        """Cria um console global de logs, redimensionável e sem clipping."""
-        self.log_dock = QDockWidget("LOGS DO SERM", self)
-        self.log_dock.setObjectName("sermLogDock")
-        self.log_dock.setAllowedAreas(Qt.DockWidgetArea.BottomDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
-        self.log_dock.setFeatures(
-            QDockWidget.DockWidgetFeature.DockWidgetMovable
-            | QDockWidget.DockWidgetFeature.DockWidgetFloatable
-            | QDockWidget.DockWidgetFeature.DockWidgetClosable
-        )
-        console = self.log_viewer.create_console(self.log_dock)
-        self.log_console = console
-        self.log_dock.setWidget(console)
-        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.log_dock)
-        self.log_dock.resize(self.width(), 175)
-        self.log_dock.visibilityChanged.connect(self._log_dock_visibility_changed)
-
-    def _log_dock_visibility_changed(self, visible: bool) -> None:
-        if visible:
-            self.status_bar.showMessage("Console de logs ativo — arraste a borda para redimensionar")
+        self.page_stack = QStackedWidget(); self.page_stack.setObjectName("pageStack")
+        self.home_section = HomePage(self); self.directories_tab = DirectoriesPage(self); self.tools_tab = ToolsDirectoriesPage(self); self.settings_tab = EmulatorSettingsPage(self); self.visuals_tab = EmulatorShadersBezelsPage(self); self.scan_tab = ScanPhasePage(self); self.mame_scan_tab = MameScanPage(self); self.filter_tab = FilteringPhasePage(self); self.mame_filter_tab = MameFilterPage(self); self.no_intro_filter_tab = NoIntroFilterPage(self); self.reconstruction_tab = ReconstructionPhasePage(self); self.dat_scraper_tab = DatScraperPage(self)
+        self.pages = (self.home_section,self.directories_tab,self.tools_tab,self.settings_tab,self.visuals_tab,self.scan_tab,self.mame_scan_tab,self.filter_tab,self.mame_filter_tab,self.no_intro_filter_tab,self.reconstruction_tab,self.dat_scraper_tab)
+        for page in self.pages: self.page_stack.addWidget(page)
+        root_layout.addWidget(sidebar); root_layout.addWidget(self.page_stack,1); self.setCentralWidget(root)
+        self.navigation.currentRowChanged.connect(self._on_navigation_changed); self.navigation.setCurrentRow(0)
 
     def _on_navigation_changed(self, index: int) -> None:
         if 0 <= index < len(self.pages):

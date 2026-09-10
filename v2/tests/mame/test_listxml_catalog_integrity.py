@@ -1,14 +1,8 @@
 """Validação leve e determinística do catálogo MAME.
 
 Compara a fonte ListXML com o catálogo relacional sem imprimir máquinas/ROMs
-individualmente. O XML é percorrido em streaming para evitar carregar os 305 MB
-inteiros em memória.
-
-Uso:
-    python -m tests.mame.test_listxml_catalog_integrity
-
-Ou, a partir de v2:
-    python tests/mame/test_listxml_catalog_integrity.py
+individualmente. O XML é percorrido em streaming para evitar carregar o documento
+inteiro em memória.
 """
 
 from __future__ import annotations
@@ -24,7 +18,6 @@ ROOT = Path(__file__).resolve().parents[2]
 DB_PATH = ROOT / "data" / "database" / "serm.db"
 XML_PATH = ROOT / "data" / "mame" / "metadata" / "listxml.xml"
 
-# Tabelas/elementos cuja cardinalidade faz parte do contrato do catálogo atual.
 COUNTS = {
     "machine": "mame_machine",
     "rom": "mame_rom",
@@ -44,15 +37,24 @@ def _db_table_exists(db: sqlite3.Connection, table: str) -> bool:
     )
 
 
-def _db_count(db: sqlite3.Connection, table: str) -> int | None:
-    """Conta registros de uma tabela sem trazer nenhum registro para memória."""
+def _db_count(db: sqlite3.Connection, table: str, import_id: int) -> int | None:
+    """Conta somente registros pertencentes à importação auditada."""
     if not _db_table_exists(db, table):
         return None
-    return int(db.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0])
+    if table == "mame_machine":
+        query = 'SELECT COUNT(*) FROM "mame_machine" WHERE import_id=?'
+        params = (import_id,)
+    else:
+        query = (
+            f'SELECT COUNT(*) FROM "{table}" '
+            "WHERE machine_id IN (SELECT id FROM mame_machine WHERE import_id=?)"
+        )
+        params = (import_id,)
+    return int(db.execute(query, params).fetchone()[0])
 
 
 def _sha256(path: Path) -> str:
-    """Calcula SHA-256 em blocos pequenos para não consumir muita memória."""
+    """Calcula SHA-256 em blocos pequenos."""
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         for block in iter(lambda: handle.read(1024 * 1024), b""):
@@ -61,22 +63,17 @@ def _sha256(path: Path) -> str:
 
 
 def _stream_counts(path: Path) -> tuple[dict[str, int], int, str | None]:
-    """Percorre o XML em streaming e conta entidades relevantes.
-
-    Retorna contagens, quantidade de máquinas e versão/build quando disponível.
-    """
+    """Percorre o XML em streaming e conta entidades relevantes."""
     counts = {key: 0 for key in COUNTS}
     machines = 0
     build: str | None = None
 
-    # iterparse descarta elementos concluídos, mantendo memória aproximadamente
-    # proporcional à maior subárvore, e não ao documento inteiro.
     for event, elem in ET.iterparse(path, events=("start", "end")):
         if event == "start":
-            if elem.tag == "machine":
+            if elem.tag == "mame" and build is None:
+                build = elem.attrib.get("build")
+            elif elem.tag == "machine":
                 machines += 1
-                if build is None:
-                    build = elem.attrib.get("build")
             continue
 
         key = elem.tag
@@ -99,24 +96,24 @@ def _print_result(label: str, expected: int | None, actual: int | None) -> bool:
     return ok
 
 
-def _sample_machine_names(db: sqlite3.Connection, limit: int = 10) -> list[str]:
-    """Obtém uma amostra determinística pequena de nomes de máquinas."""
+def _sample_machine_names(db: sqlite3.Connection, import_id: int, limit: int = 10) -> list[str]:
+    """Obtém uma amostra determinística da importação auditada."""
     if not _db_table_exists(db, "mame_machine"):
         return []
-    rows = db.execute("SELECT name FROM mame_machine ORDER BY name LIMIT ?", (limit,)).fetchall()
+    rows = db.execute(
+        "SELECT name FROM mame_machine WHERE import_id=? ORDER BY name LIMIT ?",
+        (import_id, limit),
+    ).fetchall()
     return [str(row[0]) for row in rows]
 
 
-def _validate_sample_identity(db: sqlite3.Connection, xml_path: Path) -> tuple[int, int]:
-    """Compara uma pequena amostra de nomes XML contra o catálogo.
-
-    A amostra é limitada para manter o teste rápido e não poluir o terminal.
-    """
-    sample = set(_sample_machine_names(db))
+def _validate_sample_identity(db: sqlite3.Connection, xml_path: Path, import_id: int) -> tuple[int, int]:
+    """Compara uma pequena amostra de nomes XML contra a importação auditada."""
+    sample = set(_sample_machine_names(db, import_id))
     if not sample:
         return 0, 0
 
-    found = set()
+    found: set[str] = set()
     for _event, elem in ET.iterparse(xml_path, events=("end",)):
         if elem.tag == "machine":
             name = elem.attrib.get("name")
@@ -129,7 +126,7 @@ def _validate_sample_identity(db: sqlite3.Connection, xml_path: Path) -> tuple[i
 
 
 def main() -> int:
-    """Executa todas as validações e retorna código de processo apropriado."""
+    """Executa as validações e retorna código de processo apropriado."""
     started = time.perf_counter()
     print("=" * 72)
     print("SERM | MAME CATALOG INTEGRITY TEST")
@@ -137,11 +134,8 @@ def main() -> int:
     print(f"XML    : {XML_PATH}")
     print(f"BANCO  : {DB_PATH}")
 
-    if not XML_PATH.is_file():
-        print("ERROR  | ListXML não encontrado")
-        return 2
-    if not DB_PATH.is_file():
-        print("ERROR  | serm.db não encontrado")
+    if not XML_PATH.is_file() or not DB_PATH.is_file():
+        print("ERROR  | fonte XML ou banco não encontrado")
         return 2
 
     print("\n[1/5] FONTE")
@@ -161,32 +155,35 @@ def main() -> int:
     db.execute("PRAGMA foreign_keys=ON")
     import_row = db.execute(
         """SELECT id, mame_build, machine_count, byte_length, source_hash, status
-           FROM mame_listxml_import ORDER BY id DESC LIMIT 1"""
+           FROM mame_listxml_import
+           WHERE status='completed'
+           ORDER BY id DESC LIMIT 1"""
     ).fetchone()
     if not import_row:
-        print("FAIL   | nenhuma importação MAME encontrada")
+        print("FAIL   | nenhuma importação MAME concluída")
         db.close()
         return 1
+
     import_id, db_build, declared_machines, byte_length, db_hash, status = import_row
     print(f"Import : {import_id} | status={status} | build={db_build}")
     print(f"Bytes  : {byte_length:,}")
     print(f"Hash   : {'PASS' if db_hash == xml_hash else 'FAIL'}")
+    passed = db_hash == xml_hash
 
     print("\n[4/5] CARDINALIDADE")
-    passed = True
     for xml_key, table in COUNTS.items():
         expected = machine_count if xml_key == "machine" else xml_counts[xml_key]
-        actual = _db_count(db, table)
+        actual = _db_count(db, table, int(import_id))
         passed &= _print_result(table, expected, actual)
 
-    if declared_machines is not None and declared_machines != machine_count:
+    if declared_machines != machine_count:
         print(f"machine_count      FAIL   import={declared_machines:,} xml={machine_count:,}")
         passed = False
     else:
         print(f"machine_count      PASS   {machine_count:,}")
 
     print("\n[5/5] AMOSTRA DE IDENTIDADE")
-    sample_total, sample_found = _validate_sample_identity(db, XML_PATH)
+    sample_total, sample_found = _validate_sample_identity(db, XML_PATH, int(import_id))
     sample_ok = sample_total == sample_found
     print(f"Máquinas amostra   {'PASS' if sample_ok else 'FAIL'}   {sample_found}/{sample_total}")
     passed &= sample_ok
