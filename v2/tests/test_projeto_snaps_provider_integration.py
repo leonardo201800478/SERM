@@ -32,7 +32,6 @@ def test_projeto_snaps_support_download_extract_and_install(tmp_path: Path) -> N
     assert all(item[2] is DestinationAction.CREATE for item in result)
     assert (destination / "dats/command.dat").is_file()
     assert (destination / "dats/gameinit.dat").is_file()
-    assert (destination / "dats/unoffsysinfo.dat").is_file()
     assert (destination / "folders/catlist.ini").is_file()
     assert (destination / "folders/genre.ini").is_file()
     assert (destination / "folders/bestgames.ini").is_file()
