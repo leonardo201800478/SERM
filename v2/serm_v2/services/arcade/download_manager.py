@@ -13,6 +13,7 @@ from enum import StrEnum
 from pathlib import Path, PurePosixPath
 
 from ...models.external_resource import ExternalResource, ExtractionMode
+from .latest_resource_resolver import LatestResourceResolver
 
 
 class DestinationAction(StrEnum):
@@ -30,6 +31,7 @@ class DownloadManager:
     def __init__(self, cache_dir: Path, source_dir: Path | None = None) -> None:
         self.cache_dir = Path(cache_dir)
         self.source_dir = Path(source_dir) if source_dir is not None else None
+        self._latest_resolver = LatestResourceResolver()
 
     def archive_path(self, resource: ExternalResource) -> Path:
         """Retorna o caminho canonico do pacote no cache."""
@@ -42,10 +44,13 @@ class DownloadManager:
         """Baixa atomicamente e reutiliza um pacote ja validado.
 
         Recursos externos podem declarar URLs alternativas em
-        ``metadata["fallback_urls"]``. A URL principal e sempre tentada
+        ``metadata[\"fallback_urls\"]``. A URL principal e sempre tentada
         primeiro; os fallbacks so entram em acao quando a transferencia falha.
         A validacao do arquivo continua obrigatoria antes de publicar o cache.
+        A descoberta de versao acontece antes de definir o caminho do cache,
+        portanto uma versao nova nunca sobrescreve silenciosamente a anterior.
         """
+        resource = self._latest_resolver.resolve(resource)
         target = self.archive_path(resource)
         target.parent.mkdir(parents=True, exist_ok=True)
         if target.is_file() and self._matches(target, resource):
@@ -132,7 +137,8 @@ class DownloadManager:
 
     def acquire(self, resource: ExternalResource) -> Path:
         """Baixa e extrai mantendo o resultado fora da instalacao MAME."""
-        return self.extract(resource, self.download(resource))
+        resolved = self._latest_resolver.resolve(resource)
+        return self.extract(resolved, self.download(resolved))
 
     def install_members(
         self,
@@ -157,11 +163,7 @@ class DownloadManager:
         extraction_root = extracted.resolve()
         files = tuple(path for path in extraction_root.rglob("*") if path.is_file())
         for archive_member, logical_destination in members.items():
-            source = self._resolve_member(
-                extraction_root,
-                str(archive_member),
-                files,
-            )
+            source = self._resolve_member(extraction_root, str(archive_member), files)
             relative_dir = self._destination_dir(logical_destination)
             destination = Path(destination_root) / relative_dir / source.name
             action = self._plan_action(source, destination, replace_existing)
@@ -190,8 +192,7 @@ class DownloadManager:
 
         expected_path = PurePosixPath(str(relative_member)).as_posix().casefold()
         path_matches = [
-            path
-            for path in files
+            path for path in files
             if path.relative_to(extraction_root).as_posix().casefold() == expected_path
         ]
         if len(path_matches) == 1:
