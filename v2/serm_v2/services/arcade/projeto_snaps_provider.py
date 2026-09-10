@@ -107,15 +107,14 @@ class ProgettoSnapsProvider:
             ),
             ExternalResource(
                 resource_id="mame-samples-fullpack", provider=self.provider, platform="mame", name="samples-fullpack", version="0.289",
-                resource_type=ExternalResourceType.SAMPLE, url=f"{self.base_url}/samples/packs/MAME_samples_289.zip",
+                resource_type=ExternalResourceType.SAMPLE, url=f"{self.base_url}/samples/",
                 storage=ResourceStorage.MAME_SOURCE, extraction=ExtractionMode.ARCHIVE, required=False,
-                notes="FullPack oficial de MAME Samples; a versao e descoberta diretamente no indice de Samples.",
+                notes="FullPack oficial de MAME Samples; o link real e descoberto diretamente na pagina de Samples.",
                 metadata={
                     "listing_url": self.samples_url, "source_page": self.samples_url, "destination": "samples", "install_all_members_to": "mame_samples",
                     "latest_discovery": {
-                        "strategy": "listing", "listing_url": self.samples_url,
-                        "pattern": r"MAME_samples_(0\.\d{3})\.zip",
-                        "url_template": f"{self.base_url}/samples/packs/MAME_samples_{{version_compact}}.zip",
+                        "strategy": "link", "listing_url": self.samples_url,
+                        "href_pattern": r"MAME_samples_(0\.\d{3})\.zip",
                     },
                 },
             ),
