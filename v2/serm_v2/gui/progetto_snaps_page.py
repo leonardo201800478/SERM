@@ -136,18 +136,24 @@ class ProgettoSnapsPage(QWidget):
         if root is None:
             self.status_label.setText("Status: selecione uma pasta válida do MAME")
             for row in range(self.table.rowCount()):
-                self.table.item(row, 3).setText("—")
+                item = self.table.item(row, 3)
+                if item is not None:
+                    item.setText("—")
             return
         exe_status = "OK" if (root / "mame.exe").is_file() else "não encontrado"
         present = 0
         for row, (relative, _kind, _description) in enumerate(self.EXPECTED_SUPPORT):
             exists = (root / relative).is_file()
             present += int(exists)
-            self.table.item(row, 3).setText("Instalado" if exists else "Ausente")
+            item = self.table.item(row, 3)
+            if item is not None:
+                item.setText("Instalado" if exists else "Ausente")
         sample_dir = root / "samples"
         sample_count = sum(1 for item in sample_dir.glob("*.zip") if item.is_file()) if sample_dir.is_dir() else 0
         sample_row = len(self.EXPECTED_SUPPORT)
-        self.table.item(sample_row, 3).setText(f"{sample_count} ZIP(s)" if sample_count else "Ausente")
+        item = self.table.item(sample_row, 3)
+        if item is not None:
+            item.setText(f"{sample_count} ZIP(s)" if sample_count else "Ausente")
         self.status_label.setText(f"MAME.exe: {exe_status} | Suporte: {present}/{len(self.EXPECTED_SUPPORT)} | Samples: {sample_count} ZIP(s)")
 
     def _resource(self, name: str):
