@@ -43,6 +43,60 @@ def test_listing_selects_highest_numeric_version(monkeypatch) -> None:
     assert resolved.url.endswith("pS_SupportFiles_0290.zip")
 
 
+def test_link_listing_uses_published_href_and_highest_version(monkeypatch) -> None:
+    resource = _resource(
+        {
+            "latest_discovery": {
+                "strategy": "link",
+                "listing_url": "https://example.invalid/samples/",
+                "href_pattern": r"MAME_samples_(0\.\d{3})\.zip",
+            }
+        }
+    )
+    monkeypatch.setattr(
+        LatestResourceResolver,
+        "_fetch_text",
+        staticmethod(
+            lambda _url, _resource: (
+                '<a href="packs/MAME_samples_288.zip">FullPack 0.288</a>'
+                '<a href="packs/MAME_samples_289.zip">FullPack 0.289</a>'
+            )
+        ),
+    )
+
+    resolved = LatestResourceResolver().resolve(resource)
+
+    assert resolved.version == "0.289"
+    assert resolved.url == "https://example.invalid/samples/packs/MAME_samples_289.zip"
+
+
+def test_link_listing_supports_relative_and_absolute_hrefs(monkeypatch) -> None:
+    resource = _resource(
+        {
+            "latest_discovery": {
+                "strategy": "link",
+                "listing_url": "https://example.invalid/samples/",
+                "href_pattern": r"MAME_samples_(0\.\d{3})\.zip",
+            }
+        }
+    )
+    monkeypatch.setattr(
+        LatestResourceResolver,
+        "_fetch_text",
+        staticmethod(
+            lambda _url, _resource: (
+                '<a href="https://cdn.example/MAME_samples_289.zip">FullPack</a>'
+                '<a href="packs/MAME_samples_288.zip">Older</a>'
+            )
+        ),
+    )
+
+    resolved = LatestResourceResolver().resolve(resource)
+
+    assert resolved.version == "0.289"
+    assert resolved.url == "https://cdn.example/MAME_samples_289.zip"
+
+
 def test_probe_can_advance_to_newer_version(monkeypatch) -> None:
     resource = _resource(
         {
