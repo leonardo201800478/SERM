@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 
 from ..runtime.paths import data_root
 from ..services.arcade.download_manager import DownloadManager
+from ..services.arcade.local_version_detector import detect_local_version
 from ..services.arcade.projeto_snaps_provider import ProgettoSnapsProvider
 
 LOGGER = logging.getLogger(__name__)
@@ -235,20 +236,29 @@ class ProgettoSnapsPage(QWidget):
     def _scan_support_files(self, root: Path) -> int:
         present = 0
         for row, (relative, _kind, _description) in enumerate(self.EXPECTED_SUPPORT):
-            exists = (root / relative).is_file()
+            path = root / relative
+            exists = path.is_file()
             present += int(exists)
             version_item = self.table.item(row, 3)
             status_item = self.table.item(row, 4)
             if version_item is not None:
-                version_item.setText(
-                    self._downloaded_version(self.RESOURCE_BY_PATH[relative]) if exists else "—"
-                )
+                version_item.setText(self._local_version(path) if exists else "—")
             if status_item is not None:
                 status_item.setText("Instalado" if exists else "Ausente")
         return present
 
+    def _local_version(self, path: Path) -> str:
+        """Detecta a versão no arquivo instalado e usa o cache somente como fallback."""
+        detected = detect_local_version(path)
+        if detected is not None:
+            return detected
+        resource_name = self.RESOURCE_BY_PATH.get(path.as_posix().replace("\\", "/").split("/", 1)[-1])
+        if resource_name is None:
+            resource_name = self.RESOURCE_BY_PATH.get(str(path).replace("\\", "/"), "")
+        return self._downloaded_version(resource_name) if resource_name else "—"
+
     def _downloaded_version(self, resource_name: str) -> str:
-        """Retorna a versão do pacote efetivamente presente no cache do SERM."""
+        """Retorna a versão do pacote presente no cache do SERM."""
         resource_dir = self.CACHE_DIR / "progetto-snaps" / "mame" / resource_name
         if not resource_dir.is_dir():
             return "—"
@@ -277,9 +287,19 @@ class ProgettoSnapsPage(QWidget):
         version_item = self.table.item(sample_row, 3)
         status_item = self.table.item(sample_row, 4)
         if version_item is not None:
-            version_item.setText(
-                self._downloaded_version("samples-fullpack") if sample_count else "—"
-            )
+            sample_dir = self._normalized_root()
+            version = "—"
+            if sample_dir is not None and sample_count:
+                sample_files = sorted(
+                    path for path in (sample_dir / "samples").glob("*.zip") if path.is_file()
+                )
+                for sample_file in sample_files:
+                    version = detect_local_version(sample_file)
+                    if version is not None:
+                        break
+                if version is None:
+                    version = self._downloaded_version("samples-fullpack")
+            version_item.setText(version)
         if status_item is not None:
             status_item.setText(f"{sample_count} ZIP(s)" if sample_count else "Ausente")
         self.status_label.setText(
