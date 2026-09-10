@@ -19,12 +19,17 @@ class LatestResourceResolver:
         if not isinstance(spec, dict):
             return resource
         strategy = spec.get("strategy")
-        if strategy == "listing":
-            version, url = self._from_listing(resource, spec)
-        elif strategy == "probe":
-            version, url = self._from_probe(resource, spec)
-        else:
-            raise ValueError(f"estrategia de descoberta desconhecida: {strategy}")
+        try:
+            if strategy == "listing":
+                version, url = self._from_listing(resource, spec)
+            elif strategy == "probe":
+                version, url = self._from_probe(resource, spec)
+            else:
+                raise ValueError(f"estrategia de descoberta desconhecida: {strategy}")
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError):
+            # Falha na consulta de catalogo nao deve impedir o uso da ultima
+            # versao conhecida pelo provider nem inutilizar o cache local.
+            return resource
         if not version or not url:
             return resource
         return replace(resource, version=version, url=url)
@@ -96,12 +101,12 @@ class LatestResourceResolver:
     def _url_exists(url: str, resource: ExternalResource) -> bool:
         request = urllib.request.Request(
             url,
-            headers=LatestResourceResolver._headers(resource),
-            method="HEAD",
+            headers={**LatestResourceResolver._headers(resource), "Range": "bytes=0-0"},
         )
         try:
-            with urllib.request.urlopen(request, timeout=15):
-                return True
+            with urllib.request.urlopen(request, timeout=15) as response:
+                response.read(1)
+            return True
         except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError):
             return False
 
