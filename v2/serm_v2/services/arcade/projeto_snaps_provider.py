@@ -30,16 +30,11 @@ class ProgettoSnapsProvider:
     )
 
     _SUPPORT_MEMBERS = {
-        "dats/command.dat": "mame_dats",
-        "dats/gameinit.dat": "mame_dats",
-        "folders/bestgames.ini": "mame_folders",
-        "folders/catlist.ini": "mame_folders",
-        "folders/freeplay.ini": "mame_folders",
-        "folders/genre.ini": "mame_folders",
-        "folders/languages.ini": "mame_folders",
-        "folders/monochrome.ini": "mame_folders",
-        "folders/resolution.ini": "mame_folders",
-        "folders/screenless.ini": "mame_folders",
+        "dats/command.dat": "mame_dats", "dats/gameinit.dat": "mame_dats",
+        "folders/bestgames.ini": "mame_folders", "folders/catlist.ini": "mame_folders",
+        "folders/freeplay.ini": "mame_folders", "folders/genre.ini": "mame_folders",
+        "folders/languages.ini": "mame_folders", "folders/monochrome.ini": "mame_folders",
+        "folders/resolution.ini": "mame_folders", "folders/screenless.ini": "mame_folders",
         "folders/series.ini": "mame_folders",
     }
 
@@ -54,59 +49,45 @@ class ProgettoSnapsProvider:
         "Parents Arcade.ini", "Prototype.ini", "Resolution.ini", "Screenless.ini", "Use Software.ini",
         "Working Arcade.ini", "Working Arcade Clean.ini",
     )
-
     _VERSION_MEMBERS = ("Version.ini", "Version_NEW.ini", "Version_ON.ini")
 
     def resources(self) -> tuple[ExternalResource, ...]:
-        """Retorna recursos com descoberta automatica da ultima versao."""
         return (
             ExternalResource(
-                resource_id="mame-support-files", provider=self.provider, platform="mame",
-                name="support-files", version=self.SUPPORT_VERSION,
-                resource_type=ExternalResourceType.METADATA, url=self.SUPPORT_ARCHIVE,
-                storage=ResourceStorage.MAME_SOURCE, extraction=ExtractionMode.ARCHIVE,
-                required=False,
+                resource_id="mame-support-files", provider=self.provider, platform="mame", name="support-files",
+                version=self.SUPPORT_VERSION, resource_type=ExternalResourceType.METADATA, url=self.SUPPORT_ARCHIVE,
+                storage=ResourceStorage.MAME_SOURCE, extraction=ExtractionMode.ARCHIVE, required=False,
                 notes="Pacote oficial de suporte MAME; a versao e descoberta automaticamente.",
                 metadata={
-                    "members": self._SUPPORT_MEMBERS, "support_root": self.support_url,
-                    "destination": "MAME",
+                    "members": self._SUPPORT_MEMBERS, "support_root": self.support_url, "destination": "MAME",
                     "latest_discovery": {
                         "strategy": "listing", "listing_url": self.support_url,
                         "pattern": r"SupportFiles Pack\s*\((0\.\d+)\)",
-                        "url_template": (
-                            f"{self.base_url}/download/?file=%2Fsupport%2Fpacks%2F"
-                            "pS_SupportFiles_{version_compact}.zip&tipo=support_pack"
-                        ),
+                        "url_template": f"{self.base_url}/download/?file=%2Fsupport%2Fpacks%2FpS_SupportFiles_{{version_compact}}.zip&tipo=support_pack",
                     },
                 },
             ),
             ExternalResource(
-                resource_id="mame-nplayers", provider=self.provider, platform="mame",
-                name="nplayers", version=self.NPLAYERS_VERSION,
-                resource_type=ExternalResourceType.METADATA, url=self.NPLAYERS_ARCHIVE,
-                storage=ResourceStorage.MAME_SOURCE, extraction=ExtractionMode.ARCHIVE,
-                required=False,
+                resource_id="mame-nplayers", provider=self.provider, platform="mame", name="nplayers",
+                version=self.NPLAYERS_VERSION, resource_type=ExternalResourceType.METADATA, url=self.NPLAYERS_ARCHIVE,
+                storage=ResourceStorage.MAME_SOURCE, extraction=ExtractionMode.ARCHIVE, required=False,
                 notes="NPlayers.ini; a fonte original e tentada primeiro e o Planet Emulation permanece como fallback.",
                 metadata={
-                    "members": {"nplayers.ini": "mame_folders"},
-                    "source_page": self.support_url,
-                    "original_source": "https://nplayers.arcadebelgium.be/",
-                    "fallback_urls": (self.nplayers_mirror_url,), "destination": "folders",
+                    "members": {"nplayers.ini": "mame_folders"}, "source_page": self.support_url,
+                    "original_source": "https://nplayers.arcadebelgium.be/", "fallback_urls": (self.nplayers_mirror_url,),
+                    "destination": "folders",
                     "latest_discovery": {
-                        "strategy": "probe", "start_version": self.NPLAYERS_VERSION,
-                        "max_ahead": 30, "stop_after_misses": 3,
+                        "strategy": "probe", "start_version": self.NPLAYERS_VERSION, "max_ahead": 30,
+                        "stop_after_misses": 3, "fallback_only_version": self.NPLAYERS_VERSION,
                         "url_template": "http://nplayers.arcadebelgium.be/files/nplayers{version_compact}.zip",
                     },
                 },
             ),
-            self._special_package(name="category", version="0.289", filename="pS_category_289.zip",
-                                  package_type="category", destination="folders", expected_members=self._CATEGORY_MEMBERS),
-            self._special_package(name="version", version="0.289", filename="pS_version_289.zip",
-                                  package_type="version", destination="folders", expected_members=self._VERSION_MEMBERS),
+            self._special_package(name="category", version="0.289", filename="pS_category_289.zip", package_type="category", destination="folders", expected_members=self._CATEGORY_MEMBERS),
+            self._special_package(name="version", version="0.289", filename="pS_version_289.zip", package_type="version", destination="folders", expected_members=self._VERSION_MEMBERS),
             ExternalResource(
-                resource_id="mame-messinfo", provider=self.provider, platform="mame", name="messinfo",
-                version="0.289", resource_type=ExternalResourceType.METADATA,
-                url=f"{self.base_url}/download/?file=pS_messinfo_289.zip&tipo=messinfo",
+                resource_id="mame-messinfo", provider=self.provider, platform="mame", name="messinfo", version="0.289",
+                resource_type=ExternalResourceType.METADATA, url=f"{self.base_url}/download/?file=pS_messinfo_289.zip&tipo=messinfo",
                 storage=ResourceStorage.MAME_SOURCE, extraction=ExtractionMode.ARCHIVE, required=False,
                 notes="MESSINFO.dat oficial; a versao e descoberta na pagina do projeto.",
                 metadata={
@@ -119,23 +100,20 @@ class ProgettoSnapsProvider:
                 },
             ),
             ExternalResource(
-                resource_id="mame-dat-index", provider=self.provider, platform="mame", name="mame-dat-index",
-                version="0.289", resource_type=ExternalResourceType.METADATA, url=self.mame_dat_url,
-                storage=ResourceStorage.CACHE_ONLY, extraction=ExtractionMode.NONE, required=False,
-                notes="Indice oficial dos DATs MAME; sua pagina e usada como fonte de versao.",
-                metadata={"listing_url": self.mame_dat_url},
+                resource_id="mame-dat-index", provider=self.provider, platform="mame", name="mame-dat-index", version="0.289",
+                resource_type=ExternalResourceType.METADATA, url=self.mame_dat_url, storage=ResourceStorage.CACHE_ONLY,
+                extraction=ExtractionMode.NONE, required=False,
+                notes="Indice oficial dos DATs MAME; sua pagina e usada como fonte de versao.", metadata={"listing_url": self.mame_dat_url},
             ),
             ExternalResource(
-                resource_id="mame-samples-fullpack", provider=self.provider, platform="mame", name="samples-fullpack",
-                version="0.289", resource_type=ExternalResourceType.SAMPLE,
-                url=f"{self.base_url}/samples/packs/MAME_samples_289.zip",
+                resource_id="mame-samples-fullpack", provider=self.provider, platform="mame", name="samples-fullpack", version="0.289",
+                resource_type=ExternalResourceType.SAMPLE, url=f"{self.base_url}/samples/packs/MAME_samples_289.zip",
                 storage=ResourceStorage.MAME_SOURCE, extraction=ExtractionMode.ARCHIVE, required=False,
                 notes="FullPack oficial de MAME Samples; a versao e descoberta no indice de DATs.",
                 metadata={
                     "listing_url": self.samples_url, "destination": "samples", "install_all_members_to": "mame_samples",
                     "latest_discovery": {
-                        "strategy": "listing", "listing_url": self.mame_dat_url,
-                        "pattern": r"\b(0\.\d{3})\b",
+                        "strategy": "listing", "listing_url": self.mame_dat_url, "pattern": r"\b(0\.\d{3})\b",
                         "url_template": f"{self.base_url}/samples/packs/MAME_samples_{{version_compact}}.zip",
                     },
                 },
@@ -145,12 +123,11 @@ class ProgettoSnapsProvider:
     def catalog(self) -> ExternalResourceCatalog:
         return ExternalResourceCatalog(self.resources())
 
-    def _special_package(self, *, name: str, version: str, filename: str, package_type: str,
-                         destination: str, expected_members: tuple[str, ...]) -> ExternalResource:
+    def _special_package(self, *, name: str, version: str, filename: str, package_type: str, destination: str, expected_members: tuple[str, ...]) -> ExternalResource:
         return ExternalResource(
             resource_id=f"mame-{name}", provider=self.provider, platform="mame", name=name, version=version,
             resource_type=ExternalResourceType.METADATA,
-            url=(f"{self.base_url}/download/?file=%2Fsupport%2Fpacks%2F{filename}&tipo={package_type}"),
+            url=f"{self.base_url}/download/?file=%2Fsupport%2Fpacks%2F{filename}&tipo={package_type}",
             storage=ResourceStorage.MAME_SOURCE, extraction=ExtractionMode.ARCHIVE, required=False,
             notes=f"Pacote oficial {name}.ini; a versao e descoberta automaticamente.",
             metadata={
@@ -159,10 +136,7 @@ class ProgettoSnapsProvider:
                 "latest_discovery": {
                     "strategy": "listing", "listing_url": self.support_url,
                     "pattern": rf"{name}\.ini\s*\((0\.\d+)\)",
-                    "url_template": (
-                        f"{self.base_url}/download/?file=%2Fsupport%2Fpacks%2F"
-                        f"pS_{name}_{{version_compact}}.zip&tipo={package_type}"
-                    ),
+                    "url_template": f"{self.base_url}/download/?file=%2Fsupport%2Fpacks%2FpS_{name}_{{version_compact}}.zip&tipo={package_type}",
                 },
             },
         )
