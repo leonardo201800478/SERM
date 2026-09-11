@@ -193,10 +193,13 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.log_dock)
 
     def _retranslate_navigation(self) -> None:
+        """Cria e atualiza a navegação sem depender de uma sobrecarga inexistente."""
         while self.navigation.count() < len(self.NAV_ITEMS):
             index = self.navigation.count()
-            _, _, style_icon = self.NAV_ITEMS[index]
-            item = QListWidgetItem(self.style().standardIcon(getattr(QStyle, style_icon)))
+            key, _, style_icon = self.NAV_ITEMS[index]
+            icon = self.style().standardIcon(getattr(QStyle, style_icon))
+            # QListWidgetItem exige texto quando o primeiro argumento é um QIcon.
+            item = QListWidgetItem(icon, UiPreferences.text(key))
             item.setSizeHint(QSize(0, 46))
             self.navigation.addItem(item)
         for index, (key, description, _style_icon) in enumerate(self.NAV_ITEMS):
