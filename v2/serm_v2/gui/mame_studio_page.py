@@ -7,24 +7,34 @@ from PySide6.QtWidgets import QTabWidget, QVBoxLayout, QWidget
 from .arcade_studio_page import ArcadeStudioPage
 from .mame_filter_page import MameFilterPage
 from .mame_scan_page import MameScanPage
-from .reconstruction_phase_page import ReconstructionPhasePage
+from .reconstruction_page import ReconstructionPage
 
 
 class MameStudioPage(QWidget):
     """Organiza o pipeline MAME em uma única superfície operacional.
 
     A ordem visual acompanha o contrato técnico: catálogo → scan → filtros →
-    reconstrução. Cada etapa continua delegando regras de negócio aos serviços.
+    reconstrução. A reconstrução desta área é exclusivamente MAME; os demais
+    sistemas permanecem disponíveis em sua área própria.
     """
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         layout = QVBoxLayout(self)
         self.tabs = QTabWidget()
+
         self.catalog_page = ArcadeStudioPage(self)
         self.scan_page = MameScanPage(self)
         self.filter_page = MameFilterPage(self)
-        self.reconstruction_page = ReconstructionPhasePage(self)
+        self.reconstruction_page = ReconstructionPage("MAME", self)
+
+        # ArcadeStudioPage ainda possui uma implementação histórica de abas
+        # internas. Somente Catálogo e Auditoria CHD pertencem à etapa 1;
+        # filtros e reconstrução são centralizados nas etapas 3 e 4 abaixo.
+        if hasattr(self.catalog_page, "tabs"):
+            while self.catalog_page.tabs.count() > 2:
+                self.catalog_page.tabs.removeTab(1)
+
         self.tabs.addTab(self.catalog_page, "1 — Catálogo")
         self.tabs.addTab(self.scan_page, "2 — Scan")
         self.tabs.addTab(self.filter_page, "3 — Filtros")
