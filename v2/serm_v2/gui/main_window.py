@@ -7,18 +7,8 @@ from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QSettings, QSize, Qt
 from PySide6.QtWidgets import (
-    QApplication,
-    QDockWidget,
-    QFrame,
-    QHBoxLayout,
-    QLabel,
-    QListWidget,
-    QListWidgetItem,
-    QMainWindow,
-    QStackedWidget,
-    QStyle,
-    QVBoxLayout,
-    QWidget,
+    QApplication, QDockWidget, QFrame, QHBoxLayout, QLabel, QListWidget,
+    QListWidgetItem, QMainWindow, QStackedWidget, QStyle, QVBoxLayout, QWidget,
 )
 
 from ..config.settings import Settings
@@ -48,13 +38,13 @@ class MainWindow(QMainWindow):
     _STATE_KEY = "main_window/state"
     _SCREEN_KEY = "main_window/screen_key"
     _SCREEN_GEOMETRY_KEY = "main_window/screen_geometry"
-    _DEFAULT_SIZE = QSize(1280, 720)
+    _DEFAULT_SIZE = QSize(1200, 700)
 
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("SERM V2")
         self.resize(self._DEFAULT_SIZE)
-        self.setMinimumSize(1152, 648)
+        self.setMinimumSize(1100, 620)
         self.status_bar = self.statusBar()
         self.status_bar.showMessage(UiPreferences.text("ready"))
         settings = Settings()
@@ -131,16 +121,19 @@ class MainWindow(QMainWindow):
 
     def _build_ui(self) -> None:
         root = QWidget(self)
+        root.setObjectName("centralWidget")
         root_layout = QHBoxLayout(root)
-        root_layout.setContentsMargins(10, 10, 10, 10)
-        root_layout.setSpacing(10)
+        root_layout.setContentsMargins(6, 6, 6, 6)
+        root_layout.setSpacing(6)
+
         sidebar = QFrame()
         sidebar.setObjectName("navigationSidebar")
-        sidebar.setMinimumWidth(205)
-        sidebar.setMaximumWidth(235)
+        sidebar.setMinimumWidth(176)
+        sidebar.setMaximumWidth(205)
         sidebar_layout = QVBoxLayout(sidebar)
-        sidebar_layout.setContentsMargins(10, 12, 10, 12)
-        sidebar_layout.setSpacing(6)
+        sidebar_layout.setContentsMargins(7, 8, 7, 8)
+        sidebar_layout.setSpacing(4)
+
         brand = QLabel("SERM")
         brand.setObjectName("navigationBrand")
         brand.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -149,15 +142,17 @@ class MainWindow(QMainWindow):
         version.setObjectName("navigationVersion")
         version.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sidebar_layout.addWidget(version)
-        sidebar_layout.addSpacing(10)
+        sidebar_layout.addSpacing(4)
+
         self.navigation = QListWidget()
         self.navigation.setObjectName("navigationList")
-        self.navigation.setIconSize(QSize(20, 20))
-        self.navigation.setSpacing(3)
+        self.navigation.setIconSize(QSize(18, 18))
+        self.navigation.setSpacing(2)
         self.navigation.setFrameShape(QFrame.Shape.NoFrame)
         self.navigation.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.navigation.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
         sidebar_layout.addWidget(self.navigation, 1)
+
         self.footer = QLabel("SERM V2\nSistema de Emulação e ROM Management")
         self.footer.setObjectName("navigationFooter")
         self.footer.setWordWrap(True)
@@ -171,11 +166,8 @@ class MainWindow(QMainWindow):
         self.mame_studio_page = MameStudioPage(self)
         self.other_systems_page = FilteringPhasePage(self)
         self.pages = (
-            self.home_section,
-            self.configuration_page,
-            self.data_sources_page,
-            self.mame_studio_page,
-            self.other_systems_page,
+            self.home_section, self.configuration_page, self.data_sources_page,
+            self.mame_studio_page, self.other_systems_page,
         )
         for page in self.pages:
             self.page_stack.addWidget(page)
@@ -188,7 +180,9 @@ class MainWindow(QMainWindow):
         """Adiciona o painel de logs à janela principal."""
         self.log_dock = QDockWidget(UiPreferences.text("logs"), self)
         self.log_dock.setObjectName("logDock")
-        self.log_dock.setWidget(self.log_viewer.create_console(self.log_dock))
+        console = self.log_viewer.create_console(self.log_dock)
+        console.setObjectName("logConsole")
+        self.log_dock.setWidget(console)
         self.log_dock.setAllowedAreas(Qt.DockWidgetArea.BottomDockWidgetArea)
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.log_dock)
 
@@ -198,9 +192,8 @@ class MainWindow(QMainWindow):
             index = self.navigation.count()
             key, _, style_icon = self.NAV_ITEMS[index]
             icon = self.style().standardIcon(getattr(QStyle, style_icon))
-            # QListWidgetItem exige texto quando o primeiro argumento é um QIcon.
             item = QListWidgetItem(icon, UiPreferences.text(key))
-            item.setSizeHint(QSize(0, 46))
+            item.setSizeHint(QSize(0, 38))
             self.navigation.addItem(item)
         for index, (key, description, _style_icon) in enumerate(self.NAV_ITEMS):
             item = self.navigation.item(index)
