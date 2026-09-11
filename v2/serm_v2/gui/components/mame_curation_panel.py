@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QCheckBox, QComboBox, QFormLayout, QGroupBox, QLabel, QLineEdit, QVBoxLayout, QWidget
 
 
 class MameCurationPanel(QWidget):
     """Editor compacto da política de curadoria aplicada antes do filtro físico."""
 
+    changed = Signal()
+
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
+        self._building = False
         self._build_ui()
+        self._connect_signals()
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
@@ -69,6 +74,23 @@ class MameCurationPanel(QWidget):
         root.addWidget(rules)
         root.addStretch()
 
+    def _connect_signals(self) -> None:
+        for widget in (
+            self.regions, self.languages, self.max_players, self.max_buttons,
+            self.controls, self.directions, self.min_quality,
+        ):
+            widget.editingFinished.connect(self._emit_changed)
+        for widget in (
+            self.strict_controls, self.include_clones, self.include_bootlegs,
+            self.include_prototypes, self.one_game_one_rom,
+        ):
+            widget.toggled.connect(self._emit_changed)
+        self.orientation.currentIndexChanged.connect(self._emit_changed)
+
+    def _emit_changed(self, *_args) -> None:
+        if not self._building:
+            self.changed.emit()
+
     @staticmethod
     def _split(value: str) -> list[str]:
         return [item.strip() for item in value.split(",") if item.strip()]
@@ -109,21 +131,25 @@ class MameCurationPanel(QWidget):
         }
 
     def set_values(self, values: dict | None) -> None:
-        values = values or {}
-        self.regions.setText(", ".join(values.get("curation_preferred_regions", []) or []))
-        self.languages.setText(", ".join(values.get("curation_preferred_languages", []) or []))
-        self.max_players.setText(self._format(values.get("curation_max_players")))
-        self.max_buttons.setText(self._format(values.get("curation_max_buttons")))
-        self.controls.setText(", ".join(values.get("curation_required_controls", []) or []))
-        self.directions.setText(", ".join(values.get("curation_required_directions", []) or []))
-        self.strict_controls.setChecked(bool(values.get("curation_strict_controls", False)))
-        index = self.orientation.findData(values.get("curation_orientation", "both"))
-        self.orientation.setCurrentIndex(max(index, 0))
-        self.include_clones.setChecked(bool(values.get("curation_include_clones", True)))
-        self.include_bootlegs.setChecked(bool(values.get("curation_include_bootlegs", True)))
-        self.include_prototypes.setChecked(bool(values.get("curation_include_prototypes", True)))
-        self.one_game_one_rom.setChecked(bool(values.get("curation_one_game_one_rom", False)))
-        self.min_quality.setText(self._format(values.get("curation_min_quality_score")))
+        self._building = True
+        try:
+            values = values or {}
+            self.regions.setText(", ".join(values.get("curation_preferred_regions", []) or []))
+            self.languages.setText(", ".join(values.get("curation_preferred_languages", []) or []))
+            self.max_players.setText(self._format(values.get("curation_max_players")))
+            self.max_buttons.setText(self._format(values.get("curation_max_buttons")))
+            self.controls.setText(", ".join(values.get("curation_required_controls", []) or []))
+            self.directions.setText(", ".join(values.get("curation_required_directions", []) or []))
+            self.strict_controls.setChecked(bool(values.get("curation_strict_controls", False)))
+            index = self.orientation.findData(values.get("curation_orientation", "both"))
+            self.orientation.setCurrentIndex(max(index, 0))
+            self.include_clones.setChecked(bool(values.get("curation_include_clones", True)))
+            self.include_bootlegs.setChecked(bool(values.get("curation_include_bootlegs", True)))
+            self.include_prototypes.setChecked(bool(values.get("curation_include_prototypes", True)))
+            self.one_game_one_rom.setChecked(bool(values.get("curation_one_game_one_rom", False)))
+            self.min_quality.setText(self._format(values.get("curation_min_quality_score")))
+        finally:
+            self._building = False
 
     @staticmethod
     def _format(value) -> str:
