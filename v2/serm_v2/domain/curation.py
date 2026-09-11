@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass, field
 
-from .arcade import ArcadeGame
+from ..models.arcade import ArcadeGame
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,13 +71,13 @@ def _root(game: ArcadeGame, games_by_name: dict[str, ArcadeGame]) -> str:
     """Resolve a raiz parent da família sem depender de profundidade arbitrária."""
     current = game
     visited: set[str] = set()
-    while current.parent_name and current.name not in visited:
-        visited.add(current.name)
+    while current.parent_name and current.machine_name not in visited:
+        visited.add(current.machine_name)
         parent = games_by_name.get(current.parent_name)
         if parent is None:
             return current.parent_name
         current = parent
-    return current.name
+    return current.machine_name
 
 
 def _basic_filter(game: ArcadeGame, policy: CurationPolicy) -> CurationDecision | None:
@@ -85,23 +85,23 @@ def _basic_filter(game: ArcadeGame, policy: CurationPolicy) -> CurationDecision 
     metadata = game.metadata
 
     if not policy.include_clones and game.parent_name:
-        return CurationDecision(game.name, False, "clone", "clone desabilitado pela política")
+        return CurationDecision(game.machine_name, False, "clone", "clone desabilitado pela política")
 
     if not policy.include_bootlegs and bool(metadata.get("is_bootleg")):
-        return CurationDecision(game.name, False, "bootleg", "bootleg desabilitado pela política")
+        return CurationDecision(game.machine_name, False, "bootleg", "bootleg desabilitado pela política")
 
     if not policy.include_prototypes and bool(metadata.get("is_prototype")):
-        return CurationDecision(game.name, False, "prototype", "prototype desabilitado pela política")
+        return CurationDecision(game.machine_name, False, "prototype", "prototype desabilitado pela política")
 
     if policy.max_players is not None:
         players = metadata.get("players")
         if isinstance(players, int) and players > policy.max_players:
-            return CurationDecision(game.name, False, "players", f"{players} jogadores > limite")
+            return CurationDecision(game.machine_name, False, "players", f"{players} jogadores > limite")
 
     if policy.max_buttons is not None:
         buttons = metadata.get("buttons")
         if isinstance(buttons, int) and buttons > policy.max_buttons:
-            return CurationDecision(game.name, False, "buttons", f"{buttons} botões > limite")
+            return CurationDecision(game.machine_name, False, "buttons", f"{buttons} botões > limite")
 
     if policy.required_controls:
         controls = _metadata_strings(game, "controls")
@@ -110,23 +110,23 @@ def _basic_filter(game: ArcadeGame, policy: CurationPolicy) -> CurationDecision 
             not required.issubset(controls) if policy.strict_controls else not controls.intersection(required)
         )
         if known_conflict:
-            return CurationDecision(game.name, False, "controls", "controles incompatíveis")
+            return CurationDecision(game.machine_name, False, "controls", "controles incompatíveis")
 
     if policy.required_directions:
         directions = _metadata_strings(game, "directions")
         required = {value.casefold() for value in policy.required_directions}
         if directions and not directions.intersection(required):
-            return CurationDecision(game.name, False, "directions", "vias/direções incompatíveis")
+            return CurationDecision(game.machine_name, False, "directions", "vias/direções incompatíveis")
 
     if policy.orientation.casefold() != "both":
         orientation = str(metadata.get("orientation") or "").casefold()
         if orientation and orientation != policy.orientation.casefold():
-            return CurationDecision(game.name, False, "orientation", "orientação incompatível")
+            return CurationDecision(game.machine_name, False, "orientation", "orientação incompatível")
 
     if policy.min_quality_score is not None:
         score = metadata.get("quality_score")
         if isinstance(score, (int, float)) and score < policy.min_quality_score:
-            return CurationDecision(game.name, False, "quality", "pontuação abaixo do mínimo")
+            return CurationDecision(game.machine_name, False, "quality", "pontuação abaixo do mínimo")
 
     return None
 
@@ -136,7 +136,7 @@ def _one_game_one_rom(games: list[ArcadeGame], policy: CurationPolicy) -> tuple[
     if not policy.one_game_one_rom:
         return games, []
 
-    by_name = {game.name: game for game in games}
+    by_name = {game.machine_name: game for game in games}
     families: dict[str, list[ArcadeGame]] = defaultdict(list)
     for game in games:
         families[_root(game, by_name)].append(game)
@@ -150,21 +150,21 @@ def _one_game_one_rom(games: list[ArcadeGame], policy: CurationPolicy) -> tuple[
             return (
                 _rank(regions, policy.preferred_regions),
                 _rank(languages, policy.preferred_languages),
-                0 if game.name == root_name else 1,
+                0 if game.machine_name == root_name else 1,
                 1 if bool(game.metadata.get("is_bootleg")) else 0,
-                game.name.casefold(),
+                game.machine_name.casefold(),
             )
 
         winner = min(members, key=key)
         selected.append(winner)
         for candidate in members:
-            if candidate.name != winner.name:
+            if candidate.machine_name != winner.machine_name:
                 decisions.append(
                     CurationDecision(
-                        candidate.name,
+                        candidate.machine_name,
                         False,
                         "1G1R",
-                        f"representante selecionado: {winner.name}",
+                        f"representante selecionado: {winner.machine_name}",
                     )
                 )
 
@@ -185,7 +185,7 @@ def curate_games(games: list[ArcadeGame], policy: CurationPolicy) -> CurationRes
 
     selected, one_g_decisions = _one_game_one_rom(candidates, policy)
     decisions.extend(one_g_decisions)
-    selected.sort(key=lambda game: game.name.casefold())
+    selected.sort(key=lambda game: game.machine_name.casefold())
     return CurationResult(tuple(selected), tuple(decisions))
 
 
