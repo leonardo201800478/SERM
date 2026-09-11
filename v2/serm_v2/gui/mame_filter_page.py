@@ -8,14 +8,18 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QFormLayout,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -34,7 +38,11 @@ from .filter_profiles_page import FilterProfileData
 
 
 class MameFilterPage(QWidget):
-    """Configuração e aplicação dos filtros MAME V2."""
+    """Configuração e aplicação dos filtros MAME V2.
+
+    A tela é deliberadamente densa: filtros são controles de trabalho e devem
+    aproveitar a área disponível sem exigir rolagem para cada opção.
+    """
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -45,33 +53,58 @@ class MameFilterPage(QWidget):
         self.refresh()
 
     def _build_ui(self) -> None:
+        # Escopo local: não altera a tipografia do restante da aplicação.
+        self.setStyleSheet(
+            """
+            MameFilterPage { font-size: 10px; }
+            MameFilterPage QLabel { font-size: 10px; }
+            MameFilterPage QGroupBox { font-size: 10px; font-weight: 600; margin-top: 7px; padding-top: 8px; }
+            MameFilterPage QCheckBox { font-size: 10px; spacing: 5px; min-height: 20px; }
+            MameFilterPage QComboBox, MameFilterPage QLineEdit { font-size: 10px; min-height: 23px; }
+            MameFilterPage QPushButton { font-size: 10px; min-height: 24px; padding: 3px 9px; }
+            MameFilterPage QTabBar::tab { font-size: 10px; padding: 7px 14px; }
+            MameFilterPage QLabel[role="title"] { font-size: 16px; font-weight: 700; }
+            MameFilterPage QLabel[role="section"] { font-size: 11px; font-weight: 700; }
+            """
+        )
+
         root = QVBoxLayout(self)
+        root.setContentsMargins(12, 10, 12, 10)
+        root.setSpacing(7)
+
         title = QLabel("MAME — FILTROS")
         title.setProperty("role", "title")
         root.addWidget(title)
+
         description = QLabel(
-            "O pipeline agora separa classificação, curadoria e montagem do SET. "
-            "A curadoria ocorre depois do catálogo/scan e antes da filtragem física e da reconstrução."
+            "Classificação → curadoria → filtragem física → reconstrução. "
+            "Configure os critérios abaixo e acompanhe o resultado no preview."
         )
         description.setWordWrap(True)
         root.addWidget(description)
 
-        scan_box = QGroupBox("Scan MAME de entrada")
+        scan_box = QGroupBox("SCAN DE ENTRADA")
+        scan_box.setMaximumHeight(78)
         scan_layout = QVBoxLayout(scan_box)
+        scan_layout.setContentsMargins(8, 8, 8, 8)
+        scan_layout.setSpacing(4)
         row = QHBoxLayout()
+        row.setSpacing(6)
         self.scan_combo = QComboBox()
         self.scan_combo.currentIndexChanged.connect(self._scan_changed)
         row.addWidget(self.scan_combo, 1)
-        refresh = QPushButton("ATUALIZAR SCANS")
+        refresh = QPushButton("ATUALIZAR")
         refresh.clicked.connect(self.refresh)
         row.addWidget(refresh)
         scan_layout.addLayout(row)
         self.scan_info = QLabel("Nenhum scan selecionado.")
-        self.scan_info.setWordWrap(True)
+        self.scan_info.setWordWrap(False)
         scan_layout.addWidget(self.scan_info)
         root.addWidget(scan_box)
 
         self.tabs = QTabWidget()
+        self.tabs.setDocumentMode(True)
+        self.tabs.setUsesScrollButtons(True)
         self.tabs.addTab(self._game_type_page(), "1 — TIPO DE JOGOS")
         self.curation_panel = MameCurationPanel()
         self.curation_panel.changed.connect(self._update_preview)
@@ -79,69 +112,103 @@ class MameFilterPage(QWidget):
         self.tabs.addTab(self._set_type_page(), "3 — TIPO DE SET")
         root.addWidget(self.tabs, 1)
 
+        status = QGroupBox("RESULTADO")
+        status_layout = QVBoxLayout(status)
+        status_layout.setContentsMargins(8, 7, 8, 7)
+        status_layout.setSpacing(2)
+        self.preview = QLabel("Selecione um scan para calcular o preview.")
+        self.preview.setWordWrap(True)
+        status_layout.addWidget(self.preview)
+        self.result = QLabel("Nenhum arquivo filtrado gerado nesta sessão.")
+        self.result.setWordWrap(True)
+        status_layout.addWidget(self.result)
+        root.addWidget(status)
+
         actions = QHBoxLayout()
+        actions.setSpacing(6)
         self.new_profile_button = QPushButton("NOVO PERFIL")
         self.save_button = QPushButton("SALVAR FILTROS")
-        self.apply_button = QPushButton("APLICAR E GERAR ARQUIVO FILTRADO")
+        self.apply_button = QPushButton("APLICAR E GERAR ARQUIVO")
         self.new_profile_button.clicked.connect(self.new_profile)
         self.save_button.clicked.connect(self.save_profile)
         self.apply_button.clicked.connect(self.apply_filters)
         actions.addWidget(self.new_profile_button)
         actions.addWidget(self.save_button)
+        actions.addStretch(1)
         actions.addWidget(self.apply_button)
-        actions.addStretch()
         root.addLayout(actions)
 
-        self.preview = QLabel("Selecione um scan para calcular o preview.")
-        self.preview.setWordWrap(True)
-        root.addWidget(self.preview)
-        self.result = QLabel("Nenhum arquivo filtrado gerado nesta sessão.")
-        self.result.setWordWrap(True)
-        root.addWidget(self.result)
+    @staticmethod
+    def _scroll_page(content: QWidget) -> QScrollArea:
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setWidget(content)
+        return scroll
 
     def _game_type_page(self) -> QWidget:
-        page = QWidget()
-        layout = QVBoxLayout(page)
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+
         intro = QLabel(
-            "Marque os tipos que devem ser EXCLUÍDOS do set final. A classificação é a congelada no snapshot do scan."
+            "Marque os tipos que devem ser EXCLUÍDOS do set final. "
+            "A classificação vem congelada do snapshot do scan."
         )
         intro.setWordWrap(True)
         layout.addWidget(intro)
-        box = QGroupBox("Classificação do jogo")
-        box_layout = QVBoxLayout(box)
+
+        box = QGroupBox("CLASSIFICAÇÃO DO JOGO")
+        grid = QGridLayout(box)
+        grid.setContentsMargins(8, 10, 8, 8)
+        grid.setHorizontalSpacing(18)
+        grid.setVerticalSpacing(3)
         self.game_checks: dict[str, QCheckBox] = {}
-        for key, definition in FILTER_DEFINITIONS.items():
+        for index, (key, definition) in enumerate(FILTER_DEFINITIONS.items()):
             check = QCheckBox(str(definition["label"]))
             check.setToolTip(str(definition["description"]))
             check.setChecked(DEFAULT_FILTERS[key])
             check.toggled.connect(self._update_preview)
             self.game_checks[key] = check
-            box_layout.addWidget(check)
+            grid.addWidget(check, index // 3, index % 3)
+        for column in range(3):
+            grid.setColumnStretch(column, 1)
         layout.addWidget(box)
-        layout.addStretch()
-        return page
+        layout.addStretch(1)
+        return self._scroll_page(content)
 
     def _set_type_page(self) -> QWidget:
-        page = QWidget()
-        layout = QVBoxLayout(page)
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+
         intro = QLabel(
-            "Tipo de SET é uma decisão de montagem/reconstrução. Ele fica salvo no perfil e acompanha o arquivo filtrado."
+            "O tipo de SET define a montagem/reconstrução. As opções abaixo não apagam evidências do scan."
         )
         intro.setWordWrap(True)
         layout.addWidget(intro)
 
-        set_box = QGroupBox("Formato do SET")
+        columns = QHBoxLayout()
+        columns.setSpacing(8)
+
+        set_box = QGroupBox("FORMATO DO SET")
         set_layout = QVBoxLayout(set_box)
+        set_layout.setContentsMargins(8, 10, 8, 8)
         self.set_type = QComboBox()
         self.set_type.addItem("Split — arquivos dependentes separados", "split")
         self.set_type.addItem("Non-Merged — cada set independente", "non_merged")
         self.set_type.addItem("Full-Merged — parent + clones no mesmo set", "full_merged")
         self.set_type.currentIndexChanged.connect(self._update_preview)
         set_layout.addWidget(self.set_type)
-        layout.addWidget(set_box)
+        set_layout.addStretch(1)
+        columns.addWidget(set_box, 1)
 
-        clone_box = QGroupBox("Seleção de máquinas")
+        clone_box = QGroupBox("SELEÇÃO DE MÁQUINAS")
         clone_layout = QVBoxLayout(clone_box)
+        clone_layout.setContentsMargins(8, 10, 8, 8)
         self.clone_policy = QComboBox()
         self.clone_policy.addItem("Com clones", "with_clones")
         self.clone_policy.addItem("Somente parents", "parents_only")
@@ -163,16 +230,17 @@ class MameFilterPage(QWidget):
         ):
             check.toggled.connect(self._update_preview)
             clone_layout.addWidget(check)
-        layout.addWidget(clone_box)
+        clone_layout.addStretch(1)
+        columns.addWidget(clone_box, 1)
+        layout.addLayout(columns)
 
         self.set_note = QLabel(
-            "Observação: Split/Non-Merged/Full-Merged não descartam evidências do scan por si só; "
-            "eles definem como os arquivos selecionados deverão ser organizados na reconstrução."
+            "Split / Non-Merged / Full-Merged definem como os arquivos selecionados serão organizados na reconstrução."
         )
         self.set_note.setWordWrap(True)
         layout.addWidget(self.set_note)
-        layout.addStretch()
-        return page
+        layout.addStretch(1)
+        return self._scroll_page(content)
 
     def _read_profiles(self) -> list[FilterProfileData]:
         try:
@@ -258,8 +326,8 @@ class MameFilterPage(QWidget):
             return
         counts = self._counts(row)
         self.scan_info.setText(
-            f"Arquivo: {row.get('scan_file_path') or '—'}\n"
-            f"CURRENT={counts.get('CURRENT', 0):,} | MISSING={counts.get('MISSING', 0):,} | WRONG={counts.get('WRONG', 0):,}"
+            f"Arquivo: {row.get('scan_file_path') or '—'}   |   "
+            f"CURRENT={counts.get('CURRENT', 0):,}   MISSING={counts.get('MISSING', 0):,}   WRONG={counts.get('WRONG', 0):,}"
         )
         self.apply_button.setEnabled(Path(str(row.get("scan_file_path") or "")).is_file())
         self._load_curation(self._current_profile())
@@ -383,9 +451,7 @@ class MameFilterPage(QWidget):
         try:
             values = self._values()
             curation = self._current_curation()
-            result = ScanFilterService.apply_mame(
-                path, profile, values, curation_values=curation
-            )
+            result = ScanFilterService.apply_mame(path, profile, values, curation_values=curation)
             self.save_profile()
             ScanRepository(database_path()).save_filter_result(result)
             self.result.setText(
