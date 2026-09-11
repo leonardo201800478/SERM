@@ -1,4 +1,4 @@
-"""Hub visual de sistemas não-MAME e suas filtragens V2."""
+"""Hub visual compacto de sistemas não-MAME e suas filtragens V2."""
 
 from __future__ import annotations
 
@@ -9,10 +9,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QFrame, QGridLayout, QGroupBox, QLabel, QMessageBox,
-    QPushButton, QTabWidget, QVBoxLayout, QWidget,
-)
+from PySide6.QtWidgets import QCheckBox, QComboBox, QFrame, QGridLayout, QGroupBox, QLabel, QMessageBox, QPushButton, QTabWidget, QVBoxLayout, QWidget
 
 from ..runtime.paths import database_path, scans_root
 from ..services.scan_repository import ScanRepository
@@ -32,17 +29,17 @@ class _GenericFilterTab(QWidget):
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
         title = QLabel(f"{self.source} — FILTRAGEM")
         title.setProperty("role", "title")
         layout.addWidget(title)
-        description = QLabel(
-            "Esta área trabalha somente sobre snapshots concluídos. O scan bruto permanece preservado "
-            "e a filtragem produz um novo artefato versionado."
-        )
+        description = QLabel("Trabalha somente sobre snapshots concluídos; o scan bruto permanece preservado.")
         description.setWordWrap(True)
         layout.addWidget(description)
         box = QGroupBox("Entrada")
         form = QVBoxLayout(box)
+        form.setContentsMargins(8, 8, 8, 7)
         self.scan_combo = QComboBox()
         self.scan_combo.currentIndexChanged.connect(self._changed)
         form.addWidget(self.scan_combo)
@@ -52,6 +49,7 @@ class _GenericFilterTab(QWidget):
         layout.addWidget(box)
         rules = QGroupBox("Curadoria")
         rules_layout = QVBoxLayout(rules)
+        rules_layout.setContentsMargins(8, 8, 8, 7)
         self.current_only = QCheckBox("Manter somente itens CURRENT")
         self.current_only.setChecked(True)
         self.keep_duplicates = QCheckBox("Manter ocorrências DUPLICATE")
@@ -132,9 +130,7 @@ class _GenericFilterTab(QWidget):
             payload = json.loads(path.read_text(encoding="utf-8"))
             evidence = payload.get("evidence", [])
             selected = [item for item in evidence if self._keep(item)]
-            self.preview.setText(
-                f"Preview: entrada={len(evidence):,} | saída={len(selected):,} | excluídas={len(evidence) - len(selected):,}"
-            )
+            self.preview.setText(f"Preview: entrada={len(evidence):,} | saída={len(selected):,} | excluídas={len(evidence) - len(selected):,}")
         except (OSError, ValueError, TypeError) as exc:
             self.preview.setText(f"Preview indisponível: {exc}")
 
@@ -175,14 +171,14 @@ class _GenericFilterTab(QWidget):
 
 
 class _SystemCard(QFrame):
-    """Card visual de um sistema não-MAME."""
+    """Card visual compacto de um sistema não-MAME."""
 
     def __init__(self, number: str, title: str, description: str, action, parent=None) -> None:
         super().__init__(parent)
         self.setObjectName("systemCard")
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 14, 16, 14)
-        layout.setSpacing(7)
+        layout.setContentsMargins(10, 9, 10, 9)
+        layout.setSpacing(4)
         number_label = QLabel(number)
         number_label.setObjectName("systemCardNumber")
         title_label = QLabel(title)
@@ -190,7 +186,7 @@ class _SystemCard(QFrame):
         description_label = QLabel(description)
         description_label.setObjectName("systemCardDescription")
         description_label.setWordWrap(True)
-        button = QPushButton("ABRIR BIBLIOTECA")
+        button = QPushButton("ABRIR")
         button.clicked.connect(action)
         layout.addWidget(number_label)
         layout.addWidget(title_label)
@@ -199,7 +195,7 @@ class _SystemCard(QFrame):
 
 
 class FilteringPhasePage(QWidget):
-    """Bibliotecas não-MAME. Cada sistema mantém seu scan e sua filtragem isolados."""
+    """Bibliotecas não-MAME em uma navegação compacta por sistema."""
 
     SYSTEMS = ("No-Intro", "Redump", "WHLoader", "C64")
 
@@ -210,15 +206,12 @@ class FilteringPhasePage(QWidget):
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(18, 18, 18, 18)
-        root.setSpacing(12)
+        root.setContentsMargins(10, 10, 10, 10)
+        root.setSpacing(7)
         title = QLabel("OUTROS SISTEMAS")
         title.setProperty("role", "title")
         root.addWidget(title)
-        description = QLabel(
-            "Bibliotecas de sistemas preservadas fora do fluxo MAME. Cada fonte possui seu próprio scan, "
-            "catálogo e artefato de filtragem; o princípio é o mesmo da Biblioteca Visual MAME."
-        )
+        description = QLabel("Bibliotecas fora do fluxo MAME. Cada sistema mantém seu próprio scan e filtragem.")
         description.setWordWrap(True)
         root.addWidget(description)
         self.tabs = QTabWidget()
@@ -229,16 +222,19 @@ class FilteringPhasePage(QWidget):
             self.tabs.addTab(page, source)
         self.tabs.hide()
         cards = QGridLayout()
+        cards.setContentsMargins(0, 0, 0, 0)
+        cards.setHorizontalSpacing(7)
+        cards.setVerticalSpacing(7)
         descriptions = {
-            "No-Intro": "Sets de consoles e portáteis organizados por catálogo e região.",
-            "Redump": "Catálogos ópticos e validação por identidade física.",
-            "WHLoader": "Biblioteca WHDLoad para Amiga e seus slaves.",
-            "C64": "Catálogo C64/TOSEC e seus snapshots de scan.",
+            "No-Intro": "Consoles e portáteis por catálogo e região.",
+            "Redump": "Catálogos ópticos e identidade física.",
+            "WHLoader": "Biblioteca WHDLoad para Amiga.",
+            "C64": "Catálogo C64/TOSEC e snapshots.",
         }
         for index, source in enumerate(self.SYSTEMS):
             cards.addWidget(
                 _SystemCard(f"0{index + 1}", source, descriptions[source], lambda i=index: self._open(i), self),
-                index // 2, index % 2,
+                0, index,
             )
         root.addLayout(cards)
         root.addWidget(self.tabs, 1)
