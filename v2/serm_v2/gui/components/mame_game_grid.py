@@ -35,7 +35,7 @@ class MameArtworkResolver:
 
 
 class MameGameGrid(QScrollArea):
-    """Container de resultados com cálculo automático de colunas."""
+    """Container responsivo que reutiliza cards e evita reconstruções visuais."""
 
     game_activated = Signal(object)
 
@@ -69,40 +69,81 @@ class MameGameGrid(QScrollArea):
             )
         self._games = []
         self._cards: list[MameGameCard] = []
+        self._columns = 0
 
     def set_artwork_roots(self, roots: list[str | Path]) -> None:
         self.resolver = MameArtworkResolver(roots)
-        self.set_games(self._games)
+        self._refresh_existing_cards()
 
     def set_mame_executable(self, executable: str | Path | None) -> None:
         if not executable:
             return
         service = MameArtworkService.from_mame_executable(executable)
         self.resolver = MameArtworkResolver(service.roots)
-        self.set_games(self._games)
+        self._refresh_existing_cards()
 
     def artwork_inventory(self, game) -> dict[str, Path]:
         """Expõe todas as artes encontradas para uso por detalhes/preview."""
         return self.resolver.inventory(game)
 
     def set_games(self, games) -> None:
+        """Atualiza a grade incrementalmente, preservando widgets existentes."""
         self._games = list(games or [])
-        for card in self._cards:
-            card.deleteLater()
-        self._cards.clear()
+        self.content.setUpdatesEnabled(False)
+        try:
+            common = min(len(self._games), len(self._cards))
+
+            for index in range(common):
+                game = self._games[index]
+                self._cards[index].set_game(game, self.resolver.resolve(game))
+
+            while len(self._cards) > len(self._games):
+                card = self._cards.pop()
+                self.layout.removeWidget(card)
+                card.deleteLater()
+
+            while len(self._cards) < len(self._games):
+                game = self._games[len(self._cards)]
+                card = MameGameCard(parent=self.content)
+                card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+                card.activated.connect(self.game_activated.emit)
+                card.set_game(game, self.resolver.resolve(game))
+                self._cards.append(card)
+
+            self._reflow(force=True)
+        finally:
+            self.content.setUpdatesEnabled(True)
+            self.content.update()
+
+    def _refresh_existing_cards(self) -> None:
+        if not self._cards:
+            return
+        self.content.setUpdatesEnabled(False)
+        try:
+            for card, game in zip(self._cards, self._games):
+                card.set_game(game, self.resolver.resolve(game))
+        finally:
+            self.content.setUpdatesEnabled(True)
+            self.content.update()
+
+    def _reflow(self, force: bool = False) -> None:
+        columns = self._column_count()
+        if not force and columns == self._columns:
+            return
+        self._columns = columns
+
+        # Retira somente os itens do layout; os widgets continuam vivos e são
+        # reposicionados, evitando o efeito de piscar observado no resize.
         while self.layout.count():
-            item = self.layout.takeAt(0)
-            if item.widget() is not None:
-                item.widget().deleteLater()
-        columns = max(1, self._column_count())
-        for index, game in enumerate(self._games):
-            card = MameGameCard(game, self.resolver.resolve(game), self.content)
-            card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-            card.activated.connect(self.game_activated.emit)
-            self._cards.append(card)
-            self.layout.addWidget(card, index // columns, index % columns)
+            self.layout.takeAt(0)
+
+        for column in range(6):
+            self.layout.setColumnStretch(column, 0)
         for column in range(columns):
             self.layout.setColumnStretch(column, 1)
+
+        for index, card in enumerate(self._cards):
+            self.layout.addWidget(card, index // columns, index % columns)
 
     def _column_count(self) -> int:
         width = self.viewport().width()
@@ -110,8 +151,8 @@ class MameGameGrid(QScrollArea):
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
-        if self._games:
-            self.set_games(self._games)
+        if self._cards:
+            self._reflow()
 
 
 __all__ = ["MameArtworkResolver", "MameGameGrid"]
