@@ -1,4 +1,4 @@
-"""Tela dedicada de filtros MAME dividida em tipo de jogos e tipo de set."""
+"""Tela dedicada de filtros MAME dividida em tipo de jogos, curadoria e SET."""
 
 from __future__ import annotations
 
@@ -29,15 +29,17 @@ from ..services.mame_fundamental_filter_service import (
 )
 from ..services.scan_filter_service import ScanFilterService
 from ..services.scan_repository import ScanRepository
+from .components.mame_curation_panel import MameCurationPanel
 from .filter_profiles_page import FilterProfileData
 
 
 class MameFilterPage(QWidget):
-    """Configuração e aplicação dos filtros MAME em duas telas independentes."""
+    """Configuração e aplicação dos filtros MAME V2."""
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._profiles_path = data_root() / "filter_profiles.json"
+        self._curation_profiles_path = data_root() / "mame_curation_profiles.json"
         self._building = False
         self._build_ui()
         self.refresh()
@@ -48,8 +50,8 @@ class MameFilterPage(QWidget):
         title.setProperty("role", "title")
         root.addWidget(title)
         description = QLabel(
-            "Os filtros foram separados para evitar misturar classificação do jogo com a forma de montagem do set. "
-            "A primeira tela define quais tipos de jogos entram; a segunda define o tipo de SET e seus componentes."
+            "O pipeline agora separa classificação, curadoria e montagem do SET. "
+            "A curadoria ocorre depois do catálogo/scan e antes da filtragem física e da reconstrução."
         )
         description.setWordWrap(True)
         root.addWidget(description)
@@ -71,7 +73,10 @@ class MameFilterPage(QWidget):
 
         self.tabs = QTabWidget()
         self.tabs.addTab(self._game_type_page(), "1 — TIPO DE JOGOS")
-        self.tabs.addTab(self._set_type_page(), "2 — TIPO DE SET")
+        self.curation_panel = MameCurationPanel()
+        self.curation_panel.changed.connect(self._update_preview)
+        self.tabs.addTab(self.curation_panel, "2 — CURADORIA")
+        self.tabs.addTab(self._set_type_page(), "3 — TIPO DE SET")
         root.addWidget(self.tabs, 1)
 
         actions = QHBoxLayout()
@@ -194,6 +199,37 @@ class MameFilterPage(QWidget):
                 continue
         return profiles
 
+    def _read_curation_profiles(self) -> list[dict]:
+        try:
+            raw = json.loads(self._curation_profiles_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            return []
+        return [item for item in raw if isinstance(item, dict)] if isinstance(raw, list) else []
+
+    def _current_curation(self) -> dict:
+        return self.curation_panel.values()
+
+    def _load_curation(self, profile: FilterProfileData | None) -> None:
+        if profile is None:
+            self.curation_panel.set_values({})
+            return
+        records = self._read_curation_profiles()
+        record = next((item for item in records if item.get("profile_id") == profile.profile_id), None)
+        if record is None:
+            record = next((item for item in records if item.get("system") == profile.system), None)
+        self.curation_panel.set_values(record.get("values", {}) if record else {})
+
+    def _save_curation(self, profile: FilterProfileData) -> None:
+        records = [
+            item for item in self._read_curation_profiles()
+            if item.get("profile_id") != profile.profile_id and item.get("system") != profile.system
+        ]
+        records.append({"profile_id": profile.profile_id, "system": profile.system, "values": self._current_curation()})
+        self._curation_profiles_path.parent.mkdir(parents=True, exist_ok=True)
+        self._curation_profiles_path.write_text(
+            json.dumps(records, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+
     def refresh(self) -> None:
         self.scan_combo.blockSignals(True)
         self.scan_combo.clear()
@@ -218,6 +254,7 @@ class MameFilterPage(QWidget):
         if not isinstance(row, dict):
             self.scan_info.setText("Nenhum scan MAME concluído.")
             self.apply_button.setEnabled(False)
+            self.curation_panel.set_values({})
             return
         counts = self._counts(row)
         self.scan_info.setText(
@@ -225,6 +262,7 @@ class MameFilterPage(QWidget):
             f"CURRENT={counts.get('CURRENT', 0):,} | MISSING={counts.get('MISSING', 0):,} | WRONG={counts.get('WRONG', 0):,}"
         )
         self.apply_button.setEnabled(Path(str(row.get("scan_file_path") or "")).is_file())
+        self._load_curation(self._current_profile())
         self._update_preview()
 
     def _current_profile(self) -> FilterProfileData | None:
@@ -277,10 +315,16 @@ class MameFilterPage(QWidget):
         if profile is None:
             return
         try:
-            result = ScanFilterService.preview_mame(path, profile, self._values())
+            result = ScanFilterService.preview_mame(
+                path,
+                profile,
+                self._values(),
+                curation_values=self._current_curation(),
+            )
             self.preview.setText(
                 f"Preview | entrada={result['input_count']:,} | selecionadas={result['output_count']:,} | "
-                f"excluídas={result['filtered_count']:,} | SET={profile.mame_set_type}"
+                f"excluídas={result['filtered_count']:,} | curadoria={result.get('curation_selected', 0):,} "
+                f"selecionadas / {result.get('curation_excluded', 0):,} decisões | SET={profile.mame_set_type}"
             )
         except Exception as exc:
             self.preview.setText(f"Preview indisponível: {type(exc).__name__}: {exc}")
@@ -301,6 +345,7 @@ class MameFilterPage(QWidget):
             self.include_chd.setChecked(True)
             self.include_optional.setChecked(True)
             self.working_only.setChecked(False)
+            self.curation_panel.set_values({})
         finally:
             self._building = False
         self._update_preview()
@@ -318,7 +363,11 @@ class MameFilterPage(QWidget):
             encoding="utf-8",
         )
         MameFundamentalFilterService.save(profile.profile_id, self._values())
-        self.result.setText(f"Filtros salvos: {profile.name} | SET={profile.mame_set_type}")
+        self._save_curation(profile)
+        curation = self._current_curation()
+        self.result.setText(
+            f"Filtros salvos: {profile.name} | curadoria 1G1R={'sim' if curation['curation_one_game_one_rom'] else 'não'} | SET={profile.mame_set_type}"
+        )
 
     def apply_filters(self) -> None:
         row = self.scan_combo.currentData()
@@ -333,12 +382,17 @@ class MameFilterPage(QWidget):
             return
         try:
             values = self._values()
-            result = ScanFilterService.apply_mame(path, profile, values)
+            curation = self._current_curation()
+            result = ScanFilterService.apply_mame(
+                path, profile, values, curation_values=curation
+            )
             self.save_profile()
             ScanRepository(database_path()).save_filter_result(result)
             self.result.setText(
                 f"ARQUIVO FILTRADO GERADO\n{result['filtered_file_path']}\n"
-                f"entrada={result['input_count']:,} | saída={result['output_count']:,} | SET={profile.mame_set_type}"
+                f"entrada={result['input_count']:,} | saída={result['output_count']:,} | "
+                f"curadoria={result.get('curation_selected', 0):,} selecionadas / "
+                f"{result.get('curation_excluded', 0):,} decisões | SET={profile.mame_set_type}"
             )
         except Exception as exc:
             QMessageBox.critical(self, "Filtros MAME", f"Falha ao aplicar filtros:\n{exc}")
