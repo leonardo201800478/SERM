@@ -66,6 +66,7 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self._build_log_dock()
         self.configuration_page.appearance_page.language_changed.connect(self._language_changed)
+        self._retranslate_navigation()
         self._restore_window_layout()
 
     @staticmethod
@@ -181,8 +182,6 @@ class MainWindow(QMainWindow):
         root_layout.addWidget(self.page_stack, 1)
         self.setCentralWidget(root)
         self.navigation.currentRowChanged.connect(self._on_navigation_changed)
-        self._retranslate_navigation()
-        self.navigation.setCurrentRow(0)
 
     def _build_log_dock(self) -> None:
         """Adiciona o painel de logs à janela principal."""
@@ -193,17 +192,21 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.log_dock)
 
     def _retranslate_navigation(self) -> None:
-        for index, (key, description, style_icon) in enumerate(self.NAV_ITEMS):
-            if index >= self.navigation.count():
-                item = QListWidgetItem(self.style().standardIcon(getattr(QStyle, style_icon)))
-                item.setSizeHint(QSize(0, 46))
-                self.navigation.addItem(item)
+        while self.navigation.count() < len(self.NAV_ITEMS):
+            index = self.navigation.count()
+            _, _, style_icon = self.NAV_ITEMS[index]
+            item = QListWidgetItem(self.style().standardIcon(getattr(QStyle, style_icon)))
+            item.setSizeHint(QSize(0, 46))
+            self.navigation.addItem(item)
+        for index, (key, description, _style_icon) in enumerate(self.NAV_ITEMS):
             item = self.navigation.item(index)
             item.setText(UiPreferences.text(key))
             item.setToolTip(description)
             item.setData(Qt.ItemDataRole.UserRole, description)
-        self.footer.setText("SERM V2\nSistema de Emulação e ROM Management")
-        self.log_dock.setWindowTitle(UiPreferences.text("logs"))
+        if hasattr(self, "footer"):
+            self.footer.setText("SERM V2\nSistema de Emulação e ROM Management")
+        if hasattr(self, "log_dock"):
+            self.log_dock.setWindowTitle(UiPreferences.text("logs"))
         self.status_bar.showMessage(UiPreferences.text("ready"))
 
     def _language_changed(self, _language: str) -> None:
