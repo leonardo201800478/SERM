@@ -14,39 +14,23 @@ from PySide6.QtWidgets import (
 from ..config.settings import Settings
 from ..database.bootstrap import apply_migrations
 from ..database.engine import create_sqlite_engine
-from .arcade_studio_page import ArcadeStudioPage
-from .dat_scraper import DatScraperPage
-from .emulator_directories_page import DirectoriesPage
-from .emulator_settings_page import EmulatorSettingsPage
-from .emulator_shaders_bezels_page import EmulatorShadersBezelsPage
+from .configuration_page import ConfigurationPage
+from .data_sources_page import DataSourcesPage
 from .filter_phase_page import FilteringPhasePage
 from .home import HomePage
 from .log_handler import LogViewer
-from .mame_filter_page import MameFilterPage
-from .mame_scan_page import MameScanPage
-from .no_intro_filter_page import NoIntroFilterPage
-from .progetto_snaps_page import ProgettoSnapsPage
-from .reconstruction_phase_page import ReconstructionPhasePage
-from .scan_phase_page import ScanPhasePage
-from .tools_directories import ToolsDirectoriesPage
+from .mame_studio_page import MameStudioPage
 
 
 class MainWindow(QMainWindow):
+    """Shell da aplicação, organizada por domínios funcionais."""
+
     NAV_ITEMS = (
-        ("Home", "Página inicial e estado dos emuladores", "SP_DirHomeIcon"),
-        ("Diretórios", "Gerenciar diretórios dos emuladores", "SP_DirIcon"),
-        ("Ferramentas", "LaunchBox, 7-Zip e outros executáveis auxiliares", "SP_ComputerIcon"),
-        ("Scraper de DATs", "Importação e processamento de DATs", "SP_FileIcon"),
-        ("Configurações", "Configurações dos emuladores", "SP_FileDialogDetailedView"),
-        ("Shaders / Bezels", "Aparência, shaders e bezels", "SP_ComputerIcon"),
-        ("Arcade Studio", "Catálogo MAME, comparação física, filtros e reconstrução V2", "SP_DriveHDIcon"),
-        ("1 — Scan", "Auditoria completa contra DAT/catalogo", "SP_DriveHDIcon"),
-        ("MAME — Scans", "Catálogo ListXML, construção do banco MAME, scans e histórico", "SP_DriveHDIcon"),
-        ("2 — Filtragem", "Filtragem de fontes não-Arcade sobre scans já concluídos", "SP_FileDialogDetailedView"),
-        ("MAME — Filtros", "Filtros MAME separados por tipo de jogo e tipo de SET", "SP_FileDialogDetailedView"),
-        ("No-Intro — Filtros", "Conteúdo, regiões, clones, hacks, traduções e 1G1R", "SP_FileDialogDetailedView"),
-        ("3 — Reconstrução", "Montar o set a partir do arquivo filtrado", "SP_FileDialogInfoView"),
-        ("progetto-SNAPS", "Gerenciar snapshots e recursos visuais do MAME", "SP_FileIcon"),
+        ("Início", "Visão geral do SERM e estado do ambiente", "SP_DirHomeIcon"),
+        ("Configuração", "Diretórios, ferramentas, emuladores e vídeo", "SP_FileDialogDetailedView"),
+        ("Fontes e Dados", "Aquisição e atualização de DATs e recursos externos", "SP_FileIcon"),
+        ("MAME Studio", "Catálogo, scan, filtros e reconstrução MAME", "SP_DriveHDIcon"),
+        ("Outros Sistemas", "Filtragem pós-scan para No-Intro, Redump, WHLoader e C64", "SP_FileDialogInfoView"),
     )
     _GEOMETRY_KEY = "main_window/geometry"
     _STATE_KEY = "main_window/state"
@@ -174,34 +158,16 @@ class MainWindow(QMainWindow):
         self.page_stack = QStackedWidget()
         self.page_stack.setObjectName("pageStack")
         self.home_section = HomePage(self)
-        self.directories_tab = DirectoriesPage(self)
-        self.tools_tab = ToolsDirectoriesPage(self)
-        self.settings_tab = EmulatorSettingsPage(self)
-        self.visuals_tab = EmulatorShadersBezelsPage(self)
-        self.arcade_studio_tab = ArcadeStudioPage(self)
-        self.scan_tab = ScanPhasePage(self)
-        self.mame_scan_tab = MameScanPage(self)
-        self.filter_tab = FilteringPhasePage(self)
-        self.mame_filter_tab = MameFilterPage(self)
-        self.no_intro_filter_tab = NoIntroFilterPage(self)
-        self.reconstruction_tab = ReconstructionPhasePage(self)
-        self.dat_scraper_tab = DatScraperPage(self)
-        self.progetto_snaps_tab = ProgettoSnapsPage(self)
+        self.configuration_page = ConfigurationPage(self)
+        self.data_sources_page = DataSourcesPage(self)
+        self.mame_studio_page = MameStudioPage(self)
+        self.other_systems_page = FilteringPhasePage(self)
         self.pages = (
             self.home_section,
-            self.directories_tab,
-            self.tools_tab,
-            self.dat_scraper_tab,
-            self.settings_tab,
-            self.visuals_tab,
-            self.arcade_studio_tab,
-            self.scan_tab,
-            self.mame_scan_tab,
-            self.filter_tab,
-            self.mame_filter_tab,
-            self.no_intro_filter_tab,
-            self.reconstruction_tab,
-            self.progetto_snaps_tab,
+            self.configuration_page,
+            self.data_sources_page,
+            self.mame_studio_page,
+            self.other_systems_page,
         )
         for page in self.pages:
             self.page_stack.addWidget(page)
