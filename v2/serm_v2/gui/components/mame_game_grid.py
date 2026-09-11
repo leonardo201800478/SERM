@@ -7,31 +7,23 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QGridLayout, QScrollArea, QSizePolicy, QWidget
 
+from ...services.mame_artwork_service import MameArtworkService
 from .mame_game_card import MameGameCard
 
 
 class MameArtworkResolver:
-    """Resolve artwork local do MAME sem depender de uma fonte externa."""
-
-    EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp")
-    DIRECTORY_NAMES = ("snap", "snaps", "titles", "artwork", "flyers", "marquees")
+    """Compatibilidade para resolução de artwork local do MAME."""
 
     def __init__(self, roots: list[str | Path] | None = None) -> None:
-        self.roots = [Path(root) for root in (roots or [])]
-        self._cache: dict[str, Path | None] = {}
+        self.service = MameArtworkService(roots)
 
     def resolve(self, game) -> Path | None:
         name = self._game_name(game)
-        if not name:
-            return None
-        if name in self._cache:
-            return self._cache[name]
-        candidates = []
-        for root in self.roots:
-            candidates.extend(self._candidate_paths(root, name))
-        result = next((path for path in candidates if path.is_file()), None)
-        self._cache[name] = result
-        return result
+        return self.service.primary(name) if name else None
+
+    def inventory(self, game) -> dict[str, Path]:
+        name = self._game_name(game)
+        return self.service.inventory(name) if name else {}
 
     @staticmethod
     def _game_name(game) -> str:
@@ -41,19 +33,16 @@ class MameArtworkResolver:
                 return str(value)
         return ""
 
-    def _candidate_paths(self, root: Path, name: str):
-        directories = [root]
-        if root.name.lower() not in self.DIRECTORY_NAMES:
-            directories.extend(root / directory for directory in self.DIRECTORY_NAMES)
-        for directory in directories:
-            for extension in self.EXTENSIONS:
-                yield directory / f"{name}{extension}"
-
 
 class MameGameGrid(QScrollArea):
     """Container de resultados com cálculo automático de colunas."""
 
-    def __init__(self, artwork_roots: list[str | Path] | None = None, parent=None) -> None:
+    def __init__(
+        self,
+        artwork_roots: list[str | Path] | None = None,
+        mame_executable: str | Path | None = None,
+        parent=None,
+    ) -> None:
         super().__init__(parent)
         self.setObjectName("mameGameGrid")
         self.setWidgetResizable(True)
@@ -67,13 +56,32 @@ class MameGameGrid(QScrollArea):
         self.layout.setHorizontalSpacing(10)
         self.layout.setVerticalSpacing(10)
         self.setWidget(self.content)
-        self.resolver = MameArtworkResolver(artwork_roots)
+
+        if artwork_roots:
+            self.resolver = MameArtworkResolver(artwork_roots)
+        else:
+            self.resolver = MameArtworkResolver(
+                [Path(mame_executable).parent, Path(mame_executable).parent / "artwork"]
+                if mame_executable
+                else []
+            )
         self._games = []
         self._cards: list[MameGameCard] = []
 
     def set_artwork_roots(self, roots: list[str | Path]) -> None:
         self.resolver = MameArtworkResolver(roots)
         self.set_games(self._games)
+
+    def set_mame_executable(self, executable: str | Path | None) -> None:
+        if not executable:
+            return
+        service = MameArtworkService.from_mame_executable(executable)
+        self.resolver = MameArtworkResolver(service.roots)
+        self.set_games(self._games)
+
+    def artwork_inventory(self, game) -> dict[str, Path]:
+        """Expõe todas as artes encontradas para uso por detalhes/preview."""
+        return self.resolver.inventory(game)
 
     def set_games(self, games) -> None:
         self._games = list(games or [])
