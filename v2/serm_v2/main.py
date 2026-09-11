@@ -12,6 +12,7 @@ from .gui.retro_arcade_theme import apply_retro_arcade_theme
 from .gui.startup_splash import StartupSplash
 from .gui.theme import normalize_log_widgets, refine_dashboard
 from .gui.ui_micro_refinement import refine_arcade_catalog_numbers
+from .gui.ui_preferences import UiPreferences, apply_user_theme
 from .gui.ui_refinement import apply_ui_refinement
 
 
@@ -21,13 +22,14 @@ def configure_logging() -> None:
 
 
 def main() -> int:
-    """Start SERM V2 with the Retro Arcade pixel-art interface."""
+    """Start SERM V2 with the configured visual mode."""
     configure_logging()
     logger = logging.getLogger(__name__)
     app = QApplication(sys.argv)
     app.setApplicationName("SERM")
     app.setApplicationVersion("2.0.0-dev")
     font_family = apply_retro_arcade_theme(app)
+    apply_user_theme(app, UiPreferences.theme())
     splash = StartupSplash.startup()
     splash.set_phase("Inicializando SERM V2", "Carregando interface e serviços...")
     window = MainWindow()
@@ -40,8 +42,8 @@ def main() -> int:
     refine_arcade_catalog_numbers(window.mame_studio_page.catalog_page)
 
     logger.info(
-        "[SERM][UI] Retro Arcade pixel | fonte=%s | consoles=%d | painéis=%d | títulos=%d | seções=%d | splitters_arcade=%s | splitter_retroarch=%s",
-        font_family, log_count, ui_stats["panels"], ui_stats["titles"], ui_stats["sections"], layout_stats["arcade"], layout_stats["retroarch"],
+        "[SERM][UI] modo=%s | idioma=%s | fonte=%s | consoles=%d | painéis=%d | títulos=%d | seções=%d | splitters_arcade=%s | splitter_retroarch=%s",
+        UiPreferences.theme(), UiPreferences.language(), font_family, log_count, ui_stats["panels"], ui_stats["titles"], ui_stats["sections"], layout_stats["arcade"], layout_stats["retroarch"],
     )
     splash.set_phase("Verificando emuladores", "Detectando executáveis e versões instaladas...")
     window.home_section.refresh()
