@@ -39,9 +39,7 @@ QLineEdit, QComboBox, QSpinBox {
     min-height: 20px;
 }
 
-QCheckBox, QRadioButton {
-    spacing: 5px;
-}
+QCheckBox, QRadioButton { spacing: 5px; }
 
 QCheckBox::indicator, QRadioButton::indicator {
     width: 12px;
@@ -53,9 +51,7 @@ QGroupBox {
     padding: 12px 9px 8px 9px;
 }
 
-QGroupBox::title {
-    padding: 0 5px;
-}
+QGroupBox::title { padding: 0 5px; }
 
 QTabBar::tab {
     padding: 5px 11px 6px 11px;
@@ -67,56 +63,30 @@ QListWidget::item, QTreeWidget::item {
     min-height: 21px;
 }
 
-QHeaderView::section {
-    padding: 5px 6px;
-}
-
-QProgressBar {
-    min-height: 13px;
-}
-
+QHeaderView::section { padding: 5px 6px; }
+QProgressBar { min-height: 13px; }
 QScrollBar:vertical { width: 10px; }
 
-/* Hubs: quatro entradas cabem em uma linha sem transformar a tela em um
-   painel de grandes cards. */
-QFrame#configCard,
-QFrame#sourceCard,
-QFrame#systemCard {
-    background: rgba(255,255,255,0.025);
-    border: 1px solid #343b69;
+/* Hubs: cards compactos, sem impor cores que conflitem com o tema. */
+QFrame#configCard, QFrame#sourceCard, QFrame#systemCard {
     min-height: 104px;
 }
 
-QFrame#configCard:hover,
-QFrame#sourceCard:hover,
-QFrame#systemCard:hover {
-    border-color: #35e9ff;
-}
-
-QLabel#configCardNumber,
-QLabel#sourceCardNumber,
-QLabel#systemCardNumber {
+QLabel#configCardNumber, QLabel#sourceCardNumber, QLabel#systemCardNumber {
     font-size: 8pt;
     font-weight: 900;
 }
 
-QLabel#configCardTitle,
-QLabel#sourceCardTitle,
-QLabel#systemCardTitle {
+QLabel#configCardTitle, QLabel#sourceCardTitle, QLabel#systemCardTitle {
     font-size: 10pt;
     font-weight: 900;
 }
 
-QLabel#configCardDescription,
-QLabel#sourceCardDescription,
-QLabel#systemCardDescription {
+QLabel#configCardDescription, QLabel#sourceCardDescription, QLabel#systemCardDescription {
     font-size: 8pt;
-    line-height: 1.05;
 }
 
-QFrame#sourceStatusBanner {
-    min-height: 28px;
-}
+QFrame#sourceStatusBanner { min-height: 28px; }
 """
 
 
