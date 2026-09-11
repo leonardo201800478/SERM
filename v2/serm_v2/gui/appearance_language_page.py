@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QComboBox, QFormLayout, QGroupBox, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QComboBox, QFormLayout, QGroupBox, QLabel, QVBoxLayout, QWidget
 
 from .ui_preferences import LANGUAGES, UiPreferences, apply_user_theme
 
@@ -34,7 +34,7 @@ class AppearanceLanguagePage(QWidget):
         self.theme = QComboBox()
         self.theme.addItem("Modo escuro", "dark")
         self.theme.addItem("Modo claro", "light")
-        self.theme.setCurrentIndex(self.theme.findData(UiPreferences.theme()))
+        self.theme.setCurrentIndex(max(0, self.theme.findData(UiPreferences.theme())))
         self.theme.currentIndexChanged.connect(self._theme_changed)
         form.addRow("Tema:", self.theme)
         root.addWidget(appearance)
@@ -45,13 +45,13 @@ class AppearanceLanguagePage(QWidget):
         self.language = QComboBox()
         for code, name in LANGUAGES.items():
             self.language.addItem(name, code)
-        self.language.setCurrentIndex(self.language.findData(UiPreferences.language()))
+        self.language.setCurrentIndex(max(0, self.language.findData(UiPreferences.language())))
         self.language.currentIndexChanged.connect(self._language_changed)
         language_form.addRow("Idioma:", self.language)
         root.addWidget(language)
 
         self.note = QLabel(
-            "O tema é aplicado imediatamente. A seleção de idioma é persistente e a interface é atualizada nas telas que já possuem catálogo de tradução; novas telas serão incorporadas ao mesmo sistema."
+            "O tema é aplicado imediatamente. O idioma é persistente e a interface já preparada para tradução é atualizada sem alterar os dados do usuário."
         )
         self.note.setWordWrap(True)
         root.addWidget(self.note)
@@ -62,7 +62,9 @@ class AppearanceLanguagePage(QWidget):
             return
         value = str(self.theme.currentData())
         UiPreferences.set_theme(value)
-        apply_user_theme(self.window().windowHandle().screen() if False else __import__('PySide6.QtWidgets', fromlist=['QApplication']).QApplication.instance(), value)
+        app = QApplication.instance()
+        if app is not None:
+            apply_user_theme(app, value)
         self.changed.emit()
 
     def _language_changed(self, *_args) -> None:
