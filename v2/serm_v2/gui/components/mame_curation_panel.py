@@ -3,11 +3,22 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QCheckBox, QComboBox, QFormLayout, QGroupBox, QLabel, QLineEdit, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QFormLayout,
+    QGridLayout,
+    QGroupBox,
+    QLabel,
+    QLineEdit,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
 
 
 class MameCurationPanel(QWidget):
-    """Editor compacto da política de curadoria aplicada antes do filtro físico."""
+    """Editor denso da política de curadoria aplicada antes do filtro físico."""
 
     changed = Signal()
 
@@ -19,37 +30,56 @@ class MameCurationPanel(QWidget):
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(7)
+
         intro = QLabel(
             "A curadoria escolhe as machines antes da montagem do SET. "
             "O scan original permanece intacto e cada exclusão gera uma decisão auditável."
         )
         intro.setWordWrap(True)
-        root.addWidget(intro)
+        layout.addWidget(intro)
 
-        preferences = QGroupBox("Preferências de seleção")
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(8)
+        grid.setVerticalSpacing(6)
+        layout.addLayout(grid)
+
+        preferences = QGroupBox("PREFERÊNCIAS DE SELEÇÃO")
         form = QFormLayout(preferences)
+        form.setContentsMargins(8, 10, 8, 8)
+        form.setHorizontalSpacing(10)
+        form.setVerticalSpacing(4)
         self.regions = QLineEdit()
         self.regions.setPlaceholderText("World, USA, Europe, Japan")
         self.languages = QLineEdit()
         self.languages.setPlaceholderText("English, Portuguese, Spanish")
         self.max_players = QLineEdit()
-        self.max_players.setPlaceholderText("vazio = sem limite")
+        self.max_players.setPlaceholderText("sem limite")
         self.max_buttons = QLineEdit()
-        self.max_buttons.setPlaceholderText("vazio = sem limite")
+        self.max_buttons.setPlaceholderText("sem limite")
         self.controls = QLineEdit()
         self.controls.setPlaceholderText("joystick, joy, paddle")
         self.directions = QLineEdit()
         self.directions.setPlaceholderText("2-way, 4-way, 8-way")
-        form.addRow("Regiões preferidas:", self.regions)
-        form.addRow("Idiomas preferidos:", self.languages)
+        form.addRow("Regiões:", self.regions)
+        form.addRow("Idiomas:", self.languages)
         form.addRow("Máx. jogadores:", self.max_players)
         form.addRow("Máx. botões:", self.max_buttons)
-        form.addRow("Controles aceitos:", self.controls)
-        form.addRow("Direções aceitas:", self.directions)
-        root.addWidget(preferences)
+        form.addRow("Controles:", self.controls)
+        form.addRow("Direções:", self.directions)
+        grid.addWidget(preferences, 0, 0)
 
-        rules = QGroupBox("Regras da curadoria")
+        rules = QGroupBox("REGRAS DA CURADORIA")
         rule_form = QFormLayout(rules)
+        rule_form.setContentsMargins(8, 10, 8, 8)
+        rule_form.setHorizontalSpacing(10)
+        rule_form.setVerticalSpacing(3)
         self.orientation = QComboBox()
         self.orientation.addItem("Qualquer orientação", "both")
         self.orientation.addItem("Horizontal", "horizontal")
@@ -63,7 +93,7 @@ class MameCurationPanel(QWidget):
         self.include_prototypes.setChecked(True)
         self.one_game_one_rom = QCheckBox("1G1R — um representante por família parent/clone")
         self.min_quality = QLineEdit()
-        self.min_quality.setPlaceholderText("vazio = sem limite")
+        self.min_quality.setPlaceholderText("sem limite")
         rule_form.addRow("Orientação:", self.orientation)
         rule_form.addRow(self.strict_controls)
         rule_form.addRow(self.include_clones)
@@ -71,18 +101,40 @@ class MameCurationPanel(QWidget):
         rule_form.addRow(self.include_prototypes)
         rule_form.addRow(self.one_game_one_rom)
         rule_form.addRow("Qualidade mínima:", self.min_quality)
-        root.addWidget(rules)
-        root.addStretch()
+        grid.addWidget(rules, 0, 1)
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
+
+        hint = QLabel(
+            "Dica: listas aceitam valores separados por vírgula. Campos numéricos vazios significam sem limite."
+        )
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+        layout.addStretch(1)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setWidget(content)
+        root.addWidget(scroll)
 
     def _connect_signals(self) -> None:
         for widget in (
-            self.regions, self.languages, self.max_players, self.max_buttons,
-            self.controls, self.directions, self.min_quality,
+            self.regions,
+            self.languages,
+            self.max_players,
+            self.max_buttons,
+            self.controls,
+            self.directions,
+            self.min_quality,
         ):
             widget.editingFinished.connect(self._emit_changed)
         for widget in (
-            self.strict_controls, self.include_clones, self.include_bootlegs,
-            self.include_prototypes, self.one_game_one_rom,
+            self.strict_controls,
+            self.include_clones,
+            self.include_bootlegs,
+            self.include_prototypes,
+            self.one_game_one_rom,
         ):
             widget.toggled.connect(self._emit_changed)
         self.orientation.currentIndexChanged.connect(self._emit_changed)
