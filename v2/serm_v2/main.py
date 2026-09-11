@@ -34,7 +34,11 @@ def main() -> int:
     log_count = normalize_log_widgets(window)
     ui_stats = refine_dashboard(window)
     layout_stats = apply_ui_refinement(window)
-    refine_arcade_catalog_numbers(window.arcade_studio_tab)
+
+    # MAME Studio passou a ser o container da etapa de catálogo. O ajuste
+    # tipográfico continua sendo aplicado ao catálogo real, não ao container.
+    refine_arcade_catalog_numbers(window.mame_studio_page.catalog_page)
+
     logger.info(
         "[SERM][UI] Retro Arcade pixel | fonte=%s | consoles=%d | painéis=%d | títulos=%d | seções=%d | splitters_arcade=%s | splitter_retroarch=%s",
         font_family, log_count, ui_stats["panels"], ui_stats["titles"], ui_stats["sections"], layout_stats["arcade"], layout_stats["retroarch"],
