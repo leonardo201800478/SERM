@@ -21,9 +21,17 @@ class ScanFilterService:
         return MameFilterV2Service.facets(scan_path)
 
     @classmethod
-    def preview_mame(cls, scan_path: Path, profile, fundamental_values, category_values=None, advanced_values=None):
+    def preview_mame(
+        cls,
+        scan_path: Path,
+        profile,
+        fundamental_values,
+        category_values=None,
+        advanced_values=None,
+        curation_values=None,
+    ):
         state = cls._state(profile, fundamental_values, category_values, advanced_values)
-        curated_path, curation = MameCurationService.prepare_scan(scan_path, profile)
+        curated_path, curation = MameCurationService.prepare_scan(scan_path, profile, curation_values)
         try:
             result = MameFilterV2Service.preview(curated_path, state)
         finally:
@@ -34,9 +42,17 @@ class ScanFilterService:
         return result
 
     @classmethod
-    def apply_mame(cls, scan_path: Path, profile, fundamental_values, category_values=None, advanced_values=None):
+    def apply_mame(
+        cls,
+        scan_path: Path,
+        profile,
+        fundamental_values,
+        category_values=None,
+        advanced_values=None,
+        curation_values=None,
+    ):
         state = cls._state(profile, fundamental_values, category_values, advanced_values)
-        curated_path, curation = MameCurationService.prepare_scan(scan_path, profile)
+        curated_path, curation = MameCurationService.prepare_scan(scan_path, profile, curation_values)
         try:
             result = MameFilterV2Service.apply(curated_path, state)
         finally:
