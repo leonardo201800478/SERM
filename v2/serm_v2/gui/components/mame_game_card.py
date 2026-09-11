@@ -36,6 +36,7 @@ class MameGameCard(QFrame):
             #gameStatusBadge[status="working"] { background: #19e66d; color: #03200f; }
             #gameStatusBadge[status="mixed"] { background: #ffc51b; color: #2b2100; }
             #gameStatusBadge[status="broken"] { background: #ff405e; color: #2b0008; }
+            #gameStatusBadge[status="unknown"] { background: #737b84; color: #f1f4f6; }
         """)
         self._build_ui()
         self.set_artwork(artwork_path)
@@ -48,11 +49,13 @@ class MameGameCard(QFrame):
         return default
 
     def _status_key(self) -> str:
-        value = self._value("playability_status", "status", default="working").lower()
+        value = self._value("playability_status", "status", default="unknown").lower()
         if "mixed" in value:
             return "mixed"
         if "not" in value or "broken" in value:
             return "broken"
+        if "unknown" in value or "audit" in value or value in {"—", ""}:
+            return "unknown"
         return "working"
 
     def _build_ui(self) -> None:
@@ -103,7 +106,12 @@ class MameGameCard(QFrame):
         return f"♙ {self._value('players', 'max_players', default='2')}   ◇ {self._value('buttons', 'max_buttons', default='0')}   ◫ {self._value('orientation', default='Horizontal')}"
 
     def _status_label(self) -> str:
-        return {"working": "● WORKING", "mixed": "● MIXED", "broken": "● NOT WORKING"}.get(self._status_key(), "● WORKING")
+        return {
+            "working": "● WORKING",
+            "mixed": "● MIXED",
+            "broken": "● NOT WORKING",
+            "unknown": "● NÃO AUDITADO",
+        }.get(self._status_key(), "● NÃO AUDITADO")
 
     def set_artwork(self, artwork_path: str | Path | None) -> None:
         path = Path(artwork_path) if artwork_path else None
