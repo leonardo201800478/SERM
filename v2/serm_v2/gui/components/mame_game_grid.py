@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QGridLayout, QScrollArea, QSizePolicy, QWidget
 
 from ...services.mame_artwork_service import MameArtworkService
@@ -36,6 +36,8 @@ class MameArtworkResolver:
 
 class MameGameGrid(QScrollArea):
     """Container de resultados com cálculo automático de colunas."""
+
+    game_activated = Signal(object)
 
     def __init__(
         self,
@@ -96,6 +98,7 @@ class MameGameGrid(QScrollArea):
         for index, game in enumerate(self._games):
             card = MameGameCard(game, self.resolver.resolve(game), self.content)
             card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            card.activated.connect(self.game_activated.emit)
             self._cards.append(card)
             self.layout.addWidget(card, index // columns, index % columns)
         for column in range(columns):
