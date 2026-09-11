@@ -1,4 +1,4 @@
-"""Fase 2: filtragem de snapshots para fontes não-Arcade."""
+"""Hub visual de sistemas não-MAME e suas filtragens V2."""
 
 from __future__ import annotations
 
@@ -8,15 +8,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QCheckBox,
-    QComboBox,
-    QGroupBox,
-    QLabel,
-    QMessageBox,
-    QPushButton,
-    QVBoxLayout,
-    QWidget,
+    QCheckBox, QComboBox, QFrame, QGridLayout, QGroupBox, QLabel, QMessageBox,
+    QPushButton, QTabWidget, QVBoxLayout, QWidget,
 )
 
 from ..runtime.paths import database_path, scans_root
@@ -40,15 +35,13 @@ class _GenericFilterTab(QWidget):
         title = QLabel(f"{self.source} — FILTRAGEM")
         title.setProperty("role", "title")
         layout.addWidget(title)
-
         description = QLabel(
-            "Esta guia trabalha somente sobre o snapshot do scan selecionado. "
-            "Não revarre o diretório e não altera o scan bruto."
+            "Esta área trabalha somente sobre snapshots concluídos. O scan bruto permanece preservado "
+            "e a filtragem produz um novo artefato versionado."
         )
         description.setWordWrap(True)
         layout.addWidget(description)
-
-        box = QGroupBox("1. Scan completo de entrada")
+        box = QGroupBox("Entrada")
         form = QVBoxLayout(box)
         self.scan_combo = QComboBox()
         self.scan_combo.currentIndexChanged.connect(self._changed)
@@ -57,27 +50,22 @@ class _GenericFilterTab(QWidget):
         self.info.setWordWrap(True)
         form.addWidget(self.info)
         layout.addWidget(box)
-
-        rules = QGroupBox("2. Regras disponíveis")
+        rules = QGroupBox("Curadoria")
         rules_layout = QVBoxLayout(rules)
         self.current_only = QCheckBox("Manter somente itens CURRENT")
         self.current_only.setChecked(True)
         self.keep_duplicates = QCheckBox("Manter ocorrências DUPLICATE")
-        self.keep_duplicates.setChecked(False)
         rules_layout.addWidget(self.current_only)
         rules_layout.addWidget(self.keep_duplicates)
         self.current_only.toggled.connect(self._preview)
         self.keep_duplicates.toggled.connect(self._preview)
         layout.addWidget(rules)
-
         self.preview = QLabel("Selecione um scan para visualizar o resultado.")
         self.preview.setWordWrap(True)
         layout.addWidget(self.preview)
-
         self.apply_button = QPushButton("GERAR ARQUIVO FILTRADO")
         self.apply_button.clicked.connect(self.apply)
         layout.addWidget(self.apply_button)
-
         self.result = QLabel("Nenhum arquivo filtrado gerado nesta sessão.")
         self.result.setWordWrap(True)
         layout.addWidget(self.result)
@@ -90,19 +78,15 @@ class _GenericFilterTab(QWidget):
             with sqlite3.connect(database_path()) as connection:
                 connection.row_factory = sqlite3.Row
                 rows = connection.execute(
-                    "SELECT * FROM scan_runs "
-                    "WHERE status='completed' AND lower(source)=lower(?) "
-                    "ORDER BY started_at DESC",
+                    "SELECT * FROM scan_runs WHERE status='completed' AND lower(source)=lower(?) ORDER BY started_at DESC",
                     (self.source,),
                 ).fetchall()
         except sqlite3.Error:
             rows = []
-
         for row in rows:
             data = dict(row)
             self.scan_combo.addItem(
-                f"{data.get('system') or self.source} › "
-                f"{data.get('catalog_label') or 'catálogo'} | {data.get('scan_id')}",
+                f"{data.get('system') or self.source} › {data.get('catalog_label') or 'catálogo'} | {data.get('scan_id')}",
                 data,
             )
         self.scan_combo.blockSignals(False)
@@ -123,23 +107,18 @@ class _GenericFilterTab(QWidget):
             self.apply_button.setEnabled(False)
             self.preview.setText("Selecione um scan para visualizar o resultado.")
             return
-
         counts = self._counts(data)
         self.info.setText(
             f"Entrada: {data.get('scan_file_path') or '—'}\n"
-            f"Itens={int(data.get('items_examined') or 0):,} | "
-            f"CURRENT={counts.get('CURRENT', 0):,} | "
-            f"MISSING={counts.get('MISSING', 0):,} | "
-            f"WRONG={counts.get('WRONG', 0):,}"
+            f"Itens={int(data.get('items_examined') or 0):,} | CURRENT={counts.get('CURRENT', 0):,} | "
+            f"MISSING={counts.get('MISSING', 0):,} | WRONG={counts.get('WRONG', 0):,}"
         )
         self.apply_button.setEnabled(Path(str(data.get("scan_file_path") or "")).is_file())
         self._preview()
 
     def _keep(self, evidence: dict) -> bool:
         status = str(evidence.get("status") or "").upper()
-        if status == "CURRENT":
-            return True
-        return status == "DUPLICATE" and self.keep_duplicates.isChecked()
+        return status == "CURRENT" or (status == "DUPLICATE" and self.keep_duplicates.isChecked())
 
     def _preview(self, *_args) -> None:
         data = self.scan_combo.currentData()
@@ -154,9 +133,7 @@ class _GenericFilterTab(QWidget):
             evidence = payload.get("evidence", [])
             selected = [item for item in evidence if self._keep(item)]
             self.preview.setText(
-                f"Preview: entrada={len(evidence):,} | "
-                f"saída={len(selected):,} | "
-                f"excluídas={len(evidence) - len(selected):,}"
+                f"Preview: entrada={len(evidence):,} | saída={len(selected):,} | excluídas={len(evidence) - len(selected):,}"
             )
         except (OSError, ValueError, TypeError) as exc:
             self.preview.setText(f"Preview indisponível: {exc}")
@@ -177,72 +154,110 @@ class _GenericFilterTab(QWidget):
             out_dir = scans_root() / "filtered" / self.source.casefold().replace("-", "_")
             out_dir.mkdir(parents=True, exist_ok=True)
             label = str(payload.get("catalog_label") or "catalog").replace("/", "_").replace("\\", "_")
-            out = out_dir / (
-                f"{self.source}_{label}_{payload.get('scan_type', 'full')}_FILTER_{run_id}.json"
-            )
+            out = out_dir / f"{self.source}_{label}_{payload.get('scan_type', 'full')}_FILTER_{run_id}.json"
             result = {
-                "format": "SERM-FILTER-V2",
-                "schema_version": 2,
-                "filter_run_id": run_id,
-                "scan_id": payload.get("scan_id"),
-                "profile_id": f"generic-{self.source.casefold()}",
-                "source": payload.get("source"),
-                "system": payload.get("system"),
-                "scan_type": payload.get("scan_type", "full"),
-                "catalog_label": payload.get("catalog_label"),
-                "catalog_hash": payload.get("catalog_hash"),
-                "source_scan_file": str(source_path.resolve()),
-                "created_at": datetime.now(UTC).isoformat(),
-                "input_count": source_count,
-                "output_count": len(evidence),
-                "filtered_count": source_count - len(evidence),
-                "filters": {
-                    "current_only": self.current_only.isChecked(),
-                    "keep_duplicates": self.keep_duplicates.isChecked(),
-                },
+                "format": "SERM-FILTER-V2", "schema_version": 2, "filter_run_id": run_id,
+                "scan_id": payload.get("scan_id"), "profile_id": f"generic-{self.source.casefold()}",
+                "source": payload.get("source"), "system": payload.get("system"),
+                "scan_type": payload.get("scan_type", "full"), "catalog_label": payload.get("catalog_label"),
+                "catalog_hash": payload.get("catalog_hash"), "source_scan_file": str(source_path.resolve()),
+                "created_at": datetime.now(UTC).isoformat(), "input_count": source_count,
+                "output_count": len(evidence), "filtered_count": source_count - len(evidence),
+                "filters": {"current_only": self.current_only.isChecked(), "keep_duplicates": self.keep_duplicates.isChecked()},
                 "evidence": evidence,
             }
             out.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
             result["filtered_file_path"] = str(out)
             ScanRepository(database_path()).save_filter_result(result)
-            self.result.setText(
-                f"ARQUIVO FILTRADO GERADO\n{out}\n"
-                f"entrada={source_count:,} | saída={len(evidence):,}"
-            )
+            self.result.setText(f"ARQUIVO FILTRADO GERADO\n{out}\nentrada={source_count:,} | saída={len(evidence):,}")
         except (OSError, ValueError, TypeError) as exc:
             QMessageBox.critical(self, "Filtragem", f"Falha ao gerar arquivo filtrado:\n{exc}")
 
 
+class _SystemCard(QFrame):
+    """Card visual de um sistema não-MAME."""
+
+    def __init__(self, number: str, title: str, description: str, action, parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("systemCard")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(7)
+        number_label = QLabel(number)
+        number_label.setObjectName("systemCardNumber")
+        title_label = QLabel(title)
+        title_label.setObjectName("systemCardTitle")
+        description_label = QLabel(description)
+        description_label.setObjectName("systemCardDescription")
+        description_label.setWordWrap(True)
+        button = QPushButton("ABRIR BIBLIOTECA")
+        button.clicked.connect(action)
+        layout.addWidget(number_label)
+        layout.addWidget(title_label)
+        layout.addWidget(description_label, 1)
+        layout.addWidget(button, 0, Qt.AlignmentFlag.AlignLeft)
+
+
 class FilteringPhasePage(QWidget):
-    """Fase 2 para fontes não-MAME; MAME é operado exclusivamente no Arcade Studio."""
+    """Bibliotecas não-MAME. Cada sistema mantém seu scan e sua filtragem isolados."""
 
     SYSTEMS = ("No-Intro", "Redump", "WHLoader", "C64")
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        layout = QVBoxLayout(self)
-        title = QLabel("2 — FILTRAGEM DE ROMS")
+        self.pages: list[QWidget] = []
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        root = QVBoxLayout(self)
+        root.setContentsMargins(18, 18, 18, 18)
+        root.setSpacing(12)
+        title = QLabel("OUTROS SISTEMAS")
         title.setProperty("role", "title")
-        layout.addWidget(title)
+        root.addWidget(title)
         description = QLabel(
-            "MAME é tratado integralmente no Arcade Studio. Esta fase permanece para as demais fontes "
-            "e trabalha somente sobre scans já concluídos."
+            "Bibliotecas de sistemas preservadas fora do fluxo MAME. Cada fonte possui seu próprio scan, "
+            "catálogo e artefato de filtragem; o princípio é o mesmo da Biblioteca Visual MAME."
         )
         description.setWordWrap(True)
-        layout.addWidget(description)
-        self.pages: list[QWidget] = []
-        from PySide6.QtWidgets import QTabWidget
+        root.addWidget(description)
         self.tabs = QTabWidget()
-        self.tabs.setObjectName("filterSystemTabs")
+        self.tabs.setObjectName("systemLibraryTabs")
         for source in self.SYSTEMS:
             page = _GenericFilterTab(source, self)
             self.pages.append(page)
             self.tabs.addTab(page, source)
-        layout.addWidget(self.tabs, 1)
+        self.tabs.hide()
+        cards = QGridLayout()
+        descriptions = {
+            "No-Intro": "Sets de consoles e portáteis organizados por catálogo e região.",
+            "Redump": "Catálogos ópticos e validação por identidade física.",
+            "WHLoader": "Biblioteca WHDLoad para Amiga e seus slaves.",
+            "C64": "Catálogo C64/TOSEC e seus snapshots de scan.",
+        }
+        for index, source in enumerate(self.SYSTEMS):
+            cards.addWidget(
+                _SystemCard(f"0{index + 1}", source, descriptions[source], lambda i=index: self._open(i), self),
+                index // 2, index % 2,
+            )
+        root.addLayout(cards)
+        root.addWidget(self.tabs, 1)
+        self.tabs.currentChanged.connect(lambda _index: self._refresh_current())
+        self._open(0)
+
+    def _open(self, index: int) -> None:
+        self.tabs.show()
+        self.tabs.setCurrentIndex(index)
+        self._refresh_current()
+
+    def _refresh_current(self) -> None:
+        page = self.tabs.currentWidget()
+        refresh = getattr(page, "refresh", None)
+        if callable(refresh):
+            refresh()
 
     def refresh(self) -> None:
-        for page in self.pages:
-            page.refresh()
+        self._refresh_current()
 
 
 __all__ = ["FilteringPhasePage"]
