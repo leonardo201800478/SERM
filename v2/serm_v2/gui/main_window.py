@@ -31,6 +31,7 @@ from .home import HomePage
 from .log_handler import LogViewer
 from .mame_studio_page import MameStudioPage
 from .ui_preferences import UiPreferences
+from .ui_translation_runtime import retranslate_widget_tree
 
 
 class MainWindow(QMainWindow):
@@ -209,8 +210,10 @@ class MainWindow(QMainWindow):
             self.log_dock.setWindowTitle(UiPreferences.text("logs"))
         self.status_bar.showMessage(UiPreferences.text("ready"))
 
-    def _language_changed(self, _language: str) -> None:
+    def _language_changed(self, language: str) -> None:
         self._retranslate_navigation()
+        for page in self.pages:
+            retranslate_widget_tree(page, language)
         self.configuration_page.retranslate_ui()
 
     def _on_navigation_changed(self, index: int) -> None:
