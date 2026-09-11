@@ -1,9 +1,4 @@
-"""Regras puras de curadoria do catálogo Arcade da V2.
-
-As funções deste módulo não conhecem GUI, SQLite, filesystem ou o projeto
-MAME Smart ROM Sorter. Elas recebem objetos do domínio e uma política de
-curadoria e retornam decisões determinísticas e auditáveis.
-"""
+"""Regras puras de curadoria do catálogo Arcade da V2."""
 
 from __future__ import annotations
 
@@ -51,14 +46,35 @@ class CurationResult:
 
 
 def _metadata_strings(game: ArcadeGame, key: str) -> set[str]:
-    """Obtém um conjunto normalizado de strings da metadata da máquina."""
+    """Obtém strings normalizadas, incluindo campos agregados pelo MAME V2."""
     value = game.metadata.get(key)
+    if value is None:
+        folder_filters = game.metadata.get("folder_filters")
+        if isinstance(folder_filters, dict):
+            value = folder_filters.get(key)
     if isinstance(value, (list, tuple, set, frozenset)):
         return {str(item).strip().casefold() for item in value if str(item).strip()}
     if value is None:
         return set()
     text = str(value).strip()
-    return {text.casefold()} if text else set()
+    if not text:
+        return set()
+    return {part.strip().casefold() for part in text.split(",") if part.strip()}
+
+
+def _metadata_int(game: ArcadeGame, key: str) -> int | None:
+    value = game.metadata.get(key)
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    text = str(value or "").strip()
+    try:
+        return int(text)
+    except ValueError:
+        return None
 
 
 def _rank(tags: set[str], preferences: tuple[str, ...]) -> int:
@@ -83,33 +99,35 @@ def _root(game: ArcadeGame, games_by_name: dict[str, ArcadeGame]) -> str:
 def _basic_filter(game: ArcadeGame, policy: CurationPolicy) -> CurationDecision | None:
     """Aplica filtros independentes da escolha 1G1R."""
     metadata = game.metadata
+    folder_filters = metadata.get("folder_filters")
+    folder_filters = folder_filters if isinstance(folder_filters, dict) else {}
+
+    is_bootleg = bool(metadata.get("is_bootleg")) or bool(folder_filters.get("bootlegs"))
+    is_prototype = bool(metadata.get("is_prototype")) or bool(folder_filters.get("prototype"))
 
     if not policy.include_clones and game.parent_name:
         return CurationDecision(game.machine_name, False, "clone", "clone desabilitado pela política")
 
-    if not policy.include_bootlegs and bool(metadata.get("is_bootleg")):
+    if not policy.include_bootlegs and is_bootleg:
         return CurationDecision(game.machine_name, False, "bootleg", "bootleg desabilitado pela política")
 
-    if not policy.include_prototypes and bool(metadata.get("is_prototype")):
+    if not policy.include_prototypes and is_prototype:
         return CurationDecision(game.machine_name, False, "prototype", "prototype desabilitado pela política")
 
     if policy.max_players is not None:
-        players = metadata.get("players")
-        if isinstance(players, int) and players > policy.max_players:
+        players = _metadata_int(game, "players")
+        if players is not None and players > policy.max_players:
             return CurationDecision(game.machine_name, False, "players", f"{players} jogadores > limite")
 
     if policy.max_buttons is not None:
-        buttons = metadata.get("buttons")
-        if isinstance(buttons, int) and buttons > policy.max_buttons:
+        buttons = _metadata_int(game, "buttons")
+        if buttons is not None and buttons > policy.max_buttons:
             return CurationDecision(game.machine_name, False, "buttons", f"{buttons} botões > limite")
 
     if policy.required_controls:
         controls = _metadata_strings(game, "controls")
         required = {value.casefold() for value in policy.required_controls}
-        known_conflict = bool(controls) and (
-            not required.issubset(controls) if policy.strict_controls else not controls.intersection(required)
-        )
-        if known_conflict:
+        if controls and (not required.issubset(controls) if policy.strict_controls else not controls.intersection(required)):
             return CurationDecision(game.machine_name, False, "controls", "controles incompatíveis")
 
     if policy.required_directions:
@@ -119,8 +137,8 @@ def _basic_filter(game: ArcadeGame, policy: CurationPolicy) -> CurationDecision 
             return CurationDecision(game.machine_name, False, "directions", "vias/direções incompatíveis")
 
     if policy.orientation.casefold() != "both":
-        orientation = str(metadata.get("orientation") or "").casefold()
-        if orientation and orientation != policy.orientation.casefold():
+        orientation = str(metadata.get("orientation") or metadata.get("rotate") or "").casefold()
+        if orientation and policy.orientation.casefold() not in orientation:
             return CurationDecision(game.machine_name, False, "orientation", "orientação incompatível")
 
     if policy.min_quality_score is not None:
@@ -160,12 +178,7 @@ def _one_game_one_rom(games: list[ArcadeGame], policy: CurationPolicy) -> tuple[
         for candidate in members:
             if candidate.machine_name != winner.machine_name:
                 decisions.append(
-                    CurationDecision(
-                        candidate.machine_name,
-                        False,
-                        "1G1R",
-                        f"representante selecionado: {winner.machine_name}",
-                    )
+                    CurationDecision(candidate.machine_name, False, "1G1R", f"representante selecionado: {winner.machine_name}")
                 )
 
     return selected, decisions

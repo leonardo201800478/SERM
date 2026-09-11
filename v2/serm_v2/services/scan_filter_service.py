@@ -1,8 +1,8 @@
 """Compatibilidade para consumidores antigos de filtros MAME.
 
-A implementação efetiva está em ``arcade.mame_filter_v2_service``. Este
-adaptador mantém os nomes públicos antigos enquanto elimina a construção
-incorreta de ArcadeGame e qualquer regra duplicada da GUI legada.
+A implementação efetiva está em ``arcade.mame_filter_v2_service``. A
+curadoria de domínio é executada antes do motor físico, sem alterar o scan
+original.
 """
 
 from __future__ import annotations
@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .arcade.mame_filter_v2_service import MameFilterV2Service
+from .mame_curation_service import MameCurationService
 
 
 class ScanFilterService:
@@ -20,14 +21,47 @@ class ScanFilterService:
         return MameFilterV2Service.facets(scan_path)
 
     @classmethod
-    def preview_mame(cls, scan_path: Path, profile, fundamental_values, category_values=None, advanced_values=None):
+    def preview_mame(
+        cls,
+        scan_path: Path,
+        profile,
+        fundamental_values,
+        category_values=None,
+        advanced_values=None,
+        curation_values=None,
+    ):
         state = cls._state(profile, fundamental_values, category_values, advanced_values)
-        return MameFilterV2Service.preview(scan_path, state)
+        curated_path, curation = MameCurationService.prepare_scan(scan_path, profile, curation_values)
+        try:
+            result = MameFilterV2Service.preview(curated_path, state)
+        finally:
+            curated_path.unlink(missing_ok=True)
+        result = dict(result)
+        result["curation_selected"] = len(curation.selected)
+        result["curation_excluded"] = len(curation.decisions)
+        return result
 
     @classmethod
-    def apply_mame(cls, scan_path: Path, profile, fundamental_values, category_values=None, advanced_values=None):
+    def apply_mame(
+        cls,
+        scan_path: Path,
+        profile,
+        fundamental_values,
+        category_values=None,
+        advanced_values=None,
+        curation_values=None,
+    ):
         state = cls._state(profile, fundamental_values, category_values, advanced_values)
-        return MameFilterV2Service.apply(scan_path, state)
+        curated_path, curation = MameCurationService.prepare_scan(scan_path, profile, curation_values)
+        try:
+            result = MameFilterV2Service.apply(curated_path, state)
+        finally:
+            curated_path.unlink(missing_ok=True)
+        result = dict(result)
+        result["curation_selected"] = len(curation.selected)
+        result["curation_excluded"] = len(curation.decisions)
+        result["curation_enabled"] = True
+        return result
 
     @staticmethod
     def _state(profile, fundamental_values, category_values, advanced_values):
