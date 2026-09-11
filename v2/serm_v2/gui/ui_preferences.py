@@ -6,6 +6,7 @@ from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QApplication
 
 from .retro_arcade_theme import apply_retro_arcade_theme
+from .ui_density import apply_compact_density
 
 
 LANGUAGES = {
@@ -16,46 +17,22 @@ LANGUAGES = {
 
 TRANSLATIONS = {
     "pt-BR": {
-        "home": "Início",
-        "configuration": "Configuração",
-        "sources": "Fontes e Dados",
-        "mame": "MAME Studio",
-        "other_systems": "Outros Sistemas",
-        "ready": "Pronto",
-        "logs": "Logs",
-        "settings": "Aparência e Idioma",
-        "directories": "Diretórios",
-        "tools": "Ferramentas",
-        "emulators": "Emuladores",
-        "video": "Vídeo",
+        "home": "Início", "configuration": "Configuração", "sources": "Fontes e Dados",
+        "mame": "MAME Studio", "other_systems": "Outros Sistemas", "ready": "Pronto",
+        "logs": "Logs", "settings": "Aparência e Idioma", "directories": "Diretórios",
+        "tools": "Ferramentas", "emulators": "Emuladores", "video": "Vídeo",
     },
     "en": {
-        "home": "Home",
-        "configuration": "Settings",
-        "sources": "Sources & Data",
-        "mame": "MAME Studio",
-        "other_systems": "Other Systems",
-        "ready": "Ready",
-        "logs": "Logs",
-        "settings": "Appearance & Language",
-        "directories": "Directories",
-        "tools": "Tools",
-        "emulators": "Emulators",
-        "video": "Video",
+        "home": "Home", "configuration": "Settings", "sources": "Sources & Data",
+        "mame": "MAME Studio", "other_systems": "Other Systems", "ready": "Ready",
+        "logs": "Logs", "settings": "Appearance & Language", "directories": "Directories",
+        "tools": "Tools", "emulators": "Emulators", "video": "Video",
     },
     "es": {
-        "home": "Inicio",
-        "configuration": "Configuración",
-        "sources": "Fuentes y Datos",
-        "mame": "MAME Studio",
-        "other_systems": "Otros Sistemas",
-        "ready": "Listo",
-        "logs": "Registros",
-        "settings": "Apariencia e Idioma",
-        "directories": "Directorios",
-        "tools": "Herramientas",
-        "emulators": "Emuladores",
-        "video": "Vídeo",
+        "home": "Inicio", "configuration": "Configuración", "sources": "Fuentes y Datos",
+        "mame": "MAME Studio", "other_systems": "Otros Sistemas", "ready": "Listo",
+        "logs": "Registros", "settings": "Apariencia e Idioma", "directories": "Directorios",
+        "tools": "Herramientas", "emulators": "Emuladores", "video": "Vídeo",
     },
 }
 
@@ -142,13 +119,14 @@ class UiPreferences:
 
 
 def apply_user_theme(app: QApplication, mode: str | None = None) -> None:
-    """Aplica o tema selecionado sem alterar a preferência de idioma."""
+    """Aplica o tema selecionado e, em seguida, a densidade compacta da GUI."""
     selected = mode or UiPreferences.theme()
     if selected == "light":
         app.setStyle("Fusion")
         app.setStyleSheet(LIGHT_THEME)
     else:
         apply_retro_arcade_theme(app)
+    apply_compact_density(app)
 
 
 __all__ = ["LANGUAGES", "LIGHT_THEME", "TRANSLATIONS", "UiPreferences", "apply_user_theme"]
