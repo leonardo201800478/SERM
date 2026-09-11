@@ -26,7 +26,6 @@ from PySide6.QtWidgets import (
 )
 
 from ..runtime.paths import data_root, database_path
-from ..services.mame_artwork_service import MameArtworkService
 from .components.mame_game_grid import MameGameGrid
 
 
@@ -71,6 +70,14 @@ class MameVisualLibraryPage(QWidget):
         self.sort.addItems(["Nome", "Machine", "Ano"])
         self.sort.currentIndexChanged.connect(self._apply_filter)
         toolbar.addWidget(self.sort)
+        self.limit = QComboBox()
+        self.limit.addItem("60 cards", 60)
+        self.limit.addItem("120 cards", 120)
+        self.limit.addItem("240 cards", 240)
+        self.limit.addItem("500 cards", 500)
+        self.limit.setCurrentIndex(1)
+        self.limit.currentIndexChanged.connect(self._apply_filter)
+        toolbar.addWidget(self.limit)
         refresh = QPushButton("ATUALIZAR CATÁLOGO")
         refresh.clicked.connect(self.refresh)
         toolbar.addWidget(refresh)
@@ -137,7 +144,8 @@ class MameVisualLibraryPage(QWidget):
         if self._games:
             self.summary.setText(
                 f"{len(self._games):,} machines carregadas. "
-                "Os cards usam Snap → Title → Flyer → Marquee → Cabinet → Artwork como prioridade visual."
+                "A biblioteca é limitada por página para manter a interface fluida. "
+                "Os cards usam Snap → Title → Flyer → Marquee → Cabinet → Artwork."
             )
         else:
             self.summary.setText(
@@ -213,9 +221,16 @@ class MameVisualLibraryPage(QWidget):
             games.sort(key=lambda item: (item.year or "9999", item.name.casefold()))
         else:
             games.sort(key=lambda item: item.name.casefold())
-        self.grid.set_games(games)
+        total = len(games)
+        limit = int(self.limit.currentData() or 120)
+        visible = games[:limit]
+        self.grid.set_games(visible)
         if query:
-            self.summary.setText(f"{len(games):,} resultado(s) para “{self.search.text().strip()}”.")
+            self.summary.setText(
+                f"{total:,} resultado(s) para “{self.search.text().strip()}” — mostrando {len(visible):,}."
+            )
+        elif self._games:
+            self.summary.setText(f"{len(self._games):,} machines no catálogo — mostrando {len(visible):,}.")
 
     def _show_game(self, game: MameVisualGame) -> None:
         self.detail_title.setText(game.title)
