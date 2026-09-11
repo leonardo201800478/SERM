@@ -12,6 +12,7 @@ from .emulator_directories_page import DirectoriesPage
 from .emulator_settings_page import EmulatorSettingsPage
 from .emulator_shaders_bezels_page import EmulatorShadersBezelsPage
 from .tools_directories import ToolsDirectoriesPage
+from .ui_preferences import UiPreferences
 
 
 class ConfigurationPage(QWidget):
@@ -22,12 +23,25 @@ class ConfigurationPage(QWidget):
         layout = QVBoxLayout(self)
         self.tabs = QTabWidget()
         self.appearance_page = AppearanceLanguagePage(self)
-        self.tabs.addTab(DirectoriesPage(self), "Diretórios")
-        self.tabs.addTab(ToolsDirectoriesPage(self), "Ferramentas")
-        self.tabs.addTab(EmulatorSettingsPage(self), "Emuladores")
-        self.tabs.addTab(EmulatorShadersBezelsPage(self), "Vídeo")
-        self.tabs.addTab(self.appearance_page, "Aparência e Idioma")
+        self.tabs.addTab(DirectoriesPage(self), "")
+        self.tabs.addTab(ToolsDirectoriesPage(self), "")
+        self.tabs.addTab(EmulatorSettingsPage(self), "")
+        self.tabs.addTab(EmulatorShadersBezelsPage(self), "")
+        self.tabs.addTab(self.appearance_page, "")
+        self.appearance_page.language_changed.connect(lambda _language: self.retranslate_ui())
+        self.retranslate_ui()
         layout.addWidget(self.tabs)
+
+    def retranslate_ui(self) -> None:
+        labels = (
+            "directories",
+            "tools",
+            "emulators",
+            "video",
+            "settings",
+        )
+        for index, key in enumerate(labels):
+            self.tabs.setTabText(index, UiPreferences.text(key))
 
     def refresh(self) -> None:
         for index in range(self.tabs.count()):
