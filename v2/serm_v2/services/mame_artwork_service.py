@@ -20,9 +20,13 @@ class MameArtwork:
 
 
 class MameArtworkService:
-    """Resolve artwork usando a convenção de diretórios do MAME/SNAPS."""
+    """Resolve artwork usando a convenção de diretórios do MAME/SNAPS.
 
-    # A ordem representa a prioridade visual quando mais de uma fonte existe.
+    A resolução dos cards é deliberadamente barata: a busca de artwork
+    primário não percorre todos os tipos de mídia. O inventário completo só é
+    calculado quando o usuário abre os detalhes de uma máquina.
+    """
+
     DIRECTORY_ALIASES: dict[str, tuple[str, ...]] = {
         "snap": ("snap", "snaps"),
         "title": ("titles", "title"),
@@ -48,14 +52,11 @@ class MameArtworkService:
     def __init__(self, roots: list[str | Path] | None = None) -> None:
         self.roots = [Path(root) for root in (roots or [])]
         self._cache: dict[str, dict[str, Path]] = {}
+        self._primary_cache: dict[str, Path | None] = {}
 
     @classmethod
     def from_mame_executable(cls, executable: str | Path | None) -> "MameArtworkService":
-        """Cria um resolvedor a partir de ``mame.exe``.
-
-        O diretório ``artwork`` e os diretórios irmãos ficam normalmente ao
-        lado de ``mame.exe``. Também aceitamos uma pasta ``artwork`` explícita.
-        """
+        """Cria um resolvedor a partir de ``mame.exe``."""
         if not executable:
             return cls()
         exe = Path(executable)
@@ -63,7 +64,11 @@ class MameArtworkService:
         return cls([root, root / "artwork"])
 
     def inventory(self, game_name: str) -> dict[str, Path]:
-        """Retorna todas as artes encontradas para ``game_name``."""
+        """Retorna todas as artes encontradas para ``game_name``.
+
+        Esta operação é intencionalmente mais completa e deve ser usada pela
+        tela de detalhes, não para cada card da grade.
+        """
         name = str(game_name or "").strip()
         if not name:
             return {}
@@ -77,33 +82,61 @@ class MameArtworkService:
             if path is not None:
                 found[kind] = path
         self._cache[name] = found
+        self._primary_cache[name] = self._primary_from_inventory(found)
         return dict(found)
 
     def resolve(self, game_name: str, kind: str = "snap") -> Path | None:
-        """Retorna a arte de um tipo, com fallback para ``snap``."""
-        inventory = self.inventory(game_name)
-        if kind in inventory:
-            return inventory[kind]
+        """Retorna a arte de um tipo, sem trabalho extra para os cards."""
+        name = str(game_name or "").strip()
+        if not name:
+            return None
         if kind == "primary":
-            return self.primary(game_name)
-        return None
+            return self.primary(name)
+        inventory = self._cache.get(name)
+        if inventory is None:
+            return self._find_kind(name, kind)
+        return inventory.get(kind)
 
     def primary(self, game_name: str) -> Path | None:
         """Escolhe a melhor arte para representar o jogo no card."""
-        inventory = self.inventory(game_name)
+        name = str(game_name or "").strip()
+        if not name:
+            return None
+        if name in self._primary_cache:
+            return self._primary_cache[name]
+
+        # O caminho quente dos cards testa somente os seis tipos visuais.
         for kind in self.PRIMARY_ORDER:
-            path = inventory.get(kind)
+            path = self._find_kind(name, kind)
             if path is not None:
+                self._primary_cache[name] = path
                 return path
+        self._primary_cache[name] = None
         return None
 
     def all_artwork(self, game_name: str) -> list[MameArtwork]:
         """Retorna a coleção encontrada em ordem determinística."""
         inventory = self.inventory(game_name)
-        return [MameArtwork(kind, inventory[kind]) for kind in self.DIRECTORY_ALIASES if kind in inventory]
+        return [
+            MameArtwork(kind, inventory[kind])
+            for kind in self.DIRECTORY_ALIASES
+            if kind in inventory
+        ]
 
     def clear_cache(self) -> None:
         self._cache.clear()
+        self._primary_cache.clear()
+
+    def _find_kind(self, name: str, kind: str) -> Path | None:
+        aliases = self.DIRECTORY_ALIASES.get(kind, ())
+        return self._find_in_aliases(name, aliases)
+
+    def _primary_from_inventory(self, inventory: dict[str, Path]) -> Path | None:
+        for kind in self.PRIMARY_ORDER:
+            path = inventory.get(kind)
+            if path is not None:
+                return path
+        return None
 
     def _find_in_aliases(self, name: str, aliases: tuple[str, ...]) -> Path | None:
         for root in self.roots:
