@@ -7,8 +7,18 @@ from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QSettings, QSize, Qt
 from PySide6.QtWidgets import (
-    QApplication, QDockWidget, QFrame, QHBoxLayout, QLabel, QListWidget,
-    QListWidgetItem, QMainWindow, QStackedWidget, QStyle, QVBoxLayout, QWidget,
+    QApplication,
+    QDockWidget,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QMainWindow,
+    QStackedWidget,
+    QStyle,
+    QVBoxLayout,
+    QWidget,
 )
 
 from ..config.settings import Settings
@@ -20,17 +30,18 @@ from .filter_phase_page import FilteringPhasePage
 from .home import HomePage
 from .log_handler import LogViewer
 from .mame_studio_page import MameStudioPage
+from .ui_preferences import UiPreferences
 
 
 class MainWindow(QMainWindow):
     """Shell da aplicação, organizada por domínios funcionais."""
 
     NAV_ITEMS = (
-        ("Início", "Visão geral do SERM e estado do ambiente", "SP_DirHomeIcon"),
-        ("Configuração", "Diretórios, ferramentas, emuladores e vídeo", "SP_FileDialogDetailedView"),
-        ("Fontes e Dados", "Aquisição e atualização de DATs e recursos externos", "SP_FileIcon"),
-        ("MAME Studio", "Catálogo, scan, filtros e reconstrução MAME", "SP_DriveHDIcon"),
-        ("Outros Sistemas", "Filtragem pós-scan para No-Intro, Redump, WHLoader e C64", "SP_FileDialogInfoView"),
+        ("home", "Visão geral do SERM e estado do ambiente", "SP_DirHomeIcon"),
+        ("configuration", "Diretórios, ferramentas, emuladores e vídeo", "SP_FileDialogDetailedView"),
+        ("sources", "Aquisição e atualização de DATs e recursos externos", "SP_FileIcon"),
+        ("mame", "Catálogo, scan, filtros e reconstrução MAME", "SP_DriveHDIcon"),
+        ("other_systems", "Filtragem pós-scan para No-Intro, Redump, WHLoader e C64", "SP_FileDialogInfoView"),
     )
     _GEOMETRY_KEY = "main_window/geometry"
     _STATE_KEY = "main_window/state"
@@ -44,7 +55,7 @@ class MainWindow(QMainWindow):
         self.resize(self._DEFAULT_SIZE)
         self.setMinimumSize(1152, 648)
         self.status_bar = self.statusBar()
-        self.status_bar.showMessage("Pronto")
+        self.status_bar.showMessage(UiPreferences.text("ready"))
         settings = Settings()
         database_path = Path(settings.database)
         applied = apply_migrations(database_path)
@@ -54,6 +65,7 @@ class MainWindow(QMainWindow):
         self.log_viewer = LogViewer()
         self._build_ui()
         self._build_log_dock()
+        self.configuration_page.appearance_page.language_changed.connect(self._language_changed)
         self._restore_window_layout()
 
     @staticmethod
@@ -143,17 +155,11 @@ class MainWindow(QMainWindow):
         self.navigation.setFrameShape(QFrame.Shape.NoFrame)
         self.navigation.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.navigation.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
-        for label, description, style_icon in self.NAV_ITEMS:
-            item = QListWidgetItem(self.style().standardIcon(getattr(QStyle, style_icon)), label)
-            item.setToolTip(description)
-            item.setData(Qt.ItemDataRole.UserRole, description)
-            item.setSizeHint(QSize(0, 46))
-            self.navigation.addItem(item)
         sidebar_layout.addWidget(self.navigation, 1)
-        footer = QLabel("SERM V2\nSistema de Emulação e ROM Management")
-        footer.setObjectName("navigationFooter")
-        footer.setWordWrap(True)
-        sidebar_layout.addWidget(footer)
+        self.footer = QLabel("SERM V2\nSistema de Emulação e ROM Management")
+        self.footer.setObjectName("navigationFooter")
+        self.footer.setWordWrap(True)
+        sidebar_layout.addWidget(self.footer)
 
         self.page_stack = QStackedWidget()
         self.page_stack.setObjectName("pageStack")
@@ -175,22 +181,41 @@ class MainWindow(QMainWindow):
         root_layout.addWidget(self.page_stack, 1)
         self.setCentralWidget(root)
         self.navigation.currentRowChanged.connect(self._on_navigation_changed)
+        self._retranslate_navigation()
         self.navigation.setCurrentRow(0)
 
     def _build_log_dock(self) -> None:
         """Adiciona o painel de logs à janela principal."""
-        dock = QDockWidget("Logs", self)
-        dock.setObjectName("logDock")
-        dock.setWidget(self.log_viewer.create_console(dock))
-        dock.setAllowedAreas(Qt.DockWidgetArea.BottomDockWidgetArea)
-        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, dock)
+        self.log_dock = QDockWidget(UiPreferences.text("logs"), self)
+        self.log_dock.setObjectName("logDock")
+        self.log_dock.setWidget(self.log_viewer.create_console(self.log_dock))
+        self.log_dock.setAllowedAreas(Qt.DockWidgetArea.BottomDockWidgetArea)
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.log_dock)
+
+    def _retranslate_navigation(self) -> None:
+        for index, (key, description, style_icon) in enumerate(self.NAV_ITEMS):
+            if index >= self.navigation.count():
+                item = QListWidgetItem(self.style().standardIcon(getattr(QStyle, style_icon)))
+                item.setSizeHint(QSize(0, 46))
+                self.navigation.addItem(item)
+            item = self.navigation.item(index)
+            item.setText(UiPreferences.text(key))
+            item.setToolTip(description)
+            item.setData(Qt.ItemDataRole.UserRole, description)
+        self.footer.setText("SERM V2\nSistema de Emulação e ROM Management")
+        self.log_dock.setWindowTitle(UiPreferences.text("logs"))
+        self.status_bar.showMessage(UiPreferences.text("ready"))
+
+    def _language_changed(self, _language: str) -> None:
+        self._retranslate_navigation()
+        self.configuration_page.retranslate_ui()
 
     def _on_navigation_changed(self, index: int) -> None:
         if 0 <= index < len(self.pages):
             self.page_stack.setCurrentIndex(index)
             self._refresh_page(index)
             item = self.navigation.item(index)
-            self.status_bar.showMessage((item.data(Qt.ItemDataRole.UserRole) or item.text()) if item else "Pronto")
+            self.status_bar.showMessage((item.data(Qt.ItemDataRole.UserRole) or item.text()) if item else UiPreferences.text("ready"))
 
     def _refresh_page(self, index: int) -> None:
         refresh = getattr(self.pages[index], "refresh", None)
@@ -202,3 +227,6 @@ class MainWindow(QMainWindow):
         self.log_viewer.close()
         self.database.dispose()
         super().closeEvent(event)
+
+
+__all__ = ["MainWindow"]
