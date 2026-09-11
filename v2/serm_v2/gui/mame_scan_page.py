@@ -7,21 +7,13 @@ from datetime import datetime
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QGroupBox,
-    QHBoxLayout,
-    QLabel,
-    QListWidget,
-    QListWidgetItem,
-    QMessageBox,
-    QPushButton,
-    QSplitter,
-    QVBoxLayout,
-    QWidget,
+    QGroupBox, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMessageBox,
+    QPushButton, QSplitter, QVBoxLayout, QWidget,
 )
 
 from ..runtime.paths import database_path
 from ..services.scan_repository import ScanRepository
-from .scan_phase_page import _SystemScanTab
+from .components.system_scan_tab import SystemScanTab
 
 
 class MameScanPage(QWidget):
@@ -39,14 +31,14 @@ class MameScanPage(QWidget):
         root.addWidget(title)
         description = QLabel(
             "Esta tela trata somente do scan físico dos arquivos MAME. A criação e atualização do banco "
-            "ListXML e das fontes auxiliares fica exclusivamente na aba MAME do Scraper de DATs."
+            "ListXML e das fontes auxiliares fica exclusivamente na área Fontes e Dados."
         )
         description.setWordWrap(True)
         root.addWidget(description)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(self._history_panel())
-        self.scan_tab = _SystemScanTab("MAME", self)
+        self.scan_tab = SystemScanTab("MAME", self)
         splitter.addWidget(self.scan_tab)
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
@@ -61,11 +53,9 @@ class MameScanPage(QWidget):
         self.scan_list = QListWidget()
         self.scan_list.currentItemChanged.connect(self._history_selected)
         box_layout.addWidget(self.scan_list, 1)
-
         self.history_info = QLabel("Nenhum scan selecionado.")
         self.history_info.setWordWrap(True)
         box_layout.addWidget(self.history_info)
-
         actions = QHBoxLayout()
         self.new_scan_button = QPushButton("NOVO SCAN")
         self.delete_scan_button = QPushButton("DELETAR SCAN")
@@ -103,7 +93,6 @@ class MameScanPage(QWidget):
         current = self.scan_list.currentItem()
         if current is not None:
             current_id = current.data(Qt.ItemDataRole.UserRole)
-
         self.scan_list.blockSignals(True)
         self.scan_list.clear()
         selected_item = None
@@ -176,8 +165,7 @@ class MameScanPage(QWidget):
             self.refresh()
             return
         answer = QMessageBox.question(
-            self,
-            "Deletar scan",
+            self, "Deletar scan",
             "O registro, as evidências e o arquivo bruto deste scan serão removidos.\n\n"
             "Os diretórios e as configurações do MAME não serão alterados.\n\nContinuar?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
