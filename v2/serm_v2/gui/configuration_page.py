@@ -1,4 +1,4 @@
-"""Hub visual de configuração do SERM V2."""
+"""Hub visual compacto de configuração do SERM V2."""
 
 from __future__ import annotations
 
@@ -14,14 +14,14 @@ from .ui_preferences import UiPreferences
 
 
 class _ConfigCard(QFrame):
-    """Card de acesso a um domínio de configuração."""
+    """Entrada compacta para um domínio de configuração."""
 
     def __init__(self, number: str, title: str, description: str, action, parent=None) -> None:
         super().__init__(parent)
         self.setObjectName("configCard")
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 14, 16, 14)
-        layout.setSpacing(7)
+        layout.setContentsMargins(10, 9, 10, 9)
+        layout.setSpacing(4)
         number_label = QLabel(number)
         number_label.setObjectName("configCardNumber")
         title_label = QLabel(title)
@@ -38,7 +38,7 @@ class _ConfigCard(QFrame):
 
 
 class ConfigurationPage(QWidget):
-    """Centraliza configuração em domínios visuais sem alterar os editores existentes."""
+    """Centraliza configuração em domínios visuais compactos."""
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -46,14 +46,11 @@ class ConfigurationPage(QWidget):
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(18, 18, 18, 18)
-        root.setSpacing(12)
+        root.setContentsMargins(10, 10, 10, 10)
+        root.setSpacing(7)
         title = QLabel("CONFIGURAÇÃO")
         title.setProperty("role", "title")
-        subtitle = QLabel(
-            "Configure o ambiente do SERM uma vez. Diretórios, executáveis, ferramentas e vídeo "
-            "ficam separados da operação do catálogo."
-        )
+        subtitle = QLabel("Diretórios, executáveis, ferramentas, vídeo e aparência do ambiente SERM.")
         subtitle.setWordWrap(True)
         root.addWidget(title)
         root.addWidget(subtitle)
@@ -72,14 +69,15 @@ class ConfigurationPage(QWidget):
         self.tabs.hide()
 
         cards = QGridLayout()
-        cards.setHorizontalSpacing(10)
-        cards.setVerticalSpacing(10)
+        cards.setContentsMargins(0, 0, 0, 0)
+        cards.setHorizontalSpacing(7)
+        cards.setVerticalSpacing(7)
         entries = (
-            ("01", "Diretórios", "MAME, ROMs, BIOS, artwork e caminhos dos demais emuladores.", 0),
-            ("02", "Ferramentas", "Executáveis auxiliares e integrações utilizadas pelo SERM.", 1),
-            ("03", "Emuladores", "Executáveis, versões e parâmetros dos sistemas suportados.", 2),
-            ("04", "Vídeo e shaders", "Shaders, bezels e preferências de apresentação dos emuladores.", 3),
-            ("05", "Aparência e idioma", "Tema, idioma e preferências visuais da interface do SERM.", 4),
+            ("01", "Diretórios", "MAME, ROMs, BIOS e artwork.", 0),
+            ("02", "Ferramentas", "Executáveis e integrações auxiliares.", 1),
+            ("03", "Emuladores", "Executáveis, versões e parâmetros.", 2),
+            ("04", "Vídeo e shaders", "Shaders, bezels e apresentação.", 3),
+            ("05", "Aparência e idioma", "Tema, idioma e preferências visuais.", 4),
         )
         for pos, (number, card_title, description, index) in enumerate(entries):
             cards.addWidget(
