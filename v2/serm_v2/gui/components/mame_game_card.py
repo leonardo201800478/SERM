@@ -5,20 +5,28 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QPixmap, QPixmapCache
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout
 
 
 class MameGameCard(QFrame):
-    """Card rico para artwork, estado e metadados da máquina MAME."""
+    """Card rico para artwork, estado e metadados da máquina MAME.
+
+    O card é reutilizado pela grade em vez de ser destruído/recriado a cada
+    resize. As miniaturas escaladas também usam o cache nativo do Qt, evitando
+    novas leituras e escalonamentos durante navegação e redimensionamento.
+    """
 
     activated = Signal(object)
     favorite_changed = Signal(object, bool)
+    ARTWORK_WIDTH = 280
+    ARTWORK_HEIGHT = 88
 
     def __init__(self, game=None, artwork_path: str | Path | None = None, parent=None) -> None:
         super().__init__(parent)
         self.game = game
         self._favorite = False
+        self._artwork_key = ""
         self.setObjectName("mameGameCard")
         self.setProperty("status", self._status_key())
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -83,6 +91,7 @@ class MameGameCard(QFrame):
         self.title = QLabel(self._value("title", "name", "short_name"))
         self.title.setObjectName("gameTitle")
         self.title.setWordWrap(False)
+        self.title.setToolTip(self._value("title", "name", "short_name"))
         title_row.addWidget(self.title, 1)
         root.addLayout(title_row)
         self.subtitle = QLabel(f"{self._value('year', default='—')} · {self._value('manufacturer', 'publisher', default='—')}")
@@ -115,16 +124,41 @@ class MameGameCard(QFrame):
 
     def set_artwork(self, artwork_path: str | Path | None) -> None:
         path = Path(artwork_path) if artwork_path else None
-        if path and path.is_file():
-            pixmap = QPixmap(str(path))
-            if not pixmap.isNull():
-                self.artwork.setPixmap(pixmap.scaled(280, 88, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation))
+        if not path or not path.is_file():
+            self._artwork_key = ""
+            self.artwork.setPixmap(QPixmap())
+            self.artwork.setText(self._value("short_name", "name", default="MAME"))
+            return
+
+        try:
+            stamp = path.stat().st_mtime_ns
+        except OSError:
+            stamp = 0
+        key = f"serm:mame-card:{path}:{stamp}:{self.ARTWORK_WIDTH}x{self.ARTWORK_HEIGHT}"
+        self._artwork_key = key
+
+        pixmap = QPixmap()
+        if not QPixmapCache.find(key, pixmap):
+            source = QPixmap(str(path))
+            if source.isNull():
+                self.artwork.setPixmap(QPixmap())
+                self.artwork.setText(self._value("short_name", "name", default="MAME"))
                 return
-        self.artwork.setText(self._value("short_name", "name", default="MAME"))
+            pixmap = source.scaled(
+                self.ARTWORK_WIDTH,
+                self.ARTWORK_HEIGHT,
+                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            QPixmapCache.insert(key, pixmap)
+
+        self.artwork.setText("")
+        self.artwork.setPixmap(pixmap)
 
     def set_game(self, game, artwork_path: str | Path | None = None) -> None:
         self.game = game
         self.title.setText(self._value("title", "name", "short_name"))
+        self.title.setToolTip(self._value("title", "name", "short_name"))
         self.subtitle.setText(f"{self._value('year', default='—')} · {self._value('manufacturer', 'publisher', default='—')}")
         self.category.setText(self._value("category", "genre", default="Arcade"))
         self.subcategory.setText(self._value("subcategory", "genre", default="—"))
