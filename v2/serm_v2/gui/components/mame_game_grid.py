@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QTimer, Qt, Signal
 from PySide6.QtWidgets import QGridLayout, QScrollArea, QSizePolicy, QWidget
 
 from ...services.mame_artwork_service import MameArtworkService
@@ -35,9 +35,10 @@ class MameArtworkResolver:
 
 
 class MameGameGrid(QScrollArea):
-    """Container responsivo que reutiliza cards e evita reconstruções visuais."""
+    """Container responsivo que reutiliza cards e carrega artwork em lotes."""
 
     game_activated = Signal(object)
+    ARTWORK_BATCH_SIZE = 12
 
     def __init__(
         self,
@@ -70,6 +71,7 @@ class MameGameGrid(QScrollArea):
         self._games = []
         self._cards: list[MameGameCard] = []
         self._columns = 0
+        self._artwork_generation = 0
 
     def set_artwork_roots(self, roots: list[str | Path]) -> None:
         self.resolver = MameArtworkResolver(roots)
@@ -89,13 +91,17 @@ class MameGameGrid(QScrollArea):
     def set_games(self, games) -> None:
         """Atualiza a grade incrementalmente, preservando widgets existentes."""
         self._games = list(games or [])
+        self._artwork_generation += 1
+        generation = self._artwork_generation
+
         self.content.setUpdatesEnabled(False)
         try:
             common = min(len(self._games), len(self._cards))
 
+            # Atualiza imediatamente o conteúdo textual. O artwork é carregado
+            # depois, em pequenos lotes, permitindo que a grade pinte sem travar.
             for index in range(common):
-                game = self._games[index]
-                self._cards[index].set_game(game, self.resolver.resolve(game))
+                self._cards[index].set_game(self._games[index], None)
 
             while len(self._cards) > len(self._games):
                 card = self._cards.pop()
@@ -107,7 +113,7 @@ class MameGameGrid(QScrollArea):
                 card = MameGameCard(parent=self.content)
                 card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
                 card.activated.connect(self.game_activated.emit)
-                card.set_game(game, self.resolver.resolve(game))
+                card.set_game(game, None)
                 self._cards.append(card)
 
             self._reflow(force=True)
@@ -115,16 +121,35 @@ class MameGameGrid(QScrollArea):
             self.content.setUpdatesEnabled(True)
             self.content.update()
 
+        QTimer.singleShot(0, lambda: self._load_artwork_batch(generation, 0))
+
     def _refresh_existing_cards(self) -> None:
         if not self._cards:
             return
+        self._artwork_generation += 1
+        generation = self._artwork_generation
         self.content.setUpdatesEnabled(False)
         try:
             for card, game in zip(self._cards, self._games):
-                card.set_game(game, self.resolver.resolve(game))
+                card.set_game(game, None)
         finally:
             self.content.setUpdatesEnabled(True)
             self.content.update()
+        QTimer.singleShot(0, lambda: self._load_artwork_batch(generation, 0))
+
+    def _load_artwork_batch(self, generation: int, start: int) -> None:
+        if generation != self._artwork_generation:
+            return
+        end = min(start + self.ARTWORK_BATCH_SIZE, len(self._cards))
+        for index in range(start, end):
+            if generation != self._artwork_generation:
+                return
+            card = self._cards[index]
+            game = self._games[index]
+            card.set_artwork(self.resolver.resolve(game))
+
+        if end < len(self._cards):
+            QTimer.singleShot(0, lambda: self._load_artwork_batch(generation, end))
 
     def _reflow(self, force: bool = False) -> None:
         columns = self._column_count()
