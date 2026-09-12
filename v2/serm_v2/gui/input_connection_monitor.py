@@ -85,20 +85,20 @@ class InputConnectionMonitor(QObject):
             logger.exception("[INPUT][HOTPLUG] falha durante polling")
 
     def _handle_changes(self, connected: list[InputDevice], disconnected: list[InputDevice]) -> None:
-        # Troca de modo do M30 aparece no Windows como uma desconexão seguida
-        # de outra identidade HID. Nesse caso, um único popup é muito mais útil
-        # que duas notificações consecutivas.
+        # Trocas de modo podem aparecer no Windows como uma desconexão seguida
+        # de outra identidade HID. O SERM agrupa a troca quando ambos os lados
+        # pertencem ao mesmo modelo conhecido (M30 ou Ultimate 2C).
         remaining_connected = list(connected)
         remaining_disconnected = list(disconnected)
         for old in disconnected:
-            old_match = ControllerModeService.identify_m30(old)
+            old_match = ControllerModeService.identify(old)
             if old_match is None:
                 continue
             replacement_index = next(
                 (
                     index
                     for index, new in enumerate(remaining_connected)
-                    if (new_match := ControllerModeService.identify_m30(new)) is not None
+                    if (new_match := ControllerModeService.identify(new)) is not None
                     and new_match.model_id == old_match.model_id
                 ),
                 None,
@@ -107,7 +107,8 @@ class InputConnectionMonitor(QObject):
                 continue
             new = remaining_connected.pop(replacement_index)
             remaining_disconnected.remove(old)
-            self._notify_mode_changed(old, new, old_match, ControllerModeService.identify_m30(new))
+            new_match = ControllerModeService.identify(new)
+            self._notify_mode_changed(old, new, old_match, new_match)
 
         for device in remaining_connected:
             self._notify(device, connected=True)
@@ -122,7 +123,8 @@ class InputConnectionMonitor(QObject):
         new_match: ControllerModeMatch | None,
     ) -> None:
         logger.info(
-            "[INPUT][HOTPLUG] M30 modo alterado | %s -> %s | %s -> %s",
+            "[INPUT][HOTPLUG] modo alterado | modelo=%s | %s -> %s | %s -> %s",
+            old_match.model_name,
             old_match.mode_name,
             new_match.mode_name if new_match else "desconhecido",
             old_match.signature,
@@ -133,17 +135,17 @@ class InputConnectionMonitor(QObject):
         box = QMessageBox(self.parent_widget)
         box.setWindowTitle("Modo do controle alterado")
         box.setIcon(QMessageBox.Icon.Information)
-        box.setText(f"8BitDo M30 — modo alterado\n{old_match.mode_name}  →  {new_match.mode_name}")
+        box.setText(f"{old_match.model_name} — modo alterado\n{old_match.mode_name}  →  {new_match.mode_name}")
         box.setInformativeText(self._connection_details(new, new_match))
-        box.setDetailedText(self._m30_details(new_match))
+        box.setDetailedText(self._mode_details(new_match))
         box.setStandardButtons(QMessageBox.StandardButton.Ok)
         self._register_dialog(box)
 
     def _notify(self, device: InputDevice, *, connected: bool) -> None:
         state = "conectado" if connected else "desconectado"
-        match = ControllerModeService.identify_m30(device)
+        match = ControllerModeService.identify(device)
         logger.info(
-            "[INPUT][HOTPLUG] %s | name=%r | VID=%04X | PID=%04X | connection=%s | m30=%s",
+            "[INPUT][HOTPLUG] %s | name=%r | VID=%04X | PID=%04X | connection=%s | mode=%s",
             state,
             device.name,
             device.vendor_id or 0,
@@ -175,7 +177,7 @@ class InputConnectionMonitor(QObject):
         box.setText(self._headline(device, match, connected=True))
         box.setInformativeText(self._connection_details(device, match))
         if match is not None:
-            box.setDetailedText(self._m30_details(match))
+            box.setDetailedText(self._mode_details(match))
         box.setStandardButtons(QMessageBox.StandardButton.Ok)
         self._register_dialog(box)
 
@@ -208,21 +210,35 @@ class InputConnectionMonitor(QObject):
             details.extend(
                 [
                     f"Modo detectado: {match.mode_name} • confiança {match.confidence}%",
-                    f"Para este modo: desligado, segure {match.power_on}.",
-                    "Outros modos: B+START = D-Input, X+START = XInput, A+START = macOS/DS4, Y+START = Switch.",
-                    "Pareamento Bluetooth: segure PAIR por 2 s após ligar no modo desejado.",
-                    "Desligar: START por 3 s • desligamento forçado: START por 8 s.",
+                    f"Para este modo: {match.power_on}.",
                 ]
             )
-            if not match.confirmed:
-                details.append("A assinatura é compartilhada com outros controles; confirme o modelo se necessário.")
+            if match.model_id == ControllerModeService._M30:
+                details.extend(
+                    [
+                        "M30: B+START = D-Input, X+START = XInput, A+START = macOS/DS4, Y+START = Switch.",
+                        "Pareamento Bluetooth do M30: segure PAIR por 2 s.",
+                    ]
+                )
+            elif match.model_id == ControllerModeService._ULTIMATE_2C:
+                details.append(
+                    "Ultimate 2C: 2.4G e USB compartilham o PID 310A; Bluetooth usa uma assinatura diferente."
+                )
         return "\n".join(details)
 
     @staticmethod
-    def _m30_details(match: ControllerModeMatch) -> str:
-        instructions = ControllerModeService.m30_instructions()
+    def _mode_details(match: ControllerModeMatch) -> str:
+        if match.model_id == ControllerModeService._M30:
+            instructions = ControllerModeService.m30_instructions()
+            title = "COMANDOS DO 8BITDO M30"
+        elif match.model_id == ControllerModeService._ULTIMATE_2C:
+            instructions = ControllerModeService.ultimate_2c_instructions()
+            title = "COMANDOS DO 8BITDO ULTIMATE 2C"
+        else:
+            instructions = ()
+            title = "MODO DO CONTROLE"
         lines = [
-            "COMANDOS DO 8BITDO M30",
+            title,
             "",
             *instructions,
             "",
