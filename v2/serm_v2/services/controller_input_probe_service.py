@@ -99,11 +99,6 @@ class ControllerInputProbeService:
         if self._joystick is None:
             return ()
         sdl3 = self._load()
-
-        # SDL3 separa o bombeamento da fila de eventos da atualização explícita
-        # do estado dos joysticks. A leitura por SDL_GetJoystickButton/Axis/Hat
-        # só deve ser feita depois de SDL_UpdateJoysticks quando não estamos
-        # consumindo os eventos diretamente.
         update_joysticks = getattr(sdl3, "SDL_UpdateJoysticks", None)
         if update_joysticks:
             update_joysticks()
@@ -180,12 +175,17 @@ class ControllerInputProbeService:
     @staticmethod
     def default_sequence(model_id: str) -> tuple[LogicalControl, ...]:
         if model_id == "8bitdo-m30":
+            # Nomenclatura do hardware real: os quatro sentidos pertencem ao
+            # mesmo D-Pad/Hat; SELECT, MODE e MENU são botões físicos distintos.
             return (
-                LogicalControl.DPAD_UP, LogicalControl.DPAD_DOWN, LogicalControl.DPAD_LEFT, LogicalControl.DPAD_RIGHT,
-                LogicalControl.FACE_SOUTH, LogicalControl.FACE_EAST, LogicalControl.FACE_WEST, LogicalControl.FACE_NORTH,
+                LogicalControl.DPAD_UP, LogicalControl.DPAD_DOWN,
+                LogicalControl.DPAD_LEFT, LogicalControl.DPAD_RIGHT,
+                LogicalControl.FACE_SOUTH, LogicalControl.FACE_EAST,
+                LogicalControl.FACE_WEST, LogicalControl.FACE_NORTH,
                 LogicalControl.FACE_EXTRA_1, LogicalControl.FACE_EXTRA_2,
                 LogicalControl.LEFT_SHOULDER, LogicalControl.RIGHT_SHOULDER,
-                LogicalControl.START, LogicalControl.GUIDE, LogicalControl.BACK,
+                LogicalControl.START, LogicalControl.SELECT,
+                LogicalControl.MODE, LogicalControl.MENU,
             )
         if model_id in {"8bitdo-ultimate-2c", "8bitdo-ultimate-2-wireless", "sony-dualshock-4", "sony-dualsense", "xbox-one-controller", "xbox-wireless-controller", "xbox-360-controller", "machenike-g5-pro"}:
             return (
@@ -205,13 +205,15 @@ class ControllerInputProbeService:
         labels = {
             LogicalControl.DPAD_UP: "D-Pad ↑", LogicalControl.DPAD_DOWN: "D-Pad ↓",
             LogicalControl.DPAD_LEFT: "D-Pad ←", LogicalControl.DPAD_RIGHT: "D-Pad →",
-            LogicalControl.FACE_SOUTH: "Face 1 (Sul)", LogicalControl.FACE_EAST: "Face 2 (Leste)",
-            LogicalControl.FACE_WEST: "Face 3 (Oeste)", LogicalControl.FACE_NORTH: "Face 4 (Norte)",
-            LogicalControl.FACE_EXTRA_1: "Face 5", LogicalControl.FACE_EXTRA_2: "Face 6",
-            LogicalControl.LEFT_SHOULDER: "Shoulder L", LogicalControl.RIGHT_SHOULDER: "Shoulder R",
+            LogicalControl.FACE_SOUTH: "A", LogicalControl.FACE_EAST: "B",
+            LogicalControl.FACE_WEST: "X", LogicalControl.FACE_NORTH: "Y",
+            LogicalControl.FACE_EXTRA_1: "Z", LogicalControl.FACE_EXTRA_2: "C",
+            LogicalControl.LEFT_SHOULDER: "L", LogicalControl.RIGHT_SHOULDER: "R",
             LogicalControl.LEFT_TRIGGER: "Trigger L", LogicalControl.RIGHT_TRIGGER: "Trigger R",
             LogicalControl.LEFT_STICK: "Stick L", LogicalControl.RIGHT_STICK: "Stick R",
-            LogicalControl.START: "Start", LogicalControl.BACK: "Menu / Back", LogicalControl.GUIDE: "Mode / Guide",
+            LogicalControl.START: "START", LogicalControl.SELECT: "SELECT",
+            LogicalControl.MODE: "MODE / PAIR", LogicalControl.MENU: "MENU / HOME",
+            LogicalControl.BACK: "Back", LogicalControl.GUIDE: "Guide",
             LogicalControl.STEERING: "Volante", LogicalControl.ACCELERATOR: "Acelerador",
             LogicalControl.BRAKE: "Freio", LogicalControl.CLUTCH: "Embreagem", LogicalControl.UNKNOWN: "Controle desconhecido",
         }
