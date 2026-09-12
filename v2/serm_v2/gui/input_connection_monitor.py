@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
 
-from PySide6.QtCore import QObject, QTimer
+from PySide6.QtCore import QObject, QTimer, Qt
 from PySide6.QtWidgets import QMessageBox, QWidget
 
 from ..models.input_control import InputDevice, InputDeviceType
@@ -29,6 +28,7 @@ class InputConnectionMonitor(QObject):
         self.timer.timeout.connect(self.poll)
         self._known: dict[str, InputDevice] = {}
         self._baseline_ready = False
+        self._dialogs: list[QMessageBox] = []
 
     @staticmethod
     def _is_controller(device: InputDevice) -> bool:
@@ -64,6 +64,9 @@ class InputConnectionMonitor(QObject):
 
     def stop(self) -> None:
         self.timer.stop()
+        for dialog in self._dialogs:
+            dialog.close()
+        self._dialogs.clear()
 
     def poll(self) -> None:
         try:
@@ -101,6 +104,18 @@ class InputConnectionMonitor(QObject):
         else:
             self._show_disconnected(device, match)
 
+    def _register_dialog(self, dialog: QMessageBox) -> None:
+        self._dialogs.append(dialog)
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        dialog.destroyed.connect(lambda _obj=None, d=dialog: self._discard_dialog(d))
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+
+    def _discard_dialog(self, dialog: QMessageBox) -> None:
+        if dialog in self._dialogs:
+            self._dialogs.remove(dialog)
+
     def _show_connected(self, device: InputDevice, match: ControllerModeMatch | None) -> None:
         box = QMessageBox(self.parent_widget)
         box.setWindowTitle("Controle conectado")
@@ -110,10 +125,7 @@ class InputConnectionMonitor(QObject):
         if match is not None:
             box.setDetailedText(self._m30_details(match))
         box.setStandardButtons(QMessageBox.StandardButton.Ok)
-        box.show()
-        box.raise_()
-        box.activateWindow()
-        self._keep_dialog(box)
+        self._register_dialog(box)
 
     def _show_disconnected(self, device: InputDevice, match: ControllerModeMatch | None) -> None:
         box = QMessageBox(self.parent_widget)
@@ -122,18 +134,7 @@ class InputConnectionMonitor(QObject):
         box.setText(self._headline(device, match, connected=False))
         box.setInformativeText(self._connection_details(device, match))
         box.setStandardButtons(QMessageBox.StandardButton.Ok)
-        box.show()
-        box.raise_()
-        box.activateWindow()
-        self._keep_dialog(box)
-
-    @staticmethod
-    def _keep_dialog(dialog: QMessageBox) -> None:
-        # Mantém a referência até o usuário fechar o popup sem bloquear o
-        # loop principal da aplicação.
-        dialog.setAttribute(dialog.WidgetAttribute.WA_DeleteOnClose, True)
-        setattr(dialog, "_serm_hotplug_dialog", True)
-        dialog.destroyed.connect(lambda: None)
+        self._register_dialog(box)
 
     @staticmethod
     def _headline(device: InputDevice, match: ControllerModeMatch | None, *, connected: bool) -> str:
