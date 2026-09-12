@@ -1,8 +1,8 @@
 """Orquestração do subsistema de controles da V2.
 
-Este serviço reúne descoberta, correlação, identificação, análise de layout e
-comparação com os requisitos do MAME. Não altera configurações do emulador e
-não injeta eventos de entrada.
+Este serviço reúne descoberta HID, SDL3, correlação, identificação, análise de
+layout e comparação com os requisitos do MAME. Não altera configurações do
+emulador e não injeta eventos de entrada.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ from .input_device_correlation_service import DeviceCorrelation, InputDeviceCorr
 from .input_device_service import InputDeviceService
 from .input_layout_analyzer import InputLayoutAnalyzer, LayoutSummary
 from .mame_control_service import MameInputRequirements, MameControlService
+from .sdl3_input_service import SDL3InputService
 from .system_control_mapper import SystemControlMapper, SystemControlMapping
 
 
@@ -49,6 +50,7 @@ class InputControlService:
         layout_analyzer: InputLayoutAnalyzer | None = None,
         mapper: SystemControlMapper | None = None,
         mame_control_service: MameControlService | None = None,
+        sdl3_input_service: SDL3InputService | None = None,
     ) -> None:
         self.device_service = device_service or InputDeviceService()
         self.correlation_service = correlation_service or InputDeviceCorrelationService()
@@ -56,10 +58,17 @@ class InputControlService:
         self.layout_analyzer = layout_analyzer or InputLayoutAnalyzer()
         self.mapper = mapper or SystemControlMapper()
         self.mame_control_service = mame_control_service or MameControlService()
+        self.sdl3_input_service = sdl3_input_service or SDL3InputService()
 
-    def discover(self, logical_devices: tuple[InputDevice, ...] = ()) -> InputControlSnapshot:
-        """Descobre hardware HID e o correlaciona com dispositivos SDL já obtidos."""
+    def discover(self, logical_devices: tuple[InputDevice, ...] | None = None) -> InputControlSnapshot:
+        """Descobre HID e SDL3 e correlaciona as duas visões do hardware.
+
+        Se SDL3 não estiver disponível ou não puder inicializar, a descoberta
+        HID continua disponível para diagnóstico físico.
+        """
         physical = self.device_service.enumerate_hid()
+        if logical_devices is None:
+            logical_devices = self._enumerate_sdl3()
         correlations = self.correlation_service.correlate(physical, logical_devices)
         by_physical = {item.physical.device_id: item for item in correlations}
         snapshots = tuple(
@@ -72,6 +81,13 @@ class InputControlService:
             for device in physical
         )
         return InputControlSnapshot(physical, logical_devices, snapshots, correlations)
+
+    def _enumerate_sdl3(self) -> tuple[InputDevice, ...]:
+        try:
+            self.sdl3_input_service.initialize()
+            return self.sdl3_input_service.enumerate()
+        except (ImportError, RuntimeError, OSError):
+            return ()
 
     def map_mame(
         self,
