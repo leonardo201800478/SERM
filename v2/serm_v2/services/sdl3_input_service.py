@@ -1,9 +1,4 @@
-"""Backend SDL3 para gamepads.
-
-SDL3 fornece a camada de entrada lógica e HIDAPI fornece a identidade física.
-O serviço mantém as duas fontes separadas para evitar que uma mudança de
-mapeamento lógico apague a identidade real do hardware.
-"""
+"""Backend SDL3 para gamepads, com diagnóstico por etapa."""
 
 from __future__ import annotations
 
@@ -13,7 +8,7 @@ from dataclasses import dataclass
 
 from ..models.input_control import InputDevice, InputDeviceType
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("SERM.INPUT")
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,7 +21,7 @@ class GamepadSnapshot:
 
 
 class SDL3InputService:
-    """Enumera gamepads SDL3 sem acessar APIs opcionais até serem necessárias."""
+    """Enumera gamepads SDL3 sem deixar metadados opcionais interromper a descoberta."""
 
     def __init__(self) -> None:
         self._initialized = False
@@ -40,78 +35,65 @@ class SDL3InputService:
 
     def initialize(self) -> None:
         if self._initialized:
+            logger.info("[SDL3][01] subsistema já inicializado")
             return
+        logger.info("[SDL3][01] carregando PySDL3")
         sdl3 = self._load()
         flags = sdl3.SDL_INIT_GAMEPAD | sdl3.SDL_INIT_EVENTS
+        logger.info("[SDL3][02] SDL_InitSubSystem flags=%s", flags)
         if not sdl3.SDL_InitSubSystem(flags):
             error = self._decode(sdl3.SDL_GetError())
             raise RuntimeError(f"SDL3 não inicializou o subsistema de gamepad: {error}")
         self._initialized = True
+        logger.info("[SDL3][03] subsistema inicializado")
 
     def enumerate(self) -> tuple[InputDevice, ...]:
-        """Retorna os gamepads SDL reconhecidos pelo sistema."""
         sdl3 = self._load()
         self.initialize()
         count = ctypes.c_int(0)
+        logger.info("[SDL3][04] chamando SDL_GetGamepads")
         ids = sdl3.SDL_GetGamepads(ctypes.byref(count))
         if not ids:
+            logger.info("[SDL3][05] nenhum gamepad retornado")
             return ()
+        logger.info("[SDL3][05] SDL retornou %d gamepad(s)", count.value)
         devices: list[InputDevice] = []
         try:
             for index in range(max(0, int(count.value))):
+                instance_id = int(ids[index])
+                logger.info("[SDL3][06] gamepad[%d] instance_id=%d", index, instance_id)
                 try:
-                    instance_id = int(ids[index])
-                    devices.append(self._describe(sdl3, instance_id))
-                except (AttributeError, TypeError, ValueError, OSError, RuntimeError) as exc:
-                    logger.warning("[INPUT] SDL3 não conseguiu descrever gamepad %d: %s", index, exc)
+                    device = self._describe(sdl3, instance_id)
+                    devices.append(device)
+                    logger.info("[SDL3][15] gamepad[%d] descrito: %s", index, device.name)
+                except Exception:
+                    logger.exception("[SDL3][ERR] falha descrevendo gamepad[%d] id=%d", index, instance_id)
         finally:
+            logger.info("[SDL3][16] liberando array retornado por SDL_GetGamepads")
             try:
                 sdl3.SDL_free(ids)
-            except (AttributeError, TypeError, ValueError):
-                pass
+            except Exception:
+                logger.exception("[SDL3][ERR] SDL_free falhou")
+        logger.info("[SDL3][17] enumeração SDL3 concluída: %d dispositivo(s)", len(devices))
         return tuple(devices)
-
-    def snapshot(self, instance_id: int) -> GamepadSnapshot:
-        """Lê o estado lógico atual de um gamepad SDL3."""
-        sdl3 = self._load()
-        self.initialize()
-        gamepad = sdl3.SDL_OpenGamepad(instance_id)
-        if not gamepad:
-            error = self._decode(sdl3.SDL_GetError())
-            raise RuntimeError(f"Não foi possível abrir o gamepad {instance_id}: {error}")
-        try:
-            sdl3.SDL_UpdateGamepads()
-            button_names = {
-                "south": "SDL_GAMEPAD_BUTTON_SOUTH", "east": "SDL_GAMEPAD_BUTTON_EAST",
-                "west": "SDL_GAMEPAD_BUTTON_WEST", "north": "SDL_GAMEPAD_BUTTON_NORTH",
-                "back": "SDL_GAMEPAD_BUTTON_BACK", "guide": "SDL_GAMEPAD_BUTTON_GUIDE",
-                "start": "SDL_GAMEPAD_BUTTON_START", "left_stick": "SDL_GAMEPAD_BUTTON_LEFT_STICK",
-                "right_stick": "SDL_GAMEPAD_BUTTON_RIGHT_STICK", "left_shoulder": "SDL_GAMEPAD_BUTTON_LEFT_SHOULDER",
-                "right_shoulder": "SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER", "dpad_up": "SDL_GAMEPAD_BUTTON_DPAD_UP",
-                "dpad_down": "SDL_GAMEPAD_BUTTON_DPAD_DOWN", "dpad_left": "SDL_GAMEPAD_BUTTON_DPAD_LEFT",
-                "dpad_right": "SDL_GAMEPAD_BUTTON_DPAD_RIGHT",
-            }
-            axis_names = {
-                "left_x": "SDL_GAMEPAD_AXIS_LEFTX", "left_y": "SDL_GAMEPAD_AXIS_LEFTY",
-                "right_x": "SDL_GAMEPAD_AXIS_RIGHTX", "right_y": "SDL_GAMEPAD_AXIS_RIGHTY",
-                "left_trigger": "SDL_GAMEPAD_AXIS_LEFT_TRIGGER", "right_trigger": "SDL_GAMEPAD_AXIS_RIGHT_TRIGGER",
-            }
-            buttons = {name: bool(sdl3.SDL_GetGamepadButton(gamepad, getattr(sdl3, enum_name))) for name, enum_name in button_names.items()}
-            axes = {name: int(sdl3.SDL_GetGamepadAxis(gamepad, getattr(sdl3, enum_name))) for name, enum_name in axis_names.items()}
-            return GamepadSnapshot(instance_id, buttons, axes)
-        finally:
-            sdl3.SDL_CloseGamepad(gamepad)
 
     @classmethod
     def _describe(cls, sdl3, instance_id: int) -> InputDevice:
+        logger.info("[SDL3][07] ID %d: Name", instance_id)
         name = cls._decode(sdl3.SDL_GetGamepadNameForID(instance_id)) or f"SDL Gamepad {instance_id}"
+        logger.info("[SDL3][08] ID %d: Path", instance_id)
         path = cls._optional_text_call(sdl3, "SDL_GetGamepadPathForID", instance_id)
+        logger.info("[SDL3][09] ID %d: GUID", instance_id)
         guid = cls._guid(sdl3, instance_id)
+        logger.info("[SDL3][10] ID %d: Vendor/Product/Version", instance_id)
         vendor = cls._optional_int_call(sdl3, "SDL_GetGamepadVendorForID", instance_id)
         product = cls._optional_int_call(sdl3, "SDL_GetGamepadProductForID", instance_id)
         version = cls._optional_int_call(sdl3, "SDL_GetGamepadProductVersionForID", instance_id)
+        logger.info("[SDL3][11] ID %d: Mapping", instance_id)
         mapping = cls._mapping(sdl3, instance_id)
+        logger.info("[SDL3][12] ID %d: RealGamepadType", instance_id)
         device_type = cls._device_type(sdl3, instance_id, name)
+        logger.info("[SDL3][13] ID %d: criando InputDevice", instance_id)
         return InputDevice(
             device_id=f"sdl3:{instance_id}", name=name, device_type=device_type,
             vendor_id=vendor, product_id=product, version=version,
@@ -123,9 +105,6 @@ class SDL3InputService:
     def _optional_text_call(sdl3, function_name: str, instance_id: int) -> str | None:
         try:
             function = getattr(sdl3, function_name)
-        except AttributeError:
-            return None
-        try:
             return SDL3InputService._decode(function(instance_id))
         except (AttributeError, TypeError, ValueError, OSError):
             return None
@@ -134,9 +113,6 @@ class SDL3InputService:
     def _optional_int_call(sdl3, function_name: str, instance_id: int) -> int | None:
         try:
             function = getattr(sdl3, function_name)
-        except AttributeError:
-            return None
-        try:
             value = int(function(instance_id))
             return value or None
         except (AttributeError, TypeError, ValueError, OSError):
@@ -146,9 +122,6 @@ class SDL3InputService:
     def _mapping(sdl3, instance_id: int) -> str | None:
         try:
             function = getattr(sdl3, "SDL_GetGamepadMappingForID")
-        except AttributeError:
-            return None
-        try:
             value = function(instance_id)
         except (AttributeError, TypeError, ValueError, OSError):
             return None
@@ -159,7 +132,7 @@ class SDL3InputService:
         finally:
             try:
                 sdl3.SDL_free(value)
-            except (AttributeError, TypeError, ValueError):
+            except (AttributeError, TypeError, ValueError, OSError):
                 pass
 
     @staticmethod
