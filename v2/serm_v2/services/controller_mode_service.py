@@ -30,6 +30,7 @@ class ControllerModeService:
 
     _M30 = "8bitdo-m30"
     _ULTIMATE_2C = "8bitdo-ultimate-2c"
+    _ULTIMATE_2 = "8bitdo-ultimate-2-wireless"
 
     @classmethod
     def identify(cls, device: InputDevice) -> ControllerModeMatch | None:
@@ -37,6 +38,9 @@ class ControllerModeService:
         m30 = cls.identify_m30(device)
         if m30 is not None:
             return m30
+        ultimate_2 = cls.identify_ultimate_2(device)
+        if ultimate_2 is not None:
+            return ultimate_2
         return cls.identify_ultimate_2c(device)
 
     @classmethod
@@ -83,6 +87,68 @@ class ControllerModeService:
             connection=connection_name,
             confidence=confidence,
             confirmed=confirmed,
+            signature=f"VID 0x{vendor:04X} / PID 0x{product:04X}",
+            power_on=power_on,
+            led_hint=led_hint,
+        )
+
+    @classmethod
+    def identify_ultimate_2(cls, device: InputDevice) -> ControllerModeMatch | None:
+        """Identifica os modos proprietários observados no Ultimate 2 Wireless."""
+        vendor = device.vendor_id
+        product = device.product_id
+        if vendor != 0x2DC8 or product is None:
+            return None
+
+        signatures = {
+            # XInput do controle pelo receptor 2.4G. O mesmo PID pode ser
+            # apresentado em conexão USB direta; a confirmação do transporte
+            # físico será feita no teste USB dedicado.
+            0x310B: (
+                "xinput-2p4g",
+                "XInput / 2.4G",
+                "HOME",
+                "LED de status aceso",
+            ),
+            # DInput pelo receptor 2.4G e, conforme o hardware/firmware,
+            # também pelo Bluetooth. O PID é o mesmo, então o transporte real
+            # deve ser lido do backend físico quando disponível.
+            0x6012: (
+                "dinput",
+                "D-Input / 2.4G ou Bluetooth",
+                "B + HOME",
+                "LED de status aceso",
+            ),
+            # Quando o receptor está conectado sem o controle ativo, o Windows
+            # pode expor o dongle como 2DC8:6013. Isso é identidade do receptor,
+            # não um modo de jogo ativo.
+            0x6013: (
+                "receiver-idle",
+                "Receptor 2.4G / controle inativo",
+                "HOME no controle para ativar",
+                "receptor presente",
+            ),
+        }
+        signature = signatures.get(product)
+        if signature is None:
+            return None
+
+        mode_id, mode_name, power_on, led_hint = signature
+        if device.connection == InputConnection.BLUETOOTH or device.bus_type == 2:
+            connection_name = "Bluetooth"
+        elif device.connection == InputConnection.USB or device.bus_type == 1:
+            connection_name = "USB"
+        else:
+            connection_name = device.connection.value
+
+        return ControllerModeMatch(
+            model_id=cls._ULTIMATE_2,
+            model_name="8BitDo Ultimate 2 Wireless",
+            mode_id=mode_id,
+            mode_name=mode_name,
+            connection=connection_name,
+            confidence=100,
+            confirmed=True,
             signature=f"VID 0x{vendor:04X} / PID 0x{product:04X}",
             power_on=power_on,
             led_hint=led_hint,
@@ -154,6 +220,18 @@ class ControllerModeService:
             "Nintendo Switch: desligado, segure Y + START para ligar.",
             "Desligar: segure START por 3 s; desligamento forçado: 8 s.",
             "Pareamento Bluetooth: com o modo escolhido, segure PAIR por 2 s.",
+        )
+
+    @staticmethod
+    def ultimate_2_instructions() -> tuple[str, ...]:
+        return (
+            "XInput / 2.4G: desligado, pressione HOME para ligar com o receptor conectado.",
+            "D-Input / 2.4G: desligado, segure B + HOME para ligar.",
+            "Switch / 2.4G: desligado, segure Y + HOME para ligar.",
+            "Bluetooth: será validado no teste específico; o PID 0x6012 indica D-Input quando exposto.",
+            "USB: será validado no teste específico; não assumir que o PID observado no receptor representa o transporte.",
+            "O PID 0x6013 representa o receptor 2.4G em estado inativo e não um modo de jogo.",
+            "O SERM identifica o modo observado; não envia comandos ao controle.",
         )
 
     @staticmethod
