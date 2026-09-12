@@ -90,10 +90,15 @@ class ControllerCatalogService:
         # será usado somente como layout esperado quando o backend físico ainda
         # não tiver exposto os elementos individuais.
         #
-        # Ultimate 2C Wireless (81HD): VID 0x2DC8 / PID 0x310A. A documentação
-        # e os testes externos consultados mostram o mesmo PID para USB-C direto
-        # e para o adaptador 2.4G; não tratamos o PID XInput genérico 0x045E:0x028E
-        # como identidade do modelo, evitando confundir o 2C com um Xbox real.
+        # Ultimate 2C Wireless (81HD): VID 0x2DC8 / PID 0x310A é usado pelo
+        # USB-C direto e pelo adaptador 2.4G. O Bluetooth aparece em variantes
+        # de firmware/hardware com PID 0x301B e também 0x3013 em inventários
+        # públicos; ambos são mantidos como assinaturas do mesmo modelo. O PID
+        # 0x301C observado em alguns inventários como estado idle não é tratado
+        # como identidade ativa do controle.
+        #
+        # Não tratamos o PID XInput genérico 0x045E:0x028E como identidade do
+        # modelo, evitando confundir o 2C com um Xbox real.
         return ControllerCatalogService(
             (
                 ControllerCatalogEntry(
@@ -118,7 +123,7 @@ class ControllerCatalogService:
                     ),
                     device_type=InputDeviceType.GAMEPAD,
                     vendor_id=0x2DC8,
-                    product_ids=(0x310A,),
+                    product_ids=(0x310A, 0x301B, 0x3013),
                     expected_face_buttons=4,
                     expected_axes=4,
                 ),
