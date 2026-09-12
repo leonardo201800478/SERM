@@ -49,6 +49,9 @@ addopts = [
 testpaths = ["tests"]
 pythonpath = ["."]
 strict = true
+markers = [
+    "extended: dataset, live, integration or diagnostic test excluded from the default fast suite",
+]
 
 [tool.coverage.run]
 source = ["serm_v2"]
