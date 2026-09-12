@@ -39,3 +39,32 @@ def test_axis_threshold_only_reports_new_crossing():
 
 def test_unknown_model_does_not_invent_layout():
     assert ControllerInputProbeService.default_sequence("unknown-model") == (LogicalControl.UNKNOWN,)
+
+
+def test_probe_prefers_update_joysticks_over_event_pump():
+    class FakeSDL:
+        def __init__(self):
+            self.updated = 0
+            self.pumped = 0
+
+        def SDL_UpdateJoysticks(self):
+            self.updated += 1
+
+        def SDL_PumpEvents(self):
+            self.pumped += 1
+
+        def SDL_GetNumJoystickButtons(self, joystick):
+            return 0
+
+        def SDL_GetNumJoystickAxes(self, joystick):
+            return 0
+
+        def SDL_GetNumJoystickHats(self, joystick):
+            return 0
+
+    fake = FakeSDL()
+    service = ControllerInputProbeService(fake)
+    service._joystick = object()
+    assert service.poll() == ()
+    assert fake.updated == 1
+    assert fake.pumped == 0
