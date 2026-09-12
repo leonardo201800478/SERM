@@ -1,6 +1,4 @@
-from dataclasses import replace
-
-from serm_v2.models.input_control import InputDevice, InputDeviceType, InputConnection, InputElementType
+from serm_v2.models.input_control import InputConnection, InputDevice, InputDeviceType, InputElement, InputElementType
 from serm_v2.services.input_control_service import InputControlService
 
 
@@ -19,7 +17,7 @@ class FakeCorrelationService:
 
 class FakeCatalogService:
     def identify(self, device):
-        return replace(device, display_name=f"Catalog: {device.display_name}")
+        return type("Identification", (), {"display_name": f"Catalog: {device.name}"})()
 
 
 class FakeLayoutAnalyzer:
@@ -29,29 +27,29 @@ class FakeLayoutAnalyzer:
 
 class FakeMapper:
     def map_mame(self, requirements, device, profile):
-        return (requirements, device, profile)
+        return requirements, device, profile
 
 
 class FakeMameService:
     def read_machine(self, xml_path, machine_name):
-        return (xml_path, machine_name)
+        return xml_path, machine_name
 
 
 def _device():
     return InputDevice(
         device_id="hid-1",
+        name="Test Controller",
         device_type=InputDeviceType.GAMEPAD,
         connection=InputConnection.USB,
-        display_name="Test Controller",
         manufacturer="Test",
         product="Controller",
         vendor_id=0x1234,
         product_id=0x5678,
-        product_version=1,
-        serial_number="ABC",
+        version=1,
+        serial="ABC",
         path="\\\\?\\hid#test",
         elements=(
-            type("Element", (), {"element_type": InputElementType.BUTTON})(),
+            InputElement("button-1", InputElementType.BUTTON, "B1", index=0),
         ),
     )
 
@@ -71,7 +69,7 @@ def test_discover_builds_consolidated_snapshot():
 
     assert snapshot.physical_devices == (device,)
     assert len(snapshot.devices) == 1
-    assert snapshot.devices[0].device.display_name == "Test Controller"
+    assert snapshot.devices[0].device.name == "Test Controller"
     assert snapshot.devices[0].identification.display_name == "Catalog: Test Controller"
     assert snapshot.devices[0].layout.profile_kind == "six-button-gamepad"
     assert snapshot.devices[0].layout.button_count == 6
@@ -79,12 +77,10 @@ def test_discover_builds_consolidated_snapshot():
 
 def test_facade_delegates_mame_mapping_and_machine_read():
     device = _device()
-    mapper = FakeMapper()
-    mame = FakeMameService()
     service = InputControlService(
         device_service=FakeDeviceService(()),
-        mapper=mapper,
-        mame_control_service=mame,
+        mapper=FakeMapper(),
+        mame_control_service=FakeMameService(),
     )
     requirements = object()
     profile = object()
