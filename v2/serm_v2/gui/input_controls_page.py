@@ -1,10 +1,9 @@
-"""Diagnóstico visual de controles físicos do SERM V2."""
+"""Diagnóstico visual e calibração de controles físicos do SERM V2."""
 
 from __future__ import annotations
 
 import logging
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
@@ -21,16 +20,18 @@ from PySide6.QtWidgets import (
 from ..models.input_control import InputDeviceType
 from ..services.controller_mode_service import ControllerModeService
 from ..services.input_control_service import InputControlService
+from .controller_mapping_dialog import ControllerMappingDialog
 
 logger = logging.getLogger(__name__)
 
 
 class InputControlsPage(QWidget):
-    """Apresenta o inventário físico sem interferir no caminho do emulador."""
+    """Apresenta inventário físico e permite calibrar seus inputs reais."""
 
     def __init__(self, parent=None, service: InputControlService | None = None) -> None:
         super().__init__(parent)
         self.service = service or InputControlService()
+        self._mapped_profiles = {}
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -46,7 +47,7 @@ class InputControlsPage(QWidget):
         title_box.setSpacing(1)
         title = QLabel("Diagnóstico de controles")
         title.setObjectName("controlsTitle")
-        subtitle = QLabel("Hardware detectado pelo SERM • identidade, modo, layout e bateria")
+        subtitle = QLabel("Hardware detectado • identidade, modo, layout e calibração física")
         subtitle.setObjectName("controlsSubtitle")
         title_box.addWidget(title)
         title_box.addWidget(subtitle)
@@ -81,6 +82,7 @@ class InputControlsPage(QWidget):
             "QLabel#deviceName{color:#edf4fb;font-size:11pt;font-weight:650;}QLabel#deviceMeta{color:#8fa5bb;font-size:8pt;}"
             "QLabel#deviceGood{color:#78d6b0;font-size:8pt;font-weight:600;}QLabel#deviceWarn{color:#e0c477;font-size:8pt;font-weight:600;}"
             "QLabel#deviceMode{color:#9bc9ff;font-size:8pt;font-weight:650;}QLabel#deviceBattery{color:#c7d6e6;font-size:8pt;font-weight:600;}"
+            "QPushButton#mapButton{background:#162b3d;color:#dff5ff;border:1px solid #3e718c;border-radius:6px;padding:5px 9px;font-weight:600;}QPushButton#mapButton:hover{background:#1b3850;}"
             "QProgressBar#batteryBar{height:7px;border:1px solid #31465f;border-radius:3px;background:#09111d;text-align:center;}"
             "QProgressBar#batteryBar::chunk{border-radius:2px;background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #4ca8ff,stop:1 #55d6c2);}"
         )
@@ -116,6 +118,15 @@ class InputControlsPage(QWidget):
         bar.setFixedHeight(7)
         box.addWidget(bar)
 
+    def _open_mapper(self, device, model_id: str) -> None:
+        dialog = ControllerMappingDialog(device, model_id, self)
+        if dialog.exec() == dialog.DialogCode.Accepted:
+            profile = dialog.profile()
+            self._mapped_profiles[profile.profile_id] = profile
+            self.status.setText(
+                f"Mapeamento concluído: {len(profile.bindings)} entrada(s) associada(s) a {profile.name}."
+            )
+
     def _card(self, snapshot) -> QFrame:
         device = snapshot.device
         card = QFrame()
@@ -146,9 +157,7 @@ class InputControlsPage(QWidget):
         mode = ControllerModeService.identify(device)
         if mode is not None:
             confirmation = "confirmado" if mode.confirmed else "assinatura compatível"
-            mode_label = QLabel(
-                f"{mode.model_name}  •  {mode.mode_name}  •  {confirmation} ({mode.confidence}%)"
-            )
+            mode_label = QLabel(f"{mode.model_name}  •  {mode.mode_name}  •  {confirmation} ({mode.confidence}%)")
             mode_label.setObjectName("deviceMode")
             box.addWidget(mode_label)
 
@@ -173,6 +182,14 @@ class InputControlsPage(QWidget):
             label = QLabel(f"✓ Modelo: {model.model_name} ({snapshot.identification.confidence}%)")
             label.setObjectName("deviceGood")
             box.addWidget(label)
+
+            actions = QHBoxLayout()
+            actions.addStretch(1)
+            map_button = QPushButton("⌘  Mapear inputs")
+            map_button.setObjectName("mapButton")
+            map_button.clicked.connect(lambda _checked=False, d=device, m=model.model_id: self._open_mapper(d, m))
+            actions.addWidget(map_button)
+            box.addLayout(actions)
         else:
             label = QLabel("○ Modelo específico não identificado; identidade física preservada")
             label.setObjectName("deviceWarn")
