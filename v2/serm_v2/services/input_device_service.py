@@ -49,7 +49,13 @@ class InputDeviceService:
 
         product = cls._text(record.get("product_string"))
         manufacturer = cls._text(record.get("manufacturer_string"))
-        name = product or manufacturer or f"HID {vendor_id:04X}:{product_id:04X}" if vendor_id is not None and product_id is not None else f"HID {index + 1}"
+        if product or manufacturer:
+            name = product or manufacturer or "HID"
+        elif vendor_id is not None and product_id is not None:
+            name = f"HID {vendor_id:04X}:{product_id:04X}"
+        else:
+            name = f"HID {index + 1}"
+
         usage_page = cls._int(record.get("usage_page"))
         usage = cls._int(record.get("usage"))
         serial = cls._text(record.get("serial_number"))
