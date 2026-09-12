@@ -83,7 +83,13 @@ class ConfigurationPage(QWidget):
 
     def _select_page(self, index: int) -> None:
         if 0 <= index < len(self._pages):
-            self.tabs.setCurrentIndex(index); self.section_title.setText(self._entry_title(index)); self.section_description.setText(self.ENTRIES[index][2]); self._refresh_current()
+            self.tabs.setCurrentIndex(index)
+            self.section_title.setText(self._entry_title(index))
+            self.section_description.setText(self.ENTRIES[index][2])
+            # Controles acessa backends nativos (SDL3/HIDAPI). A página deve
+            # abrir sem executar descoberta; a leitura é uma ação explícita.
+            if self._pages[index] is not self.controls_page:
+                self._refresh_current()
 
     def _entry_title(self, index: int) -> str:
         return UiPreferences.text(self.ENTRIES[index][3])
@@ -101,7 +107,9 @@ class ConfigurationPage(QWidget):
             self.section_title.setText(self._entry_title(current)); self.section_description.setText(self.ENTRIES[current][2])
 
     def refresh(self) -> None:
-        self._refresh_current()
+        # Não dispara descoberta automaticamente: Controles exige ação explícita.
+        if self.tabs.currentWidget() is not self.controls_page:
+            self._refresh_current()
 
 
 __all__ = ["ConfigurationPage"]
