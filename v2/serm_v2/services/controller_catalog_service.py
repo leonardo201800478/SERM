@@ -81,9 +81,26 @@ class ControllerCatalogService:
 
     @staticmethod
     def default() -> "ControllerCatalogService":
-        # VID/PID não verificados não são cadastrados como fato. O inventário
-        # real do Windows será a fonte para popular o catálogo posteriormente.
-        return ControllerCatalogService(())
+        # M30 identificado no inventário real do Windows e confirmado pelo
+        # backend SDL3 como "8BitDo M30 Gamepad" (VID 0x2DC8 / PID 0x5006).
+        # O layout de seis botões é uma propriedade documentada do modelo e
+        # será usado somente como layout esperado quando o backend físico ainda
+        # não tiver exposto os elementos individuais.
+        return ControllerCatalogService(
+            (
+                ControllerCatalogEntry(
+                    model_id="8bitdo-m30",
+                    manufacturer="8BitDo",
+                    model_name="M30",
+                    aliases=("8BitDo M30 Gamepad", "M30 Gamepad"),
+                    device_type=InputDeviceType.GAMEPAD,
+                    vendor_id=0x2DC8,
+                    product_ids=(0x5006,),
+                    expected_face_buttons=6,
+                    expected_axes=2,
+                ),
+            )
+        )
 
 
 __all__ = [
