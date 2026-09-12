@@ -39,6 +39,36 @@ def test_default_catalog_identifies_verified_m30():
     assert result.confidence >= 60
 
 
+def test_default_catalog_identifies_m30_bluetooth_dinput():
+    result = ControllerCatalogService.default().identify(
+        InputDevice(
+            device_id="m30-bt",
+            name="Bluetooth Wireless Controller",
+            device_type=InputDeviceType.GAMEPAD,
+            vendor_id=0x2DC8,
+            product_id=0x0651,
+        )
+    )
+    assert result.model is not None
+    assert result.model.model_id == "8bitdo-m30"
+    assert result.confidence >= 60
+
+
+def test_vendor_only_does_not_guess_8bitdo_model():
+    result = ControllerCatalogService.default().identify(
+        InputDevice(
+            device_id="other-8bitdo",
+            name="Bluetooth Wireless Controller",
+            device_type=InputDeviceType.GAMEPAD,
+            vendor_id=0x2DC8,
+            product_id=0x1234,
+            manufacturer="8BitDo",
+        )
+    )
+    assert result.model is None
+    assert result.confidence < 60
+
+
 def test_unknown_catalog_does_not_guess():
     result = ControllerCatalogService(()).identify(
         InputDevice(device_id="unknown", name="Unknown Controller", device_type=InputDeviceType.GAMEPAD)
