@@ -21,7 +21,7 @@ CREATE TABLE mame_machine (
 CREATE TABLE mame_rom (
     id INTEGER PRIMARY KEY, machine_id INTEGER NOT NULL, name TEXT NOT NULL,
     size INTEGER, crc TEXT, sha1 TEXT, md5 TEXT, merge TEXT, region TEXT,
-    status TEXT
+    status TEXT, optional TEXT
 );
 CREATE TABLE mame_display (
     id INTEGER PRIMARY KEY, machine_id INTEGER NOT NULL, tag TEXT, type TEXT,
@@ -39,27 +39,22 @@ def make_db(path):
         """INSERT INTO mame_machine
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         [
-            (1, 1, "parent", "src/parent.cpp", None, None, None, "yes", None, None,
-             "Parent", "1985", "Maker"),
-            (2, 1, "clone", "src/parent.cpp", None, None, None, "yes", "parent", "parent",
-             "Clone", "1986", "Maker"),
-            (3, 2, "partial", None, None, None, None, "yes", None, None,
-             "Ignored", "2000", "Maker"),
-            (4, 1, "bios", None, "yes", None, None, "yes", None, None,
-             "BIOS", None, "Maker"),
-            (5, 1, "device", None, None, "yes", None, "yes", None, None,
-             "Device", None, "Maker"),
-            (6, 1, "mechanical", None, None, None, "yes", "yes", None, None,
-             "Mechanical", None, "Maker"),
-            (7, 1, "nonrun", None, None, None, None, "no", None, None,
-             "Non runnable", None, "Maker"),
+            (1, 1, "parent", "src/parent.cpp", None, None, None, "yes", None, None, "Parent", "1985", "Maker"),
+            (2, 1, "clone", "src/parent.cpp", None, None, None, "yes", "parent", "parent", "Clone", "1986", "Maker"),
+            (3, 2, "partial", None, None, None, None, "yes", None, None, "Ignored", "2000", "Maker"),
+            (4, 1, "bios", None, "yes", None, None, "yes", None, None, "BIOS", None, "Maker"),
+            (5, 1, "device", None, None, "yes", None, "yes", None, None, "Device", None, "Maker"),
+            (6, 1, "mechanical", None, None, None, "yes", "yes", None, None, "Mechanical", None, "Maker"),
+            (7, 1, "nonrun", None, None, None, None, "no", None, None, "Non runnable", None, "Maker"),
         ],
     )
     db.executemany(
-        "INSERT INTO mame_rom VALUES (?,?,?,?,?,?,?,?,?)",
+        """INSERT INTO mame_rom
+        (id,machine_id,name,size,crc,sha1,md5,merge,region,status)
+        VALUES (?,?,?,?,?,?,?,?,?,?)""",
         [
-            (1, 1, "parent.rom", 1024, "deadbeef", "sha", None, None, "ok"),
-            (2, 2, "clone.rom", 2048, "cafebabe", "sha2", None, "parent.rom", "ok"),
+            (1, 1, "parent.rom", 1024, "deadbeef", "sha", None, None, None, "ok"),
+            (2, 2, "clone.rom", 2048, "cafebabe", "sha2", None, "parent.rom", None, "ok"),
         ],
     )
     db.execute("INSERT INTO mame_display VALUES (1,1,'screen','raster',320,240,60.0,'0')")
@@ -109,6 +104,4 @@ def test_iter_games_is_stable_and_batched(tmp_path):
     catalog = SqliteArcadeCatalog(path)
     catalog.MACHINE_BATCH_SIZE = 2
     games = list(catalog.iter_games())
-    assert [game.name for game in games] == [
-        "bios", "clone", "device", "mechanical", "nonrun", "parent"
-    ]
+    assert [game.name for game in games] == ["bios", "clone", "device", "mechanical", "nonrun", "parent"]
