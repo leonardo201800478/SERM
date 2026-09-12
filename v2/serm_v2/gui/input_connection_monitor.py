@@ -44,7 +44,7 @@ class InputConnectionMonitor(QObject):
         return device.usage_page == 1 and device.usage in {4, 5}
 
     def _inventory(self) -> dict[str, InputDevice]:
-        devices = self.device_service.enumerate_hid()
+        devices = self.device_service.enumerate_hid(log_summary=False)
         inventory: dict[str, InputDevice] = {}
         for device in devices:
             if not self._is_controller(device):
