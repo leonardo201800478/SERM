@@ -105,7 +105,16 @@ class ControllerProfileService:
         if model_id == "logitech-g27":
             return ("steering", "accelerator", "brake", "clutch", "shift/buttons")
         if model_id == "8bitdo-m30":
-            return ("dpad", "face-1..6", "shoulders", "start/back", "arcade-six-button")
+            return (
+                "dpad",
+                "A/B/X/Y/Z/C",
+                "L/R",
+                "START",
+                "SELECT",
+                "MODE / PAIR",
+                "MENU / HOME",
+                "arcade-six-button",
+            )
         if model_id in {"8bitdo-ultimate-2c", "8bitdo-ultimate-2-wireless"}:
             return ("dpad", "face-1..4", "shoulders", "triggers", "sticks", "start/back", "rear-buttons")
         if model_id in {"sony-dualshock-4", "sony-dualsense"}:
