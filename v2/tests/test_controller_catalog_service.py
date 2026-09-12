@@ -54,6 +54,37 @@ def test_default_catalog_identifies_m30_bluetooth_dinput():
     assert result.confidence >= 60
 
 
+def test_default_catalog_identifies_ultimate_2c_wireless():
+    result = ControllerCatalogService.default().identify(
+        InputDevice(
+            device_id="ultimate-2c",
+            name="8BitDo Ultimate 2C Wireless Controller",
+            device_type=InputDeviceType.GAMEPAD,
+            vendor_id=0x2DC8,
+            product_id=0x310A,
+        )
+    )
+    assert result.model is not None
+    assert result.model.model_id == "8bitdo-ultimate-2c"
+    assert result.model.expected_face_buttons == 4
+    assert result.model.expected_axes == 4
+    assert result.confidence >= 60
+
+
+def test_ultimate_2c_does_not_get_confused_with_m30():
+    result = ControllerCatalogService.default().identify(
+        InputDevice(
+            device_id="ultimate-2c",
+            name="8BitDo Ultimate 2C Wireless Controller",
+            device_type=InputDeviceType.GAMEPAD,
+            vendor_id=0x2DC8,
+            product_id=0x310A,
+        )
+    )
+    assert result.model is not None
+    assert result.model.model_id != "8bitdo-m30"
+
+
 def test_vendor_only_does_not_guess_8bitdo_model():
     result = ControllerCatalogService.default().identify(
         InputDevice(
