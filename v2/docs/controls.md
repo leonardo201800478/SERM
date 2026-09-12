@@ -68,9 +68,27 @@ Ele associa elementos físicos a controles como D-pad, face buttons, Start,
 Select/Back, shoulders, triggers, sticks, steering, accelerator, brake, coin,
 service e test.
 
-Um perfil pode posteriormente ser projetado para a sintaxe específica do
-MAME, inclusive arquivos `ctrlr` e mecanismos de associação de dispositivos,
-sem transformar essa sintaxe em parte do modelo de domínio.
+### 5. Adaptação para MAME
+
+A integração final não será feita alterando o cadastro físico do dispositivo.
+O SERM produzirá artefatos de configuração do MAME a partir do perfil lógico.
+
+O MAME 0.289 possui dois mecanismos especialmente relevantes:
+
+- `-controller_map`/`-ctrlmap`: mapa de gamepads no formato SDL/Steam,
+  utilizado pelo provider `sdlgame`;
+- `-ctrlr` + `ctrlrpath`: perfil XML de controlador, onde entram `mapdevice`,
+  `remap`, `port` e `newseq`.
+
+`mapdevice` será usado quando precisarmos tornar determinístico o número
+lógico de um dispositivo. Os identificadores que o MAME recebe do provider
+continuam sendo a referência para esse mecanismo; VID/PID ou caminho HID do
+SERM não devem ser simplesmente assumidos como equivalentes ao `device id` do
+MAME.
+
+Para isso, a implementação futura deverá capturar também o identificador
+reportado pelo próprio MAME. A base física do SERM servirá para correlacionar
+esse identificador com o dispositivo detectado pelo SDL/HID.
 
 ## Persistência
 
