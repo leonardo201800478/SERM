@@ -14,7 +14,7 @@ from .controller_catalog_service import ControllerCatalogService, ControllerIden
 from .input_device_correlation_service import DeviceCorrelation, InputDeviceCorrelationService
 from .input_device_service import InputDeviceService
 from .input_layout_analyzer import InputLayoutAnalyzer, LayoutSummary
-from .mame_control_service import MameControlRequirementsParser, MameInputRequirements
+from .mame_control_service import MameInputRequirements, MameControlService
 from .system_control_mapper import SystemControlMapper, SystemControlMapping
 
 
@@ -48,12 +48,14 @@ class InputControlService:
         catalog_service: ControllerCatalogService | None = None,
         layout_analyzer: InputLayoutAnalyzer | None = None,
         mapper: SystemControlMapper | None = None,
+        mame_control_service: MameControlService | None = None,
     ) -> None:
         self.device_service = device_service or InputDeviceService()
         self.correlation_service = correlation_service or InputDeviceCorrelationService()
         self.catalog_service = catalog_service or ControllerCatalogService.default()
         self.layout_analyzer = layout_analyzer or InputLayoutAnalyzer()
         self.mapper = mapper or SystemControlMapper()
+        self.mame_control_service = mame_control_service or MameControlService()
 
     def discover(self, logical_devices: tuple[InputDevice, ...] = ()) -> InputControlSnapshot:
         """Descobre hardware HID e o correlaciona com dispositivos SDL já obtidos."""
@@ -77,13 +79,12 @@ class InputControlService:
         device: InputDevice,
         profile: ControlProfile | None = None,
     ) -> SystemControlMapping:
-        """Compara um dispositivo com os requisitos já extraídos do MAME."""
+        """Compara um dispositivo com requisitos já extraídos do MAME."""
         return self.mapper.map_mame(requirements, device, profile)
 
-    @staticmethod
-    def parse_mame_requirements(xml_path: str) -> tuple[MameInputRequirements, ...]:
-        """Expõe o parser de requisitos sem acoplar a GUI ao parser XML."""
-        return tuple(MameControlRequirementsParser().parse_file(xml_path))
+    def read_mame_machine(self, xml_path: str, machine_name: str) -> MameInputRequirements | None:
+        """Lê somente a máquina solicitada de um ListXML potencialmente grande."""
+        return self.mame_control_service.read_machine(xml_path, machine_name)
 
 
 __all__ = ["InputControlService", "InputControlSnapshot", "InputDeviceSnapshot"]
