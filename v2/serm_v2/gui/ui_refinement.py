@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
-from PySide6.QtWidgets import QFrame, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget, QProgressBar, QPushButton, QSizePolicy, QTabWidget, QTableWidget, QTreeWidget, QVBoxLayout, QWidget, QGridLayout
+from PySide6.QtWidgets import QFrame, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget, QPlainTextEdit, QProgressBar, QPushButton, QSizePolicy, QTabWidget, QTableWidget, QTreeWidget, QVBoxLayout, QWidget, QGridLayout
 
 XP_PROGRESS_STYLE = """
 QProgressBar#xpProgress { background-color:#0b0b0b; border:1px solid #707070; border-radius:2px; padding:1px; text-align:center; color:#ffffff; min-height:18px; max-height:18px; }
@@ -37,7 +37,7 @@ def _collect_emulator_cards(home) -> list[QWidget]:
 
 
 def _build_arcade_grid(cards: list[QWidget]) -> QFrame:
-    """Monta os quatro emuladores em uma grade 2x2 compacta, sem splitters verticais."""
+    """Monta os quatro emuladores em uma grade 2x2 compacta."""
     frame = QFrame()
     frame.setObjectName("emulatorCardsFrame")
     grid = QGridLayout(frame)
@@ -125,6 +125,41 @@ def _refine_home_shell(home) -> bool:
         tabs.tabBar().setMinimumHeight(27)
         tabs.tabBar().setMaximumHeight(32)
     home.setProperty("home_shell_refined", True)
+    return True
+
+
+def _refine_home_space(home) -> bool:
+    """Impede que logs e botões consumam espaço que deve permanecer disponível."""
+    tabs = getattr(home, "home_tabs", None)
+    if tabs is None or tabs.count() == 0:
+        return False
+    arcade = tabs.widget(0)
+    if arcade is not None:
+        for log in arcade.findChildren(QPlainTextEdit):
+            log.setMinimumHeight(64)
+            log.setMaximumHeight(94)
+            log.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        for button in arcade.findChildren(QPushButton):
+            button.setMaximumHeight(28)
+            button.setMinimumHeight(25)
+            button.setMaximumWidth(160)
+            button.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        frame = arcade.findChild(QFrame, "emulatorCardsFrame")
+        if frame is not None:
+            frame.setMaximumHeight(258)
+    retro = tabs.widget(1)
+    if retro is not None:
+        for log in retro.findChildren(QPlainTextEdit):
+            log.setMinimumHeight(64)
+            log.setMaximumHeight(120)
+            log.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        for button in retro.findChildren(QPushButton):
+            button.setMaximumHeight(28)
+            button.setMinimumHeight(25)
+    dock = getattr(home.window(), "log_dock", None)
+    if dock is not None:
+        dock.setMinimumHeight(70)
+        dock.setMaximumHeight(112)
     return True
 
 
@@ -278,9 +313,10 @@ def apply_ui_refinement(window) -> dict[str, bool]:
     studio = _refine_arcade_studio(window)
     if home is None:
         return {"arcade": False, "retroarch": False, "arcade_studio": studio}
-    shell = _refine_home_shell(home)
+    _refine_home_shell(home)
     arcade = _replace_arcade_cards(home)
     retro = _refine_retroarch_layout(home)
+    _refine_home_space(home)
     return {"arcade": arcade, "retroarch": retro, "arcade_studio": studio}
 
 
