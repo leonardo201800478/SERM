@@ -71,6 +71,35 @@ def test_default_catalog_identifies_ultimate_2c_wireless():
     assert result.confidence >= 60
 
 
+def test_default_catalog_identifies_ultimate_2c_bluetooth_301b():
+    result = ControllerCatalogService.default().identify(
+        InputDevice(
+            device_id="ultimate-2c-bt",
+            name="8BitDo Ultimate 2C Wireless",
+            device_type=InputDeviceType.GAMEPAD,
+            vendor_id=0x2DC8,
+            product_id=0x301B,
+        )
+    )
+    assert result.model is not None
+    assert result.model.model_id == "8bitdo-ultimate-2c"
+    assert result.confidence >= 60
+
+
+def test_default_catalog_identifies_ultimate_2c_bluetooth_3013_variant():
+    result = ControllerCatalogService.default().identify(
+        InputDevice(
+            device_id="ultimate-2c-bt",
+            name="8BitDo Ultimate 2C Wireless",
+            device_type=InputDeviceType.GAMEPAD,
+            vendor_id=0x2DC8,
+            product_id=0x3013,
+        )
+    )
+    assert result.model is not None
+    assert result.model.model_id == "8bitdo-ultimate-2c"
+
+
 def test_ultimate_2c_does_not_get_confused_with_m30():
     result = ControllerCatalogService.default().identify(
         InputDevice(
