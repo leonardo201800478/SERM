@@ -104,9 +104,11 @@ class HomePage(EmulatorHomePage):
         for label in self.findChildren(type(self.seven_zip)):
             if label.text() in {"Log detalhado da instalação", "Log RetroArch"}:
                 label.hide()
+            elif label.text() in {"SERM V2 — Home", "RetroArch — Windows x64"}:
+                label.setStyleSheet("font-size:18px;font-weight:600;color:#e8eef7;")
 
         for button in self.findChildren(QPushButton):
-            if button.text().strip() == "📁 Configurar diretórios":
+            if button.text().strip() in {"📁 Configurar diretórios", "🧹 Limpar log"}:
                 button.hide()
 
         for progress in self.findChildren(QProgressBar):
