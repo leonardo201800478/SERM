@@ -49,11 +49,30 @@ def test_explicit_m30_name_confirms_generic_xinput_signature():
     assert match.confidence == 100
 
 
-def test_m30_switch_signature_is_available():
-    match = ControllerModeService.identify_m30(device(0x057E, 0x2009, name="Wireless Gamepad"))
+def test_m30_no_longer_claims_generic_switch_signature():
+    assert ControllerModeService.identify_m30(device(0x057E, 0x2009, name="Wireless Gamepad")) is None
+
+
+def test_generic_switch_signature_is_neutral():
+    match = ControllerModeService.identify_generic_switch(
+        device(0x057E, 0x2009, name="Pro Controller", connection=InputConnection.USB, bus_type=1)
+    )
     assert match is not None
+    assert match.model_id == "generic-switch-pro-controller"
     assert match.mode_id == "switch"
-    assert match.power_on == "Y + START"
+    assert match.connection == "USB"
+    assert not match.confirmed
+    assert match.confidence == 100
+
+
+def test_identify_does_not_mislabel_generic_switch_as_m30():
+    match = ControllerModeService.identify(
+        device(0x057E, 0x2009, name="Pro Controller", connection=InputConnection.USB, bus_type=1)
+    )
+    assert match is not None
+    assert match.model_id == "generic-switch-pro-controller"
+    assert match.model_name == "Nintendo Switch Pro Controller (genérico)"
+    assert not match.confirmed
 
 
 def test_ultimate_2_wireless_xinput_24g_is_confirmed():
@@ -68,12 +87,26 @@ def test_ultimate_2_wireless_xinput_24g_is_confirmed():
     )
     assert match is not None
     assert match.model_id == "8bitdo-ultimate-2-wireless"
-    assert match.mode_id == "xinput-2p4g"
+    assert match.mode_id == "xinput-2p4g-or-usb"
     assert match.confirmed
     assert match.confidence == 100
 
 
-def test_ultimate_2_wireless_dinput_24g_is_confirmed():
+def test_ultimate_2_wireless_xinput_usb_is_confirmed():
+    match = ControllerModeService.identify_ultimate_2(
+        device(
+            0x2DC8,
+            0x310B,
+            name="8BitDo Ultimate 2 Wireless Controller for PC",
+            connection=InputConnection.USB,
+            bus_type=1,
+        )
+    )
+    assert match is not None
+    assert match.mode_name == "XInput / 2.4G ou USB"
+
+
+def test_ultimate_2_wireless_dinput_usb_is_confirmed():
     match = ControllerModeService.identify_ultimate_2(
         device(
             0x2DC8,
@@ -85,9 +118,26 @@ def test_ultimate_2_wireless_dinput_24g_is_confirmed():
     )
     assert match is not None
     assert match.model_id == "8bitdo-ultimate-2-wireless"
-    assert match.mode_id == "dinput"
+    assert match.mode_id == "dinput-2p4g-usb-bt"
+    assert match.mode_name == "D-Input / 2.4G, USB ou Bluetooth"
     assert match.confirmed
     assert match.connection == "USB"
+
+
+def test_ultimate_2_wireless_dinput_bluetooth_is_confirmed():
+    match = ControllerModeService.identify_ultimate_2(
+        device(
+            0x2DC8,
+            0x6012,
+            name="8BitDo Ultimate 2 Wireless",
+            connection=InputConnection.BLUETOOTH,
+            bus_type=2,
+        )
+    )
+    assert match is not None
+    assert match.mode_id == "dinput-2p4g-usb-bt"
+    assert match.connection == "Bluetooth"
+    assert match.confirmed
 
 
 def test_ultimate_2_wireless_receiver_idle_is_identified():
@@ -107,19 +157,9 @@ def test_ultimate_2_wireless_receiver_idle_is_identified():
 
 
 def test_ultimate_2_wireless_switch_signature_is_not_globally_claimed():
-    # 057E:2009 is the generic Nintendo Switch Pro signature. The current
-    # service must not call an arbitrary Switch Pro controller an Ultimate 2.
+    # 057E:2009 is the generic Nintendo Switch Pro signature. The service
+    # must not call an arbitrary Switch Pro controller an Ultimate 2.
     assert ControllerModeService.identify_ultimate_2(device(0x057E, 0x2009, name="Pro Controller")) is None
-
-
-def test_ultimate_2_wireless_generic_switch_can_still_be_read_as_m30_signature():
-    # Preserve the existing M30 compatibility behavior while Ultimate 2
-    # identification remains conservative for the shared Nintendo signature.
-    match = ControllerModeService.identify_m30(device(0x057E, 0x2009, name="Wireless Gamepad"))
-    assert match is not None
-    assert match.mode_id == "switch"
-    assert not match.confirmed
-    assert match.confidence == 70
 
 
 def test_ultimate_2c_24g_or_usb_signature_is_confirmed():
