@@ -3,7 +3,7 @@ from serm_v2.domain.curation import CurationPolicy, curate_games
 
 
 def game(name: str, parent: str | None = None, **metadata: object) -> ArcadeGame:
-    return ArcadeGame(name=name, parent_name=parent, metadata=metadata)
+    return ArcadeGame(name=name, cloneof=parent, metadata=metadata)
 
 
 def test_1g1r_prefers_region_then_language() -> None:
