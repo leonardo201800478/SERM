@@ -1,5 +1,8 @@
-from serm_v2.models.input_control import InputConnection, InputDeviceType
+from serm_v2.models.input_control import InputConnection, InputDevice, InputDeviceType
+from serm_v2.services.controller_catalog_service import ControllerCatalogService
+from serm_v2.services.input_control_service import InputControlService
 from serm_v2.services.input_device_service import InputDeviceService
+from serm_v2.services.input_layout_analyzer import InputLayoutAnalyzer
 from serm_v2.services.sdl_mapping_service import SDLMappingService
 
 
@@ -40,3 +43,23 @@ def test_sdl_mapping_line_is_normalized() -> None:
     assert mapping.platform == "Windows"
     assert mapping.bindings["a"] == "b1"
     assert mapping.bindings["leftx"] == "a0"
+
+
+def test_verified_catalog_completes_m30_layout_without_hid_elements() -> None:
+    device = InputDevice(
+        device_id="m30:test",
+        name="8BitDo M30 Gamepad",
+        device_type=InputDeviceType.GAMEPAD,
+        vendor_id=0x2DC8,
+        product_id=0x5006,
+    )
+    identification = ControllerCatalogService.default().identify(device)
+    raw_layout = InputLayoutAnalyzer().analyze(device)
+    layout = InputControlService._apply_catalog_layout(raw_layout, identification)
+
+    assert identification.model is not None
+    assert layout.buttons == 6
+    assert layout.face_buttons == 6
+    assert layout.axes == 2
+    assert layout.has_six_face_buttons is True
+    assert layout.profile_kind == "six-button-gamepad"
