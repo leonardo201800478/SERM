@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QTimer, Qt
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QProgressBar, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QProgressBar, QVBoxLayout
 
 
 STATUS_KEYS = ("mame", "flycast", "supermodel", "fbneo")
@@ -78,11 +78,12 @@ def refine_home_dashboard(home) -> bool:
     home._operation_progress.hide()
     operation_layout.addWidget(home._operation_progress)
     root.addWidget(operation)
+    operation.hide()
+    home._home_operation = operation
 
     retro_tab = tabs.widget(1) if tabs.count() > 1 else None
     if retro_tab is not None:
-        filter_box = retro_tab.findChild(QFrame, "homeCatalogMetrics")
-        if filter_box is None:
+        if retro_tab.findChild(QFrame, "homeCatalogMetrics") is None:
             metrics = QFrame()
             metrics.setObjectName("homeCatalogMetrics")
             metrics_layout = QHBoxLayout(metrics)
@@ -107,7 +108,7 @@ def refine_home_dashboard(home) -> bool:
     _apply_dashboard_style(home)
 
     timer = QTimer(home)
-    timer.setInterval(500)
+    timer.setInterval(1000)
     timer.timeout.connect(lambda: _refresh_dashboard(home))
     timer.start()
     home._dashboard_timer = timer
@@ -116,27 +117,31 @@ def refine_home_dashboard(home) -> bool:
 
 
 def _apply_dashboard_style(home) -> None:
-    home.findChild(QFrame, "homeDashboard").setStyleSheet(
-        "QFrame#homeDashboard{background:qlineargradient(x1:0,y1:0,x2:1,y2:0,"
-        "stop:0 #111b2c,stop:1 #0e1726);border:1px solid #2b3d58;border-radius:10px;}"
-        "QFrame#homeStatusCard{background:rgba(255,255,255,0.025);border:1px solid #293b55;border-radius:7px;}"
-        "QLabel#homeStatusTitle{color:#dbe7f4;font-size:9pt;font-weight:600;}"
-        "QLabel#homeStatusState{color:#8fa5bb;font-size:8pt;}"
-    )
-    home.findChild(QFrame, "homeOperation").setStyleSheet(
-        "QFrame#homeOperation{background:#0d1625;border:1px solid #293b55;border-radius:8px;}"
-        "QLabel#homeOperationTitle{color:#dbe7f4;font-size:8pt;font-weight:600;}"
-        "QLabel#homeOperationDetail{color:#8fa5bb;font-size:8pt;}"
-        "QProgressBar#homeOperationProgress{background:#09111d;border:0;border-radius:4px;padding:0;}"
-        "QProgressBar#homeOperationProgress::chunk{background:qlineargradient(x1:0,y1:0,x2:1,y2:0,"
-        "stop:0 #4ca8ff,stop:0.55 #55d6c2,stop:1 #7aa7ff);border-radius:4px;}"
-    )
+    dashboard = home.findChild(QFrame, "homeDashboard")
+    operation = home.findChild(QFrame, "homeOperation")
+    if dashboard is not None:
+        dashboard.setStyleSheet(
+            "QFrame#homeDashboard{background:qlineargradient(x1:0,y1:0,x2:1,y2:0,"
+            "stop:0 #111b2c,stop:1 #0e1726);border:1px solid #2b3d58;border-radius:10px;}"
+            "QFrame#homeStatusCard{background:rgba(255,255,255,0.025);border:1px solid #293b55;border-radius:7px;}"
+            "QLabel#homeStatusTitle{color:#dbe7f4;font-size:9pt;font-weight:600;}"
+            "QLabel#homeStatusState{color:#8fa5bb;font-size:8pt;}"
+        )
+    if operation is not None:
+        operation.setStyleSheet(
+            "QFrame#homeOperation{background:#0d1625;border:1px solid #293b55;border-radius:8px;}"
+            "QLabel#homeOperationTitle{color:#dbe7f4;font-size:8pt;font-weight:600;}"
+            "QLabel#homeOperationDetail{color:#8fa5bb;font-size:8pt;}"
+            "QProgressBar#homeOperationProgress{background:#09111d;border:0;border-radius:4px;padding:0;}"
+            "QProgressBar#homeOperationProgress::chunk{background:qlineargradient(x1:0,y1:0,x2:1,y2:0,"
+            "stop:0 #4ca8ff,stop:0.55 #55d6c2,stop:1 #7aa7ff);border-radius:4px;}"
+        )
     for metric in home.findChildren(QLabel, "homeMetric"):
         metric.setStyleSheet("color:#9eb2c7;font-size:8pt;")
 
 
 def _refresh_dashboard(home) -> None:
-    """Atualiza o dashboard sem executar novas operações de descoberta pesadas."""
+    """Atualiza o dashboard e o painel de operação."""
     states = getattr(home, "_dashboard_states", {})
     manager = getattr(home, "manager", None)
     if manager is not None:
@@ -144,10 +149,8 @@ def _refresh_dashboard(home) -> None:
             discovered = manager.discover()
             for key in STATUS_KEYS:
                 state = discovered.get(key)
-                if state is None:
-                    continue
                 label = states.get(key)
-                if label is None:
+                if state is None or label is None:
                     continue
                 if state.state == "ready":
                     label.setText("● Pronto")
@@ -175,23 +178,19 @@ def _refresh_dashboard(home) -> None:
 
     worker = getattr(home, "worker", None)
     progress = getattr(home, "retro_progress", None)
+    operation = getattr(home, "_home_operation", None)
     operation_progress = getattr(home, "_operation_progress", None)
     title = getattr(home, "_operation_title", None)
     detail = getattr(home, "_operation_detail", None)
     if worker is not None:
         filename = getattr(home, "_core_current_filename", None)
         queue = getattr(home, "_core_queue_with_channels", [])
-        if filename:
-            text = f"● Instalando {filename}"
-            remaining = f"{len(queue)} na fila"
-        else:
-            text = "● Operação em andamento"
-            remaining = "processando"
-        title.setText(text)
-        detail.setText(remaining)
+        title.setText(f"● Instalando {filename}" if filename else "● Operação em andamento")
+        detail.setText(f"{len(queue)} na fila" if filename else "processando")
+        operation.show()
         operation_progress.show()
         if progress is not None and progress.maximum() > 0:
-            operation_progress.setMaximum(progress.maximum())
+            operation_progress.setRange(0, progress.maximum())
             operation_progress.setValue(progress.value())
         else:
             operation_progress.setRange(0, 0)
@@ -199,8 +198,7 @@ def _refresh_dashboard(home) -> None:
         title.setText("● Nenhuma operação em andamento")
         detail.setText("Pronto para executar")
         operation_progress.hide()
-        operation_progress.setRange(0, 100)
-        operation_progress.setValue(0)
+        operation.hide()
 
     cache = getattr(home, "_core_catalog_cache", None)
     if cache is None or not hasattr(home, "_catalog_total"):
@@ -209,10 +207,12 @@ def _refresh_dashboard(home) -> None:
         total = len(cache)
         filtered = home._filtered_cached_cores()
         visible = len(filtered)
-        comparisons = []
         _, _, destination = home.retroarch.discover()
-        if destination and destination.is_dir():
-            comparisons = home.retroarch.compare_installed_cores(filtered, destination)
+        comparisons = (
+            home.retroarch.compare_installed_cores(filtered, destination)
+            if destination and destination.is_dir()
+            else []
+        )
         installed = len(comparisons)
         updates = sum(state == "update" for _, _, state in comparisons)
         home._catalog_total.setText(f"{total} catálogo")
