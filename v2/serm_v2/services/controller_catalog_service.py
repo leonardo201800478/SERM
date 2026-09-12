@@ -56,8 +56,15 @@ class ControllerCatalogService:
             if entry.product_ids and device.product_id in entry.product_ids:
                 score += 35
                 reasons.append("PID")
-            names = (entry.model_name, entry.manufacturer, *entry.aliases)
-            if any(alias.casefold() in device_text for alias in names if alias):
+            model_name = entry.model_name.casefold()
+            if model_name and model_name in device_text:
+                score += 60
+                reasons.append("nome/modelo exato")
+            elif any(
+                alias.casefold() in device_text
+                for alias in (entry.manufacturer, *entry.aliases)
+                if alias
+            ):
                 score += 30
                 reasons.append("nome/modelo")
             if score:
