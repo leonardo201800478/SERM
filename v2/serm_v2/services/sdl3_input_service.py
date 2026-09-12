@@ -6,7 +6,7 @@ import ctypes
 import logging
 from dataclasses import dataclass
 
-from ..models.input_control import InputDevice, InputDeviceType
+from ..models.input_control import InputDevice, InputDeviceType, InputElement, InputElementType
 
 logger = logging.getLogger(__name__)
 input_logger = logging.getLogger("SERM.INPUT")
@@ -20,7 +20,7 @@ class GamepadSnapshot:
 
 
 class SDL3InputService:
-    """Enumera gamepads SDL3 sem consultar mappings nativos durante descoberta."""
+    """Enumera gamepads SDL3 e coleta a topologia física sem alterar mappings."""
 
     def __init__(self) -> None:
         self._initialized = False
@@ -83,6 +83,8 @@ class SDL3InputService:
         product = self._optional_int_call(sdl3, "SDL_GetGamepadProductForID", instance_id)
         version = self._optional_int_call(sdl3, "SDL_GetGamepadProductVersionForID", instance_id)
         input_logger.info("[SDL3][11] ID %d: Mapping ignorado durante descoberta segura", instance_id)
+
+        elements, topology = self._topology(sdl3, instance_id)
         battery_percent, battery_state = self._battery_info(sdl3, instance_id)
         input_logger.info(
             "[SDL3][13] ID %d: bateria=%s%% | estado=%s",
@@ -90,29 +92,98 @@ class SDL3InputService:
             battery_percent if battery_percent is not None else "?",
             battery_state or "unknown",
         )
-        input_logger.info("[SDL3][14] ID %d: criando InputDevice", instance_id)
-        metadata: dict[str, object] = {"instance_id": instance_id}
+        input_logger.info(
+            "[SDL3][14] ID %d: topologia buttons=%d axes=%d hats=%d",
+            instance_id,
+            topology[0], topology[1], topology[2],
+        )
+        input_logger.info("[SDL3][15] ID %d: criando InputDevice", instance_id)
+        metadata: dict[str, object] = {"instance_id": instance_id, "topology_source": "SDL3 joystick"}
         if battery_percent is not None:
             metadata["battery_percent"] = battery_percent
         if battery_state:
             metadata["battery_state"] = battery_state
+        metadata.update({"raw_button_count": topology[0], "raw_axis_count": topology[1], "raw_hat_count": topology[2]})
         device = InputDevice(
             device_id=f"sdl3:{instance_id}", name=name, device_type=InputDeviceType.GAMEPAD,
             vendor_id=vendor, product_id=product, version=version,
             path=path, sdl_guid=guid, sdl_mapping=None, backend="sdl3",
+            elements=elements,
             metadata=metadata,
         )
-        input_logger.info("[SDL3][15] ID %d: gamepad descrito", instance_id)
+        input_logger.info("[SDL3][16] ID %d: gamepad descrito", instance_id)
         return device
 
     @staticmethod
-    def _battery_info(sdl3, instance_id: int) -> tuple[int | None, str | None]:
-        """Consulta a bateria abrindo o gamepad apenas durante a leitura.
+    def _topology(sdl3, instance_id: int) -> tuple[tuple[InputElement, ...], tuple[int, int, int]]:
+        """Lê a topologia bruta do joystick subjacente.
 
-        SDL3 expõe a bateria no objeto aberto. A consulta é curta e somente de
-        diagnóstico; o SERM não mantém o handle aberto nem fica no caminho dos
-        eventos do emulador.
+        Não depende do mapping SDL. Assim, botões extras do M30 (Start/Mode/Menu,
+        além dos seis face e dois ombros) continuam visíveis mesmo que não sejam
+        representados por um controle lógico padrão.
         """
+        open_gamepad = getattr(sdl3, "SDL_OpenGamepad", None)
+        get_joystick = getattr(sdl3, "SDL_GetGamepadJoystick", None)
+        close_gamepad = getattr(sdl3, "SDL_CloseGamepad", None)
+        num_buttons = getattr(sdl3, "SDL_GetNumJoystickButtons", None)
+        num_axes = getattr(sdl3, "SDL_GetNumJoystickAxes", None)
+        num_hats = getattr(sdl3, "SDL_GetNumJoystickHats", None)
+        if not all((open_gamepad, get_joystick, close_gamepad, num_buttons, num_axes, num_hats)):
+            return (), (0, 0, 0)
+
+        gamepad = None
+        try:
+            gamepad = open_gamepad(instance_id)
+            if not gamepad:
+                return (), (0, 0, 0)
+            joystick = get_joystick(gamepad)
+            if not joystick:
+                return (), (0, 0, 0)
+            buttons = max(0, int(num_buttons(joystick)))
+            axes = max(0, int(num_axes(joystick)))
+            hats = max(0, int(num_hats(joystick)))
+            elements: list[InputElement] = []
+            for index in range(buttons):
+                elements.append(
+                    InputElement(
+                        element_id=f"button:{index}",
+                        element_type=InputElementType.BUTTON,
+                        name=f"Raw Button {index + 1}",
+                        index=index,
+                    )
+                )
+            for index in range(axes):
+                elements.append(
+                    InputElement(
+                        element_id=f"axis:{index}",
+                        element_type=InputElementType.AXIS,
+                        name=f"Raw Axis {index + 1}",
+                        index=index,
+                    )
+                )
+            for index in range(hats):
+                elements.append(
+                    InputElement(
+                        element_id=f"hat:{index}",
+                        element_type=InputElementType.HAT,
+                        name=f"Raw Hat {index + 1}",
+                        index=index,
+                    )
+                )
+            return tuple(elements), (buttons, axes, hats)
+        except (AttributeError, TypeError, ValueError, OSError, RuntimeError):
+            logger.debug("[INPUT] SDL3 não conseguiu consultar topologia %s", instance_id, exc_info=True)
+            return (), (0, 0, 0)
+        finally:
+            if gamepad:
+                try:
+                    close_gamepad(gamepad)
+                except (AttributeError, TypeError, OSError, RuntimeError):
+                    logger.debug("[INPUT] falha ao fechar gamepad %s", instance_id, exc_info=True)
+
+    @staticmethod
+    def _battery_info(sdl3, instance_id: int) -> tuple[int | None, str | None]:
+        """Consulta a bateria abrindo o gamepad apenas durante a leitura."""
         try:
             open_gamepad = getattr(sdl3, "SDL_OpenGamepad")
             power_info = getattr(sdl3, "SDL_GetGamepadPowerInfo")
