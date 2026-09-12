@@ -7,12 +7,11 @@ físico muda quando o usuário pressiona/move um controle durante a calibração
 
 from __future__ import annotations
 
-import ctypes
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
-from ..models.input_control import InputElementType, LogicalControl
+from ..models.input_control import LogicalControl
 
 
 class ProbeEventType(StrEnum):
@@ -100,9 +99,19 @@ class ControllerInputProbeService:
         if self._joystick is None:
             return ()
         sdl3 = self._load()
-        pump = getattr(sdl3, "SDL_PumpEvents", None)
-        if pump:
-            pump()
+
+        # SDL3 separa o bombeamento da fila de eventos da atualização explícita
+        # do estado dos joysticks. A leitura por SDL_GetJoystickButton/Axis/Hat
+        # só deve ser feita depois de SDL_UpdateJoysticks quando não estamos
+        # consumindo os eventos diretamente.
+        update_joysticks = getattr(sdl3, "SDL_UpdateJoysticks", None)
+        if update_joysticks:
+            update_joysticks()
+        else:
+            pump = getattr(sdl3, "SDL_PumpEvents", None)
+            if pump:
+                pump()
+
         events: list[ProbeEvent] = []
         num_buttons = self._count("SDL_GetNumJoystickButtons")
         get_button = getattr(sdl3, "SDL_GetJoystickButton")
@@ -134,6 +143,9 @@ class ControllerInputProbeService:
 
     def _prime(self) -> None:
         sdl3 = self._load()
+        update_joysticks = getattr(sdl3, "SDL_UpdateJoysticks", None)
+        if update_joysticks:
+            update_joysticks()
         num_buttons = self._count("SDL_GetNumJoystickButtons")
         get_button = getattr(sdl3, "SDL_GetJoystickButton")
         self._previous_buttons = {i: bool(get_button(self._joystick, i)) for i in range(num_buttons)}
@@ -154,7 +166,6 @@ class ControllerInputProbeService:
 
     @staticmethod
     def _hat_name(value: int) -> str:
-        # SDL_HAT_* é bitmask: UP=1, RIGHT=2, DOWN=4, LEFT=8.
         directions = []
         if value & 1:
             directions.append("↑")
@@ -168,24 +179,13 @@ class ControllerInputProbeService:
 
     @staticmethod
     def default_sequence(model_id: str) -> tuple[LogicalControl, ...]:
-        """Sequência segura de calibração; não assume índices SDL."""
         if model_id == "8bitdo-m30":
             return (
-                LogicalControl.DPAD_UP,
-                LogicalControl.DPAD_DOWN,
-                LogicalControl.DPAD_LEFT,
-                LogicalControl.DPAD_RIGHT,
-                LogicalControl.FACE_SOUTH,
-                LogicalControl.FACE_EAST,
-                LogicalControl.FACE_WEST,
-                LogicalControl.FACE_NORTH,
-                LogicalControl.FACE_EXTRA_1,
-                LogicalControl.FACE_EXTRA_2,
-                LogicalControl.LEFT_SHOULDER,
-                LogicalControl.RIGHT_SHOULDER,
-                LogicalControl.START,
-                LogicalControl.GUIDE,
-                LogicalControl.BACK,
+                LogicalControl.DPAD_UP, LogicalControl.DPAD_DOWN, LogicalControl.DPAD_LEFT, LogicalControl.DPAD_RIGHT,
+                LogicalControl.FACE_SOUTH, LogicalControl.FACE_EAST, LogicalControl.FACE_WEST, LogicalControl.FACE_NORTH,
+                LogicalControl.FACE_EXTRA_1, LogicalControl.FACE_EXTRA_2,
+                LogicalControl.LEFT_SHOULDER, LogicalControl.RIGHT_SHOULDER,
+                LogicalControl.START, LogicalControl.GUIDE, LogicalControl.BACK,
             )
         if model_id in {"8bitdo-ultimate-2c", "8bitdo-ultimate-2-wireless", "sony-dualshock-4", "sony-dualsense", "xbox-one-controller", "xbox-wireless-controller", "xbox-360-controller", "machenike-g5-pro"}:
             return (
