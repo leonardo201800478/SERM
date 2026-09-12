@@ -15,6 +15,7 @@ from .gui.ui_micro_refinement import refine_arcade_catalog_numbers
 from .gui.ui_preferences import UiPreferences, apply_user_theme
 from .gui.ui_refinement import apply_ui_refinement
 from .gui.home_dashboard_refinement import refine_home_dashboard
+from .gui.home_progress_refinement import refine_home_progress
 from .gui.home_space_refinement import compact_home_space
 
 
@@ -40,6 +41,7 @@ def main() -> int:
     layout_stats = apply_ui_refinement(window)
     compact_home_space(window.home_section)
     refine_home_dashboard(window.home_section)
+    refine_home_progress(window.home_section)
 
     # MAME Studio passou a ser o container da etapa de catálogo. O ajuste
     # tipográfico continua sendo aplicado ao catálogo real, não ao container.
