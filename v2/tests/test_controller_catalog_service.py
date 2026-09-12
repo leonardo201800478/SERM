@@ -29,6 +29,16 @@ def test_rejects_ambiguous_models():
     assert result.model is None
 
 
+def test_default_catalog_contains_only_the_three_owned_8bitdo_models():
+    catalog = ControllerCatalogService.eightbitdo()
+    assert {entry.model_id for entry in catalog.entries()} == {
+        "8bitdo-m30",
+        "8bitdo-ultimate-2c",
+        "8bitdo-ultimate-2-wireless",
+    }
+    assert all(entry.manufacturer == "8BitDo" for entry in catalog.entries())
+
+
 def test_default_catalog_identifies_verified_m30():
     result = ControllerCatalogService.default().identify(
         device(vendor_id=0x2DC8, product_id=0x5006, product="8BitDo M30 Gamepad")
@@ -36,6 +46,7 @@ def test_default_catalog_identifies_verified_m30():
     assert result.model is not None
     assert result.model.model_id == "8bitdo-m30"
     assert result.model.expected_face_buttons == 6
+    assert result.model.expected_extra_buttons == 0
     assert result.confidence >= 60
 
 
@@ -70,6 +81,8 @@ def test_default_catalog_identifies_ultimate_2_wireless_xinput():
     assert result.model.model_id == "8bitdo-ultimate-2-wireless"
     assert result.model.expected_face_buttons == 4
     assert result.model.expected_axes == 4
+    assert result.model.expected_extra_buttons == 2
+    assert result.model.supports_motion is True
     assert result.confidence >= 60
 
 
@@ -137,6 +150,7 @@ def test_default_catalog_identifies_ultimate_2c_wireless():
     assert result.model.model_id == "8bitdo-ultimate-2c"
     assert result.model.expected_face_buttons == 4
     assert result.model.expected_axes == 4
+    assert result.model.expected_extra_buttons == 2
     assert result.confidence >= 60
 
 
