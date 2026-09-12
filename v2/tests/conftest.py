@@ -6,7 +6,18 @@ import pytest
 
 
 # The default suite is deliberately limited to deterministic, local tests.
-# Dataset/live audits remain available through ``pytest --extended``.
+# These patterns are applied by pytest itself during collection so that heavy
+# tests are never imported/executed by the normal ``pytest -q`` command.
+_EXTENDED_GLOB_PATTERNS = (
+    "*_audit.py",
+    "*_integrity.py",
+    "*_performance.py",
+    "*_query_plan.py",
+    "*_real_sample.py",
+    "*_real_catalog.py",
+    "*_inventory.py",
+    "*_integration.py",
+)
 _EXTENDED_DIRECTORIES = {"mame", "sources"}
 _EXTENDED_NAME_PARTS = (
     "_audit",
@@ -18,6 +29,11 @@ _EXTENDED_NAME_PARTS = (
     "_inventory",
     "_integration",
 )
+
+# ``collect_ignore_glob`` is evaluated before test modules are imported.
+# Keep this explicit in addition to the collection hook below: it protects
+# the fast suite even when a slow test has expensive module-level setup.
+collect_ignore_glob = list(_EXTENDED_GLOB_PATTERNS)
 
 
 def _is_extended(path: Path) -> bool:
