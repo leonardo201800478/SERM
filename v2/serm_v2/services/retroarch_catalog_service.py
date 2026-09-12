@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from ..services.emulator_manager import CoreInfo, RetroArchManager
+from .emulator_manager import CoreInfo, RetroArchManager
 
 
 class RetroArchCatalogService:
