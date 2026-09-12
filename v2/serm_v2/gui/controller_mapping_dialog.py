@@ -47,6 +47,9 @@ class ControllerMappingDialog(QDialog):
         self.instruction.setStyleSheet("font-size:12px;font-weight:600;padding:8px 4px;")
         self.instruction.setWordWrap(True)
         root.addWidget(self.instruction)
+        self.progress = QLabel()
+        self.progress.setStyleSheet("color:#8fa5bb;font-size:8pt;")
+        root.addWidget(self.progress)
         self.detected = QLabel("Aguardando entrada física…")
         self.detected.setStyleSheet("color:#78d6b0;font-size:9pt;font-weight:600;")
         root.addWidget(self.detected)
@@ -124,6 +127,13 @@ class ControllerMappingDialog(QDialog):
             return event_type is ProbeEventType.AXIS
         return event_type is ProbeEventType.BUTTON
 
+    @staticmethod
+    def _element_already_used(control: LogicalControl, element_id: str, bindings: dict[LogicalControl, tuple[str, ...]]) -> bool:
+        """Impede duplicação de botões, mas permite reutilizar o mesmo Hat no D-Pad."""
+        if control.name.startswith("DPAD_") and element_id.startswith("hat:"):
+            return False
+        return any(element_id in value for value in bindings.values())
+
     def _poll(self) -> None:
         for event in self.probe.poll():
             if self.position >= len(self.sequence):
@@ -131,17 +141,18 @@ class ControllerMappingDialog(QDialog):
             control = self.sequence[self.position]
             if not self._event_allowed(control, event):
                 continue
-            if event.element_id in {value[0] for value in self.bindings.values()}:
+            if self._element_already_used(control, event.element_id, self.bindings):
                 self.detected.setText(f"Já utilizado: {event.display}. Escolha outro elemento físico.")
                 continue
             self.bindings[control] = (event.element_id,)
-            self._rows[self.position].setText(f"✓  {ControllerInputProbeService.logical_label(control)}  →  {event.display}")
+            self._rows[self.position].setText(f"✓  {ControllerInputProbeService.logical_label(control)}  →  {event.display} ({event.element_id})")
             self.detected.setText(f"Detectado: {event.display} ({event.element_id})")
             self.position += 1
             if self.position < len(self.sequence):
                 self._update_instruction()
             else:
                 self.instruction.setText("Mapeamento completo. Revise a lista e conclua.")
+                self.progress.setText(f"{len(self.sequence)} / {len(self.sequence)} entradas físicas mapeadas")
                 self.finish.setEnabled(True)
                 self.timer.stop()
                 self.probe.stop()
@@ -152,6 +163,7 @@ class ControllerMappingDialog(QDialog):
             return
         control = self.sequence[self.position]
         self.instruction.setText(f"Pressione ou mova agora: {ControllerInputProbeService.logical_label(control)}")
+        self.progress.setText(f"{self.position} / {len(self.sequence)} entradas mapeadas")
         self.list.setCurrentRow(self.position)
 
     def _retry_current(self) -> None:
@@ -176,7 +188,7 @@ class ControllerMappingDialog(QDialog):
             name=f"{self.device.name} — {self.model_id}",
             device_id=self.device.hardware_key,
             bindings=dict(self.bindings),
-            metadata={"calibration": "interactive", "source": "SDL3 raw joystick"},
+            metadata={"calibration": "interactive", "source": "SDL3 raw joystick", "physical_layout": self.model_id},
         )
 
     def reject(self) -> None:
