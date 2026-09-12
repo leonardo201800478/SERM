@@ -134,11 +134,7 @@ class InputConnectionMonitor(QObject):
         box.setWindowTitle("Modo do controle alterado")
         box.setIcon(QMessageBox.Icon.Information)
         box.setText(f"8BitDo M30 — modo alterado\n{old_match.mode_name}  →  {new_match.mode_name}")
-        box.setInformativeText(
-            f"Conexão atual: {new_match.connection}\n"
-            f"VID/PID atual: {new_match.signature}\n"
-            f"Confiança: {new_match.confidence}%"
-        )
+        box.setInformativeText(self._connection_details(new, new_match))
         box.setDetailedText(self._m30_details(new_match))
         box.setStandardButtons(QMessageBox.StandardButton.Ok)
         self._register_dialog(box)
@@ -209,7 +205,15 @@ class InputConnectionMonitor(QObject):
             f"VID/PID: {vendor}:{product}",
         ]
         if match is not None:
-            details.append(f"Modo detectado: {match.mode_name} • confiança {match.confidence}%")
+            details.extend(
+                [
+                    f"Modo detectado: {match.mode_name} • confiança {match.confidence}%",
+                    f"Para este modo: desligado, segure {match.power_on}.",
+                    "Outros modos: B+START = D-Input, X+START = XInput, A+START = macOS/DS4, Y+START = Switch.",
+                    "Pareamento Bluetooth: segure PAIR por 2 s após ligar no modo desejado.",
+                    "Desligar: START por 3 s • desligamento forçado: START por 8 s.",
+                ]
+            )
             if not match.confirmed:
                 details.append("A assinatura é compartilhada com outros controles; confirme o modelo se necessário.")
         return "\n".join(details)
