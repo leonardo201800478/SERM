@@ -1,7 +1,7 @@
 """Tema visual Retro Arcade do SERM V2.
 
-A camada visual prioriza tipografia pixel/terminal, geometria quadrada, alto
-contraste e uma paleta neon inspirada em arcades dos anos 80/90.
+A camada visual prioriza tipografia pixel/terminal, geometria compacta,
+alto contraste controlado e uma paleta neon inspirada em arcades clássicos.
 """
 
 from __future__ import annotations
@@ -23,365 +23,366 @@ PIXEL_FONT_CANDIDATES = (
 
 RETRO_ARCADE_THEME = """
 /* ================================================================
-   SERM V2 — RETRO ARCADE / PIXEL ART
+   SERM V2 — RETRO ARCADE / COMPACT DARK
    ================================================================ */
 QWidget {
-    background-color: #080b18;
-    color: #e8f7ff;
+    background-color: #070a14;
+    color: #dce8f5;
     font-family: "{font_family}";
-    font-size: 10pt;
+    font-size: 9pt;
 }
 
 QMainWindow, QWidget#centralWidget, QStackedWidget#pageStack {
-    background-color: #080b18;
+    background-color: #070a14;
     border: 0;
 }
 
 QLabel {
-    color: #d9eaff;
+    color: #cbd8e8;
     background: transparent;
 }
 
 QLabel[role="title"] {
-    color: #fff6a8;
-    font-size: 20pt;
+    color: #f2e86b;
+    font-size: 16pt;
     font-weight: 900;
-    padding: 4px 0 9px 0;
+    padding: 2px 0 4px 0;
 }
 
 QLabel[role="section"] {
-    color: #ff4fd8;
-    font-size: 11pt;
+    color: #ff4fbc;
+    font-size: 10pt;
     font-weight: 900;
-    padding: 4px 0;
+    padding: 2px 0;
 }
 
 QLabel#navigationBrand {
-    color: #fff36b;
-    font-size: 23pt;
+    color: #f2e86b;
+    font-size: 22pt;
     font-weight: 900;
     letter-spacing: 2px;
-    padding: 6px 0 1px 0;
+    padding: 3px 0 0 0;
 }
 
 QLabel#navigationVersion {
-    color: #35e9ff;
-    font-size: 8pt;
+    color: #39d7e8;
+    font-size: 7pt;
     font-weight: 900;
-    padding-bottom: 7px;
+    padding-bottom: 5px;
 }
 
 QFrame#navigationSidebar {
-    background: #0d1024;
-    border: 2px solid #343b69;
+    background: #0b1020;
+    border: 1px solid #27345d;
     border-radius: 0px;
 }
 
 QListWidget#navigationList {
-    background: #080b18;
-    border: 0px;
+    background: #070a14;
+    border: 0;
     outline: none;
-    padding: 4px;
+    padding: 3px;
 }
 
 QListWidget#navigationList::item {
-    color: #a7b5d8;
-    background: #0d1024;
-    border: 1px solid #202746;
+    color: #9eacc4;
+    background: #0b1020;
+    border: 1px solid #1c2744;
     border-radius: 0px;
-    padding: 8px 10px;
-    min-height: 30px;
-    font-size: 10pt;
+    padding: 6px 9px;
+    min-height: 26px;
+    font-size: 9pt;
     font-weight: 900;
 }
 
 QListWidget#navigationList::item:hover {
-    color: #ffffff;
-    background: #171c39;
-    border: 2px solid #35e9ff;
+    color: #eefaff;
+    background: #111a30;
+    border: 1px solid #39d7e8;
 }
 
 QListWidget#navigationList::item:selected {
-    color: #080b18;
-    background: #fff36b;
-    border: 2px solid #ff4fd8;
-    border-left: 6px solid #35e9ff;
+    color: #ffffff;
+    background: #302044;
+    border: 1px solid #b13c87;
+    border-left: 3px solid #39d7e8;
 }
 
 QLabel#navigationFooter {
-    color: #66749d;
-    font-size: 7pt;
-    padding: 8px 5px 3px 5px;
+    color: #5f6e8b;
+    font-size: 6.5pt;
+    padding: 6px 4px 2px 4px;
 }
 
 QTabWidget::pane {
-    background: #0d1024;
-    border: 2px solid #343b69;
-    border-top: 3px solid #ff4fd8;
+    background: #0b1020;
+    border: 1px solid #27345d;
+    border-top: 2px solid #c43c8c;
 }
 
 QTabBar {
-    background: #080b18;
+    background: #070a14;
 }
 
 QTabBar::tab {
-    background: #10152d;
-    color: #8999c4;
-    border: 2px solid #252d50;
-    border-bottom: 0px;
-    border-radius: 0px;
-    padding: 8px 18px 9px 18px;
-    min-width: 82px;
+    background: #0d1325;
+    color: #8291ad;
+    border: 1px solid #1e2a49;
+    border-bottom: 0;
+    border-radius: 0;
+    padding: 5px 11px 6px 11px;
+    min-width: 64px;
     margin-right: 2px;
     font-weight: 900;
 }
 
 QTabBar::tab:hover {
     color: #ffffff;
-    background: #171c39;
-    border-top: 3px solid #35e9ff;
+    background: #121b32;
+    border-top: 2px solid #39d7e8;
 }
 
 QTabBar::tab:selected {
-    color: #fff36b;
-    background: #171c39;
-    border-top: 4px solid #ff4fd8;
+    color: #f2e86b;
+    background: #11182d;
+    border-top: 2px solid #ff4fbc;
 }
 
 QGroupBox {
-    background: #0d1024;
-    border: 2px solid #343b69;
-    border-radius: 0px;
-    margin-top: 15px;
-    padding: 17px 12px 12px 12px;
+    background: #0b1020;
+    border: 1px solid #27345d;
+    border-radius: 0;
+    margin-top: 10px;
+    padding: 11px 8px 8px 8px;
 }
 
 QGroupBox::title {
     subcontrol-origin: margin;
-    left: 10px;
-    padding: 1px 8px;
-    color: #fff36b;
-    background: #080b18;
+    left: 8px;
+    padding: 0 5px;
+    color: #f2e86b;
+    background: #070a14;
     font-weight: 900;
 }
 
 QFrame#panel {
-    background: #10152d;
-    border: 2px solid #30395f;
-    border-radius: 0px;
+    background: #0e1528;
+    border: 1px solid #27345d;
+    border-radius: 0;
 }
 
 QPushButton {
-    background: #151a35;
-    color: #eaf7ff;
-    border: 2px solid #53618f;
-    border-radius: 0px;
-    padding: 8px 14px;
-    min-height: 22px;
-    min-width: 118px;
+    background: #111a2e;
+    color: #dce8f5;
+    border: 1px solid #445577;
+    border-radius: 0;
+    padding: 5px 10px;
+    min-height: 20px;
+    min-width: 88px;
     font-weight: 900;
 }
 
 QPushButton:hover {
-    background: #1b2448;
+    background: #17233d;
     color: #ffffff;
-    border-color: #35e9ff;
+    border-color: #39d7e8;
 }
 
 QPushButton:pressed {
-    background: #392047;
-    border-color: #ff4fd8;
+    background: #362040;
+    border-color: #ff4fbc;
 }
 
 QPushButton:disabled {
-    color: #4e5879;
-    background: #0d1020;
-    border-color: #252b45;
+    color: #4d5870;
+    background: #0a0e19;
+    border-color: #1d263b;
 }
 
 QPushButton[role="primary"] {
-    background: #34203e;
-    color: #fff36b;
-    border: 3px solid #ff4fd8;
+    background: #32203c;
+    color: #f2e86b;
+    border: 2px solid #c43c8c;
 }
 
 QPushButton[role="primary"]:hover {
-    background: #4b2558;
-    border-color: #35e9ff;
+    background: #42264e;
+    border-color: #39d7e8;
 }
 
 QPushButton[role="folder"] {
-    background: #102d36;
-    color: #a9f9ff;
-    border: 3px solid #35e9ff;
-    min-width: 132px;
+    background: #0e2931;
+    color: #b8f8ff;
+    border: 2px solid #39d7e8;
+    min-width: 100px;
 }
 
 QPushButton[role="danger"] {
-    background: #32151f;
-    color: #ff718f;
-    border-color: #ff3d68;
+    background: #30151f;
+    color: #ff7f98;
+    border-color: #a33b5a;
 }
 
 QLineEdit, QComboBox, QSpinBox {
-    background: #070a16;
-    color: #eaf7ff;
-    border: 2px solid #3c4872;
-    border-radius: 0px;
-    padding: 8px 9px;
-    selection-background-color: #ff4fd8;
+    background: #060912;
+    color: #e4eef9;
+    border: 1px solid #354564;
+    border-radius: 0;
+    padding: 5px 7px;
+    min-height: 20px;
+    selection-background-color: #74335f;
     selection-color: #ffffff;
 }
 
 QLineEdit:focus, QComboBox:focus, QSpinBox:focus {
-    border: 3px solid #35e9ff;
+    border: 2px solid #39d7e8;
 }
 
 QCheckBox, QRadioButton {
-    spacing: 8px;
-    color: #d9eaff;
+    spacing: 5px;
+    color: #cbd8e8;
     font-weight: 800;
 }
 
 QCheckBox::indicator, QRadioButton::indicator {
-    width: 14px;
-    height: 14px;
-    border: 2px solid #53618f;
-    border-radius: 0px;
-    background: #080b18;
+    width: 12px;
+    height: 12px;
+    border: 1px solid #53617c;
+    border-radius: 0;
+    background: #080c16;
 }
 
 QCheckBox::indicator:checked, QRadioButton::indicator:checked {
-    background: #fff36b;
-    border-color: #ff4fd8;
+    background: #f2e86b;
+    border-color: #ff4fbc;
 }
 
 QRadioButton::indicator {
-    border-radius: 0px;
+    border-radius: 0;
 }
 
 QListWidget, QTreeWidget, QTableWidget {
-    background: #070a16;
-    color: #d9eaff;
-    border: 2px solid #30395f;
-    border-radius: 0px;
-    alternate-background-color: #0b1022;
-    selection-background-color: #ff4fd8;
+    background: #060912;
+    color: #d3e0ed;
+    border: 1px solid #27345d;
+    border-radius: 0;
+    alternate-background-color: #0a1120;
+    selection-background-color: #71345f;
     selection-color: #ffffff;
     outline: none;
 }
 
 QListWidget::item, QTreeWidget::item {
-    padding: 6px 8px;
-    border-bottom: 1px solid #171d35;
-    min-height: 24px;
+    padding: 4px 6px;
+    border-bottom: 1px solid #151e32;
+    min-height: 21px;
 }
 
 QListWidget::item:hover, QTreeWidget::item:hover {
-    background: #121a34;
+    background: #101a2d;
 }
 
 QListWidget::item:selected, QTreeWidget::item:selected {
-    background: #4a2055;
-    color: #fff36b;
-    border-left: 4px solid #35e9ff;
+    background: #42264d;
+    color: #f2e86b;
+    border-left: 3px solid #39d7e8;
 }
 
 QHeaderView::section {
-    background: #151a35;
-    color: #35e9ff;
-    border: 0px;
-    border-right: 2px solid #30395f;
-    border-bottom: 2px solid #ff4fd8;
-    padding: 7px 8px;
+    background: #111a2e;
+    color: #39d7e8;
+    border: 0;
+    border-right: 1px solid #27345d;
+    border-bottom: 2px solid #c43c8c;
+    padding: 5px 6px;
     font-weight: 900;
 }
 
 QProgressBar {
-    background: #070a16;
-    border: 2px solid #53618f;
-    border-radius: 0px;
+    background: #060912;
+    border: 1px solid #3c4a68;
+    border-radius: 0;
     text-align: center;
-    color: #fff36b;
-    min-height: 16px;
+    color: #f2e86b;
+    min-height: 13px;
 }
 
 QProgressBar::chunk {
-    background: #28d66f;
+    background: #28c96b;
     margin: 1px;
-    border-right: 2px solid #8affb3;
+    border-right: 1px solid #7af5a6;
 }
 
 QScrollArea {
-    background: #080b18;
-    border: 0px;
+    background: #070a14;
+    border: 0;
 }
 
 QScrollBar:vertical {
-    background: #080b18;
-    width: 13px;
-    margin: 0px;
+    background: #080c17;
+    width: 10px;
+    margin: 0;
 }
 
 QScrollBar::handle:vertical {
-    background: #343b69;
-    min-height: 28px;
-    border: 2px solid #53618f;
-    border-radius: 0px;
+    background: #2d3a5c;
+    min-height: 24px;
+    border: 1px solid #465676;
+    border-radius: 0;
 }
 
 QScrollBar::handle:vertical:hover {
-    background: #35e9ff;
+    background: #39d7e8;
 }
 
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
 QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
-    background: #080b18;
-    border: 0px;
+    background: #070a14;
+    border: 0;
 }
 
 QPlainTextEdit#logConsole {
-    background: #020a05;
-    color: #78ff9d;
-    border: 2px solid #2d7445;
-    border-radius: 0px;
-    selection-background-color: #174c2b;
-    selection-color: #c9ffd7;
+    background: #020805;
+    color: #78ef9a;
+    border: 1px solid #28613b;
+    border-radius: 0;
+    selection-background-color: #154127;
+    selection-color: #caffd6;
     font-family: "{font_family}";
-    font-size: 9pt;
-    padding: 7px;
+    font-size: 8pt;
+    padding: 5px;
 }
 
 QStatusBar {
-    background: #070a16;
-    color: #78ff9d;
-    border-top: 2px solid #35e9ff;
+    background: #060912;
+    color: #6ee58e;
+    border-top: 1px solid #2a4860;
     font-family: "{font_family}";
-    font-size: 8pt;
+    font-size: 7pt;
 }
 
 QToolTip {
-    background: #0b1022;
-    color: #fff36b;
-    border: 2px solid #35e9ff;
-    padding: 6px;
+    background: #0a1120;
+    color: #f2e86b;
+    border: 1px solid #39d7e8;
+    padding: 4px;
     font-family: "{font_family}";
 }
 
 QSplitter::handle {
-    background: #252d50;
+    background: #202d4b;
 }
 
 QSplitter::handle:hover {
-    background: #35e9ff;
+    background: #39d7e8;
 }
 
 QSplitter::handle:horizontal {
-    width: 6px;
+    width: 4px;
 }
 
 QSplitter::handle:vertical {
-    height: 6px;
+    height: 4px;
 }
 """
 
@@ -400,7 +401,7 @@ def apply_retro_arcade_theme(app: QApplication) -> str:
     """Aplica o visual Retro Arcade e retorna a família tipográfica selecionada."""
     app.setStyle("Fusion")
     font_family = resolve_pixel_font()
-    app.setFont(QFont(font_family, 10))
+    app.setFont(QFont(font_family, 9))
     app.setStyleSheet(RETRO_ARCADE_THEME.replace("{font_family}", font_family))
     return font_family
 
