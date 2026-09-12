@@ -71,18 +71,17 @@ class SDL3InputService:
         input_logger.info("[SDL3][17] enumeração SDL3 concluída: %d dispositivo(s)", len(devices))
         return tuple(devices)
 
-    @classmethod
-    def _describe(cls, sdl3, instance_id: int) -> InputDevice:
+    def _describe(self, sdl3, instance_id: int) -> InputDevice:
         input_logger.info("[SDL3][07] ID %d: Name", instance_id)
-        name = cls._decode(sdl3.SDL_GetGamepadNameForID(instance_id)) or f"SDL Gamepad {instance_id}"
+        name = self._decode(sdl3.SDL_GetGamepadNameForID(instance_id)) or f"SDL Gamepad {instance_id}"
         input_logger.info("[SDL3][08] ID %d: Path", instance_id)
-        path = cls._optional_text_call(sdl3, "SDL_GetGamepadPathForID", instance_id)
+        path = self._optional_text_call(sdl3, "SDL_GetGamepadPathForID", instance_id)
         input_logger.info("[SDL3][09] ID %d: GUID", instance_id)
-        guid = cls._guid(sdl3, instance_id)
+        guid = self._guid(sdl3, instance_id)
         input_logger.info("[SDL3][10] ID %d: Vendor/Product/Version", instance_id)
-        vendor = cls._optional_int_call(sdl3, "SDL_GetGamepadVendorForID", instance_id)
-        product = cls._optional_int_call(sdl3, "SDL_GetGamepadProductForID", instance_id)
-        version = cls._optional_int_call(sdl3, "SDL_GetGamepadProductVersionForID", instance_id)
+        vendor = self._optional_int_call(sdl3, "SDL_GetGamepadVendorForID", instance_id)
+        product = self._optional_int_call(sdl3, "SDL_GetGamepadProductForID", instance_id)
+        version = self._optional_int_call(sdl3, "SDL_GetGamepadProductVersionForID", instance_id)
         input_logger.info("[SDL3][11] ID %d: Mapping ignorado durante descoberta segura", instance_id)
         input_logger.info("[SDL3][12] ID %d: criando InputDevice", instance_id)
         device = InputDevice(
@@ -103,13 +102,20 @@ class SDL3InputService:
             return None
 
     @staticmethod
-    def _optional_int_call(sdl3, function_name: str, instance_id: int) -> int | None:
+    def _safe_int_call(function, instance_id: int) -> int:
+        try:
+            return int(function(instance_id))
+        except (AttributeError, TypeError, ValueError, OSError):
+            return 0
+
+    @classmethod
+    def _optional_int_call(cls, sdl3, function_name: str, instance_id: int) -> int | None:
         try:
             function = getattr(sdl3, function_name)
-            value = int(function(instance_id))
-            return value or None
-        except (AttributeError, TypeError, ValueError, OSError):
+        except AttributeError:
             return None
+        value = cls._safe_int_call(function, instance_id)
+        return value or None
 
     @staticmethod
     def _guid(sdl3, instance_id: int) -> str | None:
