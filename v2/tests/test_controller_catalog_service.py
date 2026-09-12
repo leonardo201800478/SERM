@@ -54,6 +54,75 @@ def test_default_catalog_identifies_m30_bluetooth_dinput():
     assert result.confidence >= 60
 
 
+def test_default_catalog_identifies_ultimate_2_wireless_xinput():
+    result = ControllerCatalogService.default().identify(
+        InputDevice(
+            device_id="ultimate-2-xinput",
+            name="8BitDo Ultimate 2 Wireless Controller for PC",
+            product="8BitDo Ultimate 2 Wireless Controller for PC",
+            manufacturer="8BitDo",
+            device_type=InputDeviceType.GAMEPAD,
+            vendor_id=0x2DC8,
+            product_id=0x310B,
+        )
+    )
+    assert result.model is not None
+    assert result.model.model_id == "8bitdo-ultimate-2-wireless"
+    assert result.model.expected_face_buttons == 4
+    assert result.model.expected_axes == 4
+    assert result.confidence >= 60
+
+
+def test_default_catalog_identifies_ultimate_2_wireless_dinput():
+    result = ControllerCatalogService.default().identify(
+        InputDevice(
+            device_id="ultimate-2-dinput",
+            name="8BitDo Ultimate 2 Wireless Controller for PC",
+            product="8BitDo Ultimate 2 Wireless Controller for PC",
+            manufacturer="8BitDo",
+            device_type=InputDeviceType.GAMEPAD,
+            vendor_id=0x2DC8,
+            product_id=0x6012,
+        )
+    )
+    assert result.model is not None
+    assert result.model.model_id == "8bitdo-ultimate-2-wireless"
+    assert result.confidence >= 60
+
+
+def test_default_catalog_identifies_ultimate_2_wireless_receiver():
+    result = ControllerCatalogService.default().identify(
+        InputDevice(
+            device_id="ultimate-2-receiver",
+            name="Ultimate 2",
+            product="Ultimate 2",
+            manufacturer="8BitDo",
+            device_type=InputDeviceType.GAMEPAD,
+            vendor_id=0x2DC8,
+            product_id=0x6013,
+        )
+    )
+    assert result.model is not None
+    assert result.model.model_id == "8bitdo-ultimate-2-wireless"
+
+
+def test_default_catalog_does_not_confuse_ultimate_2_with_m30():
+    for product_id in (0x310B, 0x6012, 0x6013):
+        result = ControllerCatalogService.default().identify(
+            InputDevice(
+                device_id=f"ultimate-2-{product_id:04x}",
+                name="8BitDo Ultimate 2 Wireless Controller for PC",
+                product="8BitDo Ultimate 2 Wireless Controller for PC",
+                manufacturer="8BitDo",
+                device_type=InputDeviceType.GAMEPAD,
+                vendor_id=0x2DC8,
+                product_id=product_id,
+            )
+        )
+        assert result.model is not None
+        assert result.model.model_id != "8bitdo-m30"
+
+
 def test_default_catalog_identifies_ultimate_2c_wireless():
     result = ControllerCatalogService.default().identify(
         InputDevice(
