@@ -20,7 +20,8 @@ CREATE TABLE mame_machine (
 );
 CREATE TABLE mame_rom (
     id INTEGER PRIMARY KEY, machine_id INTEGER NOT NULL, name TEXT NOT NULL,
-    size INTEGER, crc TEXT, sha1 TEXT, md5 TEXT, merge TEXT, region TEXT
+    size INTEGER, crc TEXT, sha1 TEXT, md5 TEXT, merge TEXT, region TEXT,
+    status TEXT
 );
 CREATE TABLE mame_display (
     id INTEGER PRIMARY KEY, machine_id INTEGER NOT NULL, tag TEXT, type TEXT,
@@ -55,10 +56,10 @@ def make_db(path):
         ],
     )
     db.executemany(
-        "INSERT INTO mame_rom VALUES (?,?,?,?,?,?,?,?)",
+        "INSERT INTO mame_rom VALUES (?,?,?,?,?,?,?,?,?)",
         [
-            (1, 1, "parent.rom", 1024, "deadbeef", "sha", None, None),
-            (2, 2, "clone.rom", 2048, "cafebabe", "sha2", None, "parent.rom"),
+            (1, 1, "parent.rom", 1024, "deadbeef", "sha", None, None, "ok"),
+            (2, 2, "clone.rom", 2048, "cafebabe", "sha2", None, "parent.rom", "ok"),
         ],
     )
     db.execute("INSERT INTO mame_display VALUES (1,1,'screen','raster',320,240,60.0,'0')")
@@ -70,7 +71,6 @@ def test_reads_only_latest_completed_import(tmp_path):
     path = tmp_path / "serm.db"
     make_db(path)
     catalog = SqliteArcadeCatalog(path)
-
     assert catalog.count() == 6
     assert catalog.get_game("partial") is None
 
@@ -79,14 +79,12 @@ def test_maps_parent_clone_rom_and_display(tmp_path):
     path = tmp_path / "serm.db"
     make_db(path)
     catalog = SqliteArcadeCatalog(path)
-
     game = catalog.get_game("clone")
     assert game is not None
     assert game.is_clone
     assert game.cloneof == "parent"
     assert game.romof == "parent"
     assert game.roms[0].merge == "parent.rom"
-
     parent = catalog.get_game("parent")
     assert parent is not None
     assert parent.is_parent
@@ -99,7 +97,6 @@ def test_maps_machine_kinds(tmp_path):
     path = tmp_path / "serm.db"
     make_db(path)
     catalog = SqliteArcadeCatalog(path)
-
     assert catalog.get_game("bios").machine_kind is MachineKind.BIOS
     assert catalog.get_game("device").machine_kind is MachineKind.DEVICE
     assert catalog.get_game("mechanical").machine_kind is MachineKind.MECHANICAL
@@ -111,7 +108,6 @@ def test_iter_games_is_stable_and_batched(tmp_path):
     make_db(path)
     catalog = SqliteArcadeCatalog(path)
     catalog.MACHINE_BATCH_SIZE = 2
-
     games = list(catalog.iter_games())
     assert [game.name for game in games] == [
         "bios", "clone", "device", "mechanical", "nonrun", "parent"
