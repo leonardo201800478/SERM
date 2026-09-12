@@ -64,7 +64,7 @@ class InputConnectionMonitor(QObject):
 
     def stop(self) -> None:
         self.timer.stop()
-        for dialog in self._dialogs:
+        for dialog in tuple(self._dialogs):
             dialog.close()
         self._dialogs.clear()
 
@@ -80,12 +80,68 @@ class InputConnectionMonitor(QObject):
             disconnected = [self._known[key] for key in self._known.keys() - current.keys()]
             self._known = current
 
-            for device in connected:
-                self._notify(device, connected=True)
-            for device in disconnected:
-                self._notify(device, connected=False)
+            self._handle_changes(connected, disconnected)
         except Exception:
             logger.exception("[INPUT][HOTPLUG] falha durante polling")
+
+    def _handle_changes(self, connected: list[InputDevice], disconnected: list[InputDevice]) -> None:
+        # Troca de modo do M30 aparece no Windows como uma desconexão seguida
+        # de outra identidade HID. Nesse caso, um único popup é muito mais útil
+        # que duas notificações consecutivas.
+        remaining_connected = list(connected)
+        remaining_disconnected = list(disconnected)
+        for old in disconnected:
+            old_match = ControllerModeService.identify_m30(old)
+            if old_match is None:
+                continue
+            replacement_index = next(
+                (
+                    index
+                    for index, new in enumerate(remaining_connected)
+                    if (new_match := ControllerModeService.identify_m30(new)) is not None
+                    and new_match.model_id == old_match.model_id
+                ),
+                None,
+            )
+            if replacement_index is None:
+                continue
+            new = remaining_connected.pop(replacement_index)
+            remaining_disconnected.remove(old)
+            self._notify_mode_changed(old, new, old_match, ControllerModeService.identify_m30(new))
+
+        for device in remaining_connected:
+            self._notify(device, connected=True)
+        for device in remaining_disconnected:
+            self._notify(device, connected=False)
+
+    def _notify_mode_changed(
+        self,
+        old: InputDevice,
+        new: InputDevice,
+        old_match: ControllerModeMatch,
+        new_match: ControllerModeMatch | None,
+    ) -> None:
+        logger.info(
+            "[INPUT][HOTPLUG] M30 modo alterado | %s -> %s | %s -> %s",
+            old_match.mode_name,
+            new_match.mode_name if new_match else "desconhecido",
+            old_match.signature,
+            new_match.signature if new_match else "-",
+        )
+        if new_match is None:
+            return
+        box = QMessageBox(self.parent_widget)
+        box.setWindowTitle("Modo do controle alterado")
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setText(f"8BitDo M30 — modo alterado\n{old_match.mode_name}  →  {new_match.mode_name}")
+        box.setInformativeText(
+            f"Conexão atual: {new_match.connection}\n"
+            f"VID/PID atual: {new_match.signature}\n"
+            f"Confiança: {new_match.confidence}%"
+        )
+        box.setDetailedText(self._m30_details(new_match))
+        box.setStandardButtons(QMessageBox.StandardButton.Ok)
+        self._register_dialog(box)
 
     def _notify(self, device: InputDevice, *, connected: bool) -> None:
         state = "conectado" if connected else "desconectado"
