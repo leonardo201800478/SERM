@@ -52,6 +52,8 @@ class LogicalControl(StrEnum):
     FACE_EAST = "face_east"
     FACE_WEST = "face_west"
     FACE_NORTH = "face_north"
+    FACE_EXTRA_1 = "face_extra_1"
+    FACE_EXTRA_2 = "face_extra_2"
     START = "start"
     BACK = "back"
     GUIDE = "guide"
@@ -117,11 +119,16 @@ class InputDevice:
 
     @property
     def hardware_key(self) -> str:
-        """Chave persistente preferindo VID/PID e, quando disponível, serial."""
+        """Chave persistente baseada em VID/PID e, quando possível, serial."""
         vendor = f"{self.vendor_id:04x}" if self.vendor_id is not None else "0000"
         product = f"{self.product_id:04x}" if self.product_id is not None else "0000"
-        serial = self.serial or ""
-        return f"{vendor}:{product}:{serial}".casefold()
+        if self.serial:
+            return f"{vendor}:{product}:{self.serial}".casefold()
+        # Sem serial, o caminho diferencia duas unidades idênticas durante a
+        # sessão sem fingir que o índice de enumeração é uma identidade física.
+        if self.path:
+            return f"{vendor}:{product}:path:{self.path}".casefold()
+        return f"{vendor}:{product}".casefold()
 
 
 @dataclass(frozen=True, slots=True)
