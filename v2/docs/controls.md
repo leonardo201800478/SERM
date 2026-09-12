@@ -119,6 +119,57 @@ MAME. O SERM não deve inferir que uma máquina possui volante, pedal ou uma
 quantidade de botões apenas pelo gênero. Quando a informação estiver no XML,
 ela deve ser preservada com sua evidência.
 
+## Monitoramento de conexão
+
+O SERM V2 agora possui um monitor HID de baixa frequência para detectar
+conexão, desconexão e troca de modo sem permanecer no caminho dos eventos do
+jogo. O monitor trabalha por inventário, não abre um fluxo contínuo de reports
+HID e não injeta nenhuma entrada.
+
+Quando um dispositivo muda, a interface pode informar:
+
+- controle conectado;
+- controle desconectado;
+- VID/PID e tipo de conexão;
+- modelo reconhecido, quando houver evidência suficiente;
+- mudança de modo quando a mesma família de dispositivo reaparece com outra
+  assinatura.
+
+A linha de base inicial é silenciosa para não produzir popups ao abrir o SERM.
+Trocas posteriores geram uma notificação visual.
+
+## 8BitDo M30: modos e identificação
+
+O M30 Bluetooth é um caso especial porque deliberadamente se apresenta com
+identidades diferentes dependendo do modo. A matriz de assinaturas usada pelo
+SERM é:
+
+| Modo | VID:PID | Conexão típica | Comando de inicialização |
+|---|---|---|---|
+| D-Input / Android | `2DC8:0651` | Bluetooth | `B + START` |
+| D-Input / USB | `2DC8:5006` | USB | `B + START` |
+| XInput | `045E:02E0` | Bluetooth | `X + START` |
+| XInput | `045E:028E` | USB | `X + START` |
+| Nintendo Switch | `057E:2009` | Bluetooth/USB | `Y + START` |
+| macOS / DS4 | `054C:05C4` | Bluetooth/USB | `A + START` |
+
+As assinaturas `045E:028E`, `045E:02E0`, `057E:2009` e `054C:05C4` são
+identidades genéricas compartilhadas por outros controles. Portanto, o SERM
+não deve afirmar que qualquer dispositivo com esses IDs é um M30. Nesses casos
+a identificação é apresentada como **assinatura compatível** até que o nome do
+dispositivo ou outra evidência confirme o M30.
+
+Quando o M30 é reconhecido, o popup de conexão disponibiliza as instruções de
+modo, incluindo `B + START`, `X + START`, `A + START` e `Y + START`, além dos
+comandos de desligamento e pareamento. O SERM somente exibe as instruções; não
+aciona os botões remotamente.
+
+O teste físico realizado no ambiente do projeto também confirmou a importância
+dessa estratégia: o mesmo M30 apareceu sucessivamente como `2DC8:0651`,
+`045E:02E0`, `057E:2009`, `054C:05C4` e novamente como `2DC8:5006`, conforme o
+modo escolhido. O diagnóstico preserva essas assinaturas por varredura para
+que a evolução do catálogo não dependa de um único VID/PID.
+
 ## Camadas
 
 ### 1. Identidade física
