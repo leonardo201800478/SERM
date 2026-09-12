@@ -2,7 +2,100 @@
 
 O SERM V2 trata entrada como um subsistema próprio. A identidade física do
 hardware não pertence a um emulador específico: MAME, RetroArch e os demais
-emuladores receberão perfis derivados da mesma base.
+emuladores recebem perfis derivados da mesma base.
+
+## Princípio fundamental: SERM não deve virar um driver virtual
+
+O SERM não deve interceptar cada botão em Python e reenviar a entrada para o
+emulador. Isso acrescentaria uma camada de polling/eventos, aumentaria a
+complexidade e poderia introduzir atraso desnecessário.
+
+As bibliotecas usadas pelo SERM (`PySDL3` e `hidapi`) são bibliotecas de acesso
+a dispositivos e não substituem os drivers de controle do Windows. Elas são
+usadas para descoberta, identificação, normalização e testes durante a
+configuração.
+
+Quando um emulador estiver rodando, a regra é:
+
+1. o Windows continua sendo o dono dos dispositivos físicos e de seus drivers;
+2. o emulador lê o dispositivo diretamente através do backend nativo mais
+   adequado;
+3. o SERM prepara a configuração antes da execução, em vez de permanecer no
+   caminho de cada evento de entrada;
+4. nenhuma camada de virtualização de controle será criada pelo SERM sem uma
+   necessidade técnica comprovada.
+
+Isso permite, por exemplo, que o SERM use SDL3 para reconhecer e testar um
+controle enquanto o MAME usa XInput para um gamepad compatível com XInput. Não
+há conflito: são duas leituras do mesmo hardware em momentos/finalidades
+diferentes. O SERM não deve tentar transformar a entrada SDL3 em eventos
+XInput.
+
+## Política para Windows 11
+
+A prioridade do SERM no Windows 11 é, nesta ordem:
+
+1. compatibilidade com o maior número de dispositivos;
+2. menor latência e jitter possível;
+3. configuração automática e previsível;
+4. preservação de recursos específicos do dispositivo, como analógicos,
+   pedais, volante, múltiplos botões e dispositivos especializados;
+5. nenhuma dependência adicional quando a plataforma ou o próprio emulador já
+   fornece a capacidade necessária.
+
+O SERM deve preferir as APIs nativas do próprio emulador para a execução. A
+camada Python serve principalmente para configuração, diagnóstico, persistência
+e geração dos perfis.
+
+## Política por emulador
+
+### MAME Windows nativo
+
+O MAME 0.289 oficial para Windows possui o provider `winhybrid`, que usa XInput
+para controles compatíveis e faz fallback para DirectInput para os demais.
+A documentação do MAME descreve `winhybrid` como normalmente a melhor opção no
+Windows. Portanto, este é o caminho padrão do SERM para MAME.
+
+Não devemos trocar automaticamente o MAME para `xinput` puro, porque isso
+limitaria o conjunto de dispositivos a até quatro controles XInput e excluiria
+ou prejudicaria periféricos que funcionam melhor por DirectInput, como
+volantes e outros dispositivos especializados.
+
+O SERM pode deixar `auto` quando quiser respeitar o comportamento padrão do
+MAME, ou usar `-joystickprovider winhybrid` quando a execução precisar ser
+explicitamente determinística. Essa decisão ficará na política do backend do
+MAME, não na camada física do SERM.
+
+Para o MAME, `-controller_map`/`-ctrlmap` somente será usado quando o provider
+for `sdlgame`. Portanto, um mapa SDL não deve ser aplicado indiscriminadamente
+a uma execução nativa `winhybrid`.
+
+### RetroArch Windows
+
+RetroArch possui seus próprios input/controller drivers e autoconfiguração.
+No Windows, seus drivers de controle incluem XInput e DirectInput, além de SDL2
+quando disponível. O SERM não deve impor SDL3 ao RetroArch.
+
+A estratégia será descobrir o hardware com a camada comum do SERM e gerar ou
+ajustar a configuração específica do RetroArch de acordo com o controller
+driver efetivamente usado pelo RetroArch. Para controles XInput, a preferência
+é manter o caminho XInput nativo e aproveitar a autoconfiguração existente.
+
+### Outros emuladores
+
+Cada integração terá uma `InputBackendPolicy` própria. O SERM não terá um
+"driver universal". A política deverá declarar:
+
+- backend nativo preferencial do emulador;
+- backends de fallback;
+- formato de configuração suportado;
+- como o dispositivo é identificado pelo emulador;
+- se existe mapeamento lógico intermediário;
+- se a configuração é global, por usuário, por sistema ou por jogo;
+- quais recursos analógicos/especiais são preservados.
+
+Assim, a camada comum do SERM descreve o hardware uma vez, mas a última milha
+sempre respeita a arquitetura de entrada do emulador.
 
 ## Fase atual: MAME
 
@@ -18,7 +111,8 @@ SERM consiga:
 5. ler do `-listxml` os requisitos reais da máquina MAME;
 6. comparar requisitos da máquina com o layout lógico disponível;
 7. gerar um perfil específico para aquela máquina/emulador sem alterar a
-   identidade física do dispositivo.
+   identidade física do dispositivo;
+8. iniciar o MAME sem inserir o SERM no caminho dos eventos de entrada.
 
 O `-listxml` continua sendo a fonte de verdade para a estrutura de entrada do
 MAME. O SERM não deve inferir que uma máquina possui volante, pedal ou uma
@@ -33,11 +127,20 @@ ela deve ser preservada com sua evidência.
 revisão, fabricante, produto, serial, usage, interface e caminho. A identidade
 física é persistida separadamente do mapeamento lógico.
 
-### 2. Entrada lógica
+HIDAPI não é tratado como um driver de execução. O SERM não deve abrir um
+handle HID de leitura contínua para competir com o emulador pelo dispositivo.
+A enumeração e as leituras necessárias ao diagnóstico devem ser curtas e
+controladas.
 
-`SDL3` é o backend principal para gamepads. Ele normaliza botões, eixos e
-D-pad e fornece GUID, VID/PID, nome, caminho e mapeamento. O SERM mantém essa
-camada separada da identidade HID para não depender de uma única API.
+### 2. Entrada lógica de configuração
+
+`SDL3` é o backend principal do SERM para normalizar gamepads durante a
+configuração e o diagnóstico. Ele normaliza botões, eixos e D-pad e fornece
+GUID, VID/PID, nome, caminho e mapeamento.
+
+Essa camada não representa o caminho de entrada do emulador. Ela existe para o
+SERM poder apresentar um layout consistente, testar botões/eixos e comparar o
+hardware com os requisitos do sistema emulado.
 
 A SDL_GameControllerDB é uma fonte comunitária de mapeamentos, não a base
 mestre do SERM. Um mapeamento externo pode sugerir uma normalização, mas não
@@ -88,7 +191,29 @@ MAME.
 
 Para isso, a implementação futura deverá capturar também o identificador
 reportado pelo próprio MAME. A base física do SERM servirá para correlacionar
-esse identificador com o dispositivo detectado pelo SDL/HID.
+essa identificação com o dispositivo detectado pelo SDL/HID.
+
+## Identidade e correlação
+
+A identidade persistente de um dispositivo não deve ser o SDL instance ID nem
+um simples índice de enumeração. Esses valores podem mudar entre execuções.
+
+A correlação futura deverá considerar, conforme disponibilidade:
+
+- VID/PID;
+- fabricante/produto;
+- versão;
+- serial;
+- caminho/identificador do Windows;
+- SDL GUID e path;
+- identificador reportado pelo emulador;
+- interface/bus quando necessário para diferenciar interfaces do mesmo
+  hardware.
+
+Dois controles fisicamente idênticos sem número de série não podem ser
+tratados como um único dispositivo persistente. O perfil persistente deve
+permitir múltiplas instâncias e a camada de execução deve resolver a instância
+presente naquele momento.
 
 ## Persistência
 
@@ -100,6 +225,9 @@ A migration `020_input_control_schema.sql` cria a base inicial para:
 - bindings lógicos;
 - associação de perfil ao sistema/emulador.
 
+A evolução do schema deverá manter separadas a identidade persistente, a
+instância de sessão e a identidade observada pelo emulador.
+
 ## Regra importante para o MAME
 
 O MAME pode associar entradas automaticamente de acordo com o dispositivo
@@ -109,7 +237,22 @@ camada gravando permanentemente um mapeamento global.
 
 A estratégia será gerar perfis determinísticos por dispositivo + máquina +
 versão/configuração do MAME e aplicar somente a configuração necessária para
-aquela execução.
+aquela execução, sempre que possível sem modificar permanentemente a
+configuração global do usuário.
+
+## Latência
+
+O caminho crítico de jogo deve ser:
+
+`hardware -> driver/API do Windows -> backend do emulador -> emulação`
+
+E não:
+
+`hardware -> Python/SERM -> tradução -> IPC/teclado virtual -> emulador`.
+
+O segundo caminho será evitado. O SERM pode realizar testes de entrada e
+monitoramento antes ou fora da execução, mas não deve fazer forwarding de cada
+evento em tempo real.
 
 ## Próxima etapa
 
@@ -117,4 +260,5 @@ A próxima etapa da implementação deve construir o **catálogo visual de
 controles**: enumerar os dispositivos conectados, apresentar a identidade
 real, mostrar os elementos detectados e permitir um teste de entrada ao vivo.
 Depois disso entraremos na comparação entre o layout físico e os requisitos
-de cada máquina MAME, seguida pela geração do perfil `ctrlr`/mapeamento.
+de cada máquina MAME, seguida pela geração do perfil `ctrlr`/mapeamento e pela
+integração da política `winhybrid` do MAME.
