@@ -62,7 +62,8 @@ class InputDeviceService:
         usage_page = cls._int(record.get("usage_page"))
         usage = cls._int(record.get("usage"))
         serial = cls._text(record.get("serial_number"))
-        connection = cls._connection(path)
+        bus_type = cls._int(record.get("bus_type"))
+        connection = cls._connection(path, bus_type)
         device_type = cls._device_type(name, usage_page, usage)
         device_id = cls._device_id(path, vendor_id, product_id, serial, index)
 
@@ -81,7 +82,7 @@ class InputDeviceService:
             usage=usage,
             path=path,
             interface_number=cls._int(record.get("interface_number")),
-            bus_type=cls._int(record.get("bus_type")),
+            bus_type=bus_type,
             backend="hidapi",
             metadata={"raw_hid": True},
         )
@@ -98,7 +99,14 @@ class InputDeviceService:
         return f"hid:{vendor}:{product}:{suffix}"
 
     @staticmethod
-    def _connection(path: str | None) -> InputConnection:
+    def _connection(path: str | None, bus_type: int | None = None) -> InputConnection:
+        # HIDAPI no Windows expõe bus_type com valores que são mais confiáveis
+        # que o texto do path: 1 = USB, 2 = Bluetooth. O path continua como
+        # fallback para outros backends/versões do binding.
+        if bus_type == 2:
+            return InputConnection.BLUETOOTH
+        if bus_type == 1:
+            return InputConnection.USB
         normalized = (path or "").casefold()
         if "bthenum" in normalized or "bluetooth" in normalized:
             return InputConnection.BLUETOOTH
