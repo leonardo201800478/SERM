@@ -1,9 +1,15 @@
-from serm_v2.domain.arcade import ArcadeGame
-from serm_v2.domain.curation import CurationPolicy, curate_games
+from serm_v2.models.arcade import ArcadeGame, ArcadePlatform
+from serm_v2.services.arcade.curation import CurationPolicy, curate_games
 
 
 def game(name: str, parent: str | None = None, **metadata: object) -> ArcadeGame:
-    return ArcadeGame(name=name, cloneof=parent, metadata=metadata)
+    return ArcadeGame(
+        machine_name=name,
+        display_name=name,
+        platform=ArcadePlatform.MAME,
+        parent_name=parent,
+        metadata=metadata,
+    )
 
 
 def test_1g1r_prefers_region_then_language() -> None:
@@ -20,7 +26,7 @@ def test_1g1r_prefers_region_then_language() -> None:
             preferred_languages=("English", "Japanese"),
         ),
     )
-    assert [item.name for item in result.selected] == ["game-us"]
+    assert [item.machine_name for item in result.selected] == ["game-us"]
     assert any(decision.rule == "1G1R" for decision in result.decisions)
 
 
@@ -37,7 +43,7 @@ def test_strict_controls_rejects_known_incompatible_machine() -> None:
 def test_missing_controls_do_not_fail_permissive_mode() -> None:
     games = [game("unknown-controls")]
     result = curate_games(games, CurationPolicy(required_controls=("joystick",)))
-    assert [item.name for item in result.selected] == ["unknown-controls"]
+    assert [item.machine_name for item in result.selected] == ["unknown-controls"]
 
 
 def test_max_players_and_buttons() -> None:
@@ -47,4 +53,4 @@ def test_max_players_and_buttons() -> None:
         game("ok", players=2, buttons=6),
     ]
     result = curate_games(games, CurationPolicy(max_players=4, max_buttons=8))
-    assert [item.name for item in result.selected] == ["ok"]
+    assert [item.machine_name for item in result.selected] == ["ok"]
