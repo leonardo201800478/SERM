@@ -143,10 +143,12 @@ class InputControlsPage(QWidget):
         meta.setObjectName("deviceMeta")
         box.addWidget(meta)
 
-        mode = ControllerModeService.identify_m30(device)
+        mode = ControllerModeService.identify(device)
         if mode is not None:
             confirmation = "confirmado" if mode.confirmed else "assinatura compatível"
-            mode_label = QLabel(f"M30  •  {mode.mode_name}  •  {confirmation} ({mode.confidence}%)")
+            mode_label = QLabel(
+                f"{mode.model_name}  •  {mode.mode_name}  •  {confirmation} ({mode.confidence}%)"
+            )
             mode_label.setObjectName("deviceMode")
             box.addWidget(mode_label)
 
