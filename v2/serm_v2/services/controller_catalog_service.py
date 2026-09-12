@@ -3,6 +3,11 @@
 O catálogo não substitui HIDAPI/SDL3. Ele apenas transforma evidências já
 coletadas em uma identificação de modelo explicável e em um layout esperado.
 Novos modelos podem ser adicionados sem alterar o backend de entrada.
+
+O inventário atual consolidado do SERM contém somente os 8BitDo efetivamente
+observados/confirmados no ambiente do projeto: M30, Ultimate 2C e Ultimate 2
+Wireless. Assinaturas de transporte compartilhadas, como 057E:2009, continuam
+neutras e não são usadas como identidade definitiva.
 """
 
 from __future__ import annotations
@@ -23,6 +28,12 @@ class ControllerCatalogEntry:
     product_ids: tuple[int, ...] = ()
     expected_face_buttons: int | None = None
     expected_axes: int | None = None
+    expected_hats: int | None = None
+    expected_extra_buttons: int | None = None
+    supports_motion: bool | None = None
+    modes: tuple[str, ...] = ()
+    family: str = ""
+    notes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,26 +94,6 @@ class ControllerCatalogService:
 
     @staticmethod
     def default() -> "ControllerCatalogService":
-        # M30 identificado no inventário real do Windows e confirmado pelo
-        # backend SDL3 como "8BitDo M30 Gamepad" (VID 0x2DC8 / PID 0x5006).
-        # O M30 Bluetooth/D-Input usa também VID 0x2DC8 / PID 0x0651.
-        # O layout de seis botões é uma propriedade documentada do modelo e
-        # será usado somente como layout esperado quando o backend físico ainda
-        # não tiver exposto os elementos individuais.
-        #
-        # Ultimate 2C Wireless (81HD): VID 0x2DC8 / PID 0x310A é usado pelo
-        # USB-C direto e pelo adaptador 2.4G. O Bluetooth aparece em variantes
-        # de firmware/hardware com PID 0x301B e também 0x3013 em inventários
-        # públicos; ambos são mantidos como assinaturas do mesmo modelo.
-        #
-        # Ultimate 2 Wireless: os testes físicos do SERM confirmaram os PIDs
-        # 0x310B (XInput/2.4G), 0x6012 (DInput/2.4G) e 0x6013 (receptor/dongle
-        # em estado inativo). O modo Switch usa 0x057E:0x2009, que é um
-        # identificador genérico de Switch Pro e, por isso, não é usado aqui
-        # como identidade definitiva do modelo.
-        #
-        # Não tratamos o PID XInput genérico 0x045E:0x028E como identidade do
-        # modelo, evitando confundir o 2C com um Xbox real.
         return ControllerCatalogService(
             (
                 ControllerCatalogEntry(
@@ -115,6 +106,16 @@ class ControllerCatalogService:
                     product_ids=(0x5006, 0x0651),
                     expected_face_buttons=6,
                     expected_axes=2,
+                    expected_hats=1,
+                    expected_extra_buttons=0,
+                    supports_motion=False,
+                    modes=("D-Input / USB", "D-Input / Android", "XInput / USB", "XInput / Bluetooth", "Nintendo Switch / HID", "macOS / DualShock 4"),
+                    family="M30",
+                    notes=(
+                        "Arcade-style six-button face layout; must never be reduced to a four-button layout.",
+                        "VID/PID 0x2DC8:0x5006 and 0x2DC8:0x0651 are native M30 signatures.",
+                        "XInput/macOS signatures may be shared with other devices and remain conservative.",
+                    ),
                 ),
                 ControllerCatalogEntry(
                     model_id="8bitdo-ultimate-2c",
@@ -130,6 +131,16 @@ class ControllerCatalogService:
                     product_ids=(0x310A, 0x301B, 0x3013),
                     expected_face_buttons=4,
                     expected_axes=4,
+                    expected_hats=1,
+                    expected_extra_buttons=2,
+                    supports_motion=False,
+                    modes=("XInput / USB", "XInput / 2.4G", "Bluetooth / HID"),
+                    family="Ultimate 2C",
+                    notes=(
+                        "81HD family; USB and 2.4G share the PC/XInput profile.",
+                        "Bluetooth is represented as HID/D-Input by the mode service.",
+                        "Do not identify the model from generic Xbox PIDs alone.",
+                    ),
                 ),
                 ControllerCatalogEntry(
                     model_id="8bitdo-ultimate-2-wireless",
@@ -145,9 +156,36 @@ class ControllerCatalogService:
                     product_ids=(0x310B, 0x6012, 0x6013),
                     expected_face_buttons=4,
                     expected_axes=4,
+                    expected_hats=1,
+                    expected_extra_buttons=2,
+                    supports_motion=True,
+                    modes=(
+                        "XInput / USB",
+                        "XInput / 2.4G",
+                        "D-Input / USB",
+                        "D-Input / 2.4G",
+                        "D-Input / Bluetooth",
+                        "Nintendo Switch / HID (contextual)",
+                    ),
+                    family="Ultimate 2",
+                    notes=(
+                        "Physical SERM scans confirmed 0x310B, 0x6012 and 0x6013 with no other controller connected.",
+                        "0x310B is the active XInput presentation; 0x6012 is D-Input across USB/2.4G/Bluetooth.",
+                        "0x6013 is the 2.4G receiver in inactive state, not a gamepad mode.",
+                        "0x057E:0x2009 is intentionally not part of the permanent identity because it is shared by third-party Switch controllers.",
+                    ),
                 ),
             )
         )
+
+    @classmethod
+    def eightbitdo(cls) -> "ControllerCatalogService":
+        """Alias explícito para obter o inventário 8BitDo consolidado."""
+        return cls.default()
+
+    def entries(self) -> tuple[ControllerCatalogEntry, ...]:
+        """Retorna o catálogo imutável para UI, auditoria e documentação."""
+        return self._entries
 
 
 __all__ = [
