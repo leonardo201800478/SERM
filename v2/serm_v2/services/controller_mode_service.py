@@ -31,16 +31,30 @@ class ControllerModeService:
     _M30 = "8bitdo-m30"
     _ULTIMATE_2C = "8bitdo-ultimate-2c"
     _ULTIMATE_2 = "8bitdo-ultimate-2-wireless"
+    _GENERIC_SWITCH = "generic-switch-pro-controller"
 
     @classmethod
     def identify(cls, device: InputDevice) -> ControllerModeMatch | None:
-        """Identifica um modo conhecido de um controlador físico."""
-        m30 = cls.identify_m30(device)
-        if m30 is not None:
-            return m30
+        """Identifica um modo conhecido de um controlador físico.
+
+        Assinaturas compartilhadas por vários modelos não devem ser atribuídas
+        a um modelo específico. Isso é especialmente importante para
+        057E:2009, que representa um Nintendo Switch Pro Controller genérico.
+        """
         ultimate_2 = cls.identify_ultimate_2(device)
         if ultimate_2 is not None:
             return ultimate_2
+
+        # 057E:2009 é uma assinatura de transporte/protocolo compartilhada.
+        # Só depois das assinaturas proprietárias tentamos interpretá-la como
+        # um dispositivo Switch genérico.
+        switch = cls.identify_generic_switch(device)
+        if switch is not None:
+            return switch
+
+        m30 = cls.identify_m30(device)
+        if m30 is not None:
+            return m30
         return cls.identify_ultimate_2c(device)
 
     @classmethod
@@ -55,14 +69,13 @@ class ControllerModeService:
         bluetooth = connection == InputConnection.BLUETOOTH or device.bus_type == 2
         usb = connection == InputConnection.USB or device.bus_type == 1
         name = " ".join(v for v in (device.name, device.product, device.manufacturer) if v).casefold()
-        explicit_m30 = "m30" in name or "8bitdo" in name
+        explicit_m30 = "m30" in name
 
         signatures = {
             (0x2DC8, 0x0651): ("dinput", "D-Input / Android", "B + START", "LED 1 piscando", True),
             (0x2DC8, 0x5006): ("dinput-usb", "D-Input / USB", "B + START", "LED 1 / conexão sólida", True),
             (0x045E, 0x02E0): ("xinput-bt", "XInput / Bluetooth", "X + START", "LEDs 1 e 2 piscando", False),
             (0x045E, 0x028E): ("xinput-usb", "XInput / USB", "X + START", "LEDs 1 e 2 piscando", False),
-            (0x057E, 0x2009): ("switch", "Nintendo Switch", "Y + START", "LEDs em rotação", False),
             (0x054C, 0x05C4): ("macos", "macOS / DualShock 4", "A + START", "LEDs 1, 2 e 3 piscando", False),
         }
         signature = signatures.get(key)
@@ -101,27 +114,18 @@ class ControllerModeService:
             return None
 
         signatures = {
-            # XInput do controle pelo receptor 2.4G. O mesmo PID pode ser
-            # apresentado em conexão USB direta; a confirmação do transporte
-            # físico será feita no teste USB dedicado.
             0x310B: (
-                "xinput-2p4g",
-                "XInput / 2.4G",
+                "xinput-2p4g-or-usb",
+                "XInput / 2.4G ou USB",
                 "HOME",
                 "LED de status aceso",
             ),
-            # DInput pelo receptor 2.4G e, conforme o hardware/firmware,
-            # também pelo Bluetooth. O PID é o mesmo, então o transporte real
-            # deve ser lido do backend físico quando disponível.
             0x6012: (
-                "dinput",
-                "D-Input / 2.4G ou Bluetooth",
+                "dinput-2p4g-usb-bt",
+                "D-Input / 2.4G, USB ou Bluetooth",
                 "B + HOME",
                 "LED de status aceso",
             ),
-            # Quando o receptor está conectado sem o controle ativo, o Windows
-            # pode expor o dongle como 2DC8:6013. Isso é identidade do receptor,
-            # não um modo de jogo ativo.
             0x6013: (
                 "receiver-idle",
                 "Receptor 2.4G / controle inativo",
@@ -155,6 +159,32 @@ class ControllerModeService:
         )
 
     @classmethod
+    def identify_generic_switch(cls, device: InputDevice) -> ControllerModeMatch | None:
+        """Retorna uma identificação neutra para a assinatura Switch compartilhada."""
+        if device.vendor_id != 0x057E or device.product_id != 0x2009:
+            return None
+
+        if device.connection == InputConnection.BLUETOOTH or device.bus_type == 2:
+            connection_name = "Bluetooth"
+        elif device.connection == InputConnection.USB or device.bus_type == 1:
+            connection_name = "USB"
+        else:
+            connection_name = device.connection.value
+
+        return ControllerModeMatch(
+            model_id=cls._GENERIC_SWITCH,
+            model_name="Nintendo Switch Pro Controller (genérico)",
+            mode_id="switch",
+            mode_name="Nintendo Switch / HID",
+            connection=connection_name,
+            confidence=100,
+            confirmed=False,
+            signature="VID 0x057E / PID 0x2009",
+            power_on="Y + HOME",
+            led_hint="LEDs em rotação",
+        )
+
+    @classmethod
     def identify_ultimate_2c(cls, device: InputDevice) -> ControllerModeMatch | None:
         vendor = device.vendor_id
         product = device.product_id
@@ -162,17 +192,12 @@ class ControllerModeService:
             return None
 
         signatures = {
-            # A mesma assinatura é usada pelo controle ligado diretamente por
-            # USB-C e pelo adaptador 2.4G. HID não expõe, de forma confiável,
-            # qual dos dois transportes sem fio está por trás do receptor USB.
             0x310A: (
                 "xinput-usb-2p4g",
                 "XInput / USB ou 2.4G",
                 "HOME",
                 "LED de status aceso fixo",
             ),
-            # PIDs Bluetooth observados em variantes de firmware/hardware do
-            # Ultimate 2C Wireless 81HD.
             0x301B: (
                 "bluetooth",
                 "Bluetooth / HID",
@@ -228,9 +253,10 @@ class ControllerModeService:
             "XInput / 2.4G: desligado, pressione HOME para ligar com o receptor conectado.",
             "D-Input / 2.4G: desligado, segure B + HOME para ligar.",
             "Switch / 2.4G: desligado, segure Y + HOME para ligar.",
-            "Bluetooth: será validado no teste específico; o PID 0x6012 indica D-Input quando exposto.",
-            "USB: será validado no teste específico; não assumir que o PID observado no receptor representa o transporte.",
+            "Bluetooth: PID 0x6012 foi observado no inventário físico como D-Input.",
+            "USB: o teste físico confirmou 0x310B em XInput e 0x6012 em D-Input.",
             "O PID 0x6013 representa o receptor 2.4G em estado inativo e não um modo de jogo.",
+            "0x057E:0x2009 é uma assinatura Switch genérica; não atribuir automaticamente ao Ultimate 2.",
             "O SERM identifica o modo observado; não envia comandos ao controle.",
         )
 
