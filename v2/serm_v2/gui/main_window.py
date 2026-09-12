@@ -18,6 +18,7 @@ from .configuration_page import ConfigurationPage
 from .data_sources_page import DataSourcesPage
 from .filter_phase_page import FilteringPhasePage
 from .home import HomePage
+from .input_connection_monitor import InputConnectionMonitor
 from .log_handler import LogViewer
 from .mame_studio_page import MameStudioPage
 from .ui_preferences import UiPreferences
@@ -56,6 +57,7 @@ class MainWindow(QMainWindow):
         self.log_viewer = LogViewer()
         self._build_ui()
         self._build_log_dock()
+        self.input_connection_monitor = InputConnectionMonitor(self)
         self.configuration_page.appearance_page.language_changed.connect(self._language_changed)
         self._retranslate_navigation()
         self._restore_window_layout()
@@ -228,6 +230,7 @@ class MainWindow(QMainWindow):
             refresh()
 
     def closeEvent(self, event) -> None:
+        self.input_connection_monitor.stop()
         self._save_window_layout()
         self.log_viewer.close()
         self.database.dispose()
