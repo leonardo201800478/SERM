@@ -16,18 +16,19 @@ logger = logging.getLogger(__name__)
 
 
 class InputDeviceService:
-    """Enumera hardware HID sem tornar HIDAPI obrigatório no import da GUI."""
+    """Enumera hardware HID e mantém diagnóstico útil quando o binding falha."""
 
     def enumerate_hid(self) -> tuple[InputDevice, ...]:
         """Retorna os dispositivos HID visíveis, degradando com segurança."""
         try:
             import hid
-        except ImportError:
-            logger.warning("[INPUT] HIDAPI não está disponível")
+        except ImportError as exc:
+            logger.warning("[INPUT] HIDAPI não está disponível: %s", exc)
             return ()
 
         try:
             records: Iterable[dict[str, object]] = hid.enumerate()
+            records = tuple(records)
         except Exception as exc:  # HIDAPI depende do backend do SO.
             logger.warning("[INPUT] falha ao enumerar HID: %s", exc)
             return ()
@@ -37,6 +38,8 @@ class InputDeviceService:
             device = self._from_hid_record(index, record)
             if device is not None:
                 devices.append(device)
+
+        logger.info("[INPUT] HIDAPI enumerou %d dispositivos", len(devices))
         return tuple(devices)
 
     @classmethod
