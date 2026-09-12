@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 class InputDeviceService:
     """Enumera hardware HID e mantém diagnóstico útil quando o binding falha."""
 
-    def enumerate_hid(self) -> tuple[InputDevice, ...]:
+    def enumerate_hid(self, *, log_summary: bool = True) -> tuple[InputDevice, ...]:
         """Retorna os dispositivos HID visíveis, degradando com segurança."""
         try:
             import hid
@@ -39,7 +39,8 @@ class InputDeviceService:
             if device is not None:
                 devices.append(device)
 
-        logger.info("[INPUT] HIDAPI enumerou %d dispositivos", len(devices))
+        if log_summary:
+            logger.info("[INPUT] HIDAPI enumerou %d dispositivos", len(devices))
         return tuple(devices)
 
     @classmethod
