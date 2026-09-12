@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QListWidget, QListWi
 
 from ..models.input_control import ControlProfile, LogicalControl
 from ..services.controller_input_probe_service import ControllerInputProbeService, ProbeEventType
+from ..services.sdl3_input_service import SDL3InputService
 
 logger = logging.getLogger(__name__)
 
@@ -70,14 +71,39 @@ class ControllerMappingDialog(QDialog):
         buttons.addWidget(self.finish)
         root.addLayout(buttons)
 
+    def _resolve_instance_id(self) -> int | None:
+        metadata = self.device.metadata or {}
+        value = metadata.get("instance_id")
+        if value is not None:
+            return int(value)
+        try:
+            logical = SDL3InputService().enumerate()
+        except (ImportError, RuntimeError, OSError):
+            return None
+        candidates = [
+            item for item in logical
+            if self.device.vendor_id is not None
+            and self.device.product_id is not None
+            and item.vendor_id == self.device.vendor_id
+            and item.product_id == self.device.product_id
+        ]
+        if len(candidates) == 1:
+            instance = candidates[0].metadata.get("instance_id")
+            return int(instance) if instance is not None else None
+        same_name = [item for item in candidates if item.name == self.device.name]
+        if len(same_name) == 1:
+            instance = same_name[0].metadata.get("instance_id")
+            return int(instance) if instance is not None else None
+        return None
+
     def _start_probe(self) -> None:
-        instance_id = self.device.metadata.get("instance_id") if self.device.metadata else None
+        instance_id = self._resolve_instance_id()
         if instance_id is None:
-            self.instruction.setText("Este dispositivo não possui um instance_id SDL3 disponível para calibração.")
+            self.instruction.setText("Não foi possível associar esta unidade física a uma instância SDL3 única para calibração.")
             self.retry.setEnabled(False)
             return
         try:
-            self.probe.start(int(instance_id))
+            self.probe.start(instance_id)
         except Exception as exc:
             logger.exception("[INPUT] falha ao iniciar calibração")
             self.instruction.setText(f"Não foi possível abrir o dispositivo no SDL3: {exc}")
@@ -89,21 +115,30 @@ class ControllerMappingDialog(QDialog):
         self.timer.start()
         self._update_instruction()
 
+    @staticmethod
+    def _event_allowed(control: LogicalControl, event: object) -> bool:
+        event_type = getattr(event, "element_type", None)
+        if control.name.startswith("DPAD_"):
+            return event_type is ProbeEventType.HAT
+        if control in {LogicalControl.LEFT_TRIGGER, LogicalControl.RIGHT_TRIGGER, LogicalControl.LEFT_X, LogicalControl.LEFT_Y, LogicalControl.RIGHT_X, LogicalControl.RIGHT_Y, LogicalControl.STEERING, LogicalControl.ACCELERATOR, LogicalControl.BRAKE, LogicalControl.CLUTCH}:
+            return event_type is ProbeEventType.AXIS
+        return event_type is ProbeEventType.BUTTON
+
     def _poll(self) -> None:
         for event in self.probe.poll():
             if self.position >= len(self.sequence):
                 return
             control = self.sequence[self.position]
-            # D-pad é calibrado por direção; qualquer evento de hat nessa etapa
-            # é aceito. Para botões, só Button/axis/hot são associados ao papel.
-            if control.name.startswith("DPAD_") and event.element_type is not ProbeEventType.HAT:
+            if not self._event_allowed(control, event):
+                continue
+            if event.element_id in {value[0] for value in self.bindings.values()}:
+                self.detected.setText(f"Já utilizado: {event.display}. Escolha outro elemento físico.")
                 continue
             self.bindings[control] = (event.element_id,)
             self._rows[self.position].setText(f"✓  {ControllerInputProbeService.logical_label(control)}  →  {event.display}")
             self.detected.setText(f"Detectado: {event.display} ({event.element_id})")
             self.position += 1
             if self.position < len(self.sequence):
-                self.list.setCurrentRow(self.position)
                 self._update_instruction()
             else:
                 self.instruction.setText("Mapeamento completo. Revise a lista e conclua.")
@@ -116,23 +151,20 @@ class ControllerMappingDialog(QDialog):
         if self.position >= len(self.sequence):
             return
         control = self.sequence[self.position]
-        label = ControllerInputProbeService.logical_label(control)
-        self.instruction.setText(f"Pressione ou mova agora: {label}")
+        self.instruction.setText(f"Pressione ou mova agora: {ControllerInputProbeService.logical_label(control)}")
         self.list.setCurrentRow(self.position)
 
     def _retry_current(self) -> None:
         if self.position >= len(self.sequence):
             return
         self.bindings.pop(self.sequence[self.position], None)
-        try:
-            if not self.probe.active:
-                instance_id = self.device.metadata.get("instance_id")
-                if instance_id is not None:
-                    self.probe.start(int(instance_id))
-            self.finish.setEnabled(False)
-            self._update_instruction()
-        except Exception as exc:
-            self.detected.setText(f"Falha ao reabrir: {exc}")
+        self._rows[self.position].setText(f"○  {ControllerInputProbeService.logical_label(self.sequence[self.position])}")
+        if not self.probe.active:
+            instance_id = self._resolve_instance_id()
+            if instance_id is not None:
+                self.probe.start(instance_id)
+        self.finish.setEnabled(False)
+        self._update_instruction()
 
     def _finish(self) -> None:
         self.probe.stop()
