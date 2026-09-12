@@ -1,5 +1,5 @@
 from serm_v2.models.arcade import ArcadeGame, ArcadePlatform
-from serm_v2.services.arcade.curation import CurationPolicy, curate_games
+from serm_v2.domain.curation import CurationPolicy, curate_games
 
 
 def game(name: str, parent: str | None = None, **metadata: object) -> ArcadeGame:
