@@ -29,7 +29,19 @@ def test_rejects_ambiguous_models():
     assert result.model is None
 
 
+def test_default_catalog_identifies_verified_m30():
+    result = ControllerCatalogService.default().identify(
+        device(vendor_id=0x2DC8, product_id=0x5006, product="8BitDo M30 Gamepad")
+    )
+    assert result.model is not None
+    assert result.model.model_id == "8bitdo-m30"
+    assert result.model.expected_face_buttons == 6
+    assert result.confidence >= 60
+
+
 def test_unknown_catalog_does_not_guess():
-    result = ControllerCatalogService.default().identify(device())
+    result = ControllerCatalogService(()).identify(
+        InputDevice(device_id="unknown", name="Unknown Controller", device_type=InputDeviceType.GAMEPAD)
+    )
     assert result.model is None
     assert result.confidence == 0
