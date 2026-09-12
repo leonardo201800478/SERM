@@ -34,19 +34,17 @@ def test_m30_usb_dinput_is_confirmed():
 
 def test_generic_xinput_signature_is_not_claimed_as_unique_m30():
     match = ControllerModeService.identify_m30(device(0x045E, 0x02E0, name="Xbox Bluetooth Gamepad"))
-    assert match is not None
-    assert match.mode_id == "xinput-bt"
-    assert not match.confirmed
-    assert match.confidence == 70
+    assert match is None
 
 
-def test_explicit_m30_name_confirms_generic_xinput_signature():
+def test_explicit_m30_name_on_shared_xinput_signature_remains_unconfirmed():
     match = ControllerModeService.identify_m30(
         device(0x045E, 0x02E0, name="8BitDo M30 Controller Xbox 360 Controller")
     )
     assert match is not None
-    assert match.confirmed
-    assert match.confidence == 100
+    assert not match.confirmed
+    assert match.confidence == 70
+    assert match.mode_id == "xinput-bt"
 
 
 def test_m30_no_longer_claims_generic_switch_signature():
@@ -157,8 +155,6 @@ def test_ultimate_2_wireless_receiver_idle_is_identified():
 
 
 def test_ultimate_2_wireless_switch_signature_is_not_globally_claimed():
-    # 057E:2009 is the generic Nintendo Switch Pro signature. The service
-    # must not call an arbitrary Switch Pro controller an Ultimate 2.
     assert ControllerModeService.identify_ultimate_2(device(0x057E, 0x2009, name="Pro Controller")) is None
 
 
