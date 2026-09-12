@@ -17,17 +17,14 @@ from .gui.ui_refinement import apply_ui_refinement
 from .gui.home_dashboard_refinement import refine_home_dashboard
 from .gui.home_progress_refinement import refine_home_progress
 from .gui.home_space_refinement import compact_home_space
-
-
-def configure_logging() -> None:
-    """Configure logging for interactive development and diagnostics."""
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s", force=True)
+from .services.crash_diagnostics import configure_logging
 
 
 def main() -> int:
-    """Start SERM V2 with the configured visual mode."""
+    """Start SERM V2 with persistent diagnostics enabled before Qt startup."""
     configure_logging()
     logger = logging.getLogger(__name__)
+    logger.info("[SERM][BOOT] iniciando processo | pid=%s | python=%s", __import__("os").getpid(), sys.version.replace("\n", " "))
     app = QApplication(sys.argv)
     app.setApplicationName("SERM")
     app.setApplicationVersion("2.0.0-dev")
@@ -42,11 +39,7 @@ def main() -> int:
     compact_home_space(window.home_section)
     refine_home_dashboard(window.home_section)
     refine_home_progress(window.home_section)
-
-    # MAME Studio passou a ser o container da etapa de catálogo. O ajuste
-    # tipográfico continua sendo aplicado ao catálogo real, não ao container.
     refine_arcade_catalog_numbers(window.mame_studio_page.catalog_page)
-
     logger.info(
         "[SERM][UI] modo=%s | idioma=%s | fonte=%s | consoles=%d | painéis=%d | títulos=%d | seções=%d | splitters_arcade=%s | splitter_retroarch=%s",
         UiPreferences.theme(), UiPreferences.language(), font_family, log_count, ui_stats["panels"], ui_stats["titles"], ui_stats["sections"], layout_stats["arcade"], layout_stats["retroarch"],
