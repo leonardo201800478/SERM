@@ -114,7 +114,7 @@ class SDL3InputService:
         vendor = int(sdl3.SDL_GetGamepadVendorForID(instance_id)) or None
         product = int(sdl3.SDL_GetGamepadProductForID(instance_id)) or None
         version = int(sdl3.SDL_GetGamepadProductVersionForID(instance_id)) or None
-        mapping = cls._decode(sdl3.SDL_GetGamepadMappingForID(instance_id))
+        mapping = cls._mapping(sdl3, instance_id)
         device_type = cls._device_type(sdl3, instance_id, name)
 
         return InputDevice(
@@ -130,6 +130,23 @@ class SDL3InputService:
             backend="sdl3",
             metadata={"instance_id": instance_id},
         )
+
+    @staticmethod
+    def _mapping(sdl3, instance_id: int) -> str | None:
+        """Obtém a mapping alocada pelo SDL e libera a memória nativa."""
+        try:
+            value = sdl3.SDL_GetGamepadMappingForID(instance_id)
+        except (AttributeError, TypeError, ValueError):
+            return None
+        if not value:
+            return None
+        try:
+            return SDL3InputService._decode(value)
+        finally:
+            try:
+                sdl3.SDL_free(value)
+            except (AttributeError, TypeError, ValueError):
+                pass
 
     @staticmethod
     def _device_type(sdl3, instance_id: int, name: str) -> InputDeviceType:
