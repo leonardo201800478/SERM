@@ -172,6 +172,51 @@ em USB não é automaticamente atribuída ao M30, porque o ambiente também poss
 controladores Sony reais. Essa distinção é intencional: o SERM prefere marcar
 uma assinatura genérica como compatível a identificar o controle errado.
 
+## 8BitDo Ultimate 2C Wireless (81HD): modos e identificação
+
+O Ultimate 2C Wireless é diferente do M30. A documentação do fabricante
+apresenta três formas de conexão: **2.4G wireless, USB-C e Bluetooth**. No
+modelo 81HD, o PC usa 2.4G ou USB e o Bluetooth é documentado para Android. O
+SERM pode testar Bluetooth no Windows, mas deve registrar o resultado real do
+Windows em vez de presumir suporte oficial para esse sistema.
+
+A matriz inicial do SERM é:
+
+| Transporte/modo | VID:PID observado | Perfil esperado | Observação |
+|---|---|---|---|
+| USB-C | `2DC8:310A` | XInput | O mesmo PID também aparece no 2.4G |
+| 2.4G | `2DC8:310A` | XInput | O receptor USB não permite separar USB direto de 2.4G apenas pelo PID |
+| Bluetooth | `2DC8:301B` | HID/Bluetooth | PID observado em inventários públicos do 81HD |
+| Bluetooth, variante | `2DC8:3013` | HID/Bluetooth | PID adicional observado em outra variante/inventário |
+
+O PID `2DC8:301C` não foi cadastrado como identidade ativa porque há relatos
+de ele aparecer como estado idle do dispositivo. Ele não deve ser usado para
+identificar automaticamente um controle conectado sem evidência adicional.
+
+Também não usamos `045E:028E` para identificar o Ultimate 2C. Esse é um ID
+XInput genérico que pode representar outros controles. O SERM mantém a
+identificação do 2C baseada nas assinaturas específicas `2DC8:*` acima.
+
+O modelo possui quatro botões frontais principais, além de D-pad, dois sticks,
+triggers, bumpers e botões traseiros L4/R4. Portanto o catálogo do SERM usa
+quatro face buttons como layout esperado e não o transforma em um M30 de seis
+botões.
+
+O procedimento de teste no SERM é:
+
+1. conectar o receptor 2.4G e ligar o controle;
+2. detectar no SERM e registrar nome, VID/PID, conexão, layout e bateria;
+3. desconectar o receptor e conectar o controle diretamente por USB-C;
+4. detectar novamente e comparar a identidade;
+5. colocar a chave física em BT, ligar e parear;
+6. detectar novamente e registrar o PID Bluetooth real do hardware;
+7. repetir o teste de botões/eixos em cada transporte;
+8. se o Bluetooth no Windows produzir uma assinatura diferente de `301B` ou
+   `3013`, adicionar a assinatura somente depois de confirmar o log físico.
+
+A identificação do modelo não deve depender apenas do nome exibido pelo
+Windows: VID/PID e correlação HID/SDL continuam sendo as evidências principais.
+
 ## Camadas
 
 ### 1. Identidade física
