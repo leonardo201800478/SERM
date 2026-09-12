@@ -6,7 +6,7 @@ from serm_v2.services.mame_catalog_service import MameCatalogError, MameCatalogS
 
 
 def test_ingest_inis_preserves_required_and_optional_order(monkeypatch, tmp_path: Path):
-    events: list[str] = []
+    events: list[tuple[str, Path]] = []
     results = {
         "CATLIST": {"entries": 1, "resolved": 1, "unresolved": 0, "source_id": 1},
         "RESOLUTION": {"entries": 2, "resolved": 2, "unresolved": 0, "source_id": 2},
@@ -19,10 +19,12 @@ def test_ingest_inis_preserves_required_and_optional_order(monkeypatch, tmp_path
         class Service:
             def __init__(self, database_path, mame_root):
                 assert database_path == MameCatalogService.DB_FILE
-                assert mame_root == tmp_path
+                expected_root = tmp_path / "hash" if name == "SOFTWARELISTS" else tmp_path
+                assert mame_root == expected_root
+                self.root = mame_root
 
             def ingest(self, logger=None):
-                events.append(name)
+                events.append((name, self.root))
                 return results[name]
 
         return Service
@@ -36,8 +38,13 @@ def test_ingest_inis_preserves_required_and_optional_order(monkeypatch, tmp_path
     service = MameCatalogService(logger=lambda _: None)
     actual = service._ingest_inis(tmp_path)
 
-    assert events == ["CATLIST", "RESOLUTION", "VSYNC", "FOLDERS", "SOFTWARELISTS"]
-    assert [name for name, _ in actual] == ["CATLIST", "RESOLUTION", "VSYNC", "FOLDERS", "SOFTWARELISTS"]
+    assert [name for name, _ in events] == [
+        "CATLIST", "RESOLUTION", "VSYNC", "FOLDERS", "SOFTWARELISTS"
+    ]
+    assert events[-1][1] == tmp_path / "hash"
+    assert [name for name, _ in actual] == [
+        "CATLIST", "RESOLUTION", "VSYNC", "FOLDERS", "SOFTWARELISTS"
+    ]
     assert actual[-1][1]["software"] == 6
 
 
