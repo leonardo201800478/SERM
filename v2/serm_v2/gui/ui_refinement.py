@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QFrame, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget, QProgressBar, QPushButton, QSizePolicy, QTabWidget, QTableWidget, QTreeWidget, QVBoxLayout, QWidget, QGridLayout
 
@@ -106,6 +106,28 @@ def _replace_arcade_cards(home) -> bool:
     return True
 
 
+def _refine_home_shell(home) -> bool:
+    """Reduz o chrome da Home para priorizar a área operacional."""
+    layout = home.layout()
+    if layout is None or home.property("home_shell_refined"):
+        return False
+    layout.setContentsMargins(8, 6, 8, 4)
+    layout.setSpacing(4)
+    title = layout.itemAt(0).widget() if layout.count() > 0 else None
+    if isinstance(title, QLabel):
+        _set_compact_font(title, 16.0)
+        title.setMinimumHeight(24)
+        title.setMaximumHeight(30)
+    tabs = getattr(home, "home_tabs", None)
+    if isinstance(tabs, QTabWidget):
+        tabs.setDocumentMode(True)
+        tabs.setUsesScrollButtons(False)
+        tabs.tabBar().setMinimumHeight(27)
+        tabs.tabBar().setMaximumHeight(32)
+    home.setProperty("home_shell_refined", True)
+    return True
+
+
 def _refine_retroarch_layout(home) -> bool:
     """Mantém catálogo e log RetroArch no mesmo fluxo, priorizando a área útil do catálogo."""
     tabs = getattr(home, "home_tabs", None)
@@ -114,16 +136,15 @@ def _refine_retroarch_layout(home) -> bool:
     page = tabs.widget(1)
     if page is None or page.property("retro_layout_refined"):
         return False
-    layout = page.layout()
     core = getattr(home, "core_list", None)
     log = getattr(home, "retro_log", None)
-    if layout is None or core is None or log is None:
-        return False
-    core.setMinimumHeight(150)
-    core.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-    log.setMinimumHeight(90)
-    log.setMaximumHeight(150)
-    log.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+    if core is not None:
+        core.setMinimumHeight(150)
+        core.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+    if log is not None:
+        log.setMinimumHeight(90)
+        log.setMaximumHeight(150)
+        log.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
     page.setProperty("retro_layout_refined", True)
     return True
 
@@ -257,6 +278,7 @@ def apply_ui_refinement(window) -> dict[str, bool]:
     studio = _refine_arcade_studio(window)
     if home is None:
         return {"arcade": False, "retroarch": False, "arcade_studio": studio}
+    shell = _refine_home_shell(home)
     arcade = _replace_arcade_cards(home)
     retro = _refine_retroarch_layout(home)
     return {"arcade": arcade, "retroarch": retro, "arcade_studio": studio}
