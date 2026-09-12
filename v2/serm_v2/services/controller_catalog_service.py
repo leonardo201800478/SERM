@@ -50,23 +50,30 @@ class ControllerCatalogService:
         for entry in self._entries:
             score = 0
             reasons: list[str] = []
-            if entry.vendor_id is not None and device.vendor_id == entry.vendor_id:
-                score += 50
+            vendor_match = entry.vendor_id is not None and device.vendor_id == entry.vendor_id
+            product_match = bool(entry.product_ids) and device.product_id in entry.product_ids
+
+            # VID sozinho identifica apenas o fabricante, não o modelo.
+            # Isso é importante para famílias 8BitDo que compartilham 0x2DC8.
+            if vendor_match and product_match:
+                score += 85
+                reasons.append("VID+PID")
+            elif vendor_match:
+                score += 20
                 reasons.append("VID")
-            if entry.product_ids and device.product_id in entry.product_ids:
-                score += 35
-                reasons.append("PID")
+
             model_name = entry.model_name.casefold()
             if model_name and model_name in device_text:
                 score += 60
                 reasons.append("nome/modelo exato")
             elif any(
                 alias.casefold() in device_text
-                for alias in (entry.manufacturer, *entry.aliases)
+                for alias in entry.aliases
                 if alias
             ):
                 score += 30
                 reasons.append("nome/modelo")
+
             if score:
                 candidates.append((score, entry, reasons))
 
@@ -83,6 +90,7 @@ class ControllerCatalogService:
     def default() -> "ControllerCatalogService":
         # M30 identificado no inventário real do Windows e confirmado pelo
         # backend SDL3 como "8BitDo M30 Gamepad" (VID 0x2DC8 / PID 0x5006).
+        # O M30 Bluetooth/D-Input usa também VID 0x2DC8 / PID 0x0651.
         # O layout de seis botões é uma propriedade documentada do modelo e
         # será usado somente como layout esperado quando o backend físico ainda
         # não tiver exposto os elementos individuais.
@@ -95,7 +103,7 @@ class ControllerCatalogService:
                     aliases=("8BitDo M30 Gamepad", "M30 Gamepad"),
                     device_type=InputDeviceType.GAMEPAD,
                     vendor_id=0x2DC8,
-                    product_ids=(0x5006,),
+                    product_ids=(0x5006, 0x0651),
                     expected_face_buttons=6,
                     expected_axes=2,
                 ),
