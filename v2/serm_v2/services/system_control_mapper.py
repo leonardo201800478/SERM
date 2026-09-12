@@ -1,21 +1,21 @@
-"""Compara requisitos de um sistema emulado com um perfil físico.
-
-O mapper apenas calcula compatibilidade e sugere correspondências. Ele não
-injeta eventos, cria drivers virtuais ou altera o runtime do emulador.
-"""
+"""Compara requisitos de um sistema emulado com um perfil físico."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..models.input_control import ControlProfile, InputDevice, InputDeviceType, LogicalControl
+from ..models.input_control import (
+    ControlProfile,
+    InputDevice,
+    InputDeviceType,
+    InputElementType,
+    LogicalControl,
+)
 from .mame_control_service import MameInputRequirements
 
 
 @dataclass(frozen=True, slots=True)
 class ControlMappingSuggestion:
-    """Resultado explicável da comparação entre sistema e dispositivo."""
-
     logical_control: LogicalControl
     source_element_ids: tuple[str, ...]
     score: int
@@ -24,8 +24,6 @@ class ControlMappingSuggestion:
 
 @dataclass(frozen=True, slots=True)
 class SystemControlMapping:
-    """Compatibilidade geral e sugestões de mapeamento."""
-
     compatible: bool
     score: int
     warnings: tuple[str, ...]
@@ -33,7 +31,7 @@ class SystemControlMapping:
 
 
 class SystemControlMapper:
-    """Calcula um mapeamento conservador e determinístico."""
+    """Calcula compatibilidade sem injetar eventos ou alterar o emulador."""
 
     def map_mame(
         self,
@@ -49,21 +47,20 @@ class SystemControlMapper:
             warnings.append(f"Sistema exige {requirements.players} jogadores; validar dispositivos disponíveis.")
             score -= 10
 
-        max_buttons = requirements.max_buttons
-        if max_buttons is not None:
+        if requirements.max_buttons is not None:
             physical_buttons = self._button_count(device, profile)
-            if physical_buttons < max_buttons:
+            if physical_buttons < requirements.max_buttons:
                 warnings.append(
-                    f"Sistema exige até {max_buttons} botões; dispositivo oferece {physical_buttons}."
+                    f"Sistema exige até {requirements.max_buttons} botões; dispositivo oferece {physical_buttons}."
                 )
-                score -= min(50, (max_buttons - physical_buttons) * 15)
+                score -= min(50, (requirements.max_buttons - physical_buttons) * 15)
             else:
-                suggestions.extend(self._face_suggestions(device, profile, max_buttons))
+                suggestions.extend(self._face_suggestions(profile, requirements.max_buttons))
 
         for control in requirements.controls:
-            if control.ways and control.ways > 4:
+            if control.ways and control.ways > 4 and control.control_type not in {"dial", "paddle", "trackball"}:
                 warnings.append(
-                    f"Controle do tipo {control.control_type} declara {control.ways} vias; validar fisicamente."
+                    f"Controle {control.control_type} declara {control.ways} vias; validar a topologia do jogo."
                 )
                 score -= 5
             if control.control_type in {"dial", "paddle", "trackball", "pedal", "positional"}:
@@ -78,18 +75,13 @@ class SystemControlMapper:
     @staticmethod
     def _button_count(device: InputDevice, profile: ControlProfile | None) -> int:
         if profile:
-            bound = {
-                control
-                for control in profile.bindings
-                if control.value.startswith("face_")
-            }
+            bound = {control for control in profile.bindings if control.value.startswith("face_")}
             if bound:
                 return len(bound)
-        return sum(1 for element in device.elements if element.element_type.value == "button")
+        return sum(1 for element in device.elements if element.element_type is InputElementType.BUTTON)
 
     @staticmethod
     def _face_suggestions(
-        device: InputDevice,
         profile: ControlProfile | None,
         max_buttons: int,
     ) -> list[ControlMappingSuggestion]:
@@ -108,12 +100,7 @@ class SystemControlMapper:
             ids = profile.bindings.get(control, ())
             if ids:
                 suggestions.append(
-                    ControlMappingSuggestion(
-                        logical_control=control,
-                        source_element_ids=tuple(ids),
-                        score=100,
-                        reason="Controle lógico já definido no perfil físico.",
-                    )
+                    ControlMappingSuggestion(control, tuple(ids), 100, "Controle lógico já definido no perfil físico.")
                 )
         return suggestions
 
