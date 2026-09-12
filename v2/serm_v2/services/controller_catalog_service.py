@@ -93,9 +93,13 @@ class ControllerCatalogService:
         # Ultimate 2C Wireless (81HD): VID 0x2DC8 / PID 0x310A é usado pelo
         # USB-C direto e pelo adaptador 2.4G. O Bluetooth aparece em variantes
         # de firmware/hardware com PID 0x301B e também 0x3013 em inventários
-        # públicos; ambos são mantidos como assinaturas do mesmo modelo. O PID
-        # 0x301C observado em alguns inventários como estado idle não é tratado
-        # como identidade ativa do controle.
+        # públicos; ambos são mantidos como assinaturas do mesmo modelo.
+        #
+        # Ultimate 2 Wireless: os testes físicos do SERM confirmaram os PIDs
+        # 0x310B (XInput/2.4G), 0x6012 (DInput/2.4G) e 0x6013 (receptor/dongle
+        # em estado inativo). O modo Switch usa 0x057E:0x2009, que é um
+        # identificador genérico de Switch Pro e, por isso, não é usado aqui
+        # como identidade definitiva do modelo.
         #
         # Não tratamos o PID XInput genérico 0x045E:0x028E como identidade do
         # modelo, evitando confundir o 2C com um Xbox real.
@@ -124,6 +128,21 @@ class ControllerCatalogService:
                     device_type=InputDeviceType.GAMEPAD,
                     vendor_id=0x2DC8,
                     product_ids=(0x310A, 0x301B, 0x3013),
+                    expected_face_buttons=4,
+                    expected_axes=4,
+                ),
+                ControllerCatalogEntry(
+                    model_id="8bitdo-ultimate-2-wireless",
+                    manufacturer="8BitDo",
+                    model_name="Ultimate 2 Wireless",
+                    aliases=(
+                        "8BitDo Ultimate 2 Wireless Controller",
+                        "8BitDo Ultimate 2 Wireless Controller for PC",
+                        "8BitDo Ultimate 2",
+                    ),
+                    device_type=InputDeviceType.GAMEPAD,
+                    vendor_id=0x2DC8,
+                    product_ids=(0x310B, 0x6012, 0x6013),
                     expected_face_buttons=4,
                     expected_axes=4,
                 ),
