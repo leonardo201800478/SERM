@@ -9,6 +9,7 @@ from .appearance_language_page import AppearanceLanguagePage
 from .emulator_directories_page import DirectoriesPage
 from .emulator_settings_page import EmulatorSettingsPage
 from .emulator_shaders_bezels_page import EmulatorShadersBezelsPage
+from .input_controls_page import InputControlsPage
 from .sound_settings_page import SoundSettingsPage
 from .tools_directories import ToolsDirectoriesPage
 from .ui_preferences import UiPreferences
@@ -23,7 +24,8 @@ class ConfigurationPage(QWidget):
         ("03", "Emuladores", "Executáveis, versões e parâmetros dos emuladores.", "emulators"),
         ("04", "Vídeo", "Shaders, bezels e apresentação de vídeo.", "video"),
         ("05", "Som", "Configurações iniciais de áudio do ambiente SERM.", "sound"),
-        ("06", "Aparência e idioma", "Tema, idioma e preferências da interface.", "settings"),
+        ("06", "Controles", "Detecção, identidade e diagnóstico dos dispositivos de entrada.", "controls"),
+        ("07", "Aparência e idioma", "Tema, idioma e preferências da interface.", "settings"),
     )
 
     def __init__(self, parent=None) -> None:
@@ -35,7 +37,6 @@ class ConfigurationPage(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 10, 12, 10)
         root.setSpacing(8)
-
         header = QFrame(); header.setObjectName("configurationHeader")
         header_layout = QVBoxLayout(header); header_layout.setContentsMargins(12, 9, 12, 9); header_layout.setSpacing(2)
         title = QLabel("CONFIGURAÇÃO"); title.setObjectName("configurationTitle")
@@ -44,7 +45,6 @@ class ConfigurationPage(QWidget):
 
         workspace = QFrame(); workspace.setObjectName("configurationWorkspace")
         workspace_layout = QHBoxLayout(workspace); workspace_layout.setContentsMargins(0, 0, 0, 0); workspace_layout.setSpacing(8)
-
         navigation = QFrame(); navigation.setObjectName("configurationNavigation"); navigation.setMinimumWidth(205); navigation.setMaximumWidth(245)
         nav_layout = QVBoxLayout(navigation); nav_layout.setContentsMargins(8, 8, 8, 8); nav_layout.setSpacing(6)
         nav_title = QLabel("SEÇÕES"); nav_title.setObjectName("configurationNavTitle")
@@ -60,34 +60,25 @@ class ConfigurationPage(QWidget):
         self.section_title = QLabel(); self.section_title.setObjectName("configurationSectionTitle")
         self.section_description = QLabel(); self.section_description.setObjectName("configurationSectionDescription"); self.section_description.setWordWrap(True)
         content_layout.addWidget(self.section_title); content_layout.addWidget(self.section_description)
-
         self.tabs = QTabWidget(); self.tabs.setObjectName("configurationPages"); self.tabs.tabBar().hide(); self.tabs.setDocumentMode(True)
         self.directories_page = DirectoriesPage(self)
         self.tools_page = ToolsDirectoriesPage(self)
         self.emulators_page = EmulatorSettingsPage(self)
         self.video_page = EmulatorShadersBezelsPage(self)
         self.sound_page = SoundSettingsPage(self)
+        self.controls_page = InputControlsPage(self)
         self.appearance_page = AppearanceLanguagePage(self)
-        self._pages = [self.directories_page, self.tools_page, self.emulators_page, self.video_page, self.sound_page, self.appearance_page]
+        self._pages = [self.directories_page, self.tools_page, self.emulators_page, self.video_page, self.sound_page, self.controls_page, self.appearance_page]
         for page in self._pages: self.tabs.addTab(page, "")
         content_layout.addWidget(self.tabs, 1); workspace_layout.addWidget(content, 1); root.addWidget(workspace, 1)
-
         self.appearance_page.language_changed.connect(lambda _language: self.retranslate_ui())
         self.retranslate_ui(); self.navigation_list.setCurrentRow(0)
         self.setStyleSheet(
             "QFrame#configurationHeader{background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #111c2d,stop:1 #0d1727);border:1px solid #2a3b55;border-radius:9px;}"
-            "QLabel#configurationTitle{color:#e7eef7;font-size:17px;font-weight:700;}"
-            "QLabel#configurationSubtitle{color:#8fa5bb;font-size:8pt;}"
-            "QFrame#configurationNavigation{background:#0c1422;border:1px solid #263750;border-radius:9px;}"
-            "QLabel#configurationNavTitle{color:#a9bdd1;font-size:8pt;font-weight:700;}"
-            "QLabel#configurationNavHint{color:#71859a;font-size:8pt;}"
-            "QListWidget#configurationNavigationList{background:transparent;border:0;padding:2px;}"
-            "QListWidget#configurationNavigationList::item{color:#9eb1c5;padding:8px 9px;border:1px solid transparent;border-radius:6px;min-height:20px;}"
-            "QListWidget#configurationNavigationList::item:hover{background:#131f31;color:#dbe7f4;}"
-            "QListWidget#configurationNavigationList::item:selected{background:#172b42;color:#eaf5ff;border:1px solid #3e6d8b;}"
-            "QFrame#configurationContent{background:#0b1321;border:1px solid #263750;border-radius:9px;}"
-            "QLabel#configurationSectionTitle{color:#e7eef7;font-size:14px;font-weight:650;}"
-            "QLabel#configurationSectionDescription{color:#8fa5bb;font-size:8pt;}"
+            "QLabel#configurationTitle{color:#e7eef7;font-size:17px;font-weight:700;}QLabel#configurationSubtitle{color:#8fa5bb;font-size:8pt;}"
+            "QFrame#configurationNavigation{background:#0c1422;border:1px solid #263750;border-radius:9px;}QLabel#configurationNavTitle{color:#a9bdd1;font-size:8pt;font-weight:700;}QLabel#configurationNavHint{color:#71859a;font-size:8pt;}"
+            "QListWidget#configurationNavigationList{background:transparent;border:0;padding:2px;}QListWidget#configurationNavigationList::item{color:#9eb1c5;padding:8px 9px;border:1px solid transparent;border-radius:6px;min-height:20px;}QListWidget#configurationNavigationList::item:hover{background:#131f31;color:#dbe7f4;}QListWidget#configurationNavigationList::item:selected{background:#172b42;color:#eaf5ff;border:1px solid #3e6d8b;}"
+            "QFrame#configurationContent{background:#0b1321;border:1px solid #263750;border-radius:9px;}QLabel#configurationSectionTitle{color:#e7eef7;font-size:14px;font-weight:650;}QLabel#configurationSectionDescription{color:#8fa5bb;font-size:8pt;}"
             "QTabWidget#configurationPages{border:0;background:transparent;}QTabWidget#configurationPages::pane{border:0;background:transparent;}")
 
     def _select_page(self, index: int) -> None:
