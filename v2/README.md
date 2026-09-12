@@ -108,13 +108,28 @@ serm
 
 ## Tests and quality checks
 
+The normal test command is intentionally a **fast regression suite**. It uses deterministic fixtures and does not require the real MAME database, a complete ListXML, physical ROM/CHD collections, network access or external emulator executables.
+
 ```powershell
-pytest
+pytest -q
+```
+
+Dataset audits, live integrations, integrity checks and diagnostic performance tests remain in the repository but are excluded from the default suite. They can be explicitly requested when needed:
+
+```powershell
+pytest -q --extended
+```
+
+The extended suite is not part of the normal development feedback loop and may require local datasets, network access or considerably more time.
+
+Quality checks:
+
+```powershell
 ruff check serm_v2 tests
 ruff format --check serm_v2 tests
 ```
 
-Ruff is configured with a 100-character line limit, Python 3.12 target and import/bugbear/modernization checks.
+The default suite policy is implemented in `tests/conftest.py`. Tests under `tests/mame` and `tests/sources`, plus tests explicitly named as audits, integrity checks, live/real-data checks, integrations, inventory or performance/query-plan diagnostics, are classified as extended. This keeps `pytest -q` focused on the V2 behavioral contracts that should run after every code change.
 
 ## Database
 
