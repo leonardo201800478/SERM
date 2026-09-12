@@ -41,7 +41,7 @@ serm-audit-launchbox = "serm_v2.tools.audit_launchbox:main"
 [tool.hatch.build.targets.wheel]
 packages = ["serm_v2"]
 
-[tool.pytest]
+[tool.pytest.ini_options]
 minversion = "9.0"
 addopts = [
     "-ra",
