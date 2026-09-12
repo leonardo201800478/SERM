@@ -7,6 +7,7 @@ emulador e não injeta eventos de entrada.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 from ..models.input_control import ControlProfile, InputDevice
@@ -17,6 +18,8 @@ from .input_layout_analyzer import InputLayoutAnalyzer, LayoutSummary
 from .mame_control_service import MameInputRequirements, MameControlService
 from .sdl3_input_service import SDL3InputService
 from .system_control_mapper import SystemControlMapper, SystemControlMapping
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,13 +62,10 @@ class InputControlService:
         self.mapper = mapper or SystemControlMapper()
         self.mame_control_service = mame_control_service or MameControlService()
         self.sdl3_input_service = sdl3_input_service or SDL3InputService()
+        self._sdl3_initialized = False
 
     def discover(self, logical_devices: tuple[InputDevice, ...] | None = None) -> InputControlSnapshot:
-        """Descobre HID e SDL3 e correlaciona as duas visões do hardware.
-
-        Se SDL3 não estiver disponível ou não puder inicializar, a descoberta
-        HID continua disponível para diagnóstico físico.
-        """
+        """Descobre HID e SDL3 e correlaciona as duas visões do hardware."""
         physical = self.device_service.enumerate_hid()
         if logical_devices is None:
             logical_devices = self._enumerate_sdl3()
@@ -83,10 +83,14 @@ class InputControlService:
         return InputControlSnapshot(physical, logical_devices, snapshots, correlations)
 
     def _enumerate_sdl3(self) -> tuple[InputDevice, ...]:
+        """Inicializa SDL3 uma vez por serviço e retorna gamepads disponíveis."""
         try:
-            self.sdl3_input_service.initialize()
+            if not self._sdl3_initialized:
+                self.sdl3_input_service.initialize()
+                self._sdl3_initialized = True
             return self.sdl3_input_service.enumerate()
-        except (ImportError, RuntimeError, OSError):
+        except (ImportError, RuntimeError, OSError) as exc:
+            logger.warning("[INPUT] SDL3 indisponível durante descoberta: %s", exc)
             return ()
 
     def map_mame(
