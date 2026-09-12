@@ -1,9 +1,18 @@
-"""Hub visual compacto de configuração do SERM V2."""
+"""Workspace de configuração organizado do SERM V2."""
 
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QFrame, QGridLayout, QLabel, QPushButton, QTabWidget, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
+)
 
 from .appearance_language_page import AppearanceLanguagePage
 from .emulator_directories_page import DirectoriesPage
@@ -13,86 +22,151 @@ from .tools_directories import ToolsDirectoriesPage
 from .ui_preferences import UiPreferences
 
 
-class _ConfigCard(QFrame):
-    """Entrada compacta para um domínio de configuração."""
-
-    def __init__(self, number: str, title: str, description: str, action, parent=None) -> None:
-        super().__init__(parent)
-        self.setObjectName("configCard")
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 9, 10, 9)
-        layout.setSpacing(4)
-        number_label = QLabel(number)
-        number_label.setObjectName("configCardNumber")
-        title_label = QLabel(title)
-        title_label.setObjectName("configCardTitle")
-        description_label = QLabel(description)
-        description_label.setObjectName("configCardDescription")
-        description_label.setWordWrap(True)
-        button = QPushButton("ABRIR")
-        button.clicked.connect(action)
-        layout.addWidget(number_label)
-        layout.addWidget(title_label)
-        layout.addWidget(description_label, 1)
-        layout.addWidget(button, 0, Qt.AlignmentFlag.AlignLeft)
-
-
 class ConfigurationPage(QWidget):
-    """Centraliza configuração em domínios visuais compactos."""
+    """Centraliza configuração em uma área de trabalho única e previsível.
+
+    As páginas funcionais existentes continuam intactas; a mudança é somente
+    de composição: navegação lateral, cabeçalho contextual e conteúdo único.
+    """
+
+    ENTRIES = (
+        ("01", "Diretórios", "MAME, ROMs, BIOS, artwork e executável do MAME.", "directories"),
+        ("02", "Ferramentas", "Executáveis auxiliares e integrações do ambiente.", "tools"),
+        ("03", "Emuladores", "Executáveis, versões e parâmetros dos emuladores.", "emulators"),
+        ("04", "Vídeo e shaders", "Shaders, bezels e opções de apresentação.", "video"),
+        ("05", "Aparência e idioma", "Tema, idioma e preferências da interface.", "settings"),
+    )
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
+        self._pages: list[QWidget] = []
         self._build_ui()
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(10, 10, 10, 10)
-        root.setSpacing(7)
+        root.setContentsMargins(12, 10, 12, 10)
+        root.setSpacing(8)
+
+        header = QFrame()
+        header.setObjectName("configurationHeader")
+        header_layout = QVBoxLayout(header)
+        header_layout.setContentsMargins(12, 9, 12, 9)
+        header_layout.setSpacing(2)
         title = QLabel("CONFIGURAÇÃO")
-        title.setProperty("role", "title")
-        subtitle = QLabel("Diretórios, executáveis, ferramentas, vídeo e aparência do ambiente SERM.")
-        subtitle.setWordWrap(True)
-        root.addWidget(title)
-        root.addWidget(subtitle)
+        title.setObjectName("configurationTitle")
+        subtitle = QLabel("Central de configuração do ambiente SERM V2")
+        subtitle.setObjectName("configurationSubtitle")
+        header_layout.addWidget(title)
+        header_layout.addWidget(subtitle)
+        root.addWidget(header)
+
+        workspace = QFrame()
+        workspace.setObjectName("configurationWorkspace")
+        workspace_layout = QHBoxLayout(workspace)
+        workspace_layout.setContentsMargins(0, 0, 0, 0)
+        workspace_layout.setSpacing(8)
+
+        navigation = QFrame()
+        navigation.setObjectName("configurationNavigation")
+        navigation.setMinimumWidth(205)
+        navigation.setMaximumWidth(245)
+        nav_layout = QVBoxLayout(navigation)
+        nav_layout.setContentsMargins(8, 8, 8, 8)
+        nav_layout.setSpacing(6)
+
+        nav_title = QLabel("SEÇÕES")
+        nav_title.setObjectName("configurationNavTitle")
+        nav_hint = QLabel("Selecione uma área para editar.")
+        nav_hint.setObjectName("configurationNavHint")
+        nav_hint.setWordWrap(True)
+        nav_layout.addWidget(nav_title)
+        nav_layout.addWidget(nav_hint)
+
+        self.navigation_list = QListWidget()
+        self.navigation_list.setObjectName("configurationNavigationList")
+        self.navigation_list.setUniformItemSizes(True)
+        self.navigation_list.setSpacing(2)
+        for number, title_text, _, _ in self.ENTRIES:
+            item = QListWidgetItem(f"{number}   {title_text}")
+            item.setData(Qt.ItemDataRole.UserRole, len(self._pages))
+            self.navigation_list.addItem(item)
+        self.navigation_list.currentRowChanged.connect(self._select_page)
+        nav_layout.addWidget(self.navigation_list, 1)
+        workspace_layout.addWidget(navigation)
+
+        content = QFrame()
+        content.setObjectName("configurationContent")
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(12, 10, 12, 10)
+        content_layout.setSpacing(7)
+
+        self.section_title = QLabel()
+        self.section_title.setObjectName("configurationSectionTitle")
+        self.section_description = QLabel()
+        self.section_description.setObjectName("configurationSectionDescription")
+        self.section_description.setWordWrap(True)
+        content_layout.addWidget(self.section_title)
+        content_layout.addWidget(self.section_description)
 
         self.tabs = QTabWidget()
+        self.tabs.setObjectName("configurationPages")
+        self.tabs.tabBar().hide()
+        self.tabs.setDocumentMode(True)
+
         self.directories_page = DirectoriesPage(self)
         self.tools_page = ToolsDirectoriesPage(self)
         self.emulators_page = EmulatorSettingsPage(self)
         self.video_page = EmulatorShadersBezelsPage(self)
         self.appearance_page = AppearanceLanguagePage(self)
-        self.tabs.addTab(self.directories_page, "")
-        self.tabs.addTab(self.tools_page, "")
-        self.tabs.addTab(self.emulators_page, "")
-        self.tabs.addTab(self.video_page, "")
-        self.tabs.addTab(self.appearance_page, "")
-        self.tabs.hide()
+        self._pages = [
+            self.directories_page,
+            self.tools_page,
+            self.emulators_page,
+            self.video_page,
+            self.appearance_page,
+        ]
+        for page in self._pages:
+            self.tabs.addTab(page, "")
+        content_layout.addWidget(self.tabs, 1)
+        workspace_layout.addWidget(content, 1)
+        root.addWidget(workspace, 1)
 
-        cards = QGridLayout()
-        cards.setContentsMargins(0, 0, 0, 0)
-        cards.setHorizontalSpacing(7)
-        cards.setVerticalSpacing(7)
-        entries = (
-            ("01", "Diretórios", "MAME, ROMs, BIOS e artwork.", 0),
-            ("02", "Ferramentas", "Executáveis e integrações auxiliares.", 1),
-            ("03", "Emuladores", "Executáveis, versões e parâmetros.", 2),
-            ("04", "Vídeo e shaders", "Shaders, bezels e apresentação.", 3),
-            ("05", "Aparência e idioma", "Tema, idioma e preferências visuais.", 4),
-        )
-        for pos, (number, card_title, description, index) in enumerate(entries):
-            cards.addWidget(
-                _ConfigCard(number, card_title, description, lambda i=index: self._open(i), self),
-                pos // 3, pos % 3,
-            )
-        root.addLayout(cards)
-        root.addWidget(self.tabs, 1)
         self.appearance_page.language_changed.connect(lambda _language: self.retranslate_ui())
         self.retranslate_ui()
+        self.navigation_list.setCurrentRow(0)
 
-    def _open(self, index: int) -> None:
-        self.tabs.show()
+        self.setStyleSheet(
+            "QFrame#configurationHeader{background:qlineargradient(x1:0,y1:0,x2:1,y2:0,"
+            "stop:0 #111c2d,stop:1 #0d1727);border:1px solid #2a3b55;border-radius:9px;}"
+            "QLabel#configurationTitle{color:#e7eef7;font-size:17px;font-weight:700;}"
+            "QLabel#configurationSubtitle{color:#8fa5bb;font-size:8pt;}"
+            "QFrame#configurationNavigation{background:#0c1422;border:1px solid #263750;border-radius:9px;}"
+            "QLabel#configurationNavTitle{color:#a9bdd1;font-size:8pt;font-weight:700;letter-spacing:1px;}"
+            "QLabel#configurationNavHint{color:#71859a;font-size:8pt;}"
+            "QListWidget#configurationNavigationList{background:transparent;border:0;padding:2px;}"
+            "QListWidget#configurationNavigationList::item{color:#9eb1c5;padding:10px 9px;"
+            "border:1px solid transparent;border-radius:6px;min-height:22px;}"
+            "QListWidget#configurationNavigationList::item:hover{background:#131f31;color:#dbe7f4;}"
+            "QListWidget#configurationNavigationList::item:selected{background:#172b42;"
+            "color:#eaf5ff;border:1px solid #3e6d8b;}"
+            "QFrame#configurationContent{background:#0b1321;border:1px solid #263750;border-radius:9px;}"
+            "QLabel#configurationSectionTitle{color:#e7eef7;font-size:14px;font-weight:650;}"
+            "QLabel#configurationSectionDescription{color:#8fa5bb;font-size:8pt;}"
+            "QTabWidget#configurationPages{border:0;background:transparent;}"
+            "QTabWidget#configurationPages::pane{border:0;background:transparent;}"
+        )
+
+    def _select_page(self, index: int) -> None:
+        if index < 0 or index >= len(self._pages):
+            return
         self.tabs.setCurrentIndex(index)
+        self.section_title.setText(self._entry_title(index))
+        self.section_description.setText(self.ENTRIES[index][2])
         self._refresh_current()
+
+    def _entry_title(self, index: int) -> str:
+        key = self.ENTRIES[index][3]
+        return UiPreferences.text(key)
 
     def _refresh_current(self) -> None:
         page = self.tabs.currentWidget()
@@ -101,9 +175,15 @@ class ConfigurationPage(QWidget):
             refresh()
 
     def retranslate_ui(self) -> None:
-        labels = ("directories", "tools", "emulators", "video", "settings")
-        for index, key in enumerate(labels):
-            self.tabs.setTabText(index, UiPreferences.text(key))
+        for index, (_, _, _, key) in enumerate(self.ENTRIES):
+            if index < self.navigation_list.count():
+                item = self.navigation_list.item(index)
+                number = self.ENTRIES[index][0]
+                item.setText(f"{number}   {UiPreferences.text(key)}")
+        current = self.navigation_list.currentRow()
+        if current >= 0:
+            self.section_title.setText(self._entry_title(current))
+            self.section_description.setText(self.ENTRIES[current][2])
 
     def refresh(self) -> None:
         self._refresh_current()
