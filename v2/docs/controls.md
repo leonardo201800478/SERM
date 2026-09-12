@@ -164,11 +164,13 @@ modo, incluindo `B + START`, `X + START`, `A + START` e `Y + START`, além dos
 comandos de desligamento e pareamento. O SERM somente exibe as instruções; não
 aciona os botões remotamente.
 
-O teste físico realizado no ambiente do projeto também confirmou a importância
-dessa estratégia: o mesmo M30 apareceu sucessivamente como `2DC8:0651`,
-`045E:02E0`, `057E:2009`, `054C:05C4` e novamente como `2DC8:5006`, conforme o
-modo escolhido. O diagnóstico preserva essas assinaturas por varredura para
-que a evolução do catálogo não dependa de um único VID/PID.
+O log físico utilizado para esta etapa registrou sete varreduras. Nas
+varreduras, foram observadas as assinaturas `2DC8:5006` (USB M30), `2DC8:0651`
+(Bluetooth D-Input), `045E:02E0` (Bluetooth XInput), `057E:2009` (Bluetooth
+Switch) e `054C:05C4` (Bluetooth/DS4). Uma ocorrência posterior de `054C:05C4`
+em USB não é automaticamente atribuída ao M30, porque o ambiente também possui
+controladores Sony reais. Essa distinção é intencional: o SERM prefere marcar
+uma assinatura genérica como compatível a identificar o controle errado.
 
 ## Camadas
 
