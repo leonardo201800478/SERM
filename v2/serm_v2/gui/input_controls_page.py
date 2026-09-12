@@ -46,7 +46,8 @@ class InputControlsPage(QWidget):
         while self.grid.count():
             item = self.grid.takeAt(0)
             widget = item.widget()
-            if widget is not None: widget.deleteLater()
+            if widget is not None:
+                widget.deleteLater()
 
     def _card(self, snapshot) -> QFrame:
         device = snapshot.device
@@ -59,14 +60,39 @@ class InputControlsPage(QWidget):
         product = f"{device.product_id:04X}" if device.product_id is not None else "----"
         meta = QLabel(f"{kind}  •  {connection}  •  VID {vendor} / PID {product}"); meta.setObjectName("deviceMeta"); box.addWidget(meta)
         identity = QLabel(f"Identidade: {device.hardware_key}"); identity.setObjectName("deviceMeta"); identity.setWordWrap(True); box.addWidget(identity)
-        layout = snapshot.layout; profile = getattr(layout, "profile_kind", "unknown"); buttons = getattr(layout, "button_count", 0); axes = getattr(layout, "axis_count", 0); hats = getattr(layout, "hat_count", 0)
-        detail = QLabel(f"Layout: {profile}  •  {buttons} botões  •  {axes} eixos  •  {hats} hats"); detail.setObjectName("deviceMeta"); box.addWidget(detail)
-        if getattr(layout, "has_six_face_buttons", False):
-            label = QLabel("✓ Seis botões de face detectados"); label.setObjectName("deviceGood"); box.addWidget(label)
-        if snapshot.identification.model is not None:
-            label = QLabel(f"✓ Modelo: {snapshot.identification.model.model_name} ({snapshot.identification.confidence}%)"); label.setObjectName("deviceGood"); box.addWidget(label)
+
+        layout = snapshot.layout
+        profile = getattr(layout, "profile_kind", "unknown")
+        buttons = getattr(layout, "buttons", 0)
+        axes = getattr(layout, "axes", 0)
+        hats = getattr(layout, "hats", 0)
+        face_buttons = getattr(layout, "face_buttons", 0)
+        detail = QLabel(
+            f"Layout: {profile}  •  {buttons} botões ({face_buttons} face)  •  {axes} eixos  •  {hats} hats"
+        )
+        detail.setObjectName("deviceMeta"); box.addWidget(detail)
+
+        model = snapshot.identification.model
+        if model is not None:
+            if getattr(layout, "has_six_face_buttons", False):
+                label = QLabel("✓ Layout de 6 botões confirmado pelo catálogo do modelo")
+                label.setObjectName("deviceGood"); box.addWidget(label)
+            label = QLabel(f"✓ Modelo: {model.model_name} ({snapshot.identification.confidence}%)")
+            label.setObjectName("deviceGood"); box.addWidget(label)
         else:
-            label = QLabel("○ Modelo específico não identificado; identidade física preservada"); label.setObjectName("deviceWarn"); box.addWidget(label)
+            label = QLabel("○ Modelo específico não identificado; identidade física preservada")
+            label.setObjectName("deviceWarn"); box.addWidget(label)
+
+        correlation = snapshot.correlation
+        if correlation is not None:
+            source = "HID ↔ SDL3"
+            if correlation.ambiguous:
+                label = QLabel(f"⚠ Correlação {source} ambígua ({correlation.score})")
+                label.setObjectName("deviceWarn")
+            else:
+                label = QLabel(f"✓ Correlação {source}: {correlation.score} — {', '.join(correlation.reasons)}")
+                label.setObjectName("deviceGood")
+            box.addWidget(label)
         return card
 
     def refresh(self) -> None:
@@ -75,8 +101,13 @@ class InputControlsPage(QWidget):
         try:
             snapshot = self.service.discover()
             self._clear_cards()
-            for index, item in enumerate(snapshot.devices): self.grid.addWidget(self._card(item), index // 2, index % 2)
-            self.status.setText(f"{len(snapshot.devices)} dispositivo(s) físico(s) detectado(s). A leitura foi realizada somente para diagnóstico.")
+            for index, item in enumerate(snapshot.devices):
+                self.grid.addWidget(self._card(item), index // 2, index % 2)
+            self.status.setText(
+                f"{len(snapshot.devices)} dispositivo(s) físico(s) detectado(s) • "
+                f"{len(snapshot.logical_devices)} gamepad(s) SDL3 • "
+                f"{len(snapshot.correlations)} correlação(ões)."
+            )
         except Exception as exc:
             logger.exception("[INPUT] falha na detecção de controles")
             self.status.setText(f"Falha na detecção: {type(exc).__name__}: {exc}")
