@@ -21,22 +21,24 @@ def test_merge_prefers_stable_and_keeps_nightly_only_cores():
     ]
 
 
-def test_filter_snapshot_applies_content_filters_after_source_merge():
+def test_filter_snapshot_can_expose_or_remove_legacy_and_game_engine_cores():
     cores = (
         CoreInfo("snes9x_libretro.dll.zip", "snes9x"),
         CoreInfo("mame2003_libretro.dll.zip", "mame2003"),
         CoreInfo("scummvm_libretro.dll.zip", "scummvm"),
     )
 
-    original_legacy = RetroArchCatalogService.__dict__.get("_legacy_override")
-    _ = original_legacy
+    filtered = RetroArchCatalogService.filter_snapshot(
+        cores,
+        current_only=True,
+        hide_games=True,
+    )
 
-    # O comportamento real é delegado ao classificador central do RetroArchManager;
-    # aqui verificamos que o serviço preserva a ordem e retorna uma tupla estável.
-    result = RetroArchCatalogService.filter_snapshot(
+    assert [item.core_name for item in filtered] == ["snes9x"]
+
+    unfiltered = RetroArchCatalogService.filter_snapshot(
         cores,
         current_only=False,
         hide_games=False,
     )
-
-    assert result == cores
+    assert unfiltered == cores
