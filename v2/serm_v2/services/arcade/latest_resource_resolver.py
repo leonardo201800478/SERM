@@ -86,11 +86,8 @@ class LatestResourceResolver:
             match = re.search(href_pattern, href, flags=re.IGNORECASE)
             if match is None:
                 continue
-            if match.lastindex:
-                version = match.group(1)
-            else:
-                version = resource.version
-            matches.append((version, urljoin(listing_url, href)))
+            version = match.group(1) if match.lastindex else resource.version
+            matches.append((self._canonical_version(version, resource.version), urljoin(listing_url, href)))
 
         if not matches:
             return resource.version, resource.url
@@ -133,6 +130,16 @@ class LatestResourceResolver:
     def _version_key(version: str) -> tuple[int, ...]:
         numbers = re.findall(r"\d+", version)
         return tuple(int(item) for item in numbers) or (0,)
+
+    @classmethod
+    def _canonical_version(cls, version: str, fallback: str) -> str:
+        """Normaliza versões compactadas como ``289`` para ``0.289``."""
+        value = version.strip()
+        if re.fullmatch(r"\d+", value) and "." not in value:
+            fallback_numbers = cls._version_key(fallback)
+            if len(fallback_numbers) >= 2:
+                return f"{fallback_numbers[0]}.{int(value):03d}"
+        return value
 
     @staticmethod
     def _increment_version(base: tuple[int, ...], offset: int) -> tuple[int, ...]:
