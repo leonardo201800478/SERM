@@ -56,5 +56,58 @@ def test_m30_switch_signature_is_available():
     assert match.power_on == "Y + START"
 
 
+def test_ultimate_2c_24g_or_usb_signature_is_confirmed():
+    match = ControllerModeService.identify_ultimate_2c(
+        device(
+            0x2DC8,
+            0x310A,
+            name="8BitDo Ultimate 2C Wireless Controller",
+            connection=InputConnection.USB,
+            bus_type=1,
+        )
+    )
+    assert match is not None
+    assert match.model_id == "8bitdo-ultimate-2c"
+    assert match.mode_id == "xinput-usb-2p4g"
+    assert match.confirmed
+    assert match.confidence == 100
+
+
+def test_ultimate_2c_bluetooth_301b_is_confirmed():
+    match = ControllerModeService.identify_ultimate_2c(
+        device(
+            0x2DC8,
+            0x301B,
+            name="8BitDo Ultimate 2C Wireless",
+            connection=InputConnection.BLUETOOTH,
+            bus_type=2,
+        )
+    )
+    assert match is not None
+    assert match.model_id == "8bitdo-ultimate-2c"
+    assert match.mode_id == "bluetooth"
+    assert match.connection == "Bluetooth"
+    assert match.confirmed
+
+
+def test_ultimate_2c_bluetooth_3013_variant_is_supported():
+    match = ControllerModeService.identify_ultimate_2c(
+        device(
+            0x2DC8,
+            0x3013,
+            name="8BitDo Ultimate 2C Wireless",
+            connection=InputConnection.BLUETOOTH,
+            bus_type=2,
+        )
+    )
+    assert match is not None
+    assert match.model_id == "8bitdo-ultimate-2c"
+    assert match.mode_id == "bluetooth"
+
+
+def test_generic_045e_does_not_identify_as_ultimate_2c():
+    assert ControllerModeService.identify_ultimate_2c(device(0x045E, 0x028E)) is None
+
+
 def test_unknown_signature_returns_none():
-    assert ControllerModeService.identify_m30(device(0x1234, 0x5678)) is None
+    assert ControllerModeService.identify(device(0x1234, 0x5678)) is None
