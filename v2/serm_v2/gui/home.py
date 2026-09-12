@@ -4,55 +4,84 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSettings, Qt
+from PySide6.QtGui import QColor, QBrush
 from PySide6.QtWidgets import (
     QCheckBox,
     QFileDialog,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QListWidgetItem,
+    QPushButton,
+    QProgressBar,
     QVBoxLayout,
     QWidget,
 )
 
+from ..services.retroarch_catalog_service import RetroArchCatalogService
 from .emulator_home import EmulatorHomePage, _Worker
 
 
 class HomePage(EmulatorHomePage):
-    """Expose uma Home completa e preserva o contrato funcional da V1."""
+    """Expose uma Home completa, compacta e sem consoles duplicados."""
 
     CORE_MAX_ATTEMPTS = 3
+    CORE_SETTINGS = ("SERM", "SERM V2")
 
     def __init__(self, parent: QWidget | None = None) -> None:
-        # EmulatorHomePage.__init__() chama self._build_ui(), que por sua vez
-        # chama o método sobrescrito _retroarch_tab(). Portanto, todo estado
-        # consumido por _retroarch_tab() precisa existir antes do super().
-        self._core_filter_state = {
-            "include_beta": False,
-            "current_only": True,
-            "hide_games": True,
-        }
+        self._core_filter_state = self._load_core_filter_state()
         self._core_current_filename: str | None = None
         self._core_destination: Path | None = None
         self._core_queue_with_channels: list[tuple[str, str]] = []
         self._retro_continuation = None
         self._retro_operation_ok = False
         self._core_catalog_cache = None
+        self._core_catalog_source = ""
         super().__init__(parent)
+        self._modernize_home_ui()
+
+    @staticmethod
+    def _settings() -> QSettings:
+        """Retorna o armazenamento persistente das preferências da Home."""
+        return QSettings(*HomePage.CORE_SETTINGS)
+
+    @classmethod
+    def _load_core_filter_state(cls) -> dict[str, bool]:
+        """Restaura os filtros do catálogo entre execuções do SERM."""
+        settings = cls._settings()
+        return {
+            "include_beta": settings.value("retroarch/catalog/include_nightly", False, type=bool),
+            "current_only": settings.value("retroarch/catalog/current_only", True, type=bool),
+            "hide_games": settings.value("retroarch/catalog/hide_games", True, type=bool),
+        }
+
+    def _persist_core_filter_state(self) -> None:
+        """Persiste os filtros imediatamente, sem depender do encerramento do processo."""
+        settings = self._settings()
+        settings.setValue("retroarch/catalog/include_nightly", self.core_include_beta.isChecked())
+        settings.setValue("retroarch/catalog/current_only", self.core_current_only.isChecked())
+        settings.setValue("retroarch/catalog/hide_games", self.core_hide_games.isChecked())
+        settings.sync()
+        self._core_filter_state = {
+            "include_beta": self.core_include_beta.isChecked(),
+            "current_only": self.core_current_only.isChecked(),
+            "hide_games": self.core_hide_games.isChecked(),
+        }
 
     def _retroarch_tab(self) -> QWidget:
-        """Adiciona filtros locais ao catálogo sem alterar o canal do RetroArch."""
+        """Adiciona filtros persistentes e uma listagem mais limpa ao catálogo."""
         page = super()._retroarch_tab()
         layout = page.layout()
         if isinstance(layout, QVBoxLayout):
-            filters = QGroupBox("Filtro do catálogo de cores")
+            filters = QGroupBox("Catálogo de cores")
             row = QHBoxLayout(filters)
-            self.core_include_beta = QCheckBox("Incluir Beta / Nightly")
+            row.setContentsMargins(8, 7, 8, 7)
+            row.setSpacing(12)
+            self.core_include_beta = QCheckBox("Incluir Nightly adicionais")
             self.core_current_only = QCheckBox("Somente cores atuais")
-            self.core_hide_games = QCheckBox("Ocultar jogos / game engines")
+            self.core_hide_games = QCheckBox("Ocultar jogos / engines")
 
-            # Restaura as últimas seleções feitas nesta sessão antes de conectar os
-            # sinais, evitando que a restauração seja tratada como uma alteração.
             self.core_include_beta.setChecked(self._core_filter_state["include_beta"])
             self.core_current_only.setChecked(self._core_filter_state["current_only"])
             self.core_hide_games.setChecked(self._core_filter_state["hide_games"])
@@ -64,17 +93,55 @@ class HomePage(EmulatorHomePage):
             layout.insertWidget(7, filters)
         return page
 
+    def _modernize_home_ui(self) -> None:
+        """Remove redundâncias visuais e aplica a densidade moderna da Home."""
+        for widget_name in ("log_view", "retro_log"):
+            widget = getattr(self, widget_name, None)
+            if widget is not None:
+                widget.hide()
+                widget.setMaximumHeight(0)
+
+        for label in self.findChildren(type(self.seven_zip)):
+            if label.text() in {"Log detalhado da instalação", "Log RetroArch"}:
+                label.hide()
+
+        for button in self.findChildren(QPushButton):
+            if button.text().strip() == "📁 Configurar diretórios":
+                button.hide()
+
+        for progress in self.findChildren(QProgressBar):
+            progress.setTextVisible(False)
+            progress.setFixedHeight(8)
+
+        for frame in self.findChildren(QFrame):
+            frame.setStyleSheet(
+                "QFrame{background:qlineargradient(x1:0,y1:0,x2:1,y2:1,"
+                "stop:0 #111827,stop:1 #0d1422);border:1px solid #26344e;"
+                "border-radius:10px;}"
+            )
+
+        if hasattr(self, "core_list"):
+            self.core_list.setObjectName("coreList")
+            self.core_list.setUniformItemSizes(True)
+            self.core_list.setSpacing(1)
+            self.core_list.setAlternatingRowColors(True)
+            self.core_list.setStyleSheet(
+                "QListWidget#coreList{background:#0b1220;border:1px solid #24324a;"
+                "border-radius:9px;padding:4px;}"
+                "QListWidget#coreList::item{padding:7px 10px;border:0;"
+                "border-bottom:1px solid #1b2639;min-height:30px;}"
+                "QListWidget#coreList::item:hover{background:#131f32;}"
+                "QListWidget#coreList::item:selected{background:#193047;"
+                "border-left:3px solid #5bc0eb;color:#eef7ff;}"
+            )
+
     def _save_core_filter_state(self) -> None:
-        """Grava as últimas seleções dos filtros enquanto a sessão estiver ativa."""
-        self._core_filter_state = {
-            "include_beta": self.core_include_beta.isChecked(),
-            "current_only": self.core_current_only.isChecked(),
-            "hide_games": self.core_hide_games.isChecked(),
-        }
+        """Compatibilidade: persiste as últimas seleções."""
+        self._persist_core_filter_state()
 
     def _core_filters_changed(self, _state: int) -> None:
-        """Grava a seleção e aplica os filtros sem nova requisição HTTP."""
-        self._save_core_filter_state()
+        """Aplica os filtros em memória sem nova requisição HTTP."""
+        self._persist_core_filter_state()
         if self.worker is not None:
             return
         if self._core_catalog_cache is None:
@@ -85,35 +152,31 @@ class HomePage(EmulatorHomePage):
         self._render_core_catalog(self._filtered_cached_cores())
 
     def _filtered_cached_cores(self):
-        """Filtra em memória o último catálogo obtido do Buildbot."""
+        """Filtra o snapshot já obtido pelo serviço de catálogo."""
         cores = tuple(self._core_catalog_cache or ())
-        manager = self.retroarch
-        return manager.filter_cores(
+        return RetroArchCatalogService.filter_snapshot(
             cores,
             current_only=self.core_current_only.isChecked(),
             hide_games=self.core_hide_games.isChecked(),
         )
 
     def refresh_cores(self) -> None:
-        """Consulta o catálogo e somente depois aplica os filtros selecionados."""
+        """Consulta um snapshot coerente e aplica os filtros somente depois."""
         if self.worker is not None:
             self._append_retro_log("CATÁLOGO | operação RetroArch já em execução.")
             return
         self._save_core_filter_state()
         try:
-            # O canal do frontend (Stable/Nightly) NÃO é alterado pelos filtros.
-            # Stable e Beta/Nightly são tratados como fontes independentes pelo serviço.
-            cores = self.retroarch.list_filtered_cores(
-                include_beta=self.core_include_beta.isChecked(),
-                current_only=False,
-                hide_games=False,
+            snapshot, source = RetroArchCatalogService.fetch(
+                self.retroarch,
+                include_nightly=self.core_include_beta.isChecked(),
             )
-            self._core_catalog_cache = tuple(cores)
+            self._core_catalog_cache = tuple(snapshot)
+            self._core_catalog_source = source
             self._render_core_catalog(self._filtered_cached_cores())
-            source = "Stable + Beta/Nightly" if self.core_include_beta.isChecked() else "Stable"
             self._append_retro_log(
                 f"CATÁLOGO | fonte={source} | atuais={self.core_current_only.isChecked()} | "
-                f"sem jogos/engines={self.core_hide_games.isChecked()} | cores={len(self._core_catalog_cache)}"
+                f"sem jogos/engines={self.core_hide_games.isChecked()} | cores={len(snapshot)}"
             )
         except Exception as exc:  # noqa: BLE001
             self._append_retro_log(f"ERRO CORES | {type(exc).__name__}: {exc}")
@@ -122,16 +185,15 @@ class HomePage(EmulatorHomePage):
             QMessageBox.warning(self, "RetroArch", str(exc))
 
     def _render_core_catalog(self, cores) -> None:
-        """Renderiza uma coleção de CoreInfo e compara com os cores instalados."""
+        """Renderiza cores com estado, canal e metadados em uma lista limpa."""
         _, _, destination = self.retroarch.discover()
-        installed = self.retroarch.installed_cores(destination) if destination else ()
         comparisons = (
             self.retroarch.compare_installed_cores(cores, destination)
             if destination and destination.is_dir()
             else []
         )
         state_map = {path.name.casefold(): state for path, _, state in comparisons}
-        installed_names = {path.name.casefold() for path in installed}
+        installed_names = {path.name.casefold() for path, _, _ in comparisons}
         self.core_list.blockSignals(True)
         self.core_list.clear()
         self.core_items.clear()
@@ -141,28 +203,38 @@ class HomePage(EmulatorHomePage):
             state = state_map.get(key, "new")
             installed_count += key in installed_names
             update_count += state == "update"
-            if state == "current":
-                marker = "[ATUALIZADO]"
-            elif state == "update":
-                marker = "[ATUALIZAÇÃO]"
-            else:
-                marker = "[NOVO]"
-            beta = " | BETA/NIGHTLY" if core.channel == "nightly" else ""
+            status = {
+                "current": "Atualizado",
+                "update": "Atualização disponível",
+                "new": "Não instalado",
+                "unknown": "Fora do catálogo",
+            }.get(state, "Não instalado")
+            channel = "Stable" if core.channel.casefold() == "stable" else "Nightly"
             item = QListWidgetItem(
-                f"{marker}{beta} {core.core_name} | {core.date} | CRC {core.crc32}"
+                f"{core.core_name}   ·   {status}   ·   {channel}   ·   {core.date}   ·   CRC {core.crc32}"
             )
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             item.setCheckState(Qt.CheckState.Unchecked)
             item.setData(Qt.ItemDataRole.UserRole, core.filename)
             item.setData(Qt.ItemDataRole.UserRole + 1, state)
             item.setData(Qt.ItemDataRole.UserRole + 2, core.channel)
+            item.setToolTip(
+                f"{core.core_name}\nCanal: {channel}\nData: {core.date}\nCRC32: {core.crc32}\n"
+                f"Arquivo: {core.filename}"
+            )
+            if state == "current":
+                item.setForeground(QBrush(QColor("#9ad7b5")))
+            elif state == "update":
+                item.setForeground(QBrush(QColor("#f0cf8b")))
+            else:
+                item.setForeground(QBrush(QColor("#cbd5e1")))
             self.core_list.addItem(item)
             self.core_items[core.filename] = item
         self.core_list.blockSignals(False)
         new_count = len(cores) - installed_count
         self.core_summary.setText(
-            f"{len(cores)} publicados • {installed_count} instalados • "
-            f"{update_count} atualizações • {new_count} novos"
+            f"{len(cores)} cores · {installed_count} instalados · "
+            f"{update_count} atualizações · {new_count} novos"
         )
         self._update_core_summary()
 
@@ -213,11 +285,6 @@ class HomePage(EmulatorHomePage):
             return
         filename, catalog_channel = self._core_queue_with_channels.pop(0)
         self._core_current_filename = filename
-
-        # O catálogo Stable usa o índice de cores publicado pelo Nightly, pois o
-        # Buildbot não oferece ZIPs individuais no caminho Stable. Portanto,
-        # uma seleção marcada como Stable continua sendo exibida como Stable,
-        # mas o download individual é feito pelo endpoint Nightly.
         download_channel = "nightly" if catalog_channel.casefold() == "stable" else catalog_channel
         self._append_retro_log(
             f"FILA | iniciando {filename} | catálogo={catalog_channel} | download={download_channel} | "
@@ -237,9 +304,7 @@ class HomePage(EmulatorHomePage):
         last_error: Exception | None = None
         for attempt in range(1, self.CORE_MAX_ATTEMPTS + 1):
             try:
-                log(
-                    f"CORE | {filename} | canal={channel} | tentativa={attempt}/{self.CORE_MAX_ATTEMPTS}"
-                )
+                log(f"CORE | {filename} | canal={channel} | tentativa={attempt}/{self.CORE_MAX_ATTEMPTS}")
                 return self.retroarch.install_core(
                     filename, destination, channel=channel, progress=progress, log=log
                 )
@@ -338,8 +403,10 @@ class HomePage(EmulatorHomePage):
         self.install(emulator)
 
     def clear_install_log(self) -> None:
-        """Limpa o console de instalação."""
-        self.log_view.clear()
+        """Limpa o console de instalação; o histórico principal fica no dock global."""
+        log_view = getattr(self, "log_view", None)
+        if log_view is not None:
+            log_view.clear()
 
     def open_official_site(self, key: str) -> None:
         """Abre o repositório oficial do emulador."""
