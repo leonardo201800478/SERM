@@ -54,7 +54,6 @@ class ControllerCatalogService:
             product_match = bool(entry.product_ids) and device.product_id in entry.product_ids
 
             # VID sozinho identifica apenas o fabricante, não o modelo.
-            # Isso é importante para famílias 8BitDo que compartilham 0x2DC8.
             if vendor_match and product_match:
                 score += 85
                 reasons.append("VID+PID")
@@ -66,11 +65,7 @@ class ControllerCatalogService:
             if model_name and model_name in device_text:
                 score += 60
                 reasons.append("nome/modelo exato")
-            elif any(
-                alias.casefold() in device_text
-                for alias in entry.aliases
-                if alias
-            ):
+            elif any(alias.casefold() in device_text for alias in entry.aliases if alias):
                 score += 30
                 reasons.append("nome/modelo")
 
@@ -94,6 +89,11 @@ class ControllerCatalogService:
         # O layout de seis botões é uma propriedade documentada do modelo e
         # será usado somente como layout esperado quando o backend físico ainda
         # não tiver exposto os elementos individuais.
+        #
+        # Ultimate 2C Wireless (81HD): VID 0x2DC8 / PID 0x310A. A documentação
+        # e os testes externos consultados mostram o mesmo PID para USB-C direto
+        # e para o adaptador 2.4G; não tratamos o PID XInput genérico 0x045E:0x028E
+        # como identidade do modelo, evitando confundir o 2C com um Xbox real.
         return ControllerCatalogService(
             (
                 ControllerCatalogEntry(
@@ -106,6 +106,21 @@ class ControllerCatalogService:
                     product_ids=(0x5006, 0x0651),
                     expected_face_buttons=6,
                     expected_axes=2,
+                ),
+                ControllerCatalogEntry(
+                    model_id="8bitdo-ultimate-2c",
+                    manufacturer="8BitDo",
+                    model_name="Ultimate 2C",
+                    aliases=(
+                        "8BitDo Ultimate 2C Wireless Controller",
+                        "8BitDo Ultimate 2C Wireless",
+                        "Ultimate 2C Wireless Controller",
+                    ),
+                    device_type=InputDeviceType.GAMEPAD,
+                    vendor_id=0x2DC8,
+                    product_ids=(0x310A,),
+                    expected_face_buttons=4,
+                    expected_axes=4,
                 ),
             )
         )
