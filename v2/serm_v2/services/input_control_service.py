@@ -95,23 +95,24 @@ class InputControlService:
     ) -> LayoutSummary:
         """Completa o layout quando o catálogo tem uma expectativa verificada.
 
-        HIDAPI fornece identidade física, mas não necessariamente os elementos
-        individuais. Nessa situação usamos apenas o layout esperado do modelo;
-        não o apresentamos como uma leitura de eventos do dispositivo.
+        O serviço principal usa ``ControllerIdentification.model``. Fakes de
+        testes e integrações legadas podem expor somente outros metadados; nesse
+        caso o layout observado é preservado exatamente como foi produzido pelo
+        analisador, sem aplicar suposições.
         """
-        model = identification.model
+        model = getattr(identification, "model", None)
         if model is None:
             return layout
 
         changes: dict[str, object] = {}
-        if layout.buttons == 0 and model.expected_face_buttons is not None:
+        if getattr(layout, "buttons", 0) == 0 and model.expected_face_buttons is not None:
             changes["buttons"] = model.expected_face_buttons
             changes["face_buttons"] = model.expected_face_buttons
             changes["has_six_face_buttons"] = model.expected_face_buttons >= 6
             changes["profile_kind"] = (
                 "six-button-gamepad" if model.expected_face_buttons >= 6 else layout.profile_kind
             )
-        if layout.axes == 0 and model.expected_axes is not None:
+        if getattr(layout, "axes", 0) == 0 and model.expected_axes is not None:
             changes["axes"] = model.expected_axes
         return replace(layout, **changes) if changes else layout
 
