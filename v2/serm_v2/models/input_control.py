@@ -55,6 +55,9 @@ class LogicalControl(StrEnum):
     FACE_EXTRA_1 = "face_extra_1"
     FACE_EXTRA_2 = "face_extra_2"
     START = "start"
+    SELECT = "select"
+    MODE = "mode"
+    MENU = "menu"
     BACK = "back"
     GUIDE = "guide"
     LEFT_SHOULDER = "left_shoulder"
@@ -124,8 +127,6 @@ class InputDevice:
         product = f"{self.product_id:04x}" if self.product_id is not None else "0000"
         if self.serial:
             return f"{vendor}:{product}:{self.serial}".casefold()
-        # Sem serial, o caminho diferencia duas unidades idênticas durante a
-        # sessão sem fingir que o índice de enumeração é uma identidade física.
         if self.path:
             return f"{vendor}:{product}:path:{self.path}".casefold()
         return f"{vendor}:{product}".casefold()
