@@ -48,6 +48,7 @@ def main() -> int:
     window.home_section.refresh()
     splash.set_phase("Pronto", "Abrindo a interface principal...")
     window.show()
+    window.input_connection_monitor.start()
     splash.finish(window)
     logger.info("[SERM][BOOT] SERM V2 iniciado")
     return app.exec()
