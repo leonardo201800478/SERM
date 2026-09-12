@@ -1,9 +1,7 @@
-"""Reconhecimento de modos de entrada conhecidos do 8BitDo M30.
+"""Reconhecimento de modos de entrada conhecidos dos controles 8BitDo.
 
-O M30 Bluetooth deliberadamente se apresenta como outros controladores em
-alguns modos. Por isso VID/PID é tratado como assinatura de modo, não como
-identidade universal do fabricante. Assinaturas genéricas (XInput/Switch/DS4)
-são marcadas como compatíveis até que o nome ou outra evidência confirme o M30.
+O serviço interpreta assinaturas VID/PID já observadas no inventário HID.
+Ele não envia comandos ao dispositivo e não cria driver virtual.
 """
 
 from __future__ import annotations
@@ -28,9 +26,18 @@ class ControllerModeMatch:
 
 
 class ControllerModeService:
-    """Interpreta assinaturas de modo do M30 sem alterar o dispositivo."""
+    """Interpreta assinaturas de modo sem alterar o dispositivo."""
 
     _M30 = "8bitdo-m30"
+    _ULTIMATE_2C = "8bitdo-ultimate-2c"
+
+    @classmethod
+    def identify(cls, device: InputDevice) -> ControllerModeMatch | None:
+        """Identifica um modo conhecido de um controlador físico."""
+        m30 = cls.identify_m30(device)
+        if m30 is not None:
+            return m30
+        return cls.identify_ultimate_2c(device)
 
     @classmethod
     def identify_m30(cls, device: InputDevice) -> ControllerModeMatch | None:
@@ -81,6 +88,63 @@ class ControllerModeService:
             led_hint=led_hint,
         )
 
+    @classmethod
+    def identify_ultimate_2c(cls, device: InputDevice) -> ControllerModeMatch | None:
+        vendor = device.vendor_id
+        product = device.product_id
+        if vendor != 0x2DC8 or product is None:
+            return None
+
+        signatures = {
+            # A mesma assinatura é usada pelo controle ligado diretamente por
+            # USB-C e pelo adaptador 2.4G. HID não expõe, de forma confiável,
+            # qual dos dois transportes sem fio está por trás do receptor USB.
+            0x310A: (
+                "xinput-usb-2p4g",
+                "XInput / USB ou 2.4G",
+                "HOME",
+                "LED de status aceso fixo",
+            ),
+            # PIDs Bluetooth observados em variantes de firmware/hardware do
+            # Ultimate 2C Wireless 81HD.
+            0x301B: (
+                "bluetooth",
+                "Bluetooth / HID",
+                "HOME; PAIR por 3 s para pareamento",
+                "LED piscando durante pareamento",
+            ),
+            0x3013: (
+                "bluetooth",
+                "Bluetooth / HID",
+                "HOME; PAIR por 3 s para pareamento",
+                "LED piscando durante pareamento",
+            ),
+        }
+        signature = signatures.get(product)
+        if signature is None:
+            return None
+
+        mode_id, mode_name, power_on, led_hint = signature
+        if device.connection == InputConnection.BLUETOOTH or device.bus_type == 2:
+            connection_name = "Bluetooth"
+        elif device.connection == InputConnection.USB or device.bus_type == 1:
+            connection_name = "USB"
+        else:
+            connection_name = device.connection.value
+
+        return ControllerModeMatch(
+            model_id=cls._ULTIMATE_2C,
+            model_name="8BitDo Ultimate 2C",
+            mode_id=mode_id,
+            mode_name=mode_name,
+            connection=connection_name,
+            confidence=100,
+            confirmed=True,
+            signature=f"VID 0x{vendor:04X} / PID 0x{product:04X}",
+            power_on=power_on,
+            led_hint=led_hint,
+        )
+
     @staticmethod
     def m30_instructions() -> tuple[str, ...]:
         return (
@@ -90,6 +154,17 @@ class ControllerModeService:
             "Nintendo Switch: desligado, segure Y + START para ligar.",
             "Desligar: segure START por 3 s; desligamento forçado: 8 s.",
             "Pareamento Bluetooth: com o modo escolhido, segure PAIR por 2 s.",
+        )
+
+    @staticmethod
+    def ultimate_2c_instructions() -> tuple[str, ...]:
+        return (
+            "2.4G: coloque a chave física em 2.4G, conecte o receptor e pressione HOME.",
+            "USB: conecte o cabo USB-C ao PC; o controle é apresentado no mesmo perfil XInput do modo PC.",
+            "Bluetooth: coloque a chave física em BT e pressione HOME.",
+            "Primeiro pareamento Bluetooth: segure PAIR por 3 s até o LED piscar rapidamente.",
+            "O 2C Wireless 81HD não possui no gabinete o seletor de XInput/D-Input do M30.",
+            "O SERM identifica o transporte/modo observado; não envia comandos ao controle.",
         )
 
 
