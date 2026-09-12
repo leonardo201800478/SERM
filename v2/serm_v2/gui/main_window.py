@@ -177,14 +177,17 @@ class MainWindow(QMainWindow):
         self.navigation.currentRowChanged.connect(self._on_navigation_changed)
 
     def _build_log_dock(self) -> None:
-        """Adiciona o painel de logs à janela principal."""
+        """Adiciona o painel de logs à janela principal em modo compacto."""
         self.log_dock = QDockWidget(UiPreferences.text("logs"), self)
         self.log_dock.setObjectName("logDock")
+        self.log_dock.setMinimumHeight(72)
+        self.log_dock.setMaximumHeight(150)
         console = self.log_viewer.create_console(self.log_dock)
         console.setObjectName("logConsole")
         self.log_dock.setWidget(console)
         self.log_dock.setAllowedAreas(Qt.DockWidgetArea.BottomDockWidgetArea)
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.log_dock)
+        self.resizeDocks([self.log_dock], [118], Qt.Orientation.Vertical)
 
     def _retranslate_navigation(self) -> None:
         """Cria e atualiza a navegação sem depender de uma sobrecarga inexistente."""
