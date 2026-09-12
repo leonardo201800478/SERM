@@ -7,6 +7,7 @@ import logging
 from PySide6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 
 from ..models.input_control import InputDeviceType
+from ..services.controller_mode_service import ControllerModeService
 from ..services.input_control_service import InputControlService
 
 logger = logging.getLogger(__name__)
@@ -40,7 +41,7 @@ class InputControlsPage(QWidget):
             "QFrame#controlsToolbar{background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #111c2d,stop:1 #0d1727);border:1px solid #2a3b55;border-radius:9px;}"
             "QLabel#controlsTitle{color:#e7eef7;font-size:14px;font-weight:650;}QLabel#controlsSubtitle{color:#8fa5bb;font-size:8pt;}QLabel#controlsStatus{color:#8fa5bb;font-size:8pt;padding:2px 4px;}"
             "QPushButton#controlsRefresh{background:#172b42;color:#eaf5ff;border:1px solid #3e6d8b;border-radius:6px;padding:6px 11px;}QPushButton#controlsRefresh:hover{background:#1d3854;}"
-            "QFrame#deviceCard{background:#0d1726;border:1px solid #293b54;border-radius:9px;}QLabel#deviceName{color:#e8f0f8;font-size:11pt;font-weight:650;}QLabel#deviceMeta{color:#8fa5bb;font-size:8pt;}QLabel#deviceGood{color:#78d6b0;font-size:8pt;font-weight:600;}QLabel#deviceWarn{color:#e0c477;font-size:8pt;font-weight:600;}")
+            "QFrame#deviceCard{background:#0d1726;border:1px solid #293b54;border-radius:9px;}QLabel#deviceName{color:#e8f0f8;font-size:11pt;font-weight:650;}QLabel#deviceMeta{color:#8fa5bb;font-size:8pt;}QLabel#deviceGood{color:#78d6b0;font-size:8pt;font-weight:600;}QLabel#deviceWarn{color:#e0c477;font-size:8pt;font-weight:600;}QLabel#deviceMode{color:#9bc9ff;font-size:8pt;font-weight:650;}")
 
     def _clear_cards(self) -> None:
         while self.grid.count():
@@ -60,6 +61,14 @@ class InputControlsPage(QWidget):
         product = f"{device.product_id:04X}" if device.product_id is not None else "----"
         meta = QLabel(f"{kind}  •  {connection}  •  VID {vendor} / PID {product}"); meta.setObjectName("deviceMeta"); box.addWidget(meta)
         identity = QLabel(f"Identidade: {device.hardware_key}"); identity.setObjectName("deviceMeta"); identity.setWordWrap(True); box.addWidget(identity)
+
+        mode = ControllerModeService.identify_m30(device)
+        if mode is not None:
+            confirmation = "confirmado" if mode.confirmed else "assinatura compatível"
+            mode_label = QLabel(
+                f"M30 • {mode.mode_name} • {mode.connection} • {confirmation} ({mode.confidence}%)"
+            )
+            mode_label.setObjectName("deviceMode"); box.addWidget(mode_label)
 
         layout = snapshot.layout
         profile = getattr(layout, "profile_kind", "unknown")
