@@ -20,6 +20,7 @@ from .sdl3_input_service import SDL3InputService
 from .system_control_mapper import SystemControlMapper, SystemControlMapping
 
 logger = logging.getLogger(__name__)
+input_logger = logging.getLogger("SERM.INPUT")
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,13 +64,17 @@ class InputControlService:
         self.mame_control_service = mame_control_service or MameControlService()
         self.sdl3_input_service = sdl3_input_service or SDL3InputService()
         self._sdl3_initialized = False
+        self._diagnostic_sequence = 0
 
     def discover(self, logical_devices: tuple[InputDevice, ...] | None = None) -> InputControlSnapshot:
         """Descobre HID e SDL3 e correlaciona as duas visões do hardware."""
+        self._diagnostic_sequence += 1
+        scan_id = self._diagnostic_sequence
         physical = self.device_service.enumerate_hid()
         if logical_devices is None:
             logical_devices = self._enumerate_sdl3()
         correlations = self.correlation_service.correlate(physical, logical_devices)
+        self._log_discovery_diagnostics(scan_id, physical, logical_devices, correlations)
         by_physical = {item.physical.device_id: item for item in correlations}
 
         snapshots: list[InputDeviceSnapshot] = []
@@ -115,6 +120,84 @@ class InputControlService:
         if getattr(layout, "axes", 0) == 0 and model.expected_axes is not None:
             changes["axes"] = model.expected_axes
         return replace(layout, **changes) if changes else layout
+
+    def _log_discovery_diagnostics(
+        self,
+        scan_id: int,
+        physical_devices: tuple[InputDevice, ...],
+        logical_devices: tuple[InputDevice, ...],
+        correlations: tuple[DeviceCorrelation, ...],
+    ) -> None:
+        """Registra uma fotografia completa de cada detecção para testes físicos.
+
+        O diagnóstico é somente leitura. Ele preserva VID/PID, nome, fabricante,
+        produto, versão, conexão, caminho, GUID SDL3 e correlação, permitindo
+        comparar o mesmo controlador em diferentes modos de entrada sem inferir
+        o modelo a partir de um VID compartilhado.
+        """
+        input_logger.info(
+            "[INPUT][SCAN %03d] início | HID=%d | SDL3=%d | correlações=%d",
+            scan_id,
+            len(physical_devices),
+            len(logical_devices),
+            len(correlations),
+        )
+        for index, device in enumerate(physical_devices, start=1):
+            input_logger.info(
+                "[INPUT][SCAN %03d][HID %03d] name=%r | manufacturer=%r | product=%r | "
+                "VID=%s | PID=%s | version=%s | connection=%s | bus_type=%s | "
+                "usage_page=%s | usage=%s | interface=%s | serial=%r | path=%r | device_id=%r",
+                scan_id,
+                index,
+                device.name,
+                device.manufacturer,
+                device.product,
+                self._hex_id(device.vendor_id),
+                self._hex_id(device.product_id),
+                device.version,
+                getattr(device.connection, "value", device.connection),
+                device.bus_type,
+                device.usage_page,
+                device.usage,
+                device.interface_number,
+                device.serial,
+                device.path,
+                device.device_id,
+            )
+
+        for index, device in enumerate(logical_devices, start=1):
+            input_logger.info(
+                "[INPUT][SCAN %03d][SDL3 %03d] name=%r | VID=%s | PID=%s | version=%s | "
+                "GUID=%r | path=%r | device_id=%r | instance_id=%r",
+                scan_id,
+                index,
+                device.name,
+                self._hex_id(device.vendor_id),
+                self._hex_id(device.product_id),
+                device.version,
+                device.sdl_guid,
+                device.path,
+                device.device_id,
+                device.metadata.get("instance_id") if device.metadata else None,
+            )
+
+        for index, correlation in enumerate(correlations, start=1):
+            input_logger.info(
+                "[INPUT][SCAN %03d][CORR %03d] physical=%r -> logical=%r | score=%s | "
+                "ambiguous=%s | reasons=%s",
+                scan_id,
+                index,
+                correlation.physical.device_id,
+                correlation.logical.device_id,
+                correlation.score,
+                correlation.ambiguous,
+                ",".join(correlation.reasons),
+            )
+        input_logger.info("[INPUT][SCAN %03d] fim", scan_id)
+
+    @staticmethod
+    def _hex_id(value: int | None) -> str:
+        return f"0x{value:04X}" if value is not None else "-"
 
     def _enumerate_sdl3(self) -> tuple[InputDevice, ...]:
         """Inicializa SDL3 uma vez por serviço e retorna gamepads disponíveis."""
