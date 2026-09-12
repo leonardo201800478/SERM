@@ -8,7 +8,7 @@ emulador e não injeta eventos de entrada.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from ..models.input_control import ControlProfile, InputDevice
 from .controller_catalog_service import ControllerCatalogService, ControllerIdentification
@@ -71,16 +71,49 @@ class InputControlService:
             logical_devices = self._enumerate_sdl3()
         correlations = self.correlation_service.correlate(physical, logical_devices)
         by_physical = {item.physical.device_id: item for item in correlations}
-        snapshots = tuple(
-            InputDeviceSnapshot(
-                device=device,
-                layout=self.layout_analyzer.analyze(device),
-                identification=self.catalog_service.identify(device),
-                correlation=by_physical.get(device.device_id),
+
+        snapshots: list[InputDeviceSnapshot] = []
+        for device in physical:
+            identification = self.catalog_service.identify(device)
+            layout = self.layout_analyzer.analyze(device)
+            layout = self._apply_catalog_layout(layout, identification)
+            snapshots.append(
+                InputDeviceSnapshot(
+                    device=device,
+                    layout=layout,
+                    identification=identification,
+                    correlation=by_physical.get(device.device_id),
+                )
             )
-            for device in physical
-        )
-        return InputControlSnapshot(physical, logical_devices, snapshots, correlations)
+
+        return InputControlSnapshot(physical, logical_devices, tuple(snapshots), correlations)
+
+    @staticmethod
+    def _apply_catalog_layout(
+        layout: LayoutSummary,
+        identification: ControllerIdentification,
+    ) -> LayoutSummary:
+        """Completa o layout quando o catálogo tem uma expectativa verificada.
+
+        HIDAPI fornece identidade física, mas não necessariamente os elementos
+        individuais. Nessa situação usamos apenas o layout esperado do modelo;
+        não o apresentamos como uma leitura de eventos do dispositivo.
+        """
+        model = identification.model
+        if model is None:
+            return layout
+
+        changes: dict[str, object] = {}
+        if layout.buttons == 0 and model.expected_face_buttons is not None:
+            changes["buttons"] = model.expected_face_buttons
+            changes["face_buttons"] = model.expected_face_buttons
+            changes["has_six_face_buttons"] = model.expected_face_buttons >= 6
+            changes["profile_kind"] = (
+                "six-button-gamepad" if model.expected_face_buttons >= 6 else layout.profile_kind
+            )
+        if layout.axes == 0 and model.expected_axes is not None:
+            changes["axes"] = model.expected_axes
+        return replace(layout, **changes) if changes else layout
 
     def _enumerate_sdl3(self) -> tuple[InputDevice, ...]:
         """Inicializa SDL3 uma vez por serviço e retorna gamepads disponíveis."""
