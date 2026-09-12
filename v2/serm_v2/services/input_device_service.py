@@ -97,9 +97,10 @@ class InputDeviceService:
             return InputConnection.BLUETOOTH
         if "wireless" in normalized or "receiver" in normalized:
             return InputConnection.WIRELESS
-        # HID paths Windows normalmente carregam VID/PID; isso é evidência de
-        # transporte USB apenas quando não há uma assinatura Bluetooth acima.
-        if re.search(r"hid#vid_[0-9a-f]{4}&pid_[0-9a-f]{4}", normalized):
+        # HID paths Windows podem variar entre hid#usb#VID_... e hid#VID_...;
+        # a presença explícita de VID/PID é evidência suficiente de USB somente
+        # depois das assinaturas Bluetooth/wireless acima.
+        if re.search(r"vid_[0-9a-f]{4}&pid_[0-9a-f]{4}", normalized):
             return InputConnection.USB
         return InputConnection.UNKNOWN
 
