@@ -79,6 +79,8 @@ class InputControlService:
 
         snapshots: list[InputDeviceSnapshot] = []
         for device in physical:
+            correlation = by_physical.get(device.device_id)
+            device = self._merge_runtime_metadata(device, correlation)
             identification = self.catalog_service.identify(device)
             layout = self.layout_analyzer.analyze(device)
             layout = self._apply_catalog_layout(layout, identification)
@@ -87,24 +89,34 @@ class InputControlService:
                     device=device,
                     layout=layout,
                     identification=identification,
-                    correlation=by_physical.get(device.device_id),
+                    correlation=correlation,
                 )
             )
 
         return InputControlSnapshot(physical, logical_devices, tuple(snapshots), correlations)
 
     @staticmethod
+    def _merge_runtime_metadata(
+        physical: InputDevice,
+        correlation: DeviceCorrelation | None,
+    ) -> InputDevice:
+        """Copia telemetria transitória do SDL3 para a visão física correlacionada."""
+        if correlation is None or not correlation.logical.metadata:
+            return physical
+        battery_keys = {"battery_percent", "battery_state"}
+        battery = {key: correlation.logical.metadata[key] for key in battery_keys if key in correlation.logical.metadata}
+        if not battery:
+            return physical
+        metadata = dict(physical.metadata)
+        metadata.update(battery)
+        return replace(physical, metadata=metadata)
+
+    @staticmethod
     def _apply_catalog_layout(
         layout: LayoutSummary,
         identification: ControllerIdentification,
     ) -> LayoutSummary:
-        """Completa o layout quando o catálogo tem uma expectativa verificada.
-
-        O serviço principal usa ``ControllerIdentification.model``. Fakes de
-        testes e integrações legadas podem expor somente outros metadados; nesse
-        caso o layout observado é preservado exatamente como foi produzido pelo
-        analisador, sem aplicar suposições.
-        """
+        """Completa o layout quando o catálogo tem uma expectativa verificada."""
         model = getattr(identification, "model", None)
         if model is None:
             return layout
@@ -128,70 +140,38 @@ class InputControlService:
         logical_devices: tuple[InputDevice, ...],
         correlations: tuple[DeviceCorrelation, ...],
     ) -> None:
-        """Registra uma fotografia completa de cada detecção para testes físicos.
-
-        O diagnóstico é somente leitura. Ele preserva VID/PID, nome, fabricante,
-        produto, versão, conexão, caminho, GUID SDL3 e correlação, permitindo
-        comparar o mesmo controlador em diferentes modos de entrada sem inferir
-        o modelo a partir de um VID compartilhado.
-        """
+        """Registra uma fotografia completa de cada detecção para testes físicos."""
         input_logger.info(
             "[INPUT][SCAN %03d] início | HID=%d | SDL3=%d | correlações=%d",
-            scan_id,
-            len(physical_devices),
-            len(logical_devices),
-            len(correlations),
+            scan_id, len(physical_devices), len(logical_devices), len(correlations),
         )
         for index, device in enumerate(physical_devices, start=1):
             input_logger.info(
                 "[INPUT][SCAN %03d][HID %03d] name=%r | manufacturer=%r | product=%r | "
                 "VID=%s | PID=%s | version=%s | connection=%s | bus_type=%s | "
                 "usage_page=%s | usage=%s | interface=%s | serial=%r | path=%r | device_id=%r",
-                scan_id,
-                index,
-                device.name,
-                device.manufacturer,
-                device.product,
-                self._hex_id(device.vendor_id),
-                self._hex_id(device.product_id),
-                device.version,
-                getattr(device.connection, "value", device.connection),
-                device.bus_type,
-                device.usage_page,
-                device.usage,
-                device.interface_number,
-                device.serial,
-                device.path,
-                device.device_id,
+                scan_id, index, device.name, device.manufacturer, device.product,
+                self._hex_id(device.vendor_id), self._hex_id(device.product_id), device.version,
+                getattr(device.connection, "value", device.connection), device.bus_type,
+                device.usage_page, device.usage, device.interface_number, device.serial,
+                device.path, device.device_id,
             )
-
         for index, device in enumerate(logical_devices, start=1):
             input_logger.info(
                 "[INPUT][SCAN %03d][SDL3 %03d] name=%r | VID=%s | PID=%s | version=%s | "
-                "GUID=%r | path=%r | device_id=%r | instance_id=%r",
-                scan_id,
-                index,
-                device.name,
-                self._hex_id(device.vendor_id),
-                self._hex_id(device.product_id),
-                device.version,
-                device.sdl_guid,
-                device.path,
-                device.device_id,
-                device.metadata.get("instance_id") if device.metadata else None,
+                "GUID=%r | path=%r | device_id=%r | instance_id=%r | battery=%s%% | battery_state=%r",
+                scan_id, index, device.name, self._hex_id(device.vendor_id),
+                self._hex_id(device.product_id), device.version, device.sdl_guid, device.path,
+                device.device_id, device.metadata.get("instance_id") if device.metadata else None,
+                device.metadata.get("battery_percent") if device.metadata else None,
+                device.metadata.get("battery_state") if device.metadata else None,
             )
-
         for index, correlation in enumerate(correlations, start=1):
             input_logger.info(
                 "[INPUT][SCAN %03d][CORR %03d] physical=%r -> logical=%r | score=%s | "
                 "ambiguous=%s | reasons=%s",
-                scan_id,
-                index,
-                correlation.physical.device_id,
-                correlation.logical.device_id,
-                correlation.score,
-                correlation.ambiguous,
-                ",".join(correlation.reasons),
+                scan_id, index, correlation.physical.device_id, correlation.logical.device_id,
+                correlation.score, correlation.ambiguous, ",".join(correlation.reasons),
             )
         input_logger.info("[INPUT][SCAN %03d] fim", scan_id)
 
@@ -200,7 +180,6 @@ class InputControlService:
         return f"0x{value:04X}" if value is not None else "-"
 
     def _enumerate_sdl3(self) -> tuple[InputDevice, ...]:
-        """Inicializa SDL3 uma vez por serviço e retorna gamepads disponíveis."""
         try:
             if not self._sdl3_initialized:
                 self.sdl3_input_service.initialize()
@@ -216,11 +195,9 @@ class InputControlService:
         device: InputDevice,
         profile: ControlProfile | None = None,
     ) -> SystemControlMapping:
-        """Compara um dispositivo com requisitos já extraídos do MAME."""
         return self.mapper.map_mame(requirements, device, profile)
 
     def read_mame_machine(self, xml_path: str, machine_name: str) -> MameInputRequirements | None:
-        """Lê somente a máquina solicitada de um ListXML potencialmente grande."""
         return self.mame_control_service.read_machine(xml_path, machine_name)
 
 
