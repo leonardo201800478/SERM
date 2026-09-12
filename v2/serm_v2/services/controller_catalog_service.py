@@ -141,7 +141,10 @@ class ControllerCatalogService:
 
     @classmethod
     def eightbitdo(cls) -> "ControllerCatalogService":
-        return cls.default()
+        """Retorna exclusivamente os modelos 8BitDo físicos já validados."""
+        return cls(
+            tuple(entry for entry in cls.default().entries() if entry.manufacturer.casefold() == "8bitdo")
+        )
 
     def entries(self) -> tuple[ControllerCatalogEntry, ...]:
         return self._entries
