@@ -1,9 +1,4 @@
-"""Análise de elementos físicos e construção de um layout de controle.
-
-O analisador não presume que todo dispositivo seja um gamepad de quatro
-botões. Ele preserva a contagem e a ordem dos elementos observados e fornece
-uma classificação simples para a camada de apresentação e de mapeamento.
-"""
+"""Análise de elementos físicos e construção de um layout de controle."""
 
 from __future__ import annotations
 
@@ -23,6 +18,7 @@ class LayoutSummary:
     hats: int
     keys: int
     mouse_buttons: int
+    face_buttons: int
     has_six_face_buttons: bool
     profile_kind: str
 
@@ -31,19 +27,15 @@ class InputLayoutAnalyzer:
     """Extrai a topologia do controle a partir dos elementos conhecidos."""
 
     def analyze(self, device: InputDevice) -> LayoutSummary:
-        elements = device.elements
-        counts = {
-            InputElementType.BUTTON: 0,
-            InputElementType.AXIS: 0,
-            InputElementType.HAT: 0,
-            InputElementType.KEY: 0,
-            InputElementType.MOUSE_BUTTON: 0,
-        }
-        for element in elements:
+        counts = {kind: 0 for kind in (
+            InputElementType.BUTTON, InputElementType.AXIS, InputElementType.HAT,
+            InputElementType.KEY, InputElementType.MOUSE_BUTTON,
+        )}
+        for element in device.elements:
             if element.element_type in counts:
                 counts[element.element_type] += 1
 
-        face_buttons = self._face_button_count(elements)
+        face_buttons = self._face_button_count(device.elements)
         return LayoutSummary(
             device_id=device.device_id,
             device_type=device.device_type,
@@ -52,22 +44,31 @@ class InputLayoutAnalyzer:
             hats=counts[InputElementType.HAT],
             keys=counts[InputElementType.KEY],
             mouse_buttons=counts[InputElementType.MOUSE_BUTTON],
+            face_buttons=face_buttons,
             has_six_face_buttons=face_buttons >= 6,
             profile_kind=self._profile_kind(device.device_type, face_buttons, counts),
         )
 
     @staticmethod
     def _face_button_count(elements: tuple[InputElement, ...]) -> int:
-        logical = {element.logical_control for element in elements}
-        names = {
-            value
-            for value in logical
-            if value is not None and (value.value.startswith("face_") or value.value in {"face_south", "face_east", "face_west", "face_north"})
+        logical = {
+            element.logical_control
+            for element in elements
+            if element.logical_control is not None
+            and element.logical_control.value.startswith("face_")
         }
-        if names:
-            return len(names)
-        # Fallback para inventários ainda sem mapeamento lógico.
-        return sum(1 for element in elements if element.element_type is InputElementType.BUTTON and "face" in element.name.casefold())
+        if logical:
+            return len(logical)
+
+        # Quando o backend ainda não atribuiu controles lógicos, usamos nomes
+        # explícitos (por exemplo "face_1") antes de recorrer à heurística de
+        # seis botões. O catálogo de modelos poderá substituir essa heurística.
+        named = [
+            element for element in elements
+            if element.element_type is InputElementType.BUTTON
+            and "face" in element.name.casefold()
+        ]
+        return len(named)
 
     @staticmethod
     def _profile_kind(device_type: InputDeviceType, face_buttons: int, counts: dict[InputElementType, int]) -> str:
