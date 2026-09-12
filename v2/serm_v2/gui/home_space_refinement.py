@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QLabel, QPlainTextEdit, QProgressBar, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QLabel, QPlainTextEdit, QProgressBar, QSizePolicy, QVBoxLayout, QWidget
 
 
 LOG_LABELS = {"Log detalhado da instalação", "Log RetroArch"}
@@ -40,21 +40,18 @@ def compact_home_space(home) -> bool:
         layout.setSpacing(5)
         layout.setContentsMargins(4, 4, 4, 4)
 
-    # A lista de cores deve ocupar toda a área disponível do tab RetroArch.
     core_list = getattr(home, "core_list", None)
     if core_list is not None:
         core_list.setMinimumHeight(0)
         policy = core_list.sizePolicy()
-        policy.setVerticalPolicy(policy.Policy.Expanding)
+        policy.setVerticalPolicy(QSizePolicy.Policy.Expanding)
         core_list.setSizePolicy(policy)
 
-    # Barra global é o único console operacional da Home.
     dock = getattr(home.window(), "log_dock", None)
     if dock is not None:
         dock.setMinimumHeight(68)
         dock.setMaximumHeight(112)
 
-    # Progresso único, fino e sem aparência segmentada.
     progress = getattr(home, "home_progress", None)
     if isinstance(progress, QProgressBar):
         progress.setTextVisible(False)
