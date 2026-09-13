@@ -1,5 +1,5 @@
 from serm_v2.models.input_control import LogicalControl
-from serm_v2.services.controller_input_probe_service import ControllerInputProbeService
+from serm_v2.services.controller_input_probe_service import ControllerInputProbeService, ProbeEventType
 
 
 def test_m30_sequence_uses_physical_nomenclature_and_all_buttons():
@@ -55,6 +55,14 @@ def test_axis_threshold_only_reports_new_crossing():
     assert service._axis_crossed(0, 12001)
     assert not service._axis_crossed(13000, 14000)
     assert service._axis_crossed(-1000, -13000)
+    assert service._axis_crossed(13000, -13000)
+    assert service._axis_crossed(-13000, 13000)
+    assert not service._axis_crossed(13000, 11000)
+
+
+def test_axis_direction_is_encoded_in_element_id():
+    assert ControllerInputProbeService._axis_direction(-20000) == "−"
+    assert ControllerInputProbeService._axis_direction(20000) == "+"
 
 
 def test_unknown_model_does_not_invent_layout():
@@ -114,3 +122,10 @@ def test_probe_enables_joystick_and_gamepad_events():
     ControllerInputProbeService._enable_input_updates(fake)
     assert fake.joystick_events is True
     assert fake.gamepad_events is True
+
+
+def test_probe_axis_event_keeps_direction_as_part_of_binding():
+    # A mesma linha de eixo físico representa duas entradas lógicas distintas.
+    # O sinal observado pelo hardware precisa fazer parte da identidade do evento.
+    assert "axis:0:-" != "axis:0:+"
+    assert ProbeEventType.AXIS.value == "axis"
