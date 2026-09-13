@@ -61,11 +61,19 @@ def test_unknown_model_does_not_invent_layout():
     assert ControllerInputProbeService.default_sequence("unknown-model") == (LogicalControl.UNKNOWN,)
 
 
-def test_probe_prefers_update_joysticks_over_event_pump():
+def test_probe_processes_event_queue_before_joystick_state():
     class FakeSDL:
         def __init__(self):
             self.updated = 0
             self.pumped = 0
+            self.joystick_events = None
+            self.gamepad_events = None
+
+        def SDL_SetJoystickEventsEnabled(self, enabled):
+            self.joystick_events = enabled
+
+        def SDL_SetGamepadEventsEnabled(self, enabled):
+            self.gamepad_events = enabled
 
         def SDL_UpdateJoysticks(self):
             self.updated += 1
@@ -86,5 +94,23 @@ def test_probe_prefers_update_joysticks_over_event_pump():
     service = ControllerInputProbeService(fake)
     service._joystick = object()
     assert service.poll() == ()
+    assert fake.pumped == 1
     assert fake.updated == 1
-    assert fake.pumped == 0
+
+
+def test_probe_enables_joystick_and_gamepad_events():
+    class FakeSDL:
+        def __init__(self):
+            self.joystick_events = None
+            self.gamepad_events = None
+
+        def SDL_SetJoystickEventsEnabled(self, enabled):
+            self.joystick_events = enabled
+
+        def SDL_SetGamepadEventsEnabled(self, enabled):
+            self.gamepad_events = enabled
+
+    fake = FakeSDL()
+    ControllerInputProbeService._enable_input_updates(fake)
+    assert fake.joystick_events is True
+    assert fake.gamepad_events is True
