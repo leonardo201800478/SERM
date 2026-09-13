@@ -221,18 +221,26 @@ class ControllerInputProbeService:
     @staticmethod
     def default_sequence(model_id: str) -> tuple[LogicalControl, ...]:
         if model_id == "8bitdo-m30":
-            # O M30 pode expor o D-Pad como dois eixos digitais (X/Y) em vez
-            # de um Hat. MODE/PAIR não é uma entrada de jogo e não participa
-            # da calibração destinada ao MAME. MENU/HOME, porém, pode ser usado
-            # para UI_MENU.
+            # Ordem física canônica do M30 usada pelo SERM:
+            # direcionais, A, B, C, X, Y, Z, L, R, SELECT/MODE, START, MENU.
+            # MODE/PAIR é uma função do hardware e não entra como entrada de jogo.
+            # O slot SELECT/MODE representa o botão SELECT do M30; MODE/PAIR
+            # permanece deliberadamente sem binding no MAME.
             return (
-                LogicalControl.DPAD_UP, LogicalControl.DPAD_DOWN,
-                LogicalControl.DPAD_LEFT, LogicalControl.DPAD_RIGHT,
-                LogicalControl.FACE_SOUTH, LogicalControl.FACE_EAST,
-                LogicalControl.FACE_WEST, LogicalControl.FACE_NORTH,
-                LogicalControl.FACE_EXTRA_1, LogicalControl.FACE_EXTRA_2,
-                LogicalControl.LEFT_SHOULDER, LogicalControl.RIGHT_SHOULDER,
-                LogicalControl.START, LogicalControl.SELECT,
+                LogicalControl.DPAD_UP,
+                LogicalControl.DPAD_DOWN,
+                LogicalControl.DPAD_LEFT,
+                LogicalControl.DPAD_RIGHT,
+                LogicalControl.FACE_SOUTH,       # A
+                LogicalControl.FACE_EAST,        # B
+                LogicalControl.FACE_EXTRA_2,     # C
+                LogicalControl.FACE_WEST,        # X
+                LogicalControl.FACE_NORTH,       # Y
+                LogicalControl.FACE_EXTRA_1,     # Z
+                LogicalControl.LEFT_SHOULDER,    # L
+                LogicalControl.RIGHT_SHOULDER,   # R
+                LogicalControl.SELECT,           # SELECT / MODE
+                LogicalControl.START,
                 LogicalControl.MENU,
             )
         if model_id in {"8bitdo-ultimate-2c", "8bitdo-ultimate-2-wireless", "sony-dualshock-4", "sony-dualsense", "xbox-one-controller", "xbox-wireless-controller", "xbox-360-controller", "machenike-g5-pro"}:
@@ -259,7 +267,7 @@ class ControllerInputProbeService:
             LogicalControl.LEFT_SHOULDER: "L", LogicalControl.RIGHT_SHOULDER: "R",
             LogicalControl.LEFT_TRIGGER: "Trigger L", LogicalControl.RIGHT_TRIGGER: "Trigger R",
             LogicalControl.LEFT_STICK: "Stick L", LogicalControl.RIGHT_STICK: "Stick R",
-            LogicalControl.START: "START", LogicalControl.SELECT: "SELECT",
+            LogicalControl.START: "START", LogicalControl.SELECT: "SELECT / MODE",
             LogicalControl.MODE: "MODE / PAIR", LogicalControl.MENU: "MENU / HOME",
             LogicalControl.BACK: "Back", LogicalControl.GUIDE: "Guide",
             LogicalControl.STEERING: "Volante", LogicalControl.ACCELERATOR: "Acelerador",
