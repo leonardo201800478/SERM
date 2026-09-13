@@ -119,17 +119,33 @@ class ControllerMappingDialog(QDialog):
         self._update_instruction()
 
     @staticmethod
-    def _event_allowed(control: LogicalControl, event: object) -> bool:
-        event_type = getattr(event, "element_type", None)
+    def _expected_type(control: LogicalControl) -> ProbeEventType | None:
+        """Retorna o tipo normalmente esperado, apenas como referência visual.
+
+        A calibração não pode rejeitar o evento por tipo: o objetivo desta etapa
+        é justamente descobrir como o hardware expõe cada controle físico.
+        Alguns modos/firmwares podem expor um D-Pad como botões, por exemplo.
+        """
         if control.name.startswith("DPAD_"):
-            return event_type is ProbeEventType.HAT
-        if control in {LogicalControl.LEFT_TRIGGER, LogicalControl.RIGHT_TRIGGER, LogicalControl.LEFT_X, LogicalControl.LEFT_Y, LogicalControl.RIGHT_X, LogicalControl.RIGHT_Y, LogicalControl.STEERING, LogicalControl.ACCELERATOR, LogicalControl.BRAKE, LogicalControl.CLUTCH}:
-            return event_type is ProbeEventType.AXIS
-        return event_type is ProbeEventType.BUTTON
+            return ProbeEventType.HAT
+        if control in {
+            LogicalControl.LEFT_TRIGGER,
+            LogicalControl.RIGHT_TRIGGER,
+            LogicalControl.LEFT_X,
+            LogicalControl.LEFT_Y,
+            LogicalControl.RIGHT_X,
+            LogicalControl.RIGHT_Y,
+            LogicalControl.STEERING,
+            LogicalControl.ACCELERATOR,
+            LogicalControl.BRAKE,
+            LogicalControl.CLUTCH,
+        }:
+            return ProbeEventType.AXIS
+        return ProbeEventType.BUTTON
 
     @staticmethod
     def _element_already_used(control: LogicalControl, element_id: str, bindings: dict[LogicalControl, tuple[str, ...]]) -> bool:
-        """Impede duplicação de botões, mas permite reutilizar o mesmo Hat no D-Pad."""
+        """Impede duplicação de elementos, mas permite reutilizar o mesmo Hat no D-Pad."""
         if control.name.startswith("DPAD_") and element_id.startswith("hat:"):
             return False
         return any(element_id in value for value in bindings.values())
@@ -139,18 +155,26 @@ class ControllerMappingDialog(QDialog):
             if self.position >= len(self.sequence):
                 return
             control = self.sequence[self.position]
-            if not self._event_allowed(control, event):
-                self.detected.setText(
-                    f"Entrada detectada: {event.display} ({event.element_id}) — "
-                    f"aguardando {ControllerInputProbeService.logical_label(control)}."
-                )
-                continue
+            expected = self._expected_type(control)
+
+            # Não bloquear por tipo. O probe está descobrindo o hardware real;
+            # a associação física -> lógica é feita aqui pelo usuário. Isso é
+            # particularmente importante no M30, cujo modo/firmware pode
+            # apresentar controles de formas diferentes ao SDL3.
             if self._element_already_used(control, event.element_id, self.bindings):
                 self.detected.setText(f"Já utilizado: {event.display}. Escolha outro elemento físico.")
                 continue
+
             self.bindings[control] = (event.element_id,)
-            self._rows[self.position].setText(f"✓  {ControllerInputProbeService.logical_label(control)}  →  {event.display} ({event.element_id})")
-            self.detected.setText(f"Detectado: {event.display} ({event.element_id})")
+            expected_note = ""
+            if expected is not None and event.element_type is not expected:
+                expected_note = f"  • esperado normalmente: {expected.value}"
+            self._rows[self.position].setText(
+                f"✓  {ControllerInputProbeService.logical_label(control)}  →  {event.display} ({event.element_id})"
+            )
+            self.detected.setText(
+                f"Detectado e associado: {event.display} ({event.element_id}){expected_note}"
+            )
             self.position += 1
             if self.position < len(self.sequence):
                 self._update_instruction()
