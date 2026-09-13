@@ -62,6 +62,22 @@ def test_probe_detects_axis_crossing_and_hat_change():
     fake.axes[0] = 16000
     fake.hats[0] = 1
     events = probe.poll()
-    assert {event.element_id for event in events} == {"axis:0", "hat:0"}
+    assert {event.element_id for event in events} == {"axis:0:+", "hat:0"}
     assert {event.element_type for event in events} == {ProbeEventType.AXIS, ProbeEventType.HAT}
+    probe.stop()
+
+
+def test_probe_detects_both_directions_of_same_axis_as_distinct_inputs():
+    fake = FakeSDL()
+    probe = ControllerInputProbeService(fake)
+    probe.start(123)
+
+    fake.axes[0] = 16000
+    events = probe.poll()
+    assert [event.element_id for event in events] == ["axis:0:+"]
+
+    fake.axes[0] = -16000
+    events = probe.poll()
+    assert [event.element_id for event in events] == ["axis:0:-"]
+
     probe.stop()
