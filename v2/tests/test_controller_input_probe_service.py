@@ -2,7 +2,7 @@ from serm_v2.models.input_control import LogicalControl
 from serm_v2.services.controller_input_probe_service import ControllerInputProbeService, ProbeEventType
 
 
-def test_m30_sequence_uses_physical_nomenclature_and_mame_controls():
+def test_m30_sequence_uses_canonical_physical_order():
     sequence = ControllerInputProbeService.default_sequence("8bitdo-m30")
     assert len(sequence) == 15
     assert sequence[:4] == (
@@ -12,17 +12,17 @@ def test_m30_sequence_uses_physical_nomenclature_and_mame_controls():
         LogicalControl.DPAD_RIGHT,
     )
     assert sequence[4:10] == (
-        LogicalControl.FACE_SOUTH,
-        LogicalControl.FACE_EAST,
-        LogicalControl.FACE_WEST,
-        LogicalControl.FACE_NORTH,
-        LogicalControl.FACE_EXTRA_1,
-        LogicalControl.FACE_EXTRA_2,
+        LogicalControl.FACE_SOUTH,       # A
+        LogicalControl.FACE_EAST,        # B
+        LogicalControl.FACE_EXTRA_2,     # C
+        LogicalControl.FACE_WEST,        # X
+        LogicalControl.FACE_NORTH,       # Y
+        LogicalControl.FACE_EXTRA_1,     # Z
     )
     assert sequence[10:12] == (LogicalControl.LEFT_SHOULDER, LogicalControl.RIGHT_SHOULDER)
     assert sequence[12:] == (
-        LogicalControl.START,
         LogicalControl.SELECT,
+        LogicalControl.START,
         LogicalControl.MENU,
     )
     assert LogicalControl.MODE not in sequence
@@ -32,13 +32,13 @@ def test_m30_labels_match_physical_controller():
     labels = ControllerInputProbeService.logical_label
     assert labels(LogicalControl.FACE_SOUTH) == "A"
     assert labels(LogicalControl.FACE_EAST) == "B"
+    assert labels(LogicalControl.FACE_EXTRA_2) == "C"
     assert labels(LogicalControl.FACE_WEST) == "X"
     assert labels(LogicalControl.FACE_NORTH) == "Y"
     assert labels(LogicalControl.FACE_EXTRA_1) == "Z"
-    assert labels(LogicalControl.FACE_EXTRA_2) == "C"
     assert labels(LogicalControl.LEFT_SHOULDER) == "L"
     assert labels(LogicalControl.RIGHT_SHOULDER) == "R"
-    assert labels(LogicalControl.SELECT) == "SELECT"
+    assert labels(LogicalControl.SELECT) == "SELECT / MODE"
     assert labels(LogicalControl.MODE) == "MODE / PAIR"
     assert labels(LogicalControl.MENU) == "MENU / HOME"
 
