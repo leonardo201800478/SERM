@@ -53,11 +53,13 @@ class ControllerInputProbeService:
         if self._gamepad is not None:
             self.stop()
         sdl3 = self._load()
+        self._enable_input_updates(sdl3)
         open_gamepad = getattr(sdl3, "SDL_OpenGamepad")
         get_joystick = getattr(sdl3, "SDL_GetGamepadJoystick")
         gamepad = open_gamepad(int(instance_id))
         if not gamepad:
-            raise RuntimeError(f"SDL3 não conseguiu abrir o gamepad {instance_id}")
+            error = getattr(sdl3, "SDL_GetError", lambda: "erro desconhecido")()
+            raise RuntimeError(f"SDL3 não conseguiu abrir o gamepad {instance_id}: {error}")
         joystick = get_joystick(gamepad)
         if not joystick:
             close_gamepad = getattr(sdl3, "SDL_CloseGamepad", None)
@@ -99,13 +101,7 @@ class ControllerInputProbeService:
         if self._joystick is None:
             return ()
         sdl3 = self._load()
-        update_joysticks = getattr(sdl3, "SDL_UpdateJoysticks", None)
-        if update_joysticks:
-            update_joysticks()
-        else:
-            pump = getattr(sdl3, "SDL_PumpEvents", None)
-            if pump:
-                pump()
+        self._pump_and_update(sdl3)
 
         events: list[ProbeEvent] = []
         num_buttons = self._count("SDL_GetNumJoystickButtons")
@@ -139,20 +135,41 @@ class ControllerInputProbeService:
                     events.append(ProbeEvent(f"hat:{index}", ProbeEventType.HAT, index, value, self._hat_name(value)))
         return tuple(events)
 
-    def _prime(self) -> None:
-        sdl3 = self._load()
+    @staticmethod
+    def _enable_input_updates(sdl3: Any) -> None:
+        """Garante que SDL3 deixe habilitados os eventos de joystick/gamepad."""
+        set_joystick_events = getattr(sdl3, "SDL_SetJoystickEventsEnabled", None)
+        if set_joystick_events:
+            set_joystick_events(True)
+        set_gamepad_events = getattr(sdl3, "SDL_SetGamepadEventsEnabled", None)
+        if set_gamepad_events:
+            set_gamepad_events(True)
+
+    @staticmethod
+    def _pump_and_update(sdl3: Any) -> None:
+        """Processa a fila e depois atualiza o snapshot bruto do joystick."""
+        pump = getattr(sdl3, "SDL_PumpEvents", None)
+        if pump:
+            pump()
         update_joysticks = getattr(sdl3, "SDL_UpdateJoysticks", None)
         if update_joysticks:
             update_joysticks()
+
+    def _prime(self) -> None:
+        sdl3 = self._load()
+        self._pump_and_update(sdl3)
         num_buttons = self._count("SDL_GetNumJoystickButtons")
+        self._previous_buttons = {}
         if num_buttons:
             get_button = getattr(sdl3, "SDL_GetJoystickButton")
             self._previous_buttons = {i: bool(get_button(self._joystick, i)) for i in range(num_buttons)}
         num_axes = self._count("SDL_GetNumJoystickAxes")
+        self._previous_axes = {}
         if num_axes:
             get_axis = getattr(sdl3, "SDL_GetJoystickAxis")
             self._previous_axes = {i: int(get_axis(self._joystick, i)) for i in range(num_axes)}
         num_hats = self._count("SDL_GetNumJoystickHats")
+        self._previous_hats = {}
         if num_hats:
             get_hat = getattr(sdl3, "SDL_GetJoystickHat")
             self._previous_hats = {i: int(get_hat(self._joystick, i)) for i in range(num_hats)}
