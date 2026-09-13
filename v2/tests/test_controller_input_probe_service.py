@@ -2,9 +2,9 @@ from serm_v2.models.input_control import LogicalControl
 from serm_v2.services.controller_input_probe_service import ControllerInputProbeService, ProbeEventType
 
 
-def test_m30_sequence_uses_physical_nomenclature_and_all_buttons():
+def test_m30_sequence_uses_physical_nomenclature_and_mame_controls():
     sequence = ControllerInputProbeService.default_sequence("8bitdo-m30")
-    assert len(sequence) == 16
+    assert len(sequence) == 15
     assert sequence[:4] == (
         LogicalControl.DPAD_UP,
         LogicalControl.DPAD_DOWN,
@@ -23,9 +23,9 @@ def test_m30_sequence_uses_physical_nomenclature_and_all_buttons():
     assert sequence[12:] == (
         LogicalControl.START,
         LogicalControl.SELECT,
-        LogicalControl.MODE,
         LogicalControl.MENU,
     )
+    assert LogicalControl.MODE not in sequence
 
 
 def test_m30_labels_match_physical_controller():
@@ -125,7 +125,5 @@ def test_probe_enables_joystick_and_gamepad_events():
 
 
 def test_probe_axis_event_keeps_direction_as_part_of_binding():
-    # A mesma linha de eixo físico representa duas entradas lógicas distintas.
-    # O sinal observado pelo hardware precisa fazer parte da identidade do evento.
     assert "axis:0:-" != "axis:0:+"
     assert ProbeEventType.AXIS.value == "axis"
