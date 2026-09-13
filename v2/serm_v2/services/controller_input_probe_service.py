@@ -222,7 +222,9 @@ class ControllerInputProbeService:
     def default_sequence(model_id: str) -> tuple[LogicalControl, ...]:
         if model_id == "8bitdo-m30":
             # O M30 pode expor o D-Pad como dois eixos digitais (X/Y) em vez
-            # de um Hat. A calibração descobre os sinais reais de cada eixo.
+            # de um Hat. MODE/PAIR não é uma entrada de jogo e não participa
+            # da calibração destinada ao MAME. MENU/HOME, porém, pode ser usado
+            # para UI_MENU.
             return (
                 LogicalControl.DPAD_UP, LogicalControl.DPAD_DOWN,
                 LogicalControl.DPAD_LEFT, LogicalControl.DPAD_RIGHT,
@@ -231,7 +233,7 @@ class ControllerInputProbeService:
                 LogicalControl.FACE_EXTRA_1, LogicalControl.FACE_EXTRA_2,
                 LogicalControl.LEFT_SHOULDER, LogicalControl.RIGHT_SHOULDER,
                 LogicalControl.START, LogicalControl.SELECT,
-                LogicalControl.MODE, LogicalControl.MENU,
+                LogicalControl.MENU,
             )
         if model_id in {"8bitdo-ultimate-2c", "8bitdo-ultimate-2-wireless", "sony-dualshock-4", "sony-dualsense", "xbox-one-controller", "xbox-wireless-controller", "xbox-360-controller", "machenike-g5-pro"}:
             return (
