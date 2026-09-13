@@ -140,6 +140,10 @@ class ControllerMappingDialog(QDialog):
                 return
             control = self.sequence[self.position]
             if not self._event_allowed(control, event):
+                self.detected.setText(
+                    f"Entrada detectada: {event.display} ({event.element_id}) — "
+                    f"aguardando {ControllerInputProbeService.logical_label(control)}."
+                )
                 continue
             if self._element_already_used(control, event.element_id, self.bindings):
                 self.detected.setText(f"Já utilizado: {event.display}. Escolha outro elemento físico.")
