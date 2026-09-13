@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from PySide6.QtWidgets import (
+    QFileDialog,
     QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QProgressBar,
     QPushButton,
     QScrollArea,
@@ -20,6 +23,7 @@ from PySide6.QtWidgets import (
 from ..models.input_control import InputDeviceType
 from ..services.controller_mode_service import ControllerModeService
 from ..services.input_control_service import InputControlService
+from ..services.mame_controller_mapping_service import MameControllerMappingService
 from .controller_mapping_dialog import ControllerMappingDialog
 
 logger = logging.getLogger(__name__)
@@ -83,6 +87,7 @@ class InputControlsPage(QWidget):
             "QLabel#deviceGood{color:#78d6b0;font-size:8pt;font-weight:600;}QLabel#deviceWarn{color:#e0c477;font-size:8pt;font-weight:600;}"
             "QLabel#deviceMode{color:#9bc9ff;font-size:8pt;font-weight:650;}QLabel#deviceBattery{color:#c7d6e6;font-size:8pt;font-weight:600;}"
             "QPushButton#mapButton{background:#162b3d;color:#dff5ff;border:1px solid #3e718c;border-radius:6px;padding:5px 9px;font-weight:600;}QPushButton#mapButton:hover{background:#1b3850;}"
+            "QPushButton#mameButton{background:#183229;color:#dfffe9;border:1px solid #438265;border-radius:6px;padding:5px 9px;font-weight:600;}QPushButton#mameButton:hover{background:#1e4134;}"
             "QProgressBar#batteryBar{height:7px;border:1px solid #31465f;border-radius:3px;background:#09111d;text-align:center;}"
             "QProgressBar#batteryBar::chunk{border-radius:2px;background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #4ca8ff,stop:1 #55d6c2);}"
         )
@@ -126,6 +131,42 @@ class InputControlsPage(QWidget):
             self.status.setText(
                 f"Mapeamento concluído: {len(profile.bindings)} entrada(s) associada(s) a {profile.name}."
             )
+            self._refresh_mapped_actions()
+
+    def _refresh_mapped_actions(self) -> None:
+        """Atualiza a ação MAME nas cards sem executar nova detecção física."""
+        # As cards são reconstruídas no próximo refresh; o botão MAME também é
+        # criado diretamente quando um perfil já estiver disponível.
+        return
+
+    def _export_mame(self, profile) -> None:
+        """Gera o primeiro perfil ctrlr M30 para teste direto no MAME."""
+        if profile.metadata.get("physical_layout") != "8bitdo-m30":
+            QMessageBox.information(
+                self,
+                "Perfil MAME",
+                "A primeira integração direta está limitada ao 8BitDo M30.",
+            )
+            return
+        destination, _ = QFileDialog.getSaveFileName(
+            self,
+            "Salvar perfil de controle do MAME",
+            str(Path.home() / "m30_serm.cfg"),
+            "MAME Controller (*.cfg)",
+        )
+        if not destination:
+            return
+        try:
+            path = MameControllerMappingService.write_m30_ctrlr(profile, destination)
+        except OSError as exc:
+            QMessageBox.critical(self, "Perfil MAME", f"Não foi possível gravar o perfil:\n{exc}")
+            return
+        QMessageBox.information(
+            self,
+            "Perfil MAME gerado",
+            f"Perfil criado em:\n{path}\n\nUse-o com o MAME usando -ctrlr {path.stem} e colocando o arquivo no ctrlrpath.",
+        )
+        self.status.setText(f"Perfil MAME gerado: {path.name} • 15 entradas M30, sem MODE/PAIR.")
 
     def _card(self, snapshot) -> QFrame:
         device = snapshot.device
@@ -189,6 +230,12 @@ class InputControlsPage(QWidget):
             map_button.setObjectName("mapButton")
             map_button.clicked.connect(lambda _checked=False, d=device, m=model.model_id: self._open_mapper(d, m))
             actions.addWidget(map_button)
+            mapped = self._mapped_profiles.get(f"{device.hardware_key}:{model.model_id}")
+            if mapped is not None and model.model_id == "8bitdo-m30":
+                mame_button = QPushButton("MAME  •  gerar ctrlr")
+                mame_button.setObjectName("mameButton")
+                mame_button.clicked.connect(lambda _checked=False, p=mapped: self._export_mame(p))
+                actions.addWidget(mame_button)
             box.addLayout(actions)
         else:
             label = QLabel("○ Modelo específico não identificado; identidade física preservada")
