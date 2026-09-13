@@ -122,7 +122,18 @@ class ControllerInputProbeService:
                 previous = self._previous_axes.get(index, value)
                 self._previous_axes[index] = value
                 if self._axis_crossed(previous, value):
-                    events.append(ProbeEvent(f"axis:{index}", ProbeEventType.AXIS, index, value, f"Axis {index + 1}"))
+                    direction = self._axis_direction(value)
+                    sign = "+" if value > 0 else "-"
+                    display_direction = f" {direction}" if direction else ""
+                    events.append(
+                        ProbeEvent(
+                            f"axis:{index}:{sign}",
+                            ProbeEventType.AXIS,
+                            index,
+                            value,
+                            f"Axis {index + 1}{display_direction}",
+                        )
+                    )
 
         num_hats = self._count("SDL_GetNumJoystickHats")
         if num_hats:
@@ -180,7 +191,19 @@ class ControllerInputProbeService:
 
     @classmethod
     def _axis_crossed(cls, previous: int, current: int) -> bool:
-        return abs(current) >= cls.AXIS_THRESHOLD and abs(previous) < cls.AXIS_THRESHOLD
+        """Detecta entrada no limiar e também troca direta entre + e -."""
+        if abs(current) < cls.AXIS_THRESHOLD:
+            return False
+        if abs(previous) < cls.AXIS_THRESHOLD:
+            return True
+        return (previous < 0) != (current < 0)
+
+    @staticmethod
+    def _axis_direction(value: int) -> str:
+        """Representa a direção observada sem presumir a orientação do hardware."""
+        if value == 0:
+            return ""
+        return "−" if value < 0 else "+"
 
     @staticmethod
     def _hat_name(value: int) -> str:
@@ -198,8 +221,8 @@ class ControllerInputProbeService:
     @staticmethod
     def default_sequence(model_id: str) -> tuple[LogicalControl, ...]:
         if model_id == "8bitdo-m30":
-            # Nomenclatura do hardware real: os quatro sentidos pertencem ao
-            # mesmo D-Pad/Hat; SELECT, MODE e MENU são botões físicos distintos.
+            # O M30 pode expor o D-Pad como dois eixos digitais (X/Y) em vez
+            # de um Hat. A calibração descobre os sinais reais de cada eixo.
             return (
                 LogicalControl.DPAD_UP, LogicalControl.DPAD_DOWN,
                 LogicalControl.DPAD_LEFT, LogicalControl.DPAD_RIGHT,
