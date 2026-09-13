@@ -120,12 +120,7 @@ class ControllerMappingDialog(QDialog):
 
     @staticmethod
     def _expected_type(control: LogicalControl) -> ProbeEventType | None:
-        """Retorna o tipo normalmente esperado, apenas como referência visual.
-
-        A calibração não pode rejeitar o evento por tipo: o objetivo desta etapa
-        é justamente descobrir como o hardware expõe cada controle físico.
-        Alguns modos/firmwares podem expor um D-Pad como botões, por exemplo.
-        """
+        """Retorna o tipo normalmente esperado, apenas como referência visual."""
         if control.name.startswith("DPAD_"):
             return ProbeEventType.HAT
         if control in {
@@ -156,11 +151,6 @@ class ControllerMappingDialog(QDialog):
                 return
             control = self.sequence[self.position]
             expected = self._expected_type(control)
-
-            # Não bloquear por tipo. O probe está descobrindo o hardware real;
-            # a associação física -> lógica é feita aqui pelo usuário. Isso é
-            # particularmente importante no M30, cujo modo/firmware pode
-            # apresentar controles de formas diferentes ao SDL3.
             if self._element_already_used(control, event.element_id, self.bindings):
                 self.detected.setText(f"Já utilizado: {event.display}. Escolha outro elemento físico.")
                 continue
@@ -184,7 +174,11 @@ class ControllerMappingDialog(QDialog):
                 self.finish.setEnabled(True)
                 self.timer.stop()
                 self.probe.stop()
-                break
+            # Um único poll pode conter dois eventos do mesmo gesto (por
+            # exemplo, o M30 pode atualizar dois eixos digitais ao pressionar
+            # o D-Pad). Nunca devemos consumir ambos para duas posições do
+            # calibrador; o próximo controle deve aguardar um novo gesto.
+            return
 
     def _update_instruction(self) -> None:
         if self.position >= len(self.sequence):
