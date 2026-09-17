@@ -196,149 +196,48 @@ class SDL3InputService:
 
         return tuple(devices)
 
-    def _describe(
-        self,
-        sdl3: Any,
-        instance_id: int,
-    ) -> InputDevice:
-        input_logger.info(
-            "[SDL3][07] ID %d: Name",
-            instance_id,
-        )
+    def _describe(self, sdl3: Any, instance_id: int) -> InputDevice:
+        input_logger.info("[SDL3][07] ID %d: Name", instance_id)
+        name = self._decode(sdl3.SDL_GetGamepadNameForID(instance_id)) or f"SDL Gamepad {instance_id}"
+        input_logger.info("[SDL3][08] ID %d: Path", instance_id)
+        path = self._optional_text_call(sdl3, "SDL_GetGamepadPathForID", instance_id)
+        input_logger.info("[SDL3][09] ID %d: GUID", instance_id)
+        guid = self._guid(sdl3, instance_id)
+        input_logger.info("[SDL3][10] ID %d: Vendor/Product/Version", instance_id)
+        vendor = self._optional_int_call(sdl3, "SDL_GetGamepadVendorForID", instance_id)
+        product = self._optional_int_call(sdl3, "SDL_GetGamepadProductForID", instance_id)
+        version = self._optional_int_call(sdl3, "SDL_GetGamepadProductVersionForID", instance_id)
+        input_logger.info("[SDL3][11] ID %d: Mapping ignorado durante descoberta segura", instance_id)
 
-        name = (
-            self._decode(
-                sdl3.SDL_GetGamepadNameForID(
-                    instance_id
-                )
-            )
-            or f"SDL Gamepad {instance_id}"
-        )
-
-        input_logger.info(
-            "[SDL3][08] ID %d: Path",
-            instance_id,
-        )
-
-        path = self._optional_text_call(
-            sdl3,
-            "SDL_GetGamepadPathForID",
-            instance_id,
-        )
-
-        input_logger.info(
-            "[SDL3][09] ID %d: GUID",
-            instance_id,
-        )
-
-        guid = self._guid(
-            sdl3,
-            instance_id,
-        )
-
-        input_logger.info(
-            "[SDL3][10] ID %d: Vendor/Product/Version",
-            instance_id,
-        )
-
-        vendor = self._optional_int_call(
-            sdl3,
-            "SDL_GetGamepadVendorForID",
-            instance_id,
-        )
-
-        product = self._optional_int_call(
-            sdl3,
-            "SDL_GetGamepadProductForID",
-            instance_id,
-        )
-
-        version = self._optional_int_call(
-            sdl3,
-            "SDL_GetGamepadProductVersionForID",
-            instance_id,
-        )
-
-        input_logger.info(
-            "[SDL3][11] ID %d: Mapping ignorado durante "
-            "descoberta segura",
-            instance_id,
-        )
-
-        elements, topology = self._topology(
-            sdl3,
-            instance_id,
-        )
-
-        battery_percent, battery_state = self._battery_info(
-            sdl3,
-            instance_id,
-        )
-
+        elements, topology = self._topology(sdl3, instance_id)
+        battery_percent, battery_state = self._battery_info(sdl3, instance_id)
         input_logger.info(
             "[SDL3][13] ID %d: bateria=%s%% | estado=%s",
             instance_id,
-            (
-                battery_percent
-                if battery_percent is not None
-                else "?"
-            ),
+            battery_percent if battery_percent is not None else "?",
             battery_state or "unknown",
         )
-
         input_logger.info(
-            "[SDL3][14] ID %d: topologia buttons=%d "
-            "axes=%d hats=%d",
+            "[SDL3][14] ID %d: topologia buttons=%d axes=%d hats=%d",
             instance_id,
-            topology[0],
-            topology[1],
-            topology[2],
+            topology[0], topology[1], topology[2],
         )
-
-        input_logger.info(
-            "[SDL3][15] ID %d: criando InputDevice",
-            instance_id,
-        )
-
-        metadata: dict[str, object] = {
-            "instance_id": instance_id,
-            "topology_source": "SDL3 joystick",
-        }
-
+        input_logger.info("[SDL3][15] ID %d: criando InputDevice", instance_id)
+        metadata: dict[str, object] = {"instance_id": instance_id, "topology_source": "SDL3 joystick"}
         if battery_percent is not None:
             metadata["battery_percent"] = battery_percent
 
         if battery_state:
             metadata["battery_state"] = battery_state
-
-        metadata.update(
-            {
-                "raw_button_count": topology[0],
-                "raw_axis_count": topology[1],
-                "raw_hat_count": topology[2],
-            }
-        )
-
+        metadata.update({"raw_button_count": topology[0], "raw_axis_count": topology[1], "raw_hat_count": topology[2]})
         device = InputDevice(
-            device_id=f"sdl3:{instance_id}",
-            name=name,
-            device_type=InputDeviceType.GAMEPAD,
-            vendor_id=vendor,
-            product_id=product,
-            version=version,
-            path=path,
-            sdl_guid=guid,
-            sdl_mapping=None,
-            backend="sdl3",
+            device_id=f"sdl3:{instance_id}", name=name, device_type=InputDeviceType.GAMEPAD,
+            vendor_id=vendor, product_id=product, version=version,
+            path=path, sdl_guid=guid, sdl_mapping=None, backend="sdl3",
             elements=elements,
             metadata=metadata,
         )
-
-        input_logger.info(
-            "[SDL3][16] ID %d: gamepad descrito",
-            instance_id,
-        )
-
+        input_logger.info("[SDL3][16] ID %d: gamepad descrito", instance_id)
         return device
 
     @classmethod
@@ -357,51 +256,16 @@ class SDL3InputService:
         continuam visíveis mesmo que não sejam representados
         por um controle lógico padrão.
         """
-
-        open_gamepad = cls._callable(
-            sdl3,
-            "SDL_OpenGamepad",
-        )
-
-        get_joystick = cls._callable(
-            sdl3,
-            "SDL_GetGamepadJoystick",
-        )
-
-        close_gamepad = cls._callable(
-            sdl3,
-            "SDL_CloseGamepad",
-        )
-
-        num_buttons = cls._callable(
-            sdl3,
-            "SDL_GetNumJoystickButtons",
-        )
-
-        num_axes = cls._callable(
-            sdl3,
-            "SDL_GetNumJoystickAxes",
-        )
-
-        num_hats = cls._callable(
-            sdl3,
-            "SDL_GetNumJoystickHats",
-        )
-
-        if not all(
-            (
-                open_gamepad,
-                get_joystick,
-                close_gamepad,
-                num_buttons,
-                num_axes,
-                num_hats,
-            )
-        ):
+        open_gamepad = cls._callable(sdl3, "SDL_OpenGamepad")
+        get_joystick = cls._callable(sdl3, "SDL_GetGamepadJoystick")
+        close_gamepad = cls._callable(sdl3, "SDL_CloseGamepad")
+        num_buttons = cls._callable(sdl3, "SDL_GetNumJoystickButtons")
+        num_axes = cls._callable(sdl3, "SDL_GetNumJoystickAxes")
+        num_hats = cls._callable(sdl3, "SDL_GetNumJoystickHats")
+        if not all((open_gamepad, get_joystick, close_gamepad, num_buttons, num_axes, num_hats)):
             return (), (0, 0, 0)
 
         gamepad = None
-
         try:
             gamepad = open_gamepad(
                 instance_id
@@ -443,7 +307,6 @@ class SDL3InputService:
                         index=index,
                     )
                 )
-
             for index in range(axes):
                 elements.append(
                     InputElement(
@@ -453,7 +316,6 @@ class SDL3InputService:
                         index=index,
                     )
                 )
-
             for index in range(hats):
                 elements.append(
                     InputElement(
@@ -463,27 +325,9 @@ class SDL3InputService:
                         index=index,
                     )
                 )
-
-            return tuple(elements), (
-                buttons,
-                axes,
-                hats,
-            )
-
-        except (
-            AttributeError,
-            TypeError,
-            ValueError,
-            OSError,
-            RuntimeError,
-        ):
-            logger.debug(
-                "[INPUT] SDL3 não conseguiu consultar "
-                "topologia %s",
-                instance_id,
-                exc_info=True,
-            )
-
+            return tuple(elements), (buttons, axes, hats)
+        except (AttributeError, TypeError, ValueError, OSError, RuntimeError):
+            logger.debug("[INPUT] SDL3 não conseguiu consultar topologia %s", instance_id, exc_info=True)
             return (), (0, 0, 0)
 
         finally:
@@ -509,33 +353,13 @@ class SDL3InputService:
         instance_id: int,
     ) -> tuple[int | None, str | None]:
         """Consulta a bateria abrindo o gamepad apenas durante a leitura."""
-
-        open_gamepad = cls._callable(
-            sdl3,
-            "SDL_OpenGamepad",
-        )
-
-        power_info = cls._callable(
-            sdl3,
-            "SDL_GetGamepadPowerInfo",
-        )
-
-        close_gamepad = cls._callable(
-            sdl3,
-            "SDL_CloseGamepad",
-        )
-
-        if not all(
-            (
-                open_gamepad,
-                power_info,
-                close_gamepad,
-            )
-        ):
+        open_gamepad = cls._callable(sdl3, "SDL_OpenGamepad")
+        power_info = cls._callable(sdl3, "SDL_GetGamepadPowerInfo")
+        close_gamepad = cls._callable(sdl3, "SDL_CloseGamepad")
+        if not all((open_gamepad, power_info, close_gamepad)):
             return None, None
 
         gamepad = None
-
         try:
             gamepad = open_gamepad(
                 instance_id
