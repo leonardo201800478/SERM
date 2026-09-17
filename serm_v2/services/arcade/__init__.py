@@ -11,7 +11,6 @@ from .chd_reconstruction import (
 )
 from .download_manager import DestinationAction, DownloadManager
 from .materializer import ArcadeSetMaterializer, MaterializationError
-from .projeto_snaps_provider import ProgettoSnapsProvider
 from .reconstruction_manifest import (
     ArcadeReconstructionManifestBuilder,
     MaterializationEntry,
@@ -53,7 +52,6 @@ __all__ = [
     "PhysicalChd",
     "DestinationAction",
     "DownloadManager",
-    "ProgettoSnapsProvider",
     "ExternalResourceCatalog",
     "ArcadeSetMaterializer",
     "MaterializationError",
