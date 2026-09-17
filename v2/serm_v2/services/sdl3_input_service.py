@@ -264,38 +264,17 @@ class SDL3InputService:
         num_hats = cls._callable(sdl3, "SDL_GetNumJoystickHats")
         if not all((open_gamepad, get_joystick, close_gamepad, num_buttons, num_axes, num_hats)):
             return (), (0, 0, 0)
-
-        gamepad = None
+        gamepad: Any = None
         try:
-            gamepad = open_gamepad(
-                instance_id
-            )
-
+            gamepad = open_gamepad(instance_id)
             if not gamepad:
                 return (), (0, 0, 0)
-
-            joystick = get_joystick(
-                gamepad
-            )
-
+            joystick = get_joystick(gamepad)
             if not joystick:
                 return (), (0, 0, 0)
-
-            buttons = max(
-                0,
-                int(num_buttons(joystick)),
-            )
-
-            axes = max(
-                0,
-                int(num_axes(joystick)),
-            )
-
-            hats = max(
-                0,
-                int(num_hats(joystick)),
-            )
-
+            buttons = max(0, int(num_buttons(joystick)))
+            axes = max(0, int(num_axes(joystick)))
+            hats = max(0, int(num_hats(joystick)))
             elements: list[InputElement] = []
 
             for index in range(buttons):
@@ -334,17 +313,8 @@ class SDL3InputService:
             if gamepad:
                 try:
                     close_gamepad(gamepad)
-                except (
-                    AttributeError,
-                    TypeError,
-                    OSError,
-                    RuntimeError,
-                ):
-                    logger.debug(
-                        "[INPUT] falha ao fechar gamepad %s",
-                        instance_id,
-                        exc_info=True,
-                    )
+                except (AttributeError, TypeError, OSError, RuntimeError):
+                    logger.debug("[INPUT] falha ao fechar gamepad %s", instance_id, exc_info=True)
 
     @classmethod
     def _battery_info(
@@ -358,23 +328,14 @@ class SDL3InputService:
         close_gamepad = cls._callable(sdl3, "SDL_CloseGamepad")
         if not all((open_gamepad, power_info, close_gamepad)):
             return None, None
-
-        gamepad = None
+        gamepad: Any = None
         try:
-            gamepad = open_gamepad(
-                instance_id
-            )
-
+            gamepad = open_gamepad(instance_id)
             if not gamepad:
                 return None, None
 
             percent = ctypes.c_int(-1)
-
-            state = power_info(
-                gamepad,
-                ctypes.pointer(percent),
-            )
-
+            state = power_info(gamepad, ctypes.pointer(percent))
             value = int(percent.value)
 
             battery_percent = (
@@ -413,18 +374,8 @@ class SDL3InputService:
             if gamepad:
                 try:
                     close_gamepad(gamepad)
-                except (
-                    AttributeError,
-                    TypeError,
-                    OSError,
-                    RuntimeError,
-                ):
-                    logger.debug(
-                        "[INPUT] falha ao fechar handle SDL3 "
-                        "do gamepad %s",
-                        instance_id,
-                        exc_info=True,
-                    )
+                except (AttributeError, TypeError, OSError, RuntimeError):
+                    logger.debug("[INPUT] falha ao fechar handle SDL3 do gamepad %s", instance_id, exc_info=True)
 
     @staticmethod
     def _power_state_name(
