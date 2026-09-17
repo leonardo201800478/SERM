@@ -131,7 +131,7 @@ class MameGameGrid(QScrollArea):
         generation = self._artwork_generation
         self.content.setUpdatesEnabled(False)
         try:
-            for card, game in zip(self._cards, self._games):
+            for card, game in zip(self._cards, self._games, strict=True):
                 card.set_game(game, None)
         finally:
             self.content.setUpdatesEnabled(True)
