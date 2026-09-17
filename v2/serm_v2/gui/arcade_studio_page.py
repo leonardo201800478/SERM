@@ -117,6 +117,8 @@ class _ArcadeStudioWorker(QObject):
             if not xml_path.is_file():
                 raise ValueError("A importação selecionada não possui o documento ListXML armazenado.")
             xml_text = xml_path.read_text(encoding="utf-8")
+        if self.scan_path is None:
+            raise ValueError("O caminho do scan selecionado não está disponível.")
         return ArcadeScanComparisonService().compare(xml_text, self.scan_path)
 
 
@@ -350,8 +352,10 @@ class ArcadeStudioPage(QWidget):
         self.listxml_choice.blockSignals(True)
         self.listxml_choice.clear()
         for row in rows:
-            label = f"ID {row['id']} | MAME {row.get('mame_build') or 'desconhecido'} | {int(row.get('machine_count') or 0):,} machines | {row.get('status') or '?'} | {row.get('imported_at') or ''}"
-            self.listxml_choice.addItem(label, int(row['id']))
+            machine_count = row.get('machine_count')
+            machine_count_text = str(machine_count) if machine_count is not None else "0"
+            label = f"ID {row['id']} | MAME {row.get('mame_build') or 'desconhecido'} | {int(machine_count_text):,} machines | {row.get('status') or '?'} | {row.get('imported_at') or ''}"
+            self.listxml_choice.addItem(label, int(str(row['id'])))
         self.listxml_choice.blockSignals(False)
         if rows:
             self.listxml_choice.setCurrentIndex(0)
@@ -541,7 +545,10 @@ class ArcadeStudioPage(QWidget):
         selected = self.chd_table.selectionModel().selectedRows()
         if not selected:
             return
-        path = self.chd_table.item(selected[0].row(), 0).data(Qt.ItemDataRole.UserRole)
+        item = self.chd_table.item(selected[0].row(), 0)
+        if item is None:
+            return
+        path = item.data(Qt.ItemDataRole.UserRole)
         if path:
             self.chd_path.setText(str(path))
 

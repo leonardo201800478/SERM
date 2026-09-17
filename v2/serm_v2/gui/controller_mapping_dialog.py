@@ -92,11 +92,11 @@ class ControllerMappingDialog(QDialog):
         ]
         if len(candidates) == 1:
             instance = candidates[0].metadata.get("instance_id")
-            return int(instance) if instance is not None else None
+            return int(instance) if isinstance(instance, (int, str)) else None
         same_name = [item for item in candidates if item.name == self.device.name]
         if len(same_name) == 1:
             instance = same_name[0].metadata.get("instance_id")
-            return int(instance) if instance is not None else None
+            return int(instance) if isinstance(instance, (int, str)) else None
         return None
 
     def _start_probe(self) -> None:

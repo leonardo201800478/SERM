@@ -280,7 +280,7 @@ class MameVisualLibraryPage(QWidget):
     @staticmethod
     def _int(value: object) -> int | None:
         try:
-            return int(value) if value not in (None, "") else None
+            return int(str(value)) if value not in (None, "") else None
         except (TypeError, ValueError):
             return None
 

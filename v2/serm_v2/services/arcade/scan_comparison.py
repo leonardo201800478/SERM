@@ -245,7 +245,7 @@ class ArcadeScanComparisonService:
         if value is None or value == "":
             return None
         try:
-            return int(value)
+            return int(str(value))
         except (TypeError, ValueError):
             return None
 

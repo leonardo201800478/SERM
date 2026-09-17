@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QSettings, Qt
-from PySide6.QtGui import QColor, QBrush
+from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (
     QCheckBox,
     QFileDialog,
@@ -51,9 +51,9 @@ class HomePage(EmulatorHomePage):
         """Restaura os filtros do catálogo entre execuções do SERM."""
         settings = cls._settings()
         return {
-            "include_beta": settings.value("retroarch/catalog/include_nightly", False, type=bool),
-            "current_only": settings.value("retroarch/catalog/current_only", True, type=bool),
-            "hide_games": settings.value("retroarch/catalog/hide_games", True, type=bool),
+            "include_beta": bool(settings.value("retroarch/catalog/include_nightly", False, type=bool)),
+            "current_only": bool(settings.value("retroarch/catalog/current_only", True, type=bool)),
+            "hide_games": bool(settings.value("retroarch/catalog/hide_games", True, type=bool)),
         }
 
     def _persist_core_filter_state(self) -> None:
@@ -306,7 +306,9 @@ class HomePage(EmulatorHomePage):
         last_error: Exception | None = None
         for attempt in range(1, self.CORE_MAX_ATTEMPTS + 1):
             try:
-                log(f"CORE | {filename} | canal={channel} | tentativa={attempt}/{self.CORE_MAX_ATTEMPTS}")
+                log(
+                    f"CORE | {filename} | canal={channel} | tentativa={attempt}/{self.CORE_MAX_ATTEMPTS}"
+                )
                 return self.retroarch.install_core(
                     filename, destination, channel=channel, progress=progress, log=log
                 )

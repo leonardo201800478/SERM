@@ -427,10 +427,20 @@ class MameFilterV2Service:
         games = cls._games(payload)
         return payload, games, ArcadeFilterEngine().apply(games, cls._rules(state, games))
 
+    @staticmethod
+    def _trace_key(item) -> str:
+        trace = getattr(item, "trace", None)
+        if trace is None:
+            return ""
+        if getattr(trace, "rule", None):
+            return trace.rule
+        stage = getattr(trace, "stage", None)
+        return stage.value if stage is not None and getattr(stage, "value", None) is not None else ""
+
     @classmethod
     def preview(cls, path: Path, state) -> dict:
         _, _, result = cls._result(path, state)
-        reasons = Counter(item.trace.rule or item.trace.stage.value for item in result.excluded)
+        reasons = Counter(cls._trace_key(item) for item in result.excluded)
         return {"unit": "machines", "input_count": result.total_input, "output_count": result.included_count, "filtered_count": result.excluded_count, "filter_counts": dict(reasons), "stage_counts": {stage.value: count for stage, count in result.counts_after_stage.items()}}
 
     @classmethod
@@ -439,7 +449,7 @@ class MameFilterV2Service:
         kept_names = {item.game.machine_name for item in result.games}
         evidence = list(payload.get("evidence", []))
         kept_evidence = [item for item in evidence if str(item.get("machine_name") or item.get("machine") or item.get("name") or "") in kept_names]
-        reasons = Counter(item.trace.rule or item.trace.stage.value for item in result.excluded)
+        reasons = Counter(cls._trace_key(item) for item in result.excluded)
         run_id = uuid4().hex[:16]
         out_dir = scans_root() / "filtered" / "mame"
         out_dir.mkdir(parents=True, exist_ok=True)

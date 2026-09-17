@@ -101,7 +101,7 @@ class MameCurationService:
             "decisions": [asdict(decision) for decision in result.decisions],
         }
 
-        fd, raw_path = NamedTemporaryFile(
+        temp_file = NamedTemporaryFile(
             prefix="serm_mame_curated_",
             suffix=".json",
             delete=False,
@@ -109,9 +109,10 @@ class MameCurationService:
             mode="w",
             encoding="utf-8",
         )
+        raw_path = temp_file.name
         try:
-            with fd:
-                json.dump(curated, fd, ensure_ascii=False, separators=(",", ":"))
+            with temp_file:
+                json.dump(curated, temp_file, ensure_ascii=False, separators=(",", ":"))
         except Exception:
             Path(raw_path).unlink(missing_ok=True)
             raise

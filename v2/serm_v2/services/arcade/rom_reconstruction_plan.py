@@ -233,7 +233,7 @@ class ArcadeRomReconstructionPlanner:
 
         normalized_size: int | None
         try:
-            normalized_size = int(size) if size is not None else None
+            normalized_size = int(str(size)) if size is not None else None
         except (TypeError, ValueError):
             normalized_size = None
 

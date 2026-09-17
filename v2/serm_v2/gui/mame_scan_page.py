@@ -73,7 +73,9 @@ class MameScanPage(QWidget):
     @staticmethod
     def _format_timestamp(value: object) -> str:
         try:
-            return datetime.fromtimestamp(float(value)).strftime("%d/%m/%Y %H:%M:%S")
+            if isinstance(value, (int, float, str)):
+                return datetime.fromtimestamp(float(value)).strftime("%d/%m/%Y %H:%M:%S")
+            return "data desconhecida"
         except (TypeError, ValueError, OSError, OverflowError):
             return "data desconhecida"
 

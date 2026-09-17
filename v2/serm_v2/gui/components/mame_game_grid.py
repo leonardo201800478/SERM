@@ -54,10 +54,10 @@ class MameGameGrid(QScrollArea):
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.content = QWidget()
         self.content.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        self.layout = QGridLayout(self.content)
-        self.layout.setContentsMargins(2, 2, 2, 12)
-        self.layout.setHorizontalSpacing(10)
-        self.layout.setVerticalSpacing(10)
+        self.grid_layout = QGridLayout(self.content)
+        self.grid_layout.setContentsMargins(2, 2, 2, 12)
+        self.grid_layout.setHorizontalSpacing(10)
+        self.grid_layout.setVerticalSpacing(10)
         self.setWidget(self.content)
 
         if artwork_roots:
@@ -81,7 +81,8 @@ class MameGameGrid(QScrollArea):
         if not executable:
             return
         service = MameArtworkService.from_mame_executable(executable)
-        self.resolver = MameArtworkResolver(service.roots)
+        roots: list[str | Path] = list(service.roots)
+        self.resolver = MameArtworkResolver(roots)
         self._refresh_existing_cards()
 
     def artwork_inventory(self, game) -> dict[str, Path]:
@@ -105,7 +106,7 @@ class MameGameGrid(QScrollArea):
 
             while len(self._cards) > len(self._games):
                 card = self._cards.pop()
-                self.layout.removeWidget(card)
+                self.grid_layout.removeWidget(card)
                 card.deleteLater()
 
             while len(self._cards) < len(self._games):
@@ -159,16 +160,16 @@ class MameGameGrid(QScrollArea):
 
         # Retira somente os itens do layout; os widgets continuam vivos e são
         # reposicionados, evitando o efeito de piscar observado no resize.
-        while self.layout.count():
-            self.layout.takeAt(0)
+        while self.grid_layout.count():
+            self.grid_layout.takeAt(0)
 
         for column in range(6):
-            self.layout.setColumnStretch(column, 0)
+            self.grid_layout.setColumnStretch(column, 0)
         for column in range(columns):
-            self.layout.setColumnStretch(column, 1)
+            self.grid_layout.setColumnStretch(column, 1)
 
         for index, card in enumerate(self._cards):
-            self.layout.addWidget(card, index // columns, index % columns)
+            self.grid_layout.addWidget(card, index // columns, index % columns)
 
     def _column_count(self) -> int:
         width = self.viewport().width()

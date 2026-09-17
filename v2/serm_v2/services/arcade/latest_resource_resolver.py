@@ -61,8 +61,13 @@ class LatestResourceResolver:
         listing_url = spec.get("listing_url")
         pattern = spec.get("pattern")
         url_template = spec.get("url_template")
-        if not all(isinstance(item, str) and item for item in (listing_url, pattern, url_template)):
-            raise ValueError(f"latest_discovery invalido para {resource.name}")
+        if not isinstance(listing_url, str) or not listing_url:
+            raise ValueError(f"listing_url ausente para {resource.name}")
+        if not isinstance(pattern, str) or not pattern:
+            raise ValueError(f"pattern ausente para {resource.name}")
+        if not isinstance(url_template, str) or not url_template:
+            raise ValueError(f"url_template ausente para {resource.name}")
+
         body = self._fetch_text(listing_url, resource)
         versions = sorted(set(re.findall(pattern, body, flags=re.IGNORECASE)), key=self._version_key)
         if not versions:

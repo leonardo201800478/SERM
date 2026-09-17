@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 import re
+from typing import Any, TypeVar, cast
 
 from ...models.arcade import ArcadeGame, ArcadePlatform
 from ...models.arcade_classification import (
@@ -126,8 +127,14 @@ class ArcadeClassificationService:
         if content_type is None and self._truthy(metadata.get("ismechanical")):
             content_type = ArcadeContentType.MECHANICAL
 
-        genres = self._all_matches(self._GENRE_ALIASES, tokens)
-        hardware = self._all_matches(self._HARDWARE_ALIASES, tokens)
+        genres = cast(
+            tuple[ArcadeGenre, ...],
+            self._all_matches(self._GENRE_ALIASES, tokens),
+        )
+        hardware = cast(
+            tuple[ArcadeHardwareFamily, ...],
+            self._all_matches(self._HARDWARE_ALIASES, tokens),
+        )
         if game.platform is ArcadePlatform.MAME:
             hardware = (ArcadeHardwareFamily.MAME, *hardware)
 
@@ -206,17 +213,19 @@ class ArcadeClassificationService:
 
     @staticmethod
     def _first_match(
-        aliases: Mapping[object, frozenset[str]], values: set[str]
-    ) -> object | None:
+        aliases: Mapping[ArcadeContentType, frozenset[str]], values: set[str]
+    ) -> ArcadeContentType | None:
         for classification, aliases_for_class in aliases.items():
             if values.intersection(aliases_for_class):
                 return classification
         return None
 
+    _MatchType = TypeVar("_MatchType", ArcadeGenre, ArcadeHardwareFamily)
+
     @staticmethod
     def _all_matches(
-        aliases: Mapping[object, frozenset[str]], values: set[str]
-    ) -> tuple:
+        aliases: Mapping[ArcadeClassificationService._MatchType, frozenset[str]], values: set[str]
+    ) -> tuple[ArcadeClassificationService._MatchType, ...]:
         return tuple(
             classification
             for classification, aliases_for_class in aliases.items()

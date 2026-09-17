@@ -65,16 +65,16 @@ class InputControlsPage(QWidget):
         self.status = QLabel("Nenhuma detecção executada nesta sessão.")
         self.status.setObjectName("controlsStatus")
         root.addWidget(self.status)
-        self.scroll = QScrollArea()
-        self.scroll.setWidgetResizable(True)
-        self.scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
         self.container = QWidget()
         self.grid = QGridLayout(self.container)
         self.grid.setContentsMargins(0, 0, 0, 0)
         self.grid.setHorizontalSpacing(8)
         self.grid.setVerticalSpacing(8)
-        self.scroll.setWidget(self.container)
-        root.addWidget(self.scroll, 1)
+        self.scroll_area.setWidget(self.container)
+        root.addWidget(self.scroll_area, 1)
         self._apply_style()
 
     def _apply_style(self) -> None:
@@ -97,6 +97,8 @@ class InputControlsPage(QWidget):
         self._mame_buttons.clear()
         while self.grid.count():
             item = self.grid.takeAt(0)
+            if item is None:
+                continue
             widget = item.widget()
             if widget is not None:
                 widget.deleteLater()

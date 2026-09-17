@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
-from PySide6.QtWidgets import QFrame, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget, QPlainTextEdit, QProgressBar, QPushButton, QSizePolicy, QTabWidget, QTableWidget, QTreeWidget, QVBoxLayout, QWidget, QGridLayout
+from PySide6.QtWidgets import QBoxLayout, QFrame, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget, QPlainTextEdit, QProgressBar, QPushButton, QSizePolicy, QTabWidget, QTableWidget, QTreeWidget, QVBoxLayout, QWidget, QGridLayout
 
 XP_PROGRESS_STYLE = """
 QProgressBar#xpProgress { background-color:#0b0b0b; border:1px solid #707070; border-radius:2px; padding:1px; text-align:center; color:#ffffff; min-height:18px; max-height:18px; }
@@ -253,7 +253,10 @@ def _refine_arcade_studio(window) -> bool:
         source.setMinimumHeight(0)
         source.setMaximumHeight(16777215)
         sl = source.layout()
-        if sl is not None:
+        if isinstance(sl, QBoxLayout):
+            sl.setContentsMargins(7, 5, 7, 5)
+            sl.setSpacing(4)
+        elif isinstance(sl, QGridLayout):
             sl.setContentsMargins(7, 5, 7, 5)
             sl.setVerticalSpacing(4)
             sl.setHorizontalSpacing(8)

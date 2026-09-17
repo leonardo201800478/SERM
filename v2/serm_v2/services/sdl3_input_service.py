@@ -38,7 +38,7 @@ class SDL3InputService:
             input_logger.info("[SDL3][01] subsistema já inicializado")
             return
         sdl3 = self._load()
-        flags = sdl3.SDL_INIT_GAMEPAD | sdl3.SDL_INIT_EVENTS
+        flags = sdl3.SDL_InitFlags(sdl3.SDL_INIT_GAMEPAD | sdl3.SDL_INIT_EVENTS)
         input_logger.info("[SDL3][02] SDL_InitSubSystem flags=%s", flags)
         if not sdl3.SDL_InitSubSystem(flags):
             error = self._decode(sdl3.SDL_GetError())

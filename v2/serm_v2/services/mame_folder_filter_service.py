@@ -157,7 +157,9 @@ class MameFolderFilterService:
                        VALUES (?, ?, ?, ?, ?, 'captured')""",
                     (path.name, str(path), source_hash, byte_length, now),
                 )
-                source_id = int(cursor.lastrowid)
+                if cursor.lastrowid is None:
+                    raise RuntimeError("Failed to obtain inserted MAME folder filter source ID")
+                source_id = cursor.lastrowid
                 entries = self._insert_entries(connection, source_id, path)
                 connection.execute(
                     "UPDATE mame_folder_filter_source SET status='completed' WHERE id=?",

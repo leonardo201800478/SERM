@@ -273,6 +273,15 @@ class DirectoryGuidePage(QWidget):
                 return str(selected)
         return str(selected)
 
+    def refresh(self) -> None:
+        """Refresh the displayed directory configuration."""
+        for edit in self._config_edits.values():
+            edit.clear()
+        for edit in self._path_edits.values():
+            edit.clear()
+        for widget in self._path_lists.values():
+            widget.set_paths(())
+
     def _build_ui(self) -> None:
         """Build only emulator directory tabs; auxiliary executables live in Tools."""
         root = QVBoxLayout(self)
@@ -320,6 +329,54 @@ class DirectoryGuidePage(QWidget):
         form.addRow("", save)
         layout.addWidget(group)
         self._config_edits[key] = edit
+
+    def select_config(self, key: str) -> None:
+        """Select and display the configuration file for an emulator."""
+        edit = self._config_edits.get(key)
+        if edit is None:
+            return
+        selected, _ = QFileDialog.getOpenFileName(
+            self,
+            "Selecionar arquivo de configuração",
+            str(Path.home()),
+            "Arquivos de configuração (*.ini *.cfg *.conf);;Todos os arquivos (*)",
+        )
+        if selected:
+            edit.setText(str(Path(selected).resolve()))
+
+    def select_single(self, storage: str) -> None:
+        """Select and display a folder for a single-directory field."""
+        edit = self._path_edits.get(storage)
+        if edit is None:
+            return
+        selected = QFileDialog.getExistingDirectory(
+            self,
+            "Selecionar diretório",
+            str(Path.home()),
+        )
+        if selected:
+            edit.setText(str(Path(selected).resolve()))
+
+    def save_config(self, key: str) -> None:
+        """Save the selected configuration file and report the result."""
+        edit = self._config_edits.get(key)
+        if edit is None or not edit.text().strip():
+            QMessageBox.warning(
+                self,
+                "Arquivo não selecionado",
+                "Selecione um arquivo de configuração primeiro.",
+            )
+            return
+        try:
+            backup = ConfigFileEditor(Path(edit.text())).save()
+        except (OSError, ValueError) as error:
+            QMessageBox.critical(self, "Erro ao salvar", str(error))
+            return
+        QMessageBox.information(
+            self,
+            "Diretórios salvos",
+            f"Configuração salva. Backup criado em:\n{backup}",
+        )
 
     def _add_single(self, form: QFormLayout, storage: str, label: str) -> None:
         """Add one folder field controlled by QFileDialog."""

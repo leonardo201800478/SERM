@@ -135,6 +135,8 @@ class InputDeviceService:
     def _int(value: object) -> int | None:
         if value is None or isinstance(value, bool):
             return None
+        if not isinstance(value, (int, float, str, bytes, bytearray)):
+            return None
         try:
             return int(value)
         except (TypeError, ValueError):

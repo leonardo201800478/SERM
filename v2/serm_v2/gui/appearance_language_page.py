@@ -92,7 +92,7 @@ class AppearanceLanguagePage(QWidget):
         value = str(self.theme.currentData())
         UiPreferences.set_theme(value)
         app = QApplication.instance()
-        if app is not None:
+        if isinstance(app, QApplication):
             apply_user_theme(app, value)
         self.changed.emit()
 

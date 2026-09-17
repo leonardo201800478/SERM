@@ -36,7 +36,7 @@ def main() -> int:
 
     executable = args.mame.resolve() if args.mame else configured_mame()
     result = MameCatalogIngestor().ingest(
-        executable,
+        executable=executable,
         resolution_ini=args.resolution,
         vsync_ini=args.vsync,
         force=args.force,

@@ -185,20 +185,28 @@ def _refresh_dashboard(home) -> None:
     if worker is not None:
         filename = getattr(home, "_core_current_filename", None)
         queue = getattr(home, "_core_queue_with_channels", [])
-        title.setText(f"● Instalando {filename}" if filename else "● Operação em andamento")
-        detail.setText(f"{len(queue)} na fila" if filename else "processando")
-        operation.show()
-        operation_progress.show()
-        if progress is not None and progress.maximum() > 0:
-            operation_progress.setRange(0, progress.maximum())
-            operation_progress.setValue(progress.value())
-        else:
-            operation_progress.setRange(0, 0)
+        if title is not None:
+            title.setText(f"● Instalando {filename}" if filename else "● Operação em andamento")
+        if detail is not None:
+            detail.setText(f"{len(queue)} na fila" if filename else "processando")
+        if operation is not None:
+            operation.show()
+        if operation_progress is not None:
+            operation_progress.show()
+            if progress is not None and progress.maximum() > 0:
+                operation_progress.setRange(0, progress.maximum())
+                operation_progress.setValue(progress.value())
+            else:
+                operation_progress.setRange(0, 0)
     else:
-        title.setText("● Nenhuma operação em andamento")
-        detail.setText("Pronto para executar")
-        operation_progress.hide()
-        operation.hide()
+        if title is not None:
+            title.setText("● Nenhuma operação em andamento")
+        if detail is not None:
+            detail.setText("Pronto para executar")
+        if operation_progress is not None:
+            operation_progress.hide()
+        if operation is not None:
+            operation.hide()
 
     cache = getattr(home, "_core_catalog_cache", None)
     if cache is None or not hasattr(home, "_catalog_total"):
