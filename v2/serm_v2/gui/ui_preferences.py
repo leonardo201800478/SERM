@@ -11,9 +11,9 @@ from .ui_density import apply_compact_density
 LANGUAGES = {"pt-BR": "Português (Brasil)", "en": "English", "es": "Español"}
 
 TRANSLATIONS = {
-    "pt-BR": {"home":"Início", "configuration":"Configuração", "sources":"Fontes e Dados", "mame":"MAME Studio", "other_systems":"Outros Sistemas", "ready":"Pronto", "logs":"Logs", "settings":"Aparência e Idioma", "directories":"Diretórios", "tools":"Ferramentas", "emulators":"Emuladores", "video":"Vídeo", "sound":"Som"},
-    "en": {"home":"Home", "configuration":"Settings", "sources":"Sources & Data", "mame":"MAME Studio", "other_systems":"Other Systems", "ready":"Ready", "logs":"Logs", "settings":"Appearance & Language", "directories":"Directories", "tools":"Tools", "emulators":"Emulators", "video":"Video", "sound":"Sound"},
-    "es": {"home":"Inicio", "configuration":"Configuración", "sources":"Fuentes y Datos", "mame":"MAME Studio", "other_systems":"Otros Sistemas", "ready":"Listo", "logs":"Registros", "settings":"Apariencia e Idioma", "directories":"Directorios", "tools":"Herramientas", "emulators":"Emuladores", "video":"Vídeo", "sound":"Sonido"},
+    "pt-BR": {"home": "Início", "configuration": "Configuração", "sources": "Fontes e Dados", "mame": "MAME Studio", "other_systems": "Outros Sistemas", "ready": "Pronto", "logs": "Logs", "settings": "Aparência e Idioma", "directories": "Diretórios", "tools": "Ferramentas", "emulators": "Emuladores", "video": "Vídeo", "sound": "Som"},
+    "en": {"home": "Home", "configuration": "Settings", "sources": "Sources & Data", "mame": "MAME Studio", "other_systems": "Other Systems", "ready": "Ready", "logs": "Logs", "settings": "Appearance & Language", "directories": "Directories", "tools": "Tools", "emulators": "Emulators", "video": "Video", "sound": "Sound"},
+    "es": {"home": "Inicio", "configuration": "Configuración", "sources": "Fuentes y Datos", "mame": "MAME Studio", "other_systems": "Otros Sistemas", "ready": "Listo", "logs": "Registros", "settings": "Apariencia e Idioma", "directories": "Directorios", "tools": "Herramientas", "emulators": "Emuladores", "video": "Vídeo", "sound": "Sonido"},
 }
 
 LIGHT_THEME = """
@@ -67,28 +67,48 @@ class UiPreferences:
     LANGUAGE_KEY = "ui/language"
 
     @classmethod
-    def settings(cls) -> QSettings: return QSettings(cls._ORG, cls._APP)
+    def settings(cls) -> QSettings:
+        return QSettings(cls._ORG, cls._APP)
+
     @classmethod
     def theme(cls) -> str:
-        value = str(cls.settings().value(cls.THEME_KEY, "dark")).lower(); return value if value in {"dark", "light"} else "dark"
+        value = str(cls.settings().value(cls.THEME_KEY, "dark")).lower()
+        return value if value in {"dark", "light"} else "dark"
+
     @classmethod
     def language(cls) -> str:
-        value = str(cls.settings().value(cls.LANGUAGE_KEY, "pt-BR")); return value if value in LANGUAGES else "pt-BR"
+        value = str(cls.settings().value(cls.LANGUAGE_KEY, "pt-BR"))
+        return value if value in LANGUAGES else "pt-BR"
+
     @classmethod
     def set_theme(cls, value: str) -> None:
-        cls.settings().setValue(cls.THEME_KEY, value if value in {"dark", "light"} else "dark"); cls.settings().sync()
+        cls.settings().setValue(
+            cls.THEME_KEY,
+            value if value in {"dark", "light"} else "dark",
+        )
+        cls.settings().sync()
+
     @classmethod
     def set_language(cls, value: str) -> None:
-        cls.settings().setValue(cls.LANGUAGE_KEY, value if value in LANGUAGES else "pt-BR"); cls.settings().sync()
+        cls.settings().setValue(
+            cls.LANGUAGE_KEY,
+            value if value in LANGUAGES else "pt-BR",
+        )
+        cls.settings().sync()
+
     @classmethod
     def text(cls, key: str, language: str | None = None) -> str:
-        return TRANSLATIONS.get(language or cls.language(), TRANSLATIONS["pt-BR"]).get(key, key)
+        return TRANSLATIONS.get(
+            language or cls.language(),
+            TRANSLATIONS["pt-BR"],
+        ).get(key, key)
 
 
 def apply_user_theme(app: QApplication, mode: str | None = None) -> None:
     selected = mode or UiPreferences.theme()
     if selected == "light":
-        app.setStyle("Fusion"); app.setStyleSheet(LIGHT_THEME)
+        app.setStyle("Fusion")
+        app.setStyleSheet(LIGHT_THEME)
     else:
         apply_retro_arcade_theme(app)
     apply_compact_density(app)
