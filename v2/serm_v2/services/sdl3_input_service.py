@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import ctypes
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from ..models.input_control import InputDevice, InputDeviceType, InputElement, InputElementType
 
@@ -34,6 +35,13 @@ class SDL3InputService:
             raise RuntimeError("PySDL3 não está instalado") from exc
         return sdl3
 
+    @staticmethod
+    def _callable(sdl3: Any, function_name: str) -> Callable[..., Any] | None:
+        function = getattr(sdl3, function_name, None)
+        if not callable(function):
+            return None
+        return cast(Callable[..., Any], function)
+
     def initialize(self) -> None:
         if self._initialized:
             input_logger.info("[SDL3][01] subsistema já inicializado")
@@ -41,7 +49,10 @@ class SDL3InputService:
         sdl3: Any = self._load()
         flags = sdl3.SDL_INIT_GAMEPAD | sdl3.SDL_INIT_EVENTS
         input_logger.info("[SDL3][02] SDL_InitSubSystem flags=%s", flags)
-        if not sdl3.SDL_InitSubSystem(flags):
+        init_subsystem = self._callable(sdl3, "SDL_InitSubSystem")
+        if init_subsystem is None:
+            raise RuntimeError("SDL3 não disponibiliza SDL_InitSubSystem")
+        if not init_subsystem(flags):
             error = self._decode(sdl3.SDL_GetError())
             raise RuntimeError(f"SDL3 não inicializou o subsistema de gamepad: {error}")
         self._initialized = True
@@ -52,7 +63,10 @@ class SDL3InputService:
         self.initialize()
         count = ctypes.c_int(0)
         input_logger.info("[SDL3][04] chamando SDL_GetGamepads")
-        ids = sdl3.SDL_GetGamepads(ctypes.pointer(count))
+        get_gamepads = self._callable(sdl3, "SDL_GetGamepads")
+        if get_gamepads is None:
+            raise RuntimeError("SDL3 não disponibiliza SDL_GetGamepads")
+        ids = get_gamepads(ctypes.pointer(count))
         if not ids:
             input_logger.info("[SDL3][05] SDL não retornou gamepads")
             return ()
@@ -69,7 +83,9 @@ class SDL3InputService:
                     logger.exception("[INPUT] SDL3 não conseguiu descrever gamepad %d", index)
         finally:
             input_logger.info("[SDL3][16] liberando array retornado por SDL_GetGamepads")
-            sdl3.SDL_free(ctypes.cast(ids, ctypes.c_void_p))
+            free = self._callable(sdl3, "SDL_free")
+            if free is not None:
+                free(ctypes.cast(ids, ctypes.c_void_p))
         input_logger.info("[SDL3][17] enumeração SDL3 concluída: %d dispositivo(s)", len(devices))
         return tuple(devices)
 
@@ -116,20 +132,20 @@ class SDL3InputService:
         input_logger.info("[SDL3][16] ID %d: gamepad descrito", instance_id)
         return device
 
-    @staticmethod
-    def _topology(sdl3: Any, instance_id: int) -> tuple[tuple[InputElement, ...], tuple[int, int, int]]:
+    @classmethod
+    def _topology(cls, sdl3: Any, instance_id: int) -> tuple[tuple[InputElement, ...], tuple[int, int, int]]:
         """Lê a topologia bruta do joystick subjacente.
 
         Não depende do mapping SDL. Assim, botões extras do M30 (Start/Mode/Menu,
         além dos seis face e dois ombros) continuam visíveis mesmo que não sejam
         representados por um controle lógico padrão.
         """
-        open_gamepad = getattr(sdl3, "SDL_OpenGamepad", None)
-        get_joystick = getattr(sdl3, "SDL_GetGamepadJoystick", None)
-        close_gamepad = getattr(sdl3, "SDL_CloseGamepad", None)
-        num_buttons = getattr(sdl3, "SDL_GetNumJoystickButtons", None)
-        num_axes = getattr(sdl3, "SDL_GetNumJoystickAxes", None)
-        num_hats = getattr(sdl3, "SDL_GetNumJoystickHats", None)
+        open_gamepad = cls._callable(sdl3, "SDL_OpenGamepad")
+        get_joystick = cls._callable(sdl3, "SDL_GetGamepadJoystick")
+        close_gamepad = cls._callable(sdl3, "SDL_CloseGamepad")
+        num_buttons = cls._callable(sdl3, "SDL_GetNumJoystickButtons")
+        num_axes = cls._callable(sdl3, "SDL_GetNumJoystickAxes")
+        num_hats = cls._callable(sdl3, "SDL_GetNumJoystickHats")
         if not all((open_gamepad, get_joystick, close_gamepad, num_buttons, num_axes, num_hats)):
             return (), (0, 0, 0)
 
@@ -183,14 +199,13 @@ class SDL3InputService:
                 except (AttributeError, TypeError, OSError, RuntimeError):
                     logger.debug("[INPUT] falha ao fechar gamepad %s", instance_id, exc_info=True)
 
-    @staticmethod
-    def _battery_info(sdl3: Any, instance_id: int) -> tuple[int | None, str | None]:
+    @classmethod
+    def _battery_info(cls, sdl3: Any, instance_id: int) -> tuple[int | None, str | None]:
         """Consulta a bateria abrindo o gamepad apenas durante a leitura."""
-        try:
-            open_gamepad = getattr(sdl3, "SDL_OpenGamepad")
-            power_info = getattr(sdl3, "SDL_GetGamepadPowerInfo")
-            close_gamepad = getattr(sdl3, "SDL_CloseGamepad")
-        except AttributeError:
+        open_gamepad = cls._callable(sdl3, "SDL_OpenGamepad")
+        power_info = cls._callable(sdl3, "SDL_GetGamepadPowerInfo")
+        close_gamepad = cls._callable(sdl3, "SDL_CloseGamepad")
+        if not all((open_gamepad, power_info, close_gamepad)):
             return None, None
 
         gamepad = None
@@ -202,7 +217,7 @@ class SDL3InputService:
             state = power_info(gamepad, ctypes.pointer(percent))
             value = int(percent.value)
             battery_percent = value if 0 <= value <= 100 else None
-            state_name = SDL3InputService._power_state_name(sdl3, state)
+            state_name = cls._power_state_name(sdl3, state)
             return battery_percent, state_name
         except (AttributeError, TypeError, ValueError, OSError, RuntimeError):
             logger.debug("[INPUT] SDL3 não disponibilizou bateria para gamepad %s", instance_id, exc_info=True)
@@ -226,16 +241,18 @@ class SDL3InputService:
                 continue
         return str(state).casefold()
 
-    @staticmethod
-    def _optional_text_call(sdl3: Any, function_name: str, instance_id: int) -> str | None:
+    @classmethod
+    def _optional_text_call(cls, sdl3: Any, function_name: str, instance_id: int) -> str | None:
+        function = cls._callable(sdl3, function_name)
+        if function is None:
+            return None
         try:
-            function = getattr(sdl3, function_name)
-            return SDL3InputService._decode(function(instance_id))
+            return cls._decode(function(instance_id))
         except (AttributeError, TypeError, ValueError, OSError):
             return None
 
     @staticmethod
-    def _safe_int_call(function: Any, instance_id: int) -> int:
+    def _safe_int_call(function: Callable[..., Any], instance_id: int) -> int:
         try:
             return int(function(instance_id))
         except (AttributeError, TypeError, ValueError, OSError):
@@ -243,9 +260,8 @@ class SDL3InputService:
 
     @classmethod
     def _optional_int_call(cls, sdl3: Any, function_name: str, instance_id: int) -> int | None:
-        try:
-            function = getattr(sdl3, function_name)
-        except AttributeError:
+        function = cls._callable(sdl3, function_name)
+        if function is None:
             return None
         value = cls._safe_int_call(function, instance_id)
         return value or None
