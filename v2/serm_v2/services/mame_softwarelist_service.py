@@ -65,7 +65,7 @@ class MameSoftwareListService:
             db.execute("PRAGMA foreign_keys=ON")
             db.execute("PRAGMA journal_mode=WAL")
             db.execute("PRAGMA synchronous=NORMAL")
-            for index, path in enumerate(files, 1):
+            for path in files:
                 try:
                     file_hash, byte_length = self._hash(path)
                     existing = db.execute(

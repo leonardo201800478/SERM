@@ -74,6 +74,7 @@ __all__ = [
     "SetFileAction",
     "SetLayoutEntry",
     "SetLayoutPlan",
+    "ArcadeSetBuilder",
     "SetBuildDecision",
     "SetBuildError",
     "SetBuildResult",
