@@ -5,6 +5,7 @@ from __future__ import annotations
 import ctypes
 import logging
 from dataclasses import dataclass
+from typing import Any
 
 from ..models.input_control import InputDevice, InputDeviceType, InputElement, InputElementType
 
@@ -25,7 +26,7 @@ class SDL3InputService:
     def __init__(self) -> None:
         self._initialized = False
 
-    def _load(self):
+    def _load(self) -> Any:
         input_logger.info("[SDL3][01] carregando PySDL3")
         try:
             import sdl3
@@ -38,7 +39,7 @@ class SDL3InputService:
             input_logger.info("[SDL3][01] subsistema já inicializado")
             return
         sdl3 = self._load()
-        flags = sdl3.SDL_InitFlags(sdl3.SDL_INIT_GAMEPAD | sdl3.SDL_INIT_EVENTS)
+        flags = sdl3.SDL_INIT_GAMEPAD | sdl3.SDL_INIT_EVENTS
         input_logger.info("[SDL3][02] SDL_InitSubSystem flags=%s", flags)
         if not sdl3.SDL_InitSubSystem(flags):
             error = self._decode(sdl3.SDL_GetError())
@@ -47,19 +48,20 @@ class SDL3InputService:
         input_logger.info("[SDL3][03] subsistema inicializado")
 
     def enumerate(self) -> tuple[InputDevice, ...]:
-        sdl3 = self._load()
+        sdl3: Any = self._load()
         self.initialize()
         count = ctypes.c_int(0)
         input_logger.info("[SDL3][04] chamando SDL_GetGamepads")
-        ids = sdl3.SDL_GetGamepads(ctypes.byref(count))
+        ids = sdl3.SDL_GetGamepads(ctypes.pointer(count))
         if not ids:
             input_logger.info("[SDL3][05] SDL não retornou gamepads")
             return ()
         input_logger.info("[SDL3][05] SDL retornou %d gamepad(s)", count.value)
         devices: list[InputDevice] = []
+        ids_ptr = ctypes.cast(ids, ctypes.POINTER(ctypes.c_uint32))
         try:
             for index in range(max(0, int(count.value))):
-                instance_id = int(ids[index])
+                instance_id = int(ids_ptr[index])
                 input_logger.info("[SDL3][06] gamepad[%d] instance_id=%d", index, instance_id)
                 try:
                     devices.append(self._describe(sdl3, instance_id))
@@ -67,11 +69,11 @@ class SDL3InputService:
                     logger.exception("[INPUT] SDL3 não conseguiu descrever gamepad %d", index)
         finally:
             input_logger.info("[SDL3][16] liberando array retornado por SDL_GetGamepads")
-            sdl3.SDL_free(ids)
+            sdl3.SDL_free(ctypes.cast(ids, ctypes.c_void_p))
         input_logger.info("[SDL3][17] enumeração SDL3 concluída: %d dispositivo(s)", len(devices))
         return tuple(devices)
 
-    def _describe(self, sdl3, instance_id: int) -> InputDevice:
+    def _describe(self, sdl3: Any, instance_id: int) -> InputDevice:
         input_logger.info("[SDL3][07] ID %d: Name", instance_id)
         name = self._decode(sdl3.SDL_GetGamepadNameForID(instance_id)) or f"SDL Gamepad {instance_id}"
         input_logger.info("[SDL3][08] ID %d: Path", instance_id)
@@ -115,7 +117,7 @@ class SDL3InputService:
         return device
 
     @staticmethod
-    def _topology(sdl3, instance_id: int) -> tuple[tuple[InputElement, ...], tuple[int, int, int]]:
+    def _topology(sdl3: Any, instance_id: int) -> tuple[tuple[InputElement, ...], tuple[int, int, int]]:
         """Lê a topologia bruta do joystick subjacente.
 
         Não depende do mapping SDL. Assim, botões extras do M30 (Start/Mode/Menu,
@@ -182,7 +184,7 @@ class SDL3InputService:
                     logger.debug("[INPUT] falha ao fechar gamepad %s", instance_id, exc_info=True)
 
     @staticmethod
-    def _battery_info(sdl3, instance_id: int) -> tuple[int | None, str | None]:
+    def _battery_info(sdl3: Any, instance_id: int) -> tuple[int | None, str | None]:
         """Consulta a bateria abrindo o gamepad apenas durante a leitura."""
         try:
             open_gamepad = sdl3.SDL_OpenGamepad
@@ -197,7 +199,7 @@ class SDL3InputService:
             if not gamepad:
                 return None, None
             percent = ctypes.c_int(-1)
-            state = power_info(gamepad, ctypes.byref(percent))
+            state = power_info(gamepad, ctypes.pointer(percent))
             value = int(percent.value)
             battery_percent = value if 0 <= value <= 100 else None
             state_name = SDL3InputService._power_state_name(sdl3, state)
@@ -213,7 +215,7 @@ class SDL3InputService:
                     logger.debug("[INPUT] falha ao fechar handle SDL3 do gamepad %s", instance_id, exc_info=True)
 
     @staticmethod
-    def _power_state_name(sdl3, state: object) -> str | None:
+    def _power_state_name(sdl3: Any, state: object) -> str | None:
         if state is None:
             return None
         for name in ("SDL_POWERSTATE_UNKNOWN", "SDL_POWERSTATE_ON_BATTERY", "SDL_POWERSTATE_NO_BATTERY", "SDL_POWERSTATE_CHARGING", "SDL_POWERSTATE_CHARGED", "SDL_POWERSTATE_ERROR"):
@@ -225,7 +227,7 @@ class SDL3InputService:
         return str(state).casefold()
 
     @staticmethod
-    def _optional_text_call(sdl3, function_name: str, instance_id: int) -> str | None:
+    def _optional_text_call(sdl3: Any, function_name: str, instance_id: int) -> str | None:
         try:
             function = getattr(sdl3, function_name)
             return SDL3InputService._decode(function(instance_id))
@@ -233,14 +235,14 @@ class SDL3InputService:
             return None
 
     @staticmethod
-    def _safe_int_call(function, instance_id: int) -> int:
+    def _safe_int_call(function: Any, instance_id: int) -> int:
         try:
             return int(function(instance_id))
         except (AttributeError, TypeError, ValueError, OSError):
             return 0
 
     @classmethod
-    def _optional_int_call(cls, sdl3, function_name: str, instance_id: int) -> int | None:
+    def _optional_int_call(cls, sdl3: Any, function_name: str, instance_id: int) -> int | None:
         try:
             function = getattr(sdl3, function_name)
         except AttributeError:
@@ -249,7 +251,7 @@ class SDL3InputService:
         return value or None
 
     @staticmethod
-    def _guid(sdl3, instance_id: int) -> str | None:
+    def _guid(sdl3: Any, instance_id: int) -> str | None:
         try:
             guid = sdl3.SDL_GetGamepadGUIDForID(instance_id)
             buffer = ctypes.create_string_buffer(33)
@@ -265,11 +267,18 @@ class SDL3InputService:
             return None
         if isinstance(value, bytes):
             return value.decode("utf-8", errors="replace")
-        try:
+        if isinstance(value, ctypes.c_char_p):
+            raw = value.value
+            return raw.decode("utf-8", errors="replace") if raw else None
+        if isinstance(value, ctypes.c_void_p):
+            pointer = value.value
+            if pointer:
+                return ctypes.string_at(pointer).decode("utf-8", errors="replace")
+            return None
+        if isinstance(value, int):
             return ctypes.string_at(value).decode("utf-8", errors="replace")
-        except (TypeError, ValueError):
-            text = str(value).strip()
-            return text or None
+        text = str(value).strip()
+        return text or None
 
 
 __all__ = ["GamepadSnapshot", "SDL3InputService"]
