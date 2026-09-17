@@ -101,10 +101,20 @@ class SDL3InputService:
         product = self._optional_int_call(sdl3, "SDL_GetGamepadProductForID", instance_id)
         version = self._optional_int_call(sdl3, "SDL_GetGamepadProductVersionForID", instance_id)
         input_logger.info("[SDL3][11] ID %d: Mapping ignorado durante descoberta segura", instance_id)
+
         elements, topology = self._topology(sdl3, instance_id)
         battery_percent, battery_state = self._battery_info(sdl3, instance_id)
-        input_logger.info("[SDL3][13] ID %d: bateria=%s%% | estado=%s", instance_id, battery_percent if battery_percent is not None else "?", battery_state or "unknown")
-        input_logger.info("[SDL3][14] ID %d: topologia buttons=%d axes=%d hats=%d", instance_id, topology[0], topology[1], topology[2])
+        input_logger.info(
+            "[SDL3][13] ID %d: bateria=%s%% | estado=%s",
+            instance_id,
+            battery_percent if battery_percent is not None else "?",
+            battery_state or "unknown",
+        )
+        input_logger.info(
+            "[SDL3][14] ID %d: topologia buttons=%d axes=%d hats=%d",
+            instance_id,
+            topology[0], topology[1], topology[2],
+        )
         input_logger.info("[SDL3][15] ID %d: criando InputDevice", instance_id)
         metadata: dict[str, object] = {"instance_id": instance_id, "topology_source": "SDL3 joystick"}
         if battery_percent is not None:
@@ -112,7 +122,13 @@ class SDL3InputService:
         if battery_state:
             metadata["battery_state"] = battery_state
         metadata.update({"raw_button_count": topology[0], "raw_axis_count": topology[1], "raw_hat_count": topology[2]})
-        device = InputDevice(device_id=f"sdl3:{instance_id}", name=name, device_type=InputDeviceType.GAMEPAD, vendor_id=vendor, product_id=product, version=version, path=path, sdl_guid=guid, sdl_mapping=None, backend="sdl3", elements=elements, metadata=metadata)
+        device = InputDevice(
+            device_id=f"sdl3:{instance_id}", name=name, device_type=InputDeviceType.GAMEPAD,
+            vendor_id=vendor, product_id=product, version=version,
+            path=path, sdl_guid=guid, sdl_mapping=None, backend="sdl3",
+            elements=elements,
+            metadata=metadata,
+        )
         input_logger.info("[SDL3][16] ID %d: gamepad descrito", instance_id)
         return device
 
@@ -132,24 +148,53 @@ class SDL3InputService:
         num_hats = cls._callable(sdl3, "SDL_GetNumJoystickHats")
         if open_gamepad is None or get_joystick is None or close_gamepad is None or num_buttons is None or num_axes is None or num_hats is None:
             return (), (0, 0, 0)
+
+        open_gamepad_fn = open_gamepad
+        get_joystick_fn = get_joystick
+        close_gamepad_fn = close_gamepad
+        num_buttons_fn = num_buttons
+        num_axes_fn = num_axes
+        num_hats_fn = num_hats
+
         gamepad: Any = None
         try:
-            gamepad = open_gamepad(instance_id)
+            gamepad = open_gamepad_fn(instance_id)
             if not gamepad:
                 return (), (0, 0, 0)
-            joystick = get_joystick(gamepad)
+            joystick = get_joystick_fn(gamepad)
             if not joystick:
                 return (), (0, 0, 0)
-            buttons = max(0, int(num_buttons(joystick)))
-            axes = max(0, int(num_axes(joystick)))
-            hats = max(0, int(num_hats(joystick)))
+            buttons = max(0, int(num_buttons_fn(joystick)))
+            axes = max(0, int(num_axes_fn(joystick)))
+            hats = max(0, int(num_hats_fn(joystick)))
             elements: list[InputElement] = []
             for index in range(buttons):
-                elements.append(InputElement(element_id=f"button:{index}", element_type=InputElementType.BUTTON, name=f"Raw Button {index + 1}", index=index))
+                elements.append(
+                    InputElement(
+                        element_id=f"button:{index}",
+                        element_type=InputElementType.BUTTON,
+                        name=f"Raw Button {index + 1}",
+                        index=index,
+                    )
+                )
             for index in range(axes):
-                elements.append(InputElement(element_id=f"axis:{index}", element_type=InputElementType.AXIS, name=f"Raw Axis {index + 1}", index=index))
+                elements.append(
+                    InputElement(
+                        element_id=f"axis:{index}",
+                        element_type=InputElementType.AXIS,
+                        name=f"Raw Axis {index + 1}",
+                        index=index,
+                    )
+                )
             for index in range(hats):
-                elements.append(InputElement(element_id=f"hat:{index}", element_type=InputElementType.HAT, name=f"Raw Hat {index + 1}", index=index))
+                elements.append(
+                    InputElement(
+                        element_id=f"hat:{index}",
+                        element_type=InputElementType.HAT,
+                        name=f"Raw Hat {index + 1}",
+                        index=index,
+                    )
+                )
             return tuple(elements), (buttons, axes, hats)
         except (AttributeError, TypeError, ValueError, OSError, RuntimeError):
             logger.debug("[INPUT] SDL3 não conseguiu consultar topologia %s", instance_id, exc_info=True)
@@ -157,7 +202,7 @@ class SDL3InputService:
         finally:
             if gamepad:
                 try:
-                    close_gamepad(gamepad)
+                    close_gamepad_fn(gamepad)
                 except (AttributeError, TypeError, OSError, RuntimeError):
                     logger.debug("[INPUT] falha ao fechar gamepad %s", instance_id, exc_info=True)
 
@@ -169,13 +214,18 @@ class SDL3InputService:
         close_gamepad = cls._callable(sdl3, "SDL_CloseGamepad")
         if open_gamepad is None or power_info is None or close_gamepad is None:
             return None, None
+
+        open_gamepad_fn = open_gamepad
+        power_info_fn = power_info
+        close_gamepad_fn = close_gamepad
+
         gamepad: Any = None
         try:
-            gamepad = open_gamepad(instance_id)
+            gamepad = open_gamepad_fn(instance_id)
             if not gamepad:
                 return None, None
             percent = ctypes.c_int(-1)
-            state = power_info(gamepad, ctypes.pointer(percent))
+            state = power_info_fn(gamepad, ctypes.pointer(percent))
             value = int(percent.value)
             battery_percent = value if 0 <= value <= 100 else None
             state_name = cls._power_state_name(sdl3, state)
@@ -186,7 +236,7 @@ class SDL3InputService:
         finally:
             if gamepad:
                 try:
-                    close_gamepad(gamepad)
+                    close_gamepad_fn(gamepad)
                 except (AttributeError, TypeError, OSError, RuntimeError):
                     logger.debug("[INPUT] falha ao fechar handle SDL3 do gamepad %s", instance_id, exc_info=True)
 
