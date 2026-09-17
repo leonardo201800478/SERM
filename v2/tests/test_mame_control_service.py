@@ -2,7 +2,6 @@ from pathlib import Path
 
 from serm_v2.services.mame_control_service import MameControlService
 
-
 LISTXML = """
 <mame build="0.289">
   <machine name="racer" sourcefile="src/racer.cpp">

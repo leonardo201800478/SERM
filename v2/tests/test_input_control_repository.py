@@ -1,8 +1,13 @@
 import sqlite3
 
-from serm_v2.models.input_control import ControlProfile, InputDevice, InputElement, InputElementType, LogicalControl
+from serm_v2.models.input_control import (
+    ControlProfile,
+    InputDevice,
+    InputElement,
+    InputElementType,
+    LogicalControl,
+)
 from serm_v2.services.input_control_repository import InputControlRepository
-
 
 SCHEMA = """
 CREATE TABLE input_device (

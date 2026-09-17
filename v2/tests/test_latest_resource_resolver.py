@@ -1,6 +1,11 @@
 from pathlib import Path
 
-from serm_v2.models.external_resource import ExternalResource, ExternalResourceType, ExtractionMode, ResourceStorage
+from serm_v2.models.external_resource import (
+    ExternalResource,
+    ExternalResourceType,
+    ExtractionMode,
+    ResourceStorage,
+)
 from serm_v2.services.arcade.download_manager import DownloadManager
 from serm_v2.services.arcade.latest_resource_resolver import LatestResourceResolver
 

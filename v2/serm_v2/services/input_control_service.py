@@ -15,7 +15,7 @@ from .controller_catalog_service import ControllerCatalogService, ControllerIden
 from .input_device_correlation_service import DeviceCorrelation, InputDeviceCorrelationService
 from .input_device_service import InputDeviceService
 from .input_layout_analyzer import InputLayoutAnalyzer, LayoutSummary
-from .mame_control_service import MameInputRequirements, MameControlService
+from .mame_control_service import MameControlService, MameInputRequirements
 from .sdl3_input_service import SDL3InputService
 from .system_control_mapper import SystemControlMapper, SystemControlMapping
 

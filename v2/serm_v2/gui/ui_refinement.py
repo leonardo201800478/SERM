@@ -4,7 +4,24 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
-from PySide6.QtWidgets import QBoxLayout, QFrame, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget, QPlainTextEdit, QProgressBar, QPushButton, QSizePolicy, QTabWidget, QTableWidget, QTreeWidget, QVBoxLayout, QWidget, QGridLayout
+from PySide6.QtWidgets import (
+    QBoxLayout,
+    QFrame,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QPlainTextEdit,
+    QProgressBar,
+    QPushButton,
+    QSizePolicy,
+    QTableWidget,
+    QTabWidget,
+    QTreeWidget,
+    QWidget,
+)
 
 XP_PROGRESS_STYLE = """
 QProgressBar#xpProgress { background-color:#0b0b0b; border:1px solid #707070; border-radius:2px; padding:1px; text-align:center; color:#ffffff; min-height:18px; max-height:18px; }

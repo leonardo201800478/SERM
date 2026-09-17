@@ -26,7 +26,7 @@ class MameFolderFilterService:
         self.folders_path = self.mame_root / "folders"
 
     @classmethod
-    def from_folders_path(cls, database_path: Path, folders_path: Path) -> "MameFolderFilterService":
+    def from_folders_path(cls, database_path: Path, folders_path: Path) -> MameFolderFilterService:
         """Cria o serviço diretamente a partir de um diretório ``folders``."""
         instance = cls(database_path, Path(folders_path).parent)
         instance.folders_path = Path(folders_path)

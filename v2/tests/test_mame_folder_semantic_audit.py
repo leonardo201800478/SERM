@@ -9,7 +9,6 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-
 DB_FILE = Path(__file__).resolve().parents[1] / "data" / "database" / "serm.db"
 
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ..models.input_control import InputDevice, InputDeviceType
-from .controller_catalog_service import ControllerCatalogService, ControllerIdentification
+from .controller_catalog_service import ControllerCatalogService
 from .controller_mode_service import ControllerModeMatch, ControllerModeService
 
 

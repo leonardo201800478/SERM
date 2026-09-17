@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 
-
 _EXTENDED_GLOB_PATTERNS = (
     "*_audit.py", "*_integrity.py", "*_performance.py", "*_query_plan.py",
     "*_real_sample.py", "*_real_catalog.py", "*_inventory.py", "*_integration.py",

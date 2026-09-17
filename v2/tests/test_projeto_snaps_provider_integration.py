@@ -5,10 +5,8 @@ from pathlib import Path
 from zipfile import ZipFile
 
 import pytest
-
 from serm_v2.services.arcade.download_manager import DestinationAction, DownloadManager
 from serm_v2.services.arcade.projeto_snaps_provider import ProgettoSnapsProvider
-
 
 pytestmark = pytest.mark.skipif(
     os.getenv("SERM_RUN_NETWORK_TESTS") != "1",

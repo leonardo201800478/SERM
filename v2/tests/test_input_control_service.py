@@ -1,4 +1,10 @@
-from serm_v2.models.input_control import InputConnection, InputDevice, InputDeviceType, InputElement, InputElementType
+from serm_v2.models.input_control import (
+    InputConnection,
+    InputDevice,
+    InputDeviceType,
+    InputElement,
+    InputElementType,
+)
 from serm_v2.services.input_control_service import InputControlService
 
 

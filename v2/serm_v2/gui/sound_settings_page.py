@@ -2,8 +2,16 @@
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QComboBox, QFormLayout, QGroupBox, QLabel, QSlider, QVBoxLayout, QWidget
 from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
+    QComboBox,
+    QFormLayout,
+    QGroupBox,
+    QLabel,
+    QSlider,
+    QVBoxLayout,
+    QWidget,
+)
 
 
 class SoundSettingsPage(QWidget):

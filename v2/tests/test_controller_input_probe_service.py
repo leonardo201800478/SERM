@@ -1,5 +1,8 @@
 from serm_v2.models.input_control import LogicalControl
-from serm_v2.services.controller_input_probe_service import ControllerInputProbeService, ProbeEventType
+from serm_v2.services.controller_input_probe_service import (
+    ControllerInputProbeService,
+    ProbeEventType,
+)
 
 
 def test_m30_sequence_uses_canonical_physical_order():

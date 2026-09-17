@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QApplication
 
-
 COMPACT_DENSITY = """
 /* ================================================================
    SERM V2 — COMPACT DENSITY / SCREEN REAL ESTATE

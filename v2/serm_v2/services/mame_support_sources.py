@@ -11,7 +11,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from urllib.parse import quote
 
-
 PROGETTO_SNAPS_REPOSITORY = "https://www.progettosnaps.net"
 GITHUB_SUPPORT_REPOSITORY = "https://github.com/AntoPISA/MAME_SupportFiles"
 GITHUB_RAW_ROOT = "https://raw.githubusercontent.com/AntoPISA/MAME_SupportFiles/main"

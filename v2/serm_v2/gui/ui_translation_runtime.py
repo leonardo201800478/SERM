@@ -7,7 +7,6 @@ from PySide6.QtWidgets import QAbstractButton, QComboBox, QGroupBox, QLabel, QTa
 from .ui_preferences import UiPreferences
 from .ui_translation import TEXTS
 
-
 _SOURCE_PROPERTY = "serm_translation_source"
 
 

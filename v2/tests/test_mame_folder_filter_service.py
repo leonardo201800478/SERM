@@ -1,5 +1,5 @@
-from pathlib import Path
 import sqlite3
+from pathlib import Path
 
 from serm_v2.services.mame_folder_filter_service import MameFolderFilterService
 

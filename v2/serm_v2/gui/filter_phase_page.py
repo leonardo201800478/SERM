@@ -9,11 +9,22 @@ from pathlib import Path
 from uuid import uuid4
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QCheckBox, QComboBox, QFrame, QGridLayout, QGroupBox, QLabel, QMessageBox, QPushButton, QTabWidget, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QFrame,
+    QGridLayout,
+    QGroupBox,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ..runtime.paths import database_path, scans_root
 from ..services.scan_repository import ScanRepository
-
 
 NO_SCAN_SELECTED_TEXT = "Nenhum scan selecionado."
 

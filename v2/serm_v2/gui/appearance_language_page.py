@@ -3,7 +3,15 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QApplication, QComboBox, QFormLayout, QGroupBox, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QApplication,
+    QComboBox,
+    QFormLayout,
+    QGroupBox,
+    QLabel,
+    QVBoxLayout,
+    QWidget,
+)
 
 from .ui_preferences import LANGUAGES, UiPreferences, apply_user_theme
 

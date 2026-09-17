@@ -18,6 +18,7 @@ from .reconstruction_manifest import (
     MaterializationKind,
     ReconstructionManifest,
 )
+from .resource_catalog import ExternalResourceCatalog
 from .rom_reconstruction import (
     ArcadeRomReconstructionEngine,
     PhysicalRom,
@@ -31,7 +32,6 @@ from .rom_reconstruction_plan import (
     RomReconstructionPlanResult,
     RomSourceKind,
 )
-from .resource_catalog import ExternalResourceCatalog
 from .set_builder import (
     ArcadeSetBuilder,
     SetBuildDecision,

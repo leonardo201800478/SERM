@@ -7,6 +7,9 @@ import sys
 
 from PySide6.QtWidgets import QApplication
 
+from .gui.home_dashboard_refinement import refine_home_dashboard
+from .gui.home_progress_refinement import refine_home_progress
+from .gui.home_space_refinement import compact_home_space
 from .gui.main_window import MainWindow
 from .gui.retro_arcade_theme import apply_retro_arcade_theme
 from .gui.startup_splash import StartupSplash
@@ -14,9 +17,6 @@ from .gui.theme import normalize_log_widgets, refine_dashboard
 from .gui.ui_micro_refinement import refine_arcade_catalog_numbers
 from .gui.ui_preferences import UiPreferences, apply_user_theme
 from .gui.ui_refinement import apply_ui_refinement
-from .gui.home_dashboard_refinement import refine_home_dashboard
-from .gui.home_progress_refinement import refine_home_progress
-from .gui.home_space_refinement import compact_home_space
 from .services.crash_diagnostics import configure_logging
 
 

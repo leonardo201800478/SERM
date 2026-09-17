@@ -4,11 +4,10 @@ import argparse
 import hashlib
 import sqlite3
 import sys
-from datetime import datetime, timezone
+from collections.abc import Iterable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Iterable
 from xml.etree import ElementTree as ET
-
 
 DEFAULT_DB = Path(__file__).resolve().parents[1] / "data" / "database" / "serm.db"
 DEFAULT_OUTPUT = Path(__file__).resolve().parents[1] / "data" / "database" / "serm_database_audit.xml"
@@ -149,7 +148,7 @@ def build_report(db: sqlite3.Connection, db_path: Path) -> tuple[ET.ElementTree,
         "serm_database_audit",
         {
             "version": "1",
-            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "generated_at": datetime.now(UTC).isoformat(),
             "database": str(db_path.resolve()),
             "sqlite": sqlite3.sqlite_version,
         },

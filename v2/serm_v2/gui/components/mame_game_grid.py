@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QTimer, Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import QGridLayout, QScrollArea, QSizePolicy, QWidget
 
 from ...services.mame_artwork_service import MameArtworkService

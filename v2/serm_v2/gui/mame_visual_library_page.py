@@ -19,10 +19,10 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QPushButton,
     QSplitter,
     QVBoxLayout,
     QWidget,
-    QPushButton,
 )
 
 from ..runtime.paths import data_root, database_path

@@ -1,4 +1,7 @@
-from serm_v2.services.controller_input_probe_service import ControllerInputProbeService, ProbeEventType
+from serm_v2.services.controller_input_probe_service import (
+    ControllerInputProbeService,
+    ProbeEventType,
+)
 
 
 class FakeSDL:

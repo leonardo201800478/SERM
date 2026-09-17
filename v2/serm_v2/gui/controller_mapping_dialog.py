@@ -5,7 +5,15 @@ from __future__ import annotations
 import logging
 
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton, QVBoxLayout
+from PySide6.QtWidgets import (
+    QDialog,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QPushButton,
+    QVBoxLayout,
+)
 
 from ..models.input_control import ControlProfile, LogicalControl
 from ..services.controller_input_probe_service import ControllerInputProbeService, ProbeEventType

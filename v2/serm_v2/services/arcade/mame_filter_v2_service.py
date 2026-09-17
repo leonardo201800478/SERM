@@ -12,7 +12,13 @@ from pathlib import Path
 from uuid import uuid4
 
 from ...models.arcade import ArcadeGame, ArcadePlatform, PlayabilityStatus
-from ...models.arcade_classification import ArcadeContentType, ArcadeGenre, ArcadeHardwareFamily, ArcadeInputType, WheelAngleClass
+from ...models.arcade_classification import (
+    ArcadeContentType,
+    ArcadeGenre,
+    ArcadeHardwareFamily,
+    ArcadeInputType,
+    WheelAngleClass,
+)
 from ...runtime.paths import data_root, database_path, scans_root
 from ..arcade.filter_engine import ArcadeFilterEngine, FilterRules
 from ..mame_category_filter_service import MameCategoryFilterService

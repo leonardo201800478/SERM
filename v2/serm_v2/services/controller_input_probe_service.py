@@ -54,8 +54,8 @@ class ControllerInputProbeService:
             self.stop()
         sdl3 = self._load()
         self._enable_input_updates(sdl3)
-        open_gamepad = getattr(sdl3, "SDL_OpenGamepad")
-        get_joystick = getattr(sdl3, "SDL_GetGamepadJoystick")
+        open_gamepad = sdl3.SDL_OpenGamepad
+        get_joystick = sdl3.SDL_GetGamepadJoystick
         gamepad = open_gamepad(int(instance_id))
         if not gamepad:
             error = getattr(sdl3, "SDL_GetError", lambda: "erro desconhecido")()
@@ -106,7 +106,7 @@ class ControllerInputProbeService:
         events: list[ProbeEvent] = []
         num_buttons = self._count("SDL_GetNumJoystickButtons")
         if num_buttons:
-            get_button = getattr(sdl3, "SDL_GetJoystickButton")
+            get_button = sdl3.SDL_GetJoystickButton
             for index in range(num_buttons):
                 pressed = bool(get_button(self._joystick, index))
                 previous = self._previous_buttons.get(index, pressed)
@@ -116,7 +116,7 @@ class ControllerInputProbeService:
 
         num_axes = self._count("SDL_GetNumJoystickAxes")
         if num_axes:
-            get_axis = getattr(sdl3, "SDL_GetJoystickAxis")
+            get_axis = sdl3.SDL_GetJoystickAxis
             for index in range(num_axes):
                 value = int(get_axis(self._joystick, index))
                 previous = self._previous_axes.get(index, value)
@@ -137,7 +137,7 @@ class ControllerInputProbeService:
 
         num_hats = self._count("SDL_GetNumJoystickHats")
         if num_hats:
-            get_hat = getattr(sdl3, "SDL_GetJoystickHat")
+            get_hat = sdl3.SDL_GetJoystickHat
             for index in range(num_hats):
                 value = int(get_hat(self._joystick, index))
                 previous = self._previous_hats.get(index, value)
@@ -172,17 +172,17 @@ class ControllerInputProbeService:
         num_buttons = self._count("SDL_GetNumJoystickButtons")
         self._previous_buttons = {}
         if num_buttons:
-            get_button = getattr(sdl3, "SDL_GetJoystickButton")
+            get_button = sdl3.SDL_GetJoystickButton
             self._previous_buttons = {i: bool(get_button(self._joystick, i)) for i in range(num_buttons)}
         num_axes = self._count("SDL_GetNumJoystickAxes")
         self._previous_axes = {}
         if num_axes:
-            get_axis = getattr(sdl3, "SDL_GetJoystickAxis")
+            get_axis = sdl3.SDL_GetJoystickAxis
             self._previous_axes = {i: int(get_axis(self._joystick, i)) for i in range(num_axes)}
         num_hats = self._count("SDL_GetNumJoystickHats")
         self._previous_hats = {}
         if num_hats:
-            get_hat = getattr(sdl3, "SDL_GetJoystickHat")
+            get_hat = sdl3.SDL_GetJoystickHat
             self._previous_hats = {i: int(get_hat(self._joystick, i)) for i in range(num_hats)}
 
     def _count(self, function_name: str) -> int:

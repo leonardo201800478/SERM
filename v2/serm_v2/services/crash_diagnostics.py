@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import faulthandler
 import logging
-import os
 import sys
 import threading
 import traceback
-from datetime import datetime
 from pathlib import Path
 
 _LOG_DIR = Path(__file__).resolve().parents[2] / "data" / "logs"

@@ -13,8 +13,8 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QListWidgetItem,
-    QPushButton,
     QProgressBar,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )

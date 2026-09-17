@@ -8,9 +8,12 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from ..models.input_control import ControlProfile, InputDevice, InputElement, InputElementType, LogicalControl
+from ..models.input_control import (
+    ControlProfile,
+    InputDevice,
+)
 
 
 class InputControlRepository:
@@ -20,7 +23,7 @@ class InputControlRepository:
         self.connection = connection
 
     def upsert_device(self, device: InputDevice) -> int:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         metadata = json.dumps(device.metadata, ensure_ascii=False, default=str)
         self.connection.execute(
             """INSERT INTO input_device
@@ -69,7 +72,7 @@ class InputControlRepository:
         if device_row is None:
             raise ValueError("O dispositivo do perfil ainda não foi persistido")
         device_id = int(device_row[0])
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         metadata = json.dumps(profile.metadata, ensure_ascii=False, default=str)
         self.connection.execute(
             """INSERT INTO control_profile

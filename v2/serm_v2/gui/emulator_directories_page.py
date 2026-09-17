@@ -5,7 +5,17 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from PySide6.QtWidgets import QBoxLayout, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton
+from PySide6.QtWidgets import (
+    QBoxLayout,
+    QFileDialog,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+)
 
 from .directory_guide_v2 import DirectoryGuidePage
 

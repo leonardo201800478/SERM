@@ -1,5 +1,8 @@
 from serm_v2.models.input_control import InputDevice, InputDeviceType
-from serm_v2.services.controller_catalog_service import ControllerCatalogEntry, ControllerCatalogService
+from serm_v2.services.controller_catalog_service import (
+    ControllerCatalogEntry,
+    ControllerCatalogService,
+)
 
 
 def device(**kwargs):

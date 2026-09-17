@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from PySide6.QtCore import QObject, QTimer, Qt
+from PySide6.QtCore import QObject, Qt, QTimer
 from PySide6.QtWidgets import QMessageBox, QWidget
 
 from ..models.input_control import InputDevice, InputDeviceType

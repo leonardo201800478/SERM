@@ -11,9 +11,9 @@ estrutura quanto os formatos normalizados usados pelos providers do SERM.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
 import re
-from typing import Any, TypeVar, cast
+from collections.abc import Iterable, Mapping, Sequence
+from typing import TypeVar, cast
 
 from ...models.arcade import ArcadeGame, ArcadePlatform
 from ...models.arcade_classification import (

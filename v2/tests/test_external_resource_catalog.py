@@ -5,7 +5,6 @@ from pathlib import Path
 from zipfile import ZipFile
 
 import pytest
-
 from serm_v2.models.external_resource import (
     ExternalResource,
     ExternalResourceType,

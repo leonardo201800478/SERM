@@ -7,7 +7,6 @@ import sqlite3
 from serm_v2.domain.arcade import MachineKind
 from serm_v2.services.arcade_catalog_service import SqliteArcadeCatalog
 
-
 SCHEMA = """
 CREATE TABLE mame_listxml_import (
     id INTEGER PRIMARY KEY, status TEXT NOT NULL

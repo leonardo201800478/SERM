@@ -76,7 +76,7 @@ class ControllerCatalogService:
         return ControllerIdentification(model, min(100, score), tuple(reasons))
 
     @staticmethod
-    def default() -> "ControllerCatalogService":
+    def default() -> ControllerCatalogService:
         return ControllerCatalogService(
             (
                 ControllerCatalogEntry(
@@ -140,7 +140,7 @@ class ControllerCatalogService:
         )
 
     @classmethod
-    def eightbitdo(cls) -> "ControllerCatalogService":
+    def eightbitdo(cls) -> ControllerCatalogService:
         """Retorna exclusivamente os modelos 8BitDo físicos já validados."""
         return cls(
             tuple(entry for entry in cls.default().entries() if entry.manufacturer.casefold() == "8bitdo")

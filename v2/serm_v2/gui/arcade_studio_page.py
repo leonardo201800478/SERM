@@ -8,16 +8,36 @@ from pathlib import Path
 from PySide6.QtCore import QObject, Qt, QThread, Signal
 from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
-    QComboBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QHeaderView,
-    QLabel, QLineEdit, QListWidget, QListWidgetItem, QProgressBar, QPushButton,
-    QSplitter, QTabWidget, QTableWidget, QTableWidgetItem, QTreeWidget,
-    QTreeWidgetItem, QVBoxLayout, QWidget,
+    QComboBox,
+    QFileDialog,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QProgressBar,
+    QPushButton,
+    QSplitter,
+    QTableWidget,
+    QTableWidgetItem,
+    QTabWidget,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
 )
 
 from ..models.arcade import RomStatus
 from ..runtime.paths import database_path, scans_root
 from ..services.arcade.chd_audit import ArcadeChdAuditService, ChdAuditResult
-from ..services.arcade.scan_comparison import ArcadeScanComparisonService, MachineComparison, ScanComparisonResult
+from ..services.arcade.scan_comparison import (
+    ArcadeScanComparisonService,
+    MachineComparison,
+    ScanComparisonResult,
+)
 from ..services.chd_header import ChdFormatError, ChdHeaderReader
 from .mame_filters_panel import MameFiltersPanel
 

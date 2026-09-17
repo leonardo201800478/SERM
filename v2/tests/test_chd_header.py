@@ -1,7 +1,6 @@
 import struct
 
 import pytest
-
 from serm_v2.services.chd_header import ChdFormatError, ChdHeaderReader
 
 

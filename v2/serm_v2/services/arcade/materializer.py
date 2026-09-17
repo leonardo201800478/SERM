@@ -19,7 +19,11 @@ from collections import defaultdict
 from collections.abc import Callable
 from pathlib import Path, PurePosixPath
 
-from .reconstruction_manifest import MaterializationEntry, MaterializationKind, ReconstructionManifest
+from .reconstruction_manifest import (
+    MaterializationEntry,
+    MaterializationKind,
+    ReconstructionManifest,
+)
 
 ProgressCallback = Callable[[int, int, MaterializationEntry], None]
 

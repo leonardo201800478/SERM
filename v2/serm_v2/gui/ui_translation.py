@@ -6,7 +6,6 @@ from PySide6.QtWidgets import QAbstractButton, QComboBox, QGroupBox, QLabel, QTa
 
 from .ui_preferences import UiPreferences
 
-
 TEXTS = {
     "pt-BR": {
         "Filtros": "Filtros",

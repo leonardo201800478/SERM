@@ -1,4 +1,11 @@
-from serm_v2.models.input_control import ControlProfile, InputDevice, InputDeviceType, InputElement, InputElementType, LogicalControl
+from serm_v2.models.input_control import (
+    ControlProfile,
+    InputDevice,
+    InputDeviceType,
+    InputElement,
+    InputElementType,
+    LogicalControl,
+)
 from serm_v2.services.mame_control_service import MameControlRequirement, MameInputRequirements
 from serm_v2.services.system_control_mapper import SystemControlMapper
 

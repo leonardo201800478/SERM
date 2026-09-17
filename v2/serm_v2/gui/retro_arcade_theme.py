@@ -10,7 +10,6 @@ from __future__ import annotations
 from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtWidgets import QApplication
 
-
 MODERN_FONT_CANDIDATES = (
     "Segoe UI",
     "Inter",

@@ -185,9 +185,9 @@ class SDL3InputService:
     def _battery_info(sdl3, instance_id: int) -> tuple[int | None, str | None]:
         """Consulta a bateria abrindo o gamepad apenas durante a leitura."""
         try:
-            open_gamepad = getattr(sdl3, "SDL_OpenGamepad")
-            power_info = getattr(sdl3, "SDL_GetGamepadPowerInfo")
-            close_gamepad = getattr(sdl3, "SDL_CloseGamepad")
+            open_gamepad = sdl3.SDL_OpenGamepad
+            power_info = sdl3.SDL_GetGamepadPowerInfo
+            close_gamepad = sdl3.SDL_CloseGamepad
         except AttributeError:
             return None, None
 

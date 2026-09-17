@@ -1,4 +1,10 @@
-from serm_v2.models.input_control import InputDevice, InputDeviceType, InputElement, InputElementType, LogicalControl
+from serm_v2.models.input_control import (
+    InputDevice,
+    InputDeviceType,
+    InputElement,
+    InputElementType,
+    LogicalControl,
+)
 from serm_v2.services.input_layout_analyzer import InputLayoutAnalyzer
 
 

@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QLabel, QPlainTextEdit, QProgressBar, QSizePolicy, QVBoxLayout, QWidget
-
+from PySide6.QtWidgets import (
+    QLabel,
+    QPlainTextEdit,
+    QProgressBar,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
+)
 
 LOG_LABELS = {"Log detalhado da instalação", "Log RetroArch"}
 

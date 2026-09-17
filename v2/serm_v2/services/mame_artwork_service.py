@@ -55,7 +55,7 @@ class MameArtworkService:
         self._primary_cache: dict[str, Path | None] = {}
 
     @classmethod
-    def from_mame_executable(cls, executable: str | Path | None) -> "MameArtworkService":
+    def from_mame_executable(cls, executable: str | Path | None) -> MameArtworkService:
         """Cria um resolvedor a partir de ``mame.exe``."""
         if not executable:
             return cls()

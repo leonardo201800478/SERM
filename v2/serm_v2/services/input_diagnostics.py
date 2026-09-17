@@ -11,7 +11,7 @@ import os
 import sys
 import threading
 import traceback
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 
@@ -68,7 +68,7 @@ class InputDiagnostics:
         logger.info(
             "[BOOT] input diagnostics installed | pid=%s | python=%s | platform=%s | utc=%s",
             os.getpid(), sys.version.split()[0], sys.platform,
-            datetime.now(timezone.utc).isoformat(),
+            datetime.now(UTC).isoformat(),
         )
 
 
