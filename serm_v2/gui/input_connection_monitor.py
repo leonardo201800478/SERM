@@ -1,0 +1,254 @@
+"""Monitor visual de conexão/desconexão de controles físicos."""
+
+from __future__ import annotations
+
+import logging
+
+from PySide6.QtCore import QObject, Qt, QTimer
+from PySide6.QtWidgets import QMessageBox, QWidget
+
+from ..models.input_control import InputDevice, InputDeviceType
+from ..services.controller_mode_service import ControllerModeMatch, ControllerModeService
+from ..services.input_device_service import InputDeviceService
+
+logger = logging.getLogger(__name__)
+
+
+class InputConnectionMonitor(QObject):
+    """Detecta mudanças de controles por polling HID, sem injetar eventos."""
+
+    INTERVAL_MS = 1500
+
+    def __init__(self, parent: QWidget, device_service: InputDeviceService | None = None) -> None:
+        super().__init__(parent)
+        self.parent_widget = parent
+        self.device_service = device_service or InputDeviceService()
+        self.timer = QTimer(self)
+        self.timer.setInterval(self.INTERVAL_MS)
+        self.timer.timeout.connect(self.poll)
+        self._known: dict[str, InputDevice] = {}
+        self._baseline_ready = False
+        self._dialogs: list[QMessageBox] = []
+
+    @staticmethod
+    def _is_controller(device: InputDevice) -> bool:
+        if device.device_type in {
+            InputDeviceType.GAMEPAD,
+            InputDeviceType.ARCADE_STICK,
+            InputDeviceType.FIGHTING_CONTROLLER,
+            InputDeviceType.STEERING_WHEEL,
+            InputDeviceType.FLIGHT_CONTROLLER,
+            InputDeviceType.DANCE_PAD,
+        }:
+            return True
+        return device.usage_page == 1 and device.usage in {4, 5}
+
+    def _inventory(self) -> dict[str, InputDevice]:
+        devices = self.device_service.enumerate_hid(log_summary=False)
+        inventory: dict[str, InputDevice] = {}
+        for device in devices:
+            if not self._is_controller(device):
+                continue
+            inventory[device.hardware_key] = device
+        return inventory
+
+    def start(self) -> None:
+        """Cria a linha de base silenciosa e inicia a observação."""
+        try:
+            self._known = self._inventory()
+            self._baseline_ready = True
+            self.timer.start()
+            logger.info("[INPUT][HOTPLUG] monitor iniciado | controles=%d", len(self._known))
+        except Exception:
+            logger.exception("[INPUT][HOTPLUG] falha ao criar linha de base")
+
+    def stop(self) -> None:
+        self.timer.stop()
+        for dialog in tuple(self._dialogs):
+            dialog.close()
+        self._dialogs.clear()
+
+    def poll(self) -> None:
+        try:
+            current = self._inventory()
+            if not self._baseline_ready:
+                self._known = current
+                self._baseline_ready = True
+                return
+
+            connected = [current[key] for key in current.keys() - self._known.keys()]
+            disconnected = [self._known[key] for key in self._known.keys() - current.keys()]
+            self._known = current
+
+            self._handle_changes(connected, disconnected)
+        except Exception:
+            logger.exception("[INPUT][HOTPLUG] falha durante polling")
+
+    def _handle_changes(self, connected: list[InputDevice], disconnected: list[InputDevice]) -> None:
+        # Trocas de modo podem aparecer no Windows como uma desconexão seguida
+        # de outra identidade HID. O SERM agrupa a troca quando ambos os lados
+        # pertencem ao mesmo modelo conhecido (M30 ou Ultimate 2C).
+        remaining_connected = list(connected)
+        remaining_disconnected = list(disconnected)
+        for old in disconnected:
+            old_match = ControllerModeService.identify(old)
+            if old_match is None:
+                continue
+            replacement_index = next(
+                (
+                    index
+                    for index, new in enumerate(remaining_connected)
+                    if (new_match := ControllerModeService.identify(new)) is not None
+                    and new_match.model_id == old_match.model_id
+                ),
+                None,
+            )
+            if replacement_index is None:
+                continue
+            new = remaining_connected.pop(replacement_index)
+            remaining_disconnected.remove(old)
+            new_match = ControllerModeService.identify(new)
+            self._notify_mode_changed(old, new, old_match, new_match)
+
+        for device in remaining_connected:
+            self._notify(device, connected=True)
+        for device in remaining_disconnected:
+            self._notify(device, connected=False)
+
+    def _notify_mode_changed(
+        self,
+        old: InputDevice,
+        new: InputDevice,
+        old_match: ControllerModeMatch,
+        new_match: ControllerModeMatch | None,
+    ) -> None:
+        logger.info(
+            "[INPUT][HOTPLUG] modo alterado | modelo=%s | %s -> %s | %s -> %s",
+            old_match.model_name,
+            old_match.mode_name,
+            new_match.mode_name if new_match else "desconhecido",
+            old_match.signature,
+            new_match.signature if new_match else "-",
+        )
+        if new_match is None:
+            return
+        box = QMessageBox(self.parent_widget)
+        box.setWindowTitle("Modo do controle alterado")
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setText(f"{old_match.model_name} — modo alterado\n{old_match.mode_name}  →  {new_match.mode_name}")
+        box.setInformativeText(self._connection_details(new, new_match))
+        box.setDetailedText(self._mode_details(new_match))
+        box.setStandardButtons(QMessageBox.StandardButton.Ok)
+        self._register_dialog(box)
+
+    def _notify(self, device: InputDevice, *, connected: bool) -> None:
+        state = "conectado" if connected else "desconectado"
+        match = ControllerModeService.identify(device)
+        logger.info(
+            "[INPUT][HOTPLUG] %s | name=%r | VID=%04X | PID=%04X | connection=%s | mode=%s",
+            state,
+            device.name,
+            device.vendor_id or 0,
+            device.product_id or 0,
+            device.connection.value,
+            match.mode_name if match else "-",
+        )
+        if connected:
+            self._show_connected(device, match)
+        else:
+            self._show_disconnected(device, match)
+
+    def _register_dialog(self, dialog: QMessageBox) -> None:
+        self._dialogs.append(dialog)
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        dialog.destroyed.connect(lambda _obj=None, d=dialog: self._discard_dialog(d))
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+
+    def _discard_dialog(self, dialog: QMessageBox) -> None:
+        if dialog in self._dialogs:
+            self._dialogs.remove(dialog)
+
+    def _show_connected(self, device: InputDevice, match: ControllerModeMatch | None) -> None:
+        box = QMessageBox(self.parent_widget)
+        box.setWindowTitle("Controle conectado")
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setText(self._headline(device, match, connected=True))
+        box.setInformativeText(self._connection_details(device, match))
+        if match is not None:
+            box.setDetailedText(self._mode_details(match))
+        box.setStandardButtons(QMessageBox.StandardButton.Ok)
+        self._register_dialog(box)
+
+    def _show_disconnected(self, device: InputDevice, match: ControllerModeMatch | None) -> None:
+        box = QMessageBox(self.parent_widget)
+        box.setWindowTitle("Controle desconectado")
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setText(self._headline(device, match, connected=False))
+        box.setInformativeText(self._connection_details(device, match))
+        box.setStandardButtons(QMessageBox.StandardButton.Ok)
+        self._register_dialog(box)
+
+    @staticmethod
+    def _headline(device: InputDevice, match: ControllerModeMatch | None, *, connected: bool) -> str:
+        action = "conectado" if connected else "desconectado"
+        if match is None:
+            return f"{device.name or 'Controle'} {action}."
+        confirmation = "confirmado" if match.confirmed else "assinatura compatível"
+        return f"{match.model_name} — {match.mode_name} ({confirmation}) {action}."
+
+    @staticmethod
+    def _connection_details(device: InputDevice, match: ControllerModeMatch | None) -> str:
+        vendor = f"{device.vendor_id:04X}" if device.vendor_id is not None else "----"
+        product = f"{device.product_id:04X}" if device.product_id is not None else "----"
+        details = [
+            f"Conexão: {device.connection.value}",
+            f"VID/PID: {vendor}:{product}",
+        ]
+        if match is not None:
+            details.extend(
+                [
+                    f"Modo detectado: {match.mode_name} • confiança {match.confidence}%",
+                    f"Para este modo: {match.power_on}.",
+                ]
+            )
+            if match.model_id == ControllerModeService._M30:
+                details.extend(
+                    [
+                        "M30: B+START = D-Input, X+START = XInput, A+START = macOS/DS4, Y+START = Switch.",
+                        "Pareamento Bluetooth do M30: segure PAIR por 2 s.",
+                    ]
+                )
+            elif match.model_id == ControllerModeService._ULTIMATE_2C:
+                details.append(
+                    "Ultimate 2C: 2.4G e USB compartilham o PID 310A; Bluetooth usa uma assinatura diferente."
+                )
+        return "\n".join(details)
+
+    @staticmethod
+    def _mode_details(match: ControllerModeMatch) -> str:
+        if match.model_id == ControllerModeService._M30:
+            instructions = ControllerModeService.m30_instructions()
+            title = "COMANDOS DO 8BITDO M30"
+        elif match.model_id == ControllerModeService._ULTIMATE_2C:
+            instructions = ControllerModeService.ultimate_2c_instructions()
+            title = "COMANDOS DO 8BITDO ULTIMATE 2C"
+        else:
+            instructions = ()
+            title = "MODO DO CONTROLE"
+        lines = [
+            title,
+            "",
+            *instructions,
+            "",
+            f"Modo atual: {match.mode_name}",
+            f"Assinatura: {match.signature}",
+            f"Indicador: {match.led_hint}",
+            "",
+            "O SERM apenas identifica o modo; não envia comandos ao controle e não cria driver virtual.",
+        ]
+        return "\n".join(lines)
+
+
+__all__ = ["InputConnectionMonitor"]

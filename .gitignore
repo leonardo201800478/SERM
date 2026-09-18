@@ -1,0 +1,50 @@
+# ============================================================
+# SERM V2 local-only files
+# ============================================================
+
+# Local application data
+.data/
+data/
+runtime-data/
+
+# Runtime directories
+logs/
+cache/
+staging/
+exports/
+backups/
+
+# Local databases
+database/*.db
+database/*.sqlite*
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.local
+config.local.*
+secrets.*
+
+# Python caches and test tooling
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Generated scan/reconstruction artifacts
+current_scan.jsonl
+current_scan.jsonl.tmp
+reconstruction-decisions.json
+*.json.partial
