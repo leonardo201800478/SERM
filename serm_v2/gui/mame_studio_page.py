@@ -33,8 +33,10 @@ class MameStudioPage(QWidget):
         # internas. Somente Catálogo e Auditoria CHD pertencem à etapa 1;
         # filtros e reconstrução são centralizados nas etapas 3 e 4 abaixo.
         if hasattr(self.catalog_page, "tabs"):
-            while self.catalog_page.tabs.count() > 2:
-                self.catalog_page.tabs.removeTab(1)
+            retained_tabs = {"Catálogo / Comparação", "Auditoria CHD"}
+            for index in range(self.catalog_page.tabs.count() - 1, -1, -1):
+                if self.catalog_page.tabs.tabText(index) not in retained_tabs:
+                    self.catalog_page.tabs.removeTab(index)
 
             # A Biblioteca Visual é a entrada principal da etapa de catálogo.
             # O comparador técnico e a auditoria CHD continuam disponíveis nas

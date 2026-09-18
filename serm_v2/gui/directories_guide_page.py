@@ -90,6 +90,7 @@ class DirectoryGuidePage(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._directory_fields: dict[str, QLineEdit] = {}
         self._fields: dict[str, QLineEdit] = {}
         self._build_ui()
         self.refresh()
@@ -113,12 +114,21 @@ class DirectoryGuidePage(QWidget):
         for _key, label, config_key in self.EMULATORS:
             page = QWidget()
             form = QFormLayout(page)
+            directory_field = QLineEdit()
+            directory_field.setReadOnly(True)
+            browse_directory = QPushButton("Selecionar diretório")
+            browse_directory.clicked.connect(
+                lambda _checked=False, name=_key: self._browse_directory(name)
+            )
+            form.addRow("Diretório de instalação:", directory_field)
+            form.addRow("", browse_directory)
             field = QLineEdit()
             field.setReadOnly(True)
             browse = QPushButton("Selecionar arquivo")
             browse.clicked.connect(lambda _checked=False, name=config_key: self._browse(name))
             form.addRow("Arquivo de configuração:", field)
             form.addRow("", browse)
+            self._directory_fields[_key] = directory_field
             self._fields[config_key] = field
             self.tabs.addTab(page, label)
         root.addWidget(self.tabs, 1)
@@ -142,8 +152,24 @@ class DirectoryGuidePage(QWidget):
         self._save_json(self.PATHS_FILE, data)
         self.refresh()
 
+    def _browse_directory(self, emulator: str) -> None:
+        current = self._directory_fields[emulator].text()
+        selected = QFileDialog.getExistingDirectory(
+            self,
+            f"Selecionar diretório do {dict((key, label) for key, label, _ in self.EMULATORS)[emulator]}",
+            current or str(Path.home()),
+        )
+        if not selected:
+            return
+        data = self._load_json(self.PATHS_FILE)
+        data[emulator] = str(Path(selected).resolve())
+        self._save_json(self.PATHS_FILE, data)
+        self.refresh()
+
     def refresh(self) -> None:
         data = self._load_json(self.PATHS_FILE)
+        for emulator, field in self._directory_fields.items():
+            field.setText(str(data.get(emulator) or ""))
         for config_key, field in self._fields.items():
             field.setText(str(data.get(config_key) or ""))
 

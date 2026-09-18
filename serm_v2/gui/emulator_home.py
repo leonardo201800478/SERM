@@ -467,20 +467,16 @@ class EmulatorHomePage(QWidget):
         """Abre a página central de Diretórios pela navegação lateral."""
         window = self.window()
         navigation = getattr(window, "navigation", None)
-        directories = getattr(window, "directories_tab", None)
+        configuration = getattr(window, "configuration_page", None)
+        directories = getattr(configuration, "directories_page", None)
         page_stack = getattr(window, "page_stack", None)
         if navigation is None or directories is None or page_stack is None:
             self._append_log("ERRO | Não foi possível localizar a página central de Diretórios")
             return
-        for index in range(navigation.count()):
-            item = navigation.item(index)
-            if item is not None and item.text().casefold() == "diretórios":
-                navigation.setCurrentRow(index)
-                return
-        index = page_stack.indexOf(directories)
-        if index >= 0:
-            page_stack.setCurrentIndex(index)
-            directories.refresh()
+        if configuration is not None:
+            configuration.navigation_list.setCurrentRow(0)
+        navigation.setCurrentRow(window.pages.index(configuration))
+        return
 
     def configure_retroarch(self) -> None:
         """Seleciona e persiste a instalação do RetroArch."""
