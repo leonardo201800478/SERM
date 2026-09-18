@@ -1,5 +1,5 @@
-from serm import __version__
+from serm_v2 import __version__
 
 
 def test_package_version() -> None:
-    assert __version__ == "0.1.0"
+    assert __version__ == "2.0.0-dev"

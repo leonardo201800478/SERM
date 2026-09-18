@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QPushButton,
 )
 
-from .directory_guide_v2 import DirectoryGuidePage
+from .directories_guide_page import DirectoryGuidePage
 
 MAME_EXECUTABLE_TITLE = "Executável do MAME"
 

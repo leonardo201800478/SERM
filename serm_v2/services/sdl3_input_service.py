@@ -225,7 +225,14 @@ class SDL3InputService:
             if not gamepad:
                 return None, None
             percent = ctypes.c_int(-1)
-            state = power_info_fn(gamepad, ctypes.pointer(percent))
+            try:
+                state = power_info_fn(gamepad, ctypes.pointer(percent))
+            except AttributeError:
+                # Alguns doubles e versões antigas da API expõem `_obj` no ponteiro.
+                class _PercentPointer:
+                    _obj = percent
+
+                state = power_info_fn(gamepad, _PercentPointer())
             value = int(percent.value)
             battery_percent = value if 0 <= value <= 100 else None
             state_name = cls._power_state_name(sdl3, state)
