@@ -574,8 +574,8 @@ class EmulatorSettingsPage(QWidget):
             spin.valueChanged.connect(slider.setValue)
             box.addWidget(slider, 1)
             box.addWidget(spin)
-            widget._serm_slider = slider
-            widget._serm_spin = spin
+            setattr(widget, "_serm_slider", slider)
+            setattr(widget, "_serm_spin", spin)
             return widget
         return QLineEdit()
 

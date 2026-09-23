@@ -33,7 +33,7 @@ QLabel#navigationFooter { color:#8290a0; font-size:7.5pt; }
 QGroupBox { background:#ffffff; border:1px solid #d7e0ea; border-radius:9px; margin-top:12px; padding:15px 10px 10px; }
 QGroupBox::title { color:#1769aa; background:#f4f7fb; padding:0 6px; font-weight:800; }
 QFrame#panel { background:#ffffff; border:1px solid #d7e0ea; }
-QPushButton { background:#ffffff; color:#26384b; border:1px solid #c7d3df; border-radius:7px; padding:7px 13px; min-height:22px; font-weight:700; }
+QPushButton { background:#ffffff; color:#26384b; border:1px solid #c7d3df; border-radius:7px; padding:7px 13px; min-height:22px; min-width:0; font-weight:700; }
 QPushButton:hover { background:#edf5fc; border-color:#1976d2; color:#125b98; }
 QPushButton:pressed { background:#dbeeff; }
 QPushButton:disabled { color:#9aa6b2; background:#eef1f4; border-color:#d8dee5; }

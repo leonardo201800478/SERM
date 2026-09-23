@@ -6,6 +6,7 @@ import json
 import logging
 import webbrowser
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
 
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import (
@@ -22,12 +23,17 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QRadioButton,
+    QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
 from ..runtime.paths import data_root
 from ..services.emulator_manager import EmulatorManager, RetroArchManager
+
+if TYPE_CHECKING:
+    from .main_window import MainWindow
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +42,7 @@ class _Worker(QThread):
     """Executa uma operação bloqueante fora da thread da interface."""
 
     progress = Signal(int, int)
+    install_progress = Signal(int, int)
     log = Signal(str)
     done = Signal(object)
     error = Signal(str)
@@ -50,6 +57,7 @@ class _Worker(QThread):
             self.done.emit(
                 self.operation(
                     progress=lambda received, total: self.progress.emit(received, total),
+                    install_progress=lambda completed, total: self.install_progress.emit(completed, total),
                     log=lambda message: self.log.emit(str(message)),
                 )
             )
@@ -61,13 +69,64 @@ class _Worker(QThread):
 class EmulatorHomePage(QWidget):
     """Home 16:9 para emuladores standalone e RetroArch."""
 
-    EMULATORS = ("mame", "flycast", "supermodel", "fbneo")
+    EMULATOR_GROUPS = (
+        ("Consoles · gerações", (
+            "stella", "mesence", "blastem", "super_zsnes", "ymir", "yabasanshiro",
+            "duckstation", "rmg", "bigpemu", "pcsx2",
+            "xemu", "xenia_canary", "dolphin", "rpcs3", "cemu", "shadps4",
+            "ryujinx_nextendo", "ares",
+        )),
+        ("Portáteis · gerações", (
+            "sameboy", "mgba", "melonds", "ppsspp", "azaharplus",
+        )),
+        ("Computadores · gerações", (
+            "vice", "altirra", "dosbox_staging", "dosbox_pure", "dosbox_x", "winuae",
+            "xm6pro68k", "scummvm",
+        )),
+        ("Multi-sistema", ("bizhawk",)),
+        ("Arcade · gerações", (
+            "mame", "fbneo", "supermodel", "flycast",
+        )),
+    )
+    EMULATORS = tuple(EmulatorManager.LABELS)
     LABELS = EmulatorManager.LABELS
     SITES = {
         "mame": "https://github.com/mamedev/mame",
-        "flycast": "https://github.com/flyinghead/flycast",
+        "flycast": "https://flyinghead.github.io/flycast-builds/",
         "supermodel": "https://github.com/trzy/supermodel",
         "fbneo": "https://github.com/finalburnneo/FBNeo",
+        "ymir": "https://github.com/ymir-emu/Ymir/releases/latest-nightly",
+        "duckstation": "https://github.com/stenzek/duckstation/releases/tag/latest",
+        "pcsx2": "https://github.com/PCSX2/pcsx2/releases",
+        "ppsspp": "https://www.ppsspp.org/devbuilds/",
+        "dolphin": "https://br.dolphin-emu.org/download/#download-dev",
+        "xemu": "https://github.com/xemu-project/xemu/releases/tag/pre-release",
+        "azaharplus": "https://github.com/AzaharPlus/AzaharPlus/releases",
+        "rpcs3": "https://github.com/RPCS3/rpcs3-binaries-win/releases",
+        "xenia_canary": "https://github.com/xenia-canary/xenia-canary/releases",
+        "cemu": "https://github.com/cemu-project/Cemu/releases",
+        "melonds": "https://github.com/melonDS-emu/melonDS/releases",
+        "mgba": "https://mgba.io/downloads.html",
+        "shadps4": "https://github.com/shadps4-emu/shadPS4-qtlauncher/releases",
+        "ares": "https://github.com/ares-emulator/ares/releases",
+        "dosbox_staging": "https://github.com/dosbox-staging/dosbox-staging/releases",
+        "scummvm": "https://www.scummvm.org/downloads/",
+        "mesence": "https://github.com/nesdev-org/MesenCE/releases",
+        "sameboy": "https://sameboy.github.io/downloads/",
+        "ryujinx_nextendo": "https://github.com/NextendoNetwork/Ryujinx-Nextendo/releases",
+        "super_zsnes": "https://www.zsnes.com/#downloads",
+        "winuae": "https://www.winuae.net/download/",
+        "vice": "https://vice-emu.sourceforge.io/",
+        "xm6pro68k": "https://mijet.eludevisibility.org/XM6%20Pro-68k/XM6%20Pro-68k.html",
+        "dosbox_x": "https://github.com/joncampbell123/dosbox-x/releases",
+        "stella": "https://github.com/stella-emu/stella/releases/latest",
+        "altirra": "https://www.virtualdub.org/altirra.html",
+        "rmg": "https://github.com/Rosalie241/RMG/releases/latest",
+        "bigpemu": "https://www.richwhitehouse.com/jaguar/index.php?content=download",
+        "blastem": "https://www.rhope.retrodev.com/blastem/downloads.html",
+        "bizhawk": "https://github.com/TASEmulators/BizHawk/releases/latest",
+        "dosbox_pure": "https://github.com/schellingb/dosbox-pure-unleashed/releases/latest",
+        "yabasanshiro": "https://www.emu-france.com/emulateurs/5-consoles-de-salon/50-sega-saturn/7869-yabasanshiro-2/",
     }
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -76,10 +135,12 @@ class EmulatorHomePage(QWidget):
         self.retroarch = RetroArchManager(self.manager.roots.get("retroarch"))
         self.worker: _Worker | None = None
         self._pending_continuation = None
-        self.cards: dict[str, tuple[QLabel, QLabel, QLabel, QProgressBar, QPushButton]] = {}
+        self.cards: dict[str, tuple[QLabel, QLabel, QLabel, QProgressBar, QProgressBar, QPushButton]] = {}
         self.core_items: dict[str, QListWidgetItem] = {}
         self._core_queue: list[str] = []
         self._retro_channel = "stable"
+        self._core_total_count = 0
+        self._core_completed_count = 0
         self._build_ui()
         self.refresh()
 
@@ -133,49 +194,18 @@ class EmulatorHomePage(QWidget):
         from PySide6.QtWidgets import QTabWidget
 
         self.home_tabs = QTabWidget()
-        self.home_tabs.addTab(self._arcade_tab(), "Emuladores")
+        grouped_keys = {key for _title, keys in self.EMULATOR_GROUPS for key in keys}
+        groups = (*self.EMULATOR_GROUPS, (
+            "Outros", tuple(key for key in self.EMULATORS if key not in grouped_keys)
+        ))
+        for group_title, keys in groups:
+            if keys:
+                self.home_tabs.addTab(self._emulator_group_tab(keys), group_title)
         self.home_tabs.addTab(self._retroarch_tab(), "RetroArch")
-        layout.addWidget(self.home_tabs, 1)
-
-    def _arcade_tab(self) -> QWidget:
-        """Cria cards dos quatro emuladores com versão instalada."""
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        frame = QFrame()
-        grid = QGridLayout(frame)
-        frame.setStyleSheet(
-            "QFrame{background:#151515;border:1px solid #3d3d3d;border-radius:8px;}"
-        )
-        for index, key in enumerate(self.EMULATORS):
-            card = QFrame()
-            box = QVBoxLayout(card)
-            name = QLabel(self.LABELS[key])
-            name.setStyleSheet("font-size:15px;font-weight:bold;")
-            status = QLabel("● Verificando…")
-            version = QLabel("Versão instalada: —")
-            path = QLabel("Instalação: —")
-            path.setWordWrap(True)
-            progress = QProgressBar()
-            progress.hide()
-            install = QPushButton("⬇ Baixar / atualizar")
-            install.clicked.connect(lambda _=False, k=key: self.install(k))
-            configure = QPushButton("📁 Diretório")
-            configure.clicked.connect(lambda _=False, k=key: self.configure(k))
-            site = QPushButton("🌐 Repositório")
-            site.clicked.connect(lambda _=False, k=key: webbrowser.open(self.SITES[k]))
-            row = QHBoxLayout()
-            row.addWidget(install)
-            row.addWidget(configure)
-            row.addWidget(site)
-            for widget in (name, status, version, path, progress):
-                box.addWidget(widget)
-            box.addLayout(row)
-            self.cards[key] = (status, version, path, progress, install)
-            grid.addWidget(card, index // 2, index % 2)
-        layout.addWidget(frame)
+        layout.addWidget(self.home_tabs, 3)
 
         actions = QHBoxLayout()
-        update = QPushButton("🔄 Atualizar todos")
+        update = QPushButton("🔄 Baixar / atualizar todos")
         update.clicked.connect(self.update_all)
         actions.addWidget(update)
         dirs = QPushButton("📁 Configurar diretórios")
@@ -196,6 +226,56 @@ class EmulatorHomePage(QWidget):
             "QPlainTextEdit{background:#0b0b0b;color:#d7d7d7;font-family:Consolas;font-size:10px;}"
         )
         layout.addWidget(self.log_view, 1)
+
+    def _emulator_group_tab(self, keys: tuple[str, ...]) -> QWidget:
+        """Cria a grade de cards para uma aba de categoria."""
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        frame = QFrame()
+        grid = QGridLayout(frame)
+        grid.setContentsMargins(12, 12, 12, 12)
+        grid.setHorizontalSpacing(14)
+        grid.setVerticalSpacing(14)
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
+        grid.setAlignment(Qt.AlignmentFlag.AlignTop)
+        for index, key in enumerate(keys):
+            card = QFrame()
+            card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+            card.setStyleSheet("QFrame{background:#151515;border:1px solid #3d3d3d;border-radius:8px;}")
+            box = QVBoxLayout(card)
+            name = QLabel(self.LABELS[key])
+            name.setWordWrap(True)
+            name.setStyleSheet("font-size:15px;font-weight:bold;")
+            status = QLabel("● Verificando…")
+            version = QLabel("Versão instalada: —")
+            path = QLabel("Instalação: —")
+            path.setWordWrap(True)
+            progress = QProgressBar()
+            progress.hide()
+            install_progress = QProgressBar()
+            install_progress.setFormat("Instalação: %p%")
+            install_progress.hide()
+            install = QPushButton("⬇ Baixar / atualizar")
+            install.clicked.connect(lambda _=False, k=key: self.install(k))
+            configure = QPushButton("📁 Diretório")
+            configure.clicked.connect(lambda _=False, k=key: self.configure(k))
+            site = QPushButton("🌐 Repositório")
+            site.clicked.connect(lambda _=False, k=key: webbrowser.open(self.SITES[k]))
+            row = QHBoxLayout()
+            row.addWidget(install)
+            row.addWidget(configure)
+            row.addWidget(site)
+            for widget in (name, status, version, path, progress, install_progress):
+                box.addWidget(widget)
+            box.addLayout(row)
+            self.cards[key] = (status, version, path, progress, install_progress, install)
+            grid.addWidget(card, index // 2, index % 2)
+        cards_scroll = QScrollArea()
+        cards_scroll.setWidgetResizable(True)
+        cards_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        cards_scroll.setWidget(frame)
+        layout.addWidget(cards_scroll, 1)
         return page
 
     def _retroarch_tab(self) -> QWidget:
@@ -258,8 +338,15 @@ class EmulatorHomePage(QWidget):
         self.core_list.itemChanged.connect(self._core_selection_changed)
         layout.addWidget(self.core_list, 1)
         self.retro_progress = QProgressBar()
+        self.retro_progress.setObjectName("retroCoreProgress")
+        self.retro_progress.setFormat("Core atual: %p%")
         self.retro_progress.hide()
         layout.addWidget(self.retro_progress)
+        self.core_queue_progress = QProgressBar()
+        self.core_queue_progress.setObjectName("coreQueueProgress")
+        self.core_queue_progress.setFormat("Progresso geral dos cores: %p%")
+        self.core_queue_progress.hide()
+        layout.addWidget(self.core_queue_progress)
         layout.addWidget(QLabel("Log RetroArch"))
         self.retro_log = QPlainTextEdit()
         self.retro_log.setReadOnly(True)
@@ -314,9 +401,12 @@ class EmulatorHomePage(QWidget):
             }.get(status.state, ("● Não configurado", "#999"))
             card[0].setText(text)
             card[0].setStyleSheet(f"color:{color};font-weight:bold;")
-            card[1].setText(f"Versão instalada: {version or 'não detectada'}")
+            if key == "fbneo" and version and str(version).casefold() == "latest":
+                version = None
+            version_label = "Versão do FBNeo" if key == "fbneo" else "Versão instalada"
+            card[1].setText(f"{version_label}: {version or 'não detectada'}")
             card[2].setText(f"Instalação: {status.root or 'não configurada'}")
-            card[4].setEnabled(self.worker is None)
+            card[5].setEnabled(self.worker is None)
 
     def _refresh_retroarch(self) -> None:
         executable, root, cores = self.retroarch.discover()
@@ -357,14 +447,14 @@ class EmulatorHomePage(QWidget):
             self._save_paths(paths)
             self.manager.roots = paths
         self._start(
-            lambda progress, log: self.manager.install(
-                key, destination, progress=progress, log=log
+            lambda progress, install_progress, log: self.manager.install(
+                key, destination, progress=progress, install_progress=install_progress, log=log
             ),
             key,
         )
 
     def update_all(self) -> None:
-        """Atualiza os quatro emuladores em sequência, inclusive após falhas."""
+        """Atualiza em sequência os emuladores configurados, inclusive após falhas."""
         if self.worker is not None:
             self._append_log("ATUALIZAR TODOS | já existe uma operação em execução")
             return
@@ -387,8 +477,8 @@ class EmulatorHomePage(QWidget):
                 f"ATUALIZAR TODOS | iniciando {self.LABELS[key]} | destino={destination}"
             )
             self._start(
-                lambda progress, log, k=key, d=destination: self.manager.install(
-                    k, d, progress=progress, log=log
+                lambda progress, install_progress, log, k=key, d=destination: self.manager.install(
+                    k, d, progress=progress, install_progress=install_progress, log=log
                 ),
                 key,
                 next_one,
@@ -401,9 +491,17 @@ class EmulatorHomePage(QWidget):
         if self.worker:
             return
         self._pending_continuation = continuation
+        install_bar = self.cards[key][4]
+        install_bar.setRange(0, 100)
+        install_bar.setValue(0)
+        install_bar.setFormat("Instalação: %p%")
+        install_bar.show()
         self.worker = _Worker(operation, self)
         self.worker.progress.connect(
             lambda received, total, k=key: self._progress(k, received, total)
+        )
+        self.worker.install_progress.connect(
+            lambda completed, total, k=key: self._installation_progress(k, completed, total)
         )
         self.worker.log.connect(self._append_log)
         self.worker.done.connect(lambda result, k=key: self._done(k, result))
@@ -417,6 +515,14 @@ class EmulatorHomePage(QWidget):
         bar.show()
         bar.setRange(0, 100 if total else 0)
         bar.setValue(min(100, int(received * 100 / total)) if total else 0)
+
+    def _installation_progress(self, key: str, completed: int, total: int) -> None:
+        """Atualiza a barra separada de extração e cópia para o destino."""
+        bar = self.cards[key][4]
+        bar.show()
+        bar.setRange(0, 100 if total else 0)
+        if total:
+            bar.setValue(min(100, int(completed * 100 / total)))
 
     def _append_log(self, message: str) -> None:
         """Adiciona diagnóstico ao log da Home."""
@@ -447,11 +553,13 @@ class EmulatorHomePage(QWidget):
         self._append_log(
             f"SUCESSO | {self.LABELS[key]} | versão={version} | pacote={archive} | exe={executable}"
         )
+        self.cards[key][4].setValue(100)
         self.refresh()
 
     def _error(self, key: str, message: str) -> None:
         """Registra erro sem interromper uma atualização em lote."""
         self._append_log(f"ERRO | {self.LABELS[key]} | {message}")
+        self.cards[key][4].setFormat("Instalação: falhou")
 
     def _worker_finished(self) -> None:
         """Libera o worker e só então inicia a próxima operação da fila."""
@@ -465,7 +573,7 @@ class EmulatorHomePage(QWidget):
 
     def open_emulator_directories(self) -> None:
         """Abre a página central de Diretórios pela navegação lateral."""
-        window = self.window()
+        window = cast("MainWindow", self.window())
         navigation = getattr(window, "navigation", None)
         configuration = getattr(window, "configuration_page", None)
         directories = getattr(configuration, "directories_page", None)
@@ -709,6 +817,11 @@ class EmulatorHomePage(QWidget):
         """Atualiza a barra de progresso do RetroArch."""
         self.retro_progress.setRange(0, 100 if total else 0)
         self.retro_progress.setValue(min(100, int(received * 100 / total)) if total else 0)
+        if self._core_total_count:
+            current = min(100, int(received * 100 / total)) if total else 0
+            progress = self._core_completed_count + current / 100
+            overall = int(progress * 100 / self._core_total_count)
+            self.core_queue_progress.setValue(min(100, overall))
 
     def _retro_done(self, result) -> None:
         """Registra sucesso da operação RetroArch e persiste a instalação."""

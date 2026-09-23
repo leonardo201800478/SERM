@@ -85,6 +85,33 @@ class DirectoryGuidePage(QWidget):
         ("fbneo", "FBNeo", "fbneo_config"),
         ("flycast", "Flycast", "flycast_config"),
         ("supermodel", "Supermodel", "supermodel_config"),
+        ("ymir", "Ymir · Sega Saturn", None),
+        ("duckstation", "DuckStation · PlayStation 1", None),
+        ("pcsx2", "PCSX2 · PlayStation 2", None),
+        ("ppsspp", "PPSSPP · PSP", None),
+        ("dolphin", "Dolphin · GameCube / Wii", None),
+        ("xemu", "Xemu · Xbox", None),
+        ("azaharplus", "AzaharPlus · Nintendo 3DS", None),
+        ("rpcs3", "RPCS3 · PlayStation 3", None),
+        ("xenia_canary", "Xenia Canary · Xbox 360", None),
+        ("cemu", "Cemu · Wii U", None),
+        ("melonds", "melonDS · Nintendo DS", None),
+        ("mgba", "mGBA · Game Boy Advance", None),
+        ("shadps4", "shadPS4 · PlayStation 4", None),
+        ("ares", "ares · Multi-sistema", None),
+        ("dosbox_staging", "DOSBox Staging · DOS", None),
+        ("scummvm", "ScummVM · Aventuras gráficas", None),
+        ("mesence", "MesenCE · Multi-sistema 8/16-bit", None),
+        ("sameboy", "SameBoy · Game Boy", None),
+        ("ryujinx_nextendo", "Ryujinx-Nextendo · Nintendo Switch", None),
+        ("super_zsnes", "SUPER ZSNES · Super Nintendo", None),
+        ("winuae", "WinUAE · Amiga", None),
+        ("vice", "VICE · Commodore", None),
+        ("xm6pro68k", "XM6 Pro-68k · Sharp X68000", None),
+        ("dosbox_x", "DOSBox-X · DOS / PC-98", None),
+        ("stella", "Stella · Atari 2600", None),
+        ("altirra", "Altirra · Atari 8-bit", None),
+        ("rmg", "RMG · Nintendo 64", None),
         ("retroarch", "RetroArch", "retroarch_cfg"),
     )
 
@@ -122,17 +149,20 @@ class DirectoryGuidePage(QWidget):
             )
             form.addRow("Diretório de instalação:", directory_field)
             form.addRow("", browse_directory)
-            field = QLineEdit()
-            field.setReadOnly(True)
-            browse = QPushButton("Selecionar arquivo")
-            browse.clicked.connect(lambda _checked=False, name=config_key: self._browse(name))
-            form.addRow("Arquivo de configuração:", field)
-            form.addRow("", browse)
             self._directory_fields[_key] = directory_field
-            self._fields[config_key] = field
+            if config_key:
+                field = QLineEdit()
+                field.setReadOnly(True)
+                browse = QPushButton("Selecionar arquivo")
+                browse.clicked.connect(lambda _checked=False, name=config_key: self._browse(name))
+                form.addRow("Arquivo de configuração:", field)
+                form.addRow("", browse)
+                self._fields[config_key] = field
             self.tabs.addTab(page, label)
         root.addWidget(self.tabs, 1)
-        self._build_mame_tab(self.tabs.widget(0))
+        mame_page = self.tabs.widget(0)
+        if mame_page is not None:
+            self._build_mame_tab(mame_page)
 
     def _build_mame_tab(self, _page: QWidget) -> None:
         """Hook for the MAME executable selector supplied by DirectoriesPage."""

@@ -122,7 +122,7 @@ class MameAdvancedFiltersDialog(QDialog):
         self.panel = parent
         self.setWindowTitle("Filtros avançados — MAME")
         self.setModal(True)
-        self.setMinimumSize(820, 600)
+        self.setMinimumSize(680, 500)
         self.resize(980, 720)
         self._lists: dict[str, QListWidget] = {}
         self._category_tree: QTreeWidget | None = None

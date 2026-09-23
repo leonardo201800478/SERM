@@ -139,18 +139,16 @@ def _install_frontend(
                 "O pacote RetroArch foi baixado, mas a descompactação não produziu retroarch.exe."
             )
         EmulatorManager._merge(extracted, destination)
+        self._flatten_retroarch_wrappers(destination, log=log)
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
-    executable = next(
-        (path.resolve() for path in destination.rglob("retroarch.exe") if path.is_file()),
-        None,
-    )
-    if executable is None:
+    executable = destination / "retroarch.exe"
+    if not executable.is_file():
         raise RuntimeError(
-            f"Download/descompactação concluídos, mas retroarch.exe não foi encontrado em {destination}."
+            f"Download/descompactação concluídos, mas retroarch.exe não foi encontrado diretamente em {destination}."
         )
-    return DownloadResult("retroarch", version_label, executable, archive_name)
+    return DownloadResult("retroarch", version_label, executable.resolve(), archive_name)
 
 
 def _patch_gui() -> None:

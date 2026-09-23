@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
@@ -14,6 +15,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QTabWidget,
+    QGraphicsDropShadowEffect,
 )
 
 PIXEL_THEME = """
@@ -96,6 +98,12 @@ def _refine_frames(root) -> int:
         if frame.styleSheet():
             frame.setStyleSheet("")
         frame.setObjectName("panel")
+        if frame.graphicsEffect() is None:
+            shadow = QGraphicsDropShadowEffect(frame)
+            shadow.setBlurRadius(18)
+            shadow.setOffset(0, 3)
+            shadow.setColor(QColor(0, 0, 0, 52))
+            frame.setGraphicsEffect(shadow)
         panels += 1
     return panels
 
@@ -113,6 +121,10 @@ def _refine_labels(root) -> tuple[int, int]:
             _refresh_style(label, "role", "section")
             sections += 1
         if len(text) > 72 and not label.objectName().startswith("navigation"):
+            label.setWordWrap(True)
+            label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+            label.setMinimumWidth(0)
+        elif label.wordWrap() is False and len(text) > 34 and not label.objectName().startswith("navigation"):
             label.setWordWrap(True)
             label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
             label.setMinimumWidth(0)
@@ -143,10 +155,11 @@ def _refine_lists(root) -> None:
             continue
         parent = widget.parentWidget()
         if parent and parent.__class__.__name__ == "PathListWidget":
-            widget.setMinimumHeight(82)
-            widget.setMaximumHeight(130)
+            widget.setMinimumHeight(64)
+            widget.setMaximumHeight(180)
         else:
-            widget.setMinimumHeight(max(widget.minimumHeight(), 140))
+            widget.setMinimumHeight(max(widget.minimumHeight(), 80))
+            widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
 
 def _refine_text_views(root) -> None:
@@ -157,7 +170,7 @@ def _refine_text_views(root) -> None:
         widget.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         widget.setMaximumBlockCount(max(widget.maximumBlockCount(), 3000))
         widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        widget.setMinimumHeight(max(widget.minimumHeight(), 130))
+        widget.setMinimumHeight(max(widget.minimumHeight(), 80))
 
 
 def refine_dashboard(root) -> dict[str, int]:
@@ -179,7 +192,7 @@ def refine_dashboard(root) -> dict[str, int]:
         widget.setMaximumHeight(20)
     for widget in root.findChildren(QTabWidget):
         widget.setDocumentMode(True)
-        widget.setUsesScrollButtons(False)
+        widget.setUsesScrollButtons(True)
         widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
     return {"panels": panels, "titles": titles, "sections": sections}
 

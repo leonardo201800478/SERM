@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QSettings, QSize, Qt
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QApplication,
     QDockWidget,
@@ -17,6 +18,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QStackedWidget,
     QStyle,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -49,13 +51,15 @@ class MainWindow(QMainWindow):
     _STATE_KEY = "main_window/state"
     _SCREEN_KEY = "main_window/screen_key"
     _SCREEN_GEOMETRY_KEY = "main_window/screen_geometry"
-    _DEFAULT_SIZE = QSize(1200, 700)
+    _DEFAULT_SIZE = QSize(1200, 760)
 
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("SERM V2")
-        self.resize(self._DEFAULT_SIZE)
-        self.setMinimumSize(1100, 620)
+        screen = QGuiApplication.primaryScreen()
+        available = screen.availableGeometry().size() if screen else self._DEFAULT_SIZE
+        self.setMinimumSize(min(820, available.width()), min(540, available.height()))
+        self.resize(min(self._DEFAULT_SIZE.width(), int(available.width() * .92)), min(self._DEFAULT_SIZE.height(), int(available.height() * .90)))
         self.status_bar = self.statusBar()
         self.status_bar.showMessage(UiPreferences.text("ready"))
         settings = Settings()
@@ -140,8 +144,9 @@ class MainWindow(QMainWindow):
 
         sidebar = QFrame()
         sidebar.setObjectName("navigationSidebar")
-        sidebar.setMinimumWidth(176)
-        sidebar.setMaximumWidth(205)
+        sidebar.setMinimumWidth(142)
+        sidebar.setMaximumWidth(220)
+        sidebar.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         sidebar_layout = QVBoxLayout(sidebar)
         sidebar_layout.setContentsMargins(7, 8, 7, 8)
         sidebar_layout.setSpacing(4)
@@ -208,7 +213,7 @@ class MainWindow(QMainWindow):
             key, _, style_icon = self.NAV_ITEMS[index]
             icon = self.style().standardIcon(getattr(QStyle, style_icon))
             item = QListWidgetItem(icon, UiPreferences.text(key))
-            item.setSizeHint(QSize(0, 38))
+            item.setSizeHint(QSize(0, 42))
             self.navigation.addItem(item)
         for index, (key, description, _style_icon) in enumerate(self.NAV_ITEMS):
             item = self.navigation.item(index)

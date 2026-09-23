@@ -267,6 +267,11 @@ class HomePage(EmulatorHomePage):
             QMessageBox.information(self, "RetroArch", "Nenhum core foi selecionado.")
             return
         self._core_queue_with_channels = selected
+        self._core_total_count = len(selected)
+        self._core_completed_count = 0
+        self.core_queue_progress.setRange(0, 100)
+        self.core_queue_progress.setValue(0)
+        self.core_queue_progress.show()
         self._core_destination = Path(destination).resolve()
         self._core_current_filename = None
         self.core_list.setEnabled(False)
@@ -281,6 +286,10 @@ class HomePage(EmulatorHomePage):
             self._core_current_filename = None
             self._core_destination = None
             self.core_list.setEnabled(True)
+            self.core_queue_progress.setValue(100)
+            self.core_queue_progress.hide()
+            self._core_total_count = 0
+            self._core_completed_count = 0
             self._append_retro_log("FILA | todos os cores selecionados foram processados")
             self._update_core_summary()
             self.refresh()
@@ -329,6 +338,9 @@ class HomePage(EmulatorHomePage):
         if item is not None:
             item.setCheckState(Qt.CheckState.Unchecked)
             item.setData(Qt.ItemDataRole.UserRole + 1, "processed")
+        self._core_completed_count = min(self._core_total_count, self._core_completed_count + 1)
+        if self._core_total_count:
+            self.core_queue_progress.setValue(int(self._core_completed_count * 100 / self._core_total_count))
         self._append_retro_log(
             f"FILA | {filename} | processado | seleção removida | próximos={len(self._core_queue_with_channels)}"
         )
