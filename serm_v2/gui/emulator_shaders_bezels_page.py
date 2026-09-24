@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
 
 from ..runtime.paths import data_root
 from .directories_guide_page import ConfigFileEditor
+from .emulator_catalog import grouped_emulators
 
 
 @dataclass(frozen=True, slots=True)
@@ -257,16 +258,31 @@ class EmulatorShadersBezelsPage(QWidget):
         )
         info.setWordWrap(True)
         root.addWidget(info)
-        self.emulators = QTabWidget()
-        for emulator, label in self.LABELS.items():
-            page = QWidget()
-            layout = QVBoxLayout(page)
-            layers = QTabWidget()
-            layers.addTab(self._layer_page(emulator, "shader", self.SHADERS[emulator]), "Shaders")
-            layers.addTab(self._layer_page(emulator, "bezel", self.BEZELS[emulator]), "Bezels")
-            layout.addWidget(layers, 1)
-            self.emulators.addTab(page, label)
-        root.addWidget(self.emulators, 1)
+        self.category_tabs = QTabWidget()
+        groups = grouped_emulators(self.LABELS)
+        for category, members in groups:
+            category_page = QWidget()
+            category_layout = QVBoxLayout(category_page)
+            category_layout.setContentsMargins(0, 0, 0, 0)
+            emulator_tabs = QTabWidget()
+            for emulator in members:
+                label = self.LABELS[emulator]
+                page = QWidget()
+                layout = QVBoxLayout(page)
+                layers = QTabWidget()
+                layers.addTab(
+                    self._layer_page(emulator, "shader", self.SHADERS[emulator]),
+                    "Shaders",
+                )
+                layers.addTab(
+                    self._layer_page(emulator, "bezel", self.BEZELS[emulator]),
+                    "Bezels",
+                )
+                layout.addWidget(layers, 1)
+                emulator_tabs.addTab(page, label)
+            category_layout.addWidget(emulator_tabs, 1)
+            self.category_tabs.addTab(category_page, category)
+        root.addWidget(self.category_tabs, 1)
 
     def _layer_page(self, emulator: str, layer: str, specs: tuple[LayerSpec, ...]) -> QWidget:
         """Monta uma camada visual com status, arquivo e opções nativas."""
