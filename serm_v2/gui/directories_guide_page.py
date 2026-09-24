@@ -9,11 +9,16 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
     QLineEdit,
     QPushButton,
+    QScrollArea,
+    QScroller,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -51,7 +56,7 @@ class ConfigFileEditor:
             name, separator, _ = stripped.partition("=")
             if separator and name.strip() == key:
                 newline = "\n" if line.endswith("\n") else ""
-                self._lines[index] = f"{line[:len(line) - len(stripped)]}{key}={value}{newline}"
+                self._lines[index] = f"{line[: len(line) - len(stripped)]}{key}={value}{newline}"
                 return
         raise KeyError(key)
 
@@ -74,6 +79,19 @@ class ConfigFileEditor:
                 pass
             raise
         return backup
+
+
+class SmoothScrollArea(QScrollArea):
+    """Scrollable page with automatic bars and fine-grained wheel movement."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWidgetResizable(True)
+        self.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.verticalScrollBar().setSingleStep(24)
+        QScroller.grabGesture(self.viewport(), QScroller.ScrollerGestureType.TouchGesture)
 
 
 class DirectoryGuidePage(QWidget):
@@ -105,20 +123,69 @@ class DirectoryGuidePage(QWidget):
         ("sameboy", "SameBoy · Game Boy", None),
         ("ryujinx_nextendo", "Ryujinx-Nextendo · Nintendo Switch", None),
         ("super_zsnes", "SUPER ZSNES · Super Nintendo", None),
-        ("winuae", "WinUAE · Amiga", None),
+        ("winuae", "WinUAE · Amiga", "winuae_ini"),
         ("vice", "VICE · Commodore", None),
         ("xm6pro68k", "XM6 Pro-68k · Sharp X68000", None),
         ("dosbox_x", "DOSBox-X · DOS / PC-98", None),
         ("stella", "Stella · Atari 2600", None),
-        ("altirra", "Altirra · Atari 8-bit", None),
+        ("altirra", "Altirra · Atari 8-bit", "altirra_config"),
         ("rmg", "RMG · Nintendo 64", None),
         ("retroarch", "RetroArch", "retroarch_cfg"),
+        ("bigpemu", "BigPEmu · Atari Jaguar / Jaguar CD", None),
+        ("blastem", "BlastEm · Sega Genesis / Mega Drive + CD / 32X", None),
+        ("bizhawk", "BizHawk · Multi-sistema / TAS", None),
+        ("dosbox_pure", "DOSBox Pure Unleashed · DOS / Windows 9x", None),
+        ("yabasanshiro", "YabaSanshiro 2 · Sega Saturn", None),
+        ("amiberry", "Amiberry · Amiga", "amiberry_ini"),
+    )
+
+    CATEGORIES = (
+        ("Arcade", ("mame", "fbneo", "flycast", "supermodel")),
+        (
+            "Consoles",
+            (
+                "ymir",
+                "duckstation",
+                "pcsx2",
+                "dolphin",
+                "xemu",
+                "azaharplus",
+                "rpcs3",
+                "xenia_canary",
+                "cemu",
+                "ryujinx_nextendo",
+                "shadps4",
+                "super_zsnes",
+                "bigpemu",
+                "blastem",
+                "yabasanshiro",
+                "rmg",
+            ),
+        ),
+        ("Portáteis", ("ppsspp", "melonds", "mgba", "sameboy")),
+        (
+            "Computadores",
+            (
+                "dosbox_staging",
+                "dosbox_pure",
+                "scummvm",
+                "winuae",
+                "vice",
+                "xm6pro68k",
+                "dosbox_x",
+                "stella",
+                "altirra",
+                "amiberry",
+            ),
+        ),
+        ("Multi-sistema", ("mesence", "ares", "retroarch", "bizhawk")),
     )
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._directory_fields: dict[str, QLineEdit] = {}
         self._fields: dict[str, QLineEdit] = {}
+        self._executable_fields: dict[str, QLineEdit] = {}
         self._build_ui()
         self.refresh()
 
@@ -137,35 +204,69 @@ class DirectoryGuidePage(QWidget):
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        self.tabs = QTabWidget()
-        for _key, label, config_key in self.EMULATORS:
-            page = QWidget()
-            form = QFormLayout(page)
-            directory_field = QLineEdit()
-            directory_field.setReadOnly(True)
-            browse_directory = QPushButton("Selecionar diretório")
-            browse_directory.clicked.connect(
-                lambda _checked=False, name=_key: self._browse_directory(name)
-            )
-            form.addRow("Diretório de instalação:", directory_field)
-            form.addRow("", browse_directory)
-            self._directory_fields[_key] = directory_field
-            if config_key:
+        self.category_tabs = QTabWidget()
+        self.emulator_tabs: dict[str, QTabWidget] = {}
+        for category, members in self.CATEGORIES:
+            category_page = QWidget()
+            category_layout = QVBoxLayout(category_page)
+            category_layout.setContentsMargins(0, 0, 0, 0)
+            tabs = QTabWidget()
+            self.emulator_tabs[category] = tabs
+            for _key, label, config_key in self.EMULATORS:
+                if _key not in members:
+                    continue
+                page = QWidget()
+                page_layout = QVBoxLayout(page)
+                page_layout.setContentsMargins(8, 8, 8, 8)
+                path_group = QGroupBox("Diretórios e arquivos")
+                form = QFormLayout(path_group)
+                directory_field = QLineEdit()
+                directory_field.setReadOnly(True)
+                browse_directory = QPushButton("Selecionar diretório")
+                browse_directory.clicked.connect(
+                    lambda _checked=False, name=_key: self._browse_directory(name)
+                )
+                form.addRow("Diretório de instalação:", directory_field)
+                form.addRow("", browse_directory)
+                self._directory_fields[_key] = directory_field
+                if _key != "mame":
+                    executable_key = self._executable_key(_key)
+                    executable_field = QLineEdit()
+                    executable_field.setReadOnly(True)
+                    browse_executable = QPushButton("Selecionar executável")
+                    browse_executable.clicked.connect(
+                        lambda _checked=False, name=_key: self._browse_executable(name)
+                    )
+                    executable_row = QHBoxLayout()
+                    executable_row.addWidget(executable_field, 1)
+                    executable_row.addWidget(browse_executable)
+                    form.addRow("Executável:", executable_row)
+                    self._executable_fields[executable_key] = executable_field
+                config_key = config_key or f"{_key}_config"
                 field = QLineEdit()
                 field.setReadOnly(True)
-                browse = QPushButton("Selecionar arquivo")
+                browse = QPushButton("Selecionar arquivo de configuração")
                 browse.clicked.connect(lambda _checked=False, name=config_key: self._browse(name))
                 form.addRow("Arquivo de configuração:", field)
                 form.addRow("", browse)
                 self._fields[config_key] = field
-            self.tabs.addTab(page, label)
-        root.addWidget(self.tabs, 1)
-        mame_page = self.tabs.widget(0)
-        if mame_page is not None:
-            self._build_mame_tab(mame_page)
+                page_layout.addWidget(path_group)
+                self._build_emulator_directory_settings(_key, page)
+                page_layout.addStretch(1)
+                scroll_area = SmoothScrollArea()
+                scroll_area.setWidget(page)
+                tabs.addTab(scroll_area, label)
+                if _key == "mame":
+                    self._build_mame_tab(page)
+            category_layout.addWidget(tabs)
+            self.category_tabs.addTab(category_page, category)
+        root.addWidget(self.category_tabs, 1)
 
     def _build_mame_tab(self, _page: QWidget) -> None:
         """Hook for the MAME executable selector supplied by DirectoriesPage."""
+
+    def _build_emulator_directory_settings(self, _emulator: str, _page: QWidget) -> None:
+        """Hook for emulator-specific paths stored inside its configuration file."""
 
     def _browse(self, config_key: str) -> None:
         current = self._fields[config_key].text()
@@ -182,6 +283,32 @@ class DirectoryGuidePage(QWidget):
         self._save_json(self.PATHS_FILE, data)
         self.refresh()
 
+    @staticmethod
+    def _executable_key(emulator: str) -> str:
+        if emulator == "mame":
+            return "mame_executable"
+        return f"{emulator}_exe"
+
+    def _browse_executable(self, emulator: str) -> None:
+        key = self._executable_key(emulator)
+        current = self._load_json(self.PATHS_FILE).get(key)
+        start = str(Path(str(current)).parent) if current else str(Path.home())
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            f"Selecionar executável do {dict((item, label) for item, label, _ in self.EMULATORS)[emulator]}",
+            start,
+            "Executáveis (*.exe);;Todos os arquivos (*)",
+        )
+        if not path:
+            return
+        executable = Path(path).resolve()
+        if not executable.is_file() or executable.suffix.casefold() != ".exe":
+            return
+        data = self._load_json(self.PATHS_FILE)
+        data[key] = str(executable)
+        self._save_json(self.PATHS_FILE, data)
+        self.refresh()
+
     def _browse_directory(self, emulator: str) -> None:
         current = self._directory_fields[emulator].text()
         selected = QFileDialog.getExistingDirectory(
@@ -193,6 +320,28 @@ class DirectoryGuidePage(QWidget):
             return
         data = self._load_json(self.PATHS_FILE)
         data[emulator] = str(Path(selected).resolve())
+        if emulator == "altirra":
+            config_file = Path(selected) / "Altirra.ini"
+            if config_file.is_file():
+                data["altirra_config"] = str(config_file.resolve())
+        elif emulator == "amiberry":
+            for key, candidate in (
+                ("amiberry_ini", Path(selected) / "Settings" / "amiberry.ini"),
+                ("amiberry_conf", Path(selected) / "Settings" / "amiberry.conf"),
+            ):
+                if candidate.is_file():
+                    data[key] = str(candidate.resolve())
+            if not data.get("amiberry_conf"):
+                candidate = Path(selected) / "amiberry.conf"
+                if candidate.is_file():
+                    data["amiberry_conf"] = str(candidate.resolve())
+        elif emulator == "winuae":
+            for key, candidate in (
+                ("winuae_ini", Path(selected) / "winuae.ini"),
+                ("winuae_cache", Path(selected) / "configuration.cache"),
+            ):
+                if candidate.is_file():
+                    data[key] = str(candidate.resolve())
         self._save_json(self.PATHS_FILE, data)
         self.refresh()
 
@@ -202,6 +351,8 @@ class DirectoryGuidePage(QWidget):
             field.setText(str(data.get(emulator) or ""))
         for config_key, field in self._fields.items():
             field.setText(str(data.get(config_key) or ""))
+        for executable_key, field in self._executable_fields.items():
+            field.setText(str(data.get(executable_key) or ""))
 
 
 __all__ = ["ConfigFileEditor", "DirectoryGuidePage"]

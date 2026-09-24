@@ -17,13 +17,32 @@ from PySide6.QtWidgets import (
     QPushButton,
 )
 
+from .altirra_directories_page import AltirraDirectoriesPage
+from .amiberry_directories_page import AmiberryDirectoriesPage
 from .directories_guide_page import DirectoryGuidePage
+from .winuae_directories_page import WinUAEDirectoriesPage
 
 MAME_EXECUTABLE_TITLE = "Executável do MAME"
 
 
 class DirectoriesPage(DirectoryGuidePage):
     """Expose emulator directories with compact controls and MAME executable selection."""
+
+    def _build_emulator_directory_settings(self, emulator: str, page) -> None:
+        if emulator == "altirra":
+            self.altirra_paths_page = AltirraDirectoriesPage(self)
+            widget = self.altirra_paths_page
+        elif emulator == "amiberry":
+            self.amiberry_paths_page = AmiberryDirectoriesPage(self)
+            widget = self.amiberry_paths_page
+        elif emulator == "winuae":
+            self.winuae_paths_page = WinUAEDirectoriesPage(self)
+            widget = self.winuae_paths_page
+        else:
+            return
+        layout = page.layout()
+        if isinstance(layout, QBoxLayout):
+            layout.addWidget(widget)
 
     def _build_mame_tab(self, page) -> None:
         super()._build_mame_tab(page)
@@ -116,8 +135,15 @@ class DirectoriesPage(DirectoryGuidePage):
 
     def refresh(self) -> None:
         super().refresh()
+        if hasattr(self, "altirra_paths_page"):
+            self.altirra_paths_page.refresh()
+        if hasattr(self, "amiberry_paths_page"):
+            self.amiberry_paths_page.refresh()
+        if hasattr(self, "winuae_paths_page"):
+            self.winuae_paths_page.refresh()
         if hasattr(self, "mame_executable_edit"):
-            raw = self._load_json(self.PATHS_FILE).get("mame_executable")
+            paths = self._load_json(self.PATHS_FILE)
+            raw = paths.get("mame_executable") or paths.get("mame_exe")
             self.mame_executable_edit.setText(str(raw) if raw else "")
 
 

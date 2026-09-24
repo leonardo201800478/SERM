@@ -13,9 +13,10 @@ import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 from urllib.error import URLError
 from urllib.parse import urlencode, urljoin, urlparse
 from urllib.request import Request, urlopen
@@ -28,6 +29,7 @@ VERSION_MARKER = ".serm-version"
 @dataclass(frozen=True, slots=True)
 class EmulatorStatus:
     """Estado local de um emulador suportado."""
+
     key: str
     label: str
     executable: Path | None
@@ -39,6 +41,7 @@ class EmulatorStatus:
 @dataclass(frozen=True, slots=True)
 class DownloadResult:
     """Resultado de uma instalação/atualização."""
+
     emulator: str
     version: str
     executable: Path
@@ -48,6 +51,7 @@ class DownloadResult:
 @dataclass(frozen=True, slots=True)
 class CoreInfo:
     """Core libretro publicado pelo Buildbot oficial."""
+
     filename: str
     core_name: str
     date: str = ""
@@ -57,6 +61,7 @@ class CoreInfo:
 
 class EmulatorManager:
     """Descobre, instala e atualiza os emuladores suportados pelo SERM V2."""
+
     REPOSITORIES = {
         "mame": "mamedev/mame",
         "flycast": "flyinghead/flycast",
@@ -94,6 +99,7 @@ class EmulatorManager:
         "bizhawk": "TASEmulators/BizHawk",
         "dosbox_pure": "schellingb/dosbox-pure-unleashed",
         "yabasanshiro": "",
+        "amiberry": "BlitterStudio/amiberry",
     }
     LABELS = {
         "mame": "MAME",
@@ -132,6 +138,7 @@ class EmulatorManager:
         "bizhawk": "BizHawk · Multi-sistema / TAS",
         "dosbox_pure": "DOSBox Pure Unleashed · DOS / Windows 9x",
         "yabasanshiro": "YabaSanshiro 2 · Sega Saturn",
+        "amiberry": "Amiberry · Amiga",
     }
     EXECUTABLES = {
         "mame": "mame.exe",
@@ -170,6 +177,7 @@ class EmulatorManager:
         "bizhawk": "EmuHawk.exe",
         "dosbox_pure": "DOSBoxPure.exe",
         "yabasanshiro": "yabasanshiro.exe",
+        "amiberry": "amiberry.exe",
     }
     EXECUTABLE_ALIASES = {
         "ymir": ("ymir-sdl3.exe", "ymir.exe"),
@@ -204,6 +212,7 @@ class EmulatorManager:
         "bizhawk": ("EmuHawk.exe",),
         "dosbox_pure": ("DOSBoxPure.exe",),
         "yabasanshiro": ("yabasanshiro.exe", "YabaSanshiro.exe", "yabause.exe"),
+        "amiberry": ("amiberry.exe", "Amiberry.exe"),
     }
     _FBNEO_VERSION_CACHE: str | None = None
     _FBNEO_VERSION_LOOKED_UP = False
@@ -219,7 +228,11 @@ class EmulatorManager:
             found = shutil.which(name)
             if found:
                 return Path(found)
-        for path in (Path(r"C:\Program Files\7-Zip\7z.exe"), Path(r"C:\Program Files (x86)\7-Zip\7z.exe"), Path.home() / "AppData/Local/7-Zip/7z.exe"):
+        for path in (
+            Path(r"C:\Program Files\7-Zip\7z.exe"),
+            Path(r"C:\Program Files (x86)\7-Zip\7z.exe"),
+            Path.home() / "AppData/Local/7-Zip/7z.exe",
+        ):
             if path.is_file():
                 return path
         return None
@@ -237,7 +250,9 @@ class EmulatorManager:
             result[key] = EmulatorStatus(key, label, executable, root, version, state)
         return result
 
-    def install(self, key: str, destination: Path, *, progress=None, install_progress=None, log=None) -> DownloadResult:
+    def install(
+        self, key: str, destination: Path, *, progress=None, install_progress=None, log=None
+    ) -> DownloadResult:
         """Baixa e instala o pacote Windows x64 oficial."""
         key = key.casefold()
         if key not in self.REPOSITORIES:
@@ -245,9 +260,47 @@ class EmulatorManager:
         destination = Path(destination).expanduser().resolve()
         destination.mkdir(parents=True, exist_ok=True)
         if key == "flycast":
-            return self._install_latest_flycast_master(destination, progress=progress, install_progress=install_progress, log=log)
-        if key in {"ymir", "duckstation", "pcsx2", "ppsspp", "dolphin", "xemu", "azaharplus", "rpcs3", "xenia_canary", "cemu", "melonds", "mgba", "shadps4", "ares", "dosbox_staging", "scummvm", "mesence", "sameboy", "ryujinx_nextendo", "super_zsnes", "winuae", "vice", "xm6pro68k", "dosbox_x", "stella", "altirra", "rmg", "bigpemu", "blastem", "bizhawk", "dosbox_pure", "yabasanshiro"}:
-            return self._install_latest_emulator_build(key, destination, progress=progress, install_progress=install_progress, log=log)
+            return self._install_latest_flycast_master(
+                destination, progress=progress, install_progress=install_progress, log=log
+            )
+        if key in {
+            "ymir",
+            "duckstation",
+            "pcsx2",
+            "ppsspp",
+            "dolphin",
+            "xemu",
+            "azaharplus",
+            "rpcs3",
+            "xenia_canary",
+            "cemu",
+            "melonds",
+            "mgba",
+            "shadps4",
+            "ares",
+            "dosbox_staging",
+            "scummvm",
+            "mesence",
+            "sameboy",
+            "ryujinx_nextendo",
+            "super_zsnes",
+            "winuae",
+            "vice",
+            "xm6pro68k",
+            "dosbox_x",
+            "stella",
+            "altirra",
+            "rmg",
+            "bigpemu",
+            "blastem",
+            "bizhawk",
+            "dosbox_pure",
+            "yabasanshiro",
+            "amiberry",
+        }:
+            return self._install_latest_emulator_build(
+                key, destination, progress=progress, install_progress=install_progress, log=log
+            )
         release = self._release(key)
         assets_value = release.get("assets")
         assets: list[object] = assets_value if isinstance(assets_value, list) else []
@@ -258,7 +311,13 @@ class EmulatorManager:
         with tempfile.TemporaryDirectory(prefix="serm-emu-") as temp_name:
             temp = Path(temp_name)
             archive = temp / str(asset["name"])
-            self._download(str(asset["browser_download_url"]), archive, int(asset.get("size") or 0), progress, log)
+            self._download(
+                str(asset["browser_download_url"]),
+                archive,
+                int(asset.get("size") or 0),
+                progress,
+                log,
+            )
             extracted = temp / "extracted"
             extracted.mkdir()
             self._extract(archive, extracted, log, install_progress=install_progress)
@@ -271,19 +330,27 @@ class EmulatorManager:
             self._merge(extracted, destination, install_progress=install_progress, start=40)
         executable = self._find_executable(key, destination)
         if executable is None:
-            raise RuntimeError(f"Instalação concluída, mas {self.EXECUTABLES[key]} não foi encontrado em {destination}.")
+            raise RuntimeError(
+                f"Instalação concluída, mas {self.EXECUTABLES[key]} não foi encontrado em {destination}."
+            )
         self._enable_portable_mode(key, executable, log=log)
         return DownloadResult(key, version, executable, str(asset["name"]))
 
-    def _install_latest_emulator_build(self, key: str, destination: Path, *, progress=None, install_progress=None, log=None) -> DownloadResult:
+    def _install_latest_emulator_build(
+        self, key: str, destination: Path, *, progress=None, install_progress=None, log=None
+    ) -> DownloadResult:
         """Resolve e instala o pacote Windows x64 de desenvolvimento mais recente."""
         if key == "ymir":
             release = self._release_by_tag("ymir-emu/Ymir", "latest-nightly")
-            asset = self._named_asset(release, re.compile(r"^ymir-windows-x86_64-AVX2-.*\.zip$", re.I))
+            asset = self._named_asset(
+                release, re.compile(r"^ymir-windows-x86_64-AVX2-.*\.zip$", re.I)
+            )
             version = asset["name"].removeprefix("ymir-windows-x86_64-AVX2-").removesuffix(".zip")
         elif key == "duckstation":
             release = self._release_by_tag("stenzek/duckstation", "latest")
-            asset = self._named_asset(release, re.compile(r"^duckstation-windows-x64-release\.zip$", re.I))
+            asset = self._named_asset(
+                release, re.compile(r"^duckstation-windows-x64-release\.zip$", re.I)
+            )
             version = self._release_version(release, "latest rolling")
         elif key == "pcsx2":
             _, asset = self._latest_github_asset(
@@ -301,14 +368,18 @@ class EmulatorManager:
                 _, asset = self._latest_github_asset("hrydgard/ppsspp", pattern)
                 version = asset["name"].removeprefix("PPSSPP-v").removesuffix("-Windows-x64.zip")
                 if log:
-                    log(f"PPSSPP | build de desenvolvimento indisponível; usando release estável {version} ({exc})")
+                    log(
+                        f"PPSSPP | build de desenvolvimento indisponível; usando release estável {version} ({exc})"
+                    )
         elif key == "dolphin":
             url, archive_name = self._latest_dolphin_build()
             asset = {"name": archive_name, "browser_download_url": url, "size": 0}
             version = archive_name.removeprefix("dolphin-").removesuffix("-x64.7z")
         elif key == "xemu":
             release = self._release_by_tag("xemu-project/xemu", "pre-release")
-            asset = self._named_asset(release, re.compile(r"^xemu-(?!.*-dbg-).+-windows-x86_64\.zip$", re.I))
+            asset = self._named_asset(
+                release, re.compile(r"^xemu-(?!.*-dbg-).+-windows-x86_64\.zip$", re.I)
+            )
             version = asset["name"].removeprefix("xemu-").removesuffix("-windows-x86_64.zip")
         elif key == "azaharplus":
             _, asset = self._latest_github_asset(
@@ -328,7 +399,8 @@ class EmulatorManager:
                 re.compile(r"^rpcs3-v\d+(?:\.\d+)+-\d+-[0-9a-f]+_win64(?:_msvc)?\.7z$", re.I),
             )
             version = (
-                asset["name"].removeprefix("rpcs3-")
+                asset["name"]
+                .removeprefix("rpcs3-")
                 .removesuffix("_win64_msvc.7z")
                 .removesuffix("_win64.7z")
             )
@@ -338,7 +410,9 @@ class EmulatorManager:
             version = self._release_version(release, "latest")
         elif key == "melonds":
             release = self._release(key)
-            asset = self._named_asset(release, re.compile(r"^melonDS-[\d.]+-windows-x86_64\.zip$", re.I))
+            asset = self._named_asset(
+                release, re.compile(r"^melonDS-[\d.]+-windows-x86_64\.zip$", re.I)
+            )
             version = self._release_version(release, "latest")
         elif key == "mgba":
             release = self._release(key)
@@ -353,7 +427,9 @@ class EmulatorManager:
             version = self._release_version(release, "latest")
         elif key == "dosbox_staging":
             release = self._release(key)
-            asset = self._named_asset(release, re.compile(r"^dosbox-staging-windows-x64-v[\w.-]+\.zip$", re.I))
+            asset = self._named_asset(
+                release, re.compile(r"^dosbox-staging-windows-x64-v[\w.-]+\.zip$", re.I)
+            )
             version = self._release_version(release, "latest")
         elif key == "scummvm":
             url, archive_name, version = self._latest_scummvm_build()
@@ -399,7 +475,9 @@ class EmulatorManager:
             asset = {"name": archive_name, "browser_download_url": url, "size": 0}
         elif key == "rmg":
             release = self._release(key)
-            asset = self._named_asset(release, re.compile(r"^RMG-Portable-Windows64-v[\d.]+\.zip$", re.I))
+            asset = self._named_asset(
+                release, re.compile(r"^RMG-Portable-Windows64-v[\d.]+\.zip$", re.I)
+            )
             version = self._release_version(release, "latest")
         elif key == "bigpemu":
             url, archive_name, version = self._latest_bigpemu_build()
@@ -421,7 +499,19 @@ class EmulatorManager:
         elif key == "yabasanshiro":
             url, archive_name, version = self._latest_yabasanshiro_build()
             asset = {"name": archive_name, "browser_download_url": url, "size": 0}
-        else:
+        elif key == "amiberry":
+            release = self._release(key)
+            asset = self._named_asset(
+                release,
+                re.compile(r"^amiberry-v?(\d+(?:\.\d+){2})-windows-x64-portable\.zip$", re.I),
+            )
+            match = re.fullmatch(
+                r"amiberry-v?(\d+(?:\.\d+){2})-windows-x64-portable\.zip",
+                str(asset["name"]),
+                re.I,
+            )
+            version = match.group(1) if match else self._release_version(release, "latest")
+        elif key == "xenia_canary":
             release, asset = self._latest_github_asset(
                 "xenia-canary/xenia-canary",
                 re.compile(r"^xenia_canary_windows\.7z$", re.I),
@@ -447,13 +537,17 @@ class EmulatorManager:
             install_root = (
                 self._normalize_archive_root(extracted)
                 if key == "ryujinx_nextendo"
-                else executable.parent if executable else self._normalize_archive_root(extracted)
+                else executable.parent
+                if executable
+                else self._normalize_archive_root(extracted)
             )
             self._merge(install_root, destination, install_progress=install_progress, start=40)
         executable = self._find_executable(key, destination)
         if executable is None:
             expected = ", ".join(self.EXECUTABLE_ALIASES.get(key, (self.EXECUTABLES[key],)))
-            raise RuntimeError(f"Pacote {key} extraído, mas nenhum executável esperado foi encontrado ({expected}).")
+            raise RuntimeError(
+                f"Pacote {key} extraído, mas nenhum executável esperado foi encontrado ({expected})."
+            )
         self._enable_portable_mode(key, executable, log=log)
         return DownloadResult(key, version, executable, archive_name)
 
@@ -563,7 +657,8 @@ class EmulatorManager:
                 archive_page += 1
                 continue
             page_candidates = {
-                url for url in cls._extract_links(listing, listing_url)
+                url
+                for url in cls._extract_links(listing, listing_url)
                 if post_slug.search(urlparse(url).path)
             }
             candidates.update(page_candidates)
@@ -578,7 +673,8 @@ class EmulatorManager:
             except (OSError, URLError):
                 continue
             candidates.update(
-                url for url in cls._extract_links(listing, listing_url)
+                url
+                for url in cls._extract_links(listing, listing_url)
                 if post_slug.search(urlparse(url).path)
             )
 
@@ -610,7 +706,9 @@ class EmulatorManager:
                     continue
                 releases.append((version_key, url, filename(version), version))
         if not releases:
-            raise RuntimeError(f"Emu-France não informou uma versão e download compatíveis para {query}.")
+            raise RuntimeError(
+                f"Emu-France não informou uma versão e download compatíveis para {query}."
+            )
         _key, url, archive_name, version = max(releases, key=lambda item: item[0])
         return url, archive_name, version
 
@@ -619,7 +717,9 @@ class EmulatorManager:
         page = cls._download_text("https://www.scummvm.org/downloads/")
         for url in cls._extract_links(page, "https://www.scummvm.org/downloads/"):
             filename = Path(urlparse(url).path).name
-            match = re.fullmatch(r"scummvm-(\d{4}\.\d+\.\d+)-(?:win64|win32-x86_64)\.zip", filename, re.I)
+            match = re.fullmatch(
+                r"scummvm-(\d{4}\.\d+\.\d+)-(?:win64|win32-x86_64)\.zip", filename, re.I
+            )
             if match:
                 return url, filename, match.group(1)
         raise RuntimeError("A página oficial do ScummVM não indicou um ZIP Windows 64-bit.")
@@ -629,7 +729,11 @@ class EmulatorManager:
         release = cls._json("https://api.github.com/repos/LIJI32/SameBoy/releases/latest")
         asset = cls._named_asset(release, re.compile(r"^sameboy_winsdl_v\d+(?:\.\d+)+\.zip$", re.I))
         match = re.search(r"v(\d+(?:\.\d+)+)", str(asset["name"]), re.I)
-        return str(asset["browser_download_url"]), str(asset["name"]), match.group(1) if match else cls._release_version(release, "latest")
+        return (
+            str(asset["browser_download_url"]),
+            str(asset["name"]),
+            match.group(1) if match else cls._release_version(release, "latest"),
+        )
 
     @classmethod
     def _latest_stella_build(cls) -> tuple[str, str, str]:
@@ -649,7 +753,9 @@ class EmulatorManager:
             "https://api.github.com/repos/shadps4-emu/shadps4-qtlauncher/releases?per_page=100"
         )
         if not isinstance(releases, list):
-            raise RuntimeError("A API oficial do shadPS4 QtLauncher retornou uma lista inválida de releases.")
+            raise RuntimeError(
+                "A API oficial do shadPS4 QtLauncher retornou uma lista inválida de releases."
+            )
 
         candidates: list[tuple[str, str, str]] = []
         for release in releases:
@@ -666,14 +772,18 @@ class EmulatorManager:
                     re.I,
                 )
                 if match:
-                    candidates.append((
-                        str(release.get("published_at", "")),
-                        str(asset["browser_download_url"]),
-                        filename,
-                    ))
+                    candidates.append(
+                        (
+                            str(release.get("published_at", "")),
+                            str(asset["browser_download_url"]),
+                            filename,
+                        )
+                    )
 
         if not candidates:
-            raise RuntimeError("A API oficial do shadPS4 não indicou um pacote QtLauncher Windows x64.")
+            raise RuntimeError(
+                "A API oficial do shadPS4 não indicou um pacote QtLauncher Windows x64."
+            )
         published, url, filename = max(candidates, key=lambda candidate: candidate[0])
         date_hash = re.search(r"-(\d{4}-\d{2}-\d{2})-([0-9a-f]+)\.zip$", filename, re.I)
         version = f"{date_hash.group(1)}-{date_hash.group(2)}" if date_hash else published[:10]
@@ -714,7 +824,9 @@ class EmulatorManager:
             ((item[0], item[1]) for item in candidates),
             key=lambda candidate: (int(candidate[0]), candidate[1].casefold() == "zip"),
         )
-        url, filename = next((item[2], item[3]) for item in candidates if item[:2] == (number, extension))
+        url, filename = next(
+            (item[2], item[3]) for item in candidates if item[:2] == (number, extension)
+        )
         version = f"{number[0]}.{int(number[1:-2])}.{int(number[-2:]) // 10}"
         return url, filename, version
 
@@ -733,9 +845,13 @@ class EmulatorManager:
         except (OSError, URLError) as exc:
             logger.warning("NÃ£o foi possÃ­vel consultar as builds beta do Altirra: %s", exc)
             page = ""
-        candidates = re.findall(r"Altirra-(\d+(?:\.\d+)+)-test(\d+)\.zip", html.unescape(page), re.I)
+        candidates = re.findall(
+            r"Altirra-(\d+(?:\.\d+)+)-test(\d+)\.zip", html.unescape(page), re.I
+        )
         if not candidates:
-            logger.warning("Página beta do Altirra sem builds; usando o último pacote estável conhecido.")
+            logger.warning(
+                "Página beta do Altirra sem builds; usando o último pacote estável conhecido."
+            )
             return (
                 "https://www.virtualdub.org/downloads/Altirra-4.30.zip",
                 "Altirra-4.30.zip",
@@ -756,8 +872,12 @@ class EmulatorManager:
         return value
 
     @classmethod
-    def _latest_github_asset(cls, repository: str, pattern: re.Pattern[str]) -> tuple[dict[str, Any], dict[str, Any]]:
-        releases = cls._github_json(f"https://api.github.com/repos/{repository}/releases?per_page=100")
+    def _latest_github_asset(
+        cls, repository: str, pattern: re.Pattern[str]
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        releases = cls._github_json(
+            f"https://api.github.com/repos/{repository}/releases?per_page=100"
+        )
         if not isinstance(releases, list):
             raise RuntimeError(f"Lista de releases inesperada para {repository}.")
         candidates: list[tuple[str, str, dict[str, Any], dict[str, Any]]] = []
@@ -769,25 +889,42 @@ class EmulatorManager:
                 if not isinstance(asset, dict) or not asset.get("browser_download_url"):
                     continue
                 if pattern.fullmatch(str(asset.get("name", ""))):
-                    candidates.append((str(release.get("published_at") or ""), str(release.get("tag_name") or ""), release, asset))
+                    candidates.append(
+                        (
+                            str(release.get("published_at") or ""),
+                            str(release.get("tag_name") or ""),
+                            release,
+                            asset,
+                        )
+                    )
         if not candidates:
-            raise RuntimeError(f"Nenhum asset Windows x64 correspondente foi publicado por {repository}.")
+            raise RuntimeError(
+                f"Nenhum asset Windows x64 correspondente foi publicado por {repository}."
+            )
         _, _, release, asset = max(candidates, key=lambda candidate: (candidate[0], candidate[1]))
         return release, asset
 
     @classmethod
     def _named_asset(cls, release: dict[str, Any], pattern: re.Pattern[str]) -> dict[str, Any]:
         assets = release.get("assets")
-        asset = next(
-            (
-                value for value in assets if isinstance(value, dict)
-                and value.get("browser_download_url")
-                and pattern.fullmatch(str(value.get("name", "")))
-            ),
-            None,
-        ) if isinstance(assets, list) else None
+        asset = (
+            next(
+                (
+                    value
+                    for value in assets
+                    if isinstance(value, dict)
+                    and value.get("browser_download_url")
+                    and pattern.fullmatch(str(value.get("name", "")))
+                ),
+                None,
+            )
+            if isinstance(assets, list)
+            else None
+        )
         if asset is None:
-            raise RuntimeError(f"Asset esperado não encontrado no release {release.get('tag_name')!r}.")
+            raise RuntimeError(
+                f"Asset esperado não encontrado no release {release.get('tag_name')!r}."
+            )
         return asset
 
     @staticmethod
@@ -821,7 +958,9 @@ class EmulatorManager:
             filename = match.group(0)
             version = match.group(1).removesuffix(".zip")
             return f"https://builds.ppsspp.org/builds/{version}/{filename}", filename
-        raise RuntimeError("A página oficial do PPSSPP não informou o ZIP Windows x64; a lista de builds pode estar temporariamente indisponível.")
+        raise RuntimeError(
+            "A página oficial do PPSSPP não informou o ZIP Windows x64; a lista de builds pode estar temporariamente indisponível."
+        )
 
     @classmethod
     def _latest_dolphin_build(cls) -> tuple[str, str]:
@@ -839,11 +978,17 @@ class EmulatorManager:
                 if pattern.fullmatch(filename):
                     return url, filename
             text = html.unescape(page)
-            match = re.search(r"https?://dl\.dolphin-emu\.org/builds/[0-9a-f]{2}/[0-9a-f]{2}/(dolphin-master-\d+-\d+-x64\.7z)", text, re.I)
+            match = re.search(
+                r"https?://dl\.dolphin-emu\.org/builds/[0-9a-f]{2}/[0-9a-f]{2}/(dolphin-master-\d+-\d+-x64\.7z)",
+                text,
+                re.I,
+            )
             if match:
                 return match.group(0), match.group(1)
         detail = f" Detalhe: {'; '.join(errors)}" if errors else ""
-        raise RuntimeError(f"A página oficial do Dolphin não indicou um pacote de desenvolvimento Windows x64.{detail}")
+        raise RuntimeError(
+            f"A página oficial do Dolphin não indicou um pacote de desenvolvimento Windows x64.{detail}"
+        )
 
     @staticmethod
     def _extract_links(page: str, base_url: str) -> tuple[str, ...]:
@@ -854,22 +999,29 @@ class EmulatorManager:
 
     @staticmethod
     def _download_text(url: str) -> str:
-        request = Request(url, headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9,pt-BR;q=0.8",
-        })
+        request = Request(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9,pt-BR;q=0.8",
+            },
+        )
         with urlopen(request, timeout=30) as response:
             return response.read().decode("utf-8", errors="replace")
 
     @staticmethod
     def _github_json(url: str) -> Any:
-        request = Request(url, headers={"Accept": "application/vnd.github+json", "User-Agent": USER_AGENT})
+        request = Request(
+            url, headers={"Accept": "application/vnd.github+json", "User-Agent": USER_AGENT}
+        )
         with urlopen(request, timeout=30) as response:
             return json.loads(response.read().decode("utf-8"))
 
     @classmethod
-    def _install_latest_flycast_master(cls, destination: Path, *, progress=None, install_progress=None, log=None) -> DownloadResult:
+    def _install_latest_flycast_master(
+        cls, destination: Path, *, progress=None, install_progress=None, log=None
+    ) -> DownloadResult:
         """Instala o build MASTER Windows x64 mais recente publicado no feed oficial."""
         endpoint = "https://flycast-builds.s3.fr-par.scw.cloud/"
         prefix = "win/heads/master-"
@@ -891,14 +1043,23 @@ class EmulatorManager:
                 # the archive simply flycast.zip, so architecture is encoded by
                 # the object prefix rather than the filename.
                 if lowered.endswith(".zip"):
-                    candidates.append((item.findtext("{*}LastModified", ""), key, filename, int(item.findtext("{*}Size", "0") or 0)))
+                    candidates.append(
+                        (
+                            item.findtext("{*}LastModified", ""),
+                            key,
+                            filename,
+                            int(item.findtext("{*}Size", "0") or 0),
+                        )
+                    )
             if listing.findtext("{*}IsTruncated", "false").casefold() != "true":
                 break
             marker = listing.findtext("{*}NextContinuationToken")
             if not marker:
                 break
         if not candidates:
-            raise RuntimeError("O feed oficial do Flycast não publicou um arquivo ZIP no prefixo win/heads/master.")
+            raise RuntimeError(
+                "O feed oficial do Flycast não publicou um arquivo ZIP no prefixo win/heads/master."
+            )
         modified, key, archive_name, size = max(candidates, key=lambda value: value[0])
         url = endpoint + key
         build_id = key.split("/")[-2].rsplit("-", 1)[-1][:7]
@@ -909,14 +1070,30 @@ class EmulatorManager:
             extracted = temp / "extracted"
             extracted.mkdir()
             if log:
-                log(f"FLYCAST | canal=MASTER | plataforma=Windows x64 | versao={version} | arquivo={archive_name}")
+                log(
+                    f"FLYCAST | canal=MASTER | plataforma=Windows x64 | versao={version} | arquivo={archive_name}"
+                )
                 log(f"DOWNLOAD | {url}")
             cls._download(url, archive, size, progress, log)
             cls._extract(archive, extracted, log, install_progress=install_progress)
-            cls._merge(cls._normalize_archive_root(extracted), destination, install_progress=install_progress, start=40)
-        executable = next((path.resolve() for path in (destination / "flycast.exe", destination / "bin" / "flycast.exe") if path.is_file()), None)
+            cls._merge(
+                cls._normalize_archive_root(extracted),
+                destination,
+                install_progress=install_progress,
+                start=40,
+            )
+        executable = next(
+            (
+                path.resolve()
+                for path in (destination / "flycast.exe", destination / "bin" / "flycast.exe")
+                if path.is_file()
+            ),
+            None,
+        )
         if executable is None:
-            raise RuntimeError(f"Build MASTER baixado, mas flycast.exe não foi encontrado em {destination}.")
+            raise RuntimeError(
+                f"Build MASTER baixado, mas flycast.exe não foi encontrado em {destination}."
+            )
         return DownloadResult("flycast", version, executable, archive_name)
 
     @staticmethod
@@ -931,7 +1108,9 @@ class EmulatorManager:
     @staticmethod
     def _json(url: str) -> dict[str, Any]:
         """Obtém um objeto JSON público."""
-        request = Request(url, headers={"Accept": "application/vnd.github+json", "User-Agent": USER_AGENT})
+        request = Request(
+            url, headers={"Accept": "application/vnd.github+json", "User-Agent": USER_AGENT}
+        )
         with urlopen(request, timeout=30) as response:
             value = json.loads(response.read().decode("utf-8"))
         if not isinstance(value, dict):
@@ -959,7 +1138,22 @@ class EmulatorManager:
             score += 50
         if any(t in name for t in ("x64", "x86_64", "amd64", "64bit", "64-bit")):
             score += 40
-        if any(t in name for t in ("linux", "macos", "osx", "android", "ios", "arm64", "aarch64", "win32", "i386", "source", "src")):
+        if any(
+            t in name
+            for t in (
+                "linux",
+                "macos",
+                "osx",
+                "android",
+                "ios",
+                "arm64",
+                "aarch64",
+                "win32",
+                "i386",
+                "source",
+                "src",
+            )
+        ):
             score -= 100
         if name.endswith(".zip"):
             score += 20
@@ -1008,9 +1202,22 @@ class EmulatorManager:
         seven_zip = cls.find_7zip()
         if seven_zip is None:
             raise RuntimeError("7z.exe não foi encontrado.")
-        result = subprocess.run([str(seven_zip), "x", "-y", f"-o{destination}", str(archive)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", shell=False, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), timeout=300, check=False)
+        result = subprocess.run(
+            [str(seven_zip), "x", "-y", f"-o{destination}", str(archive)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            shell=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            timeout=300,
+            check=False,
+        )
         if result.returncode != 0:
-            raise RuntimeError(f"7-Zip falhou ({result.returncode}): {(result.stdout or '').strip()}")
+            raise RuntimeError(
+                f"7-Zip falhou ({result.returncode}): {(result.stdout or '').strip()}"
+            )
         if install_progress:
             install_progress(40, 100)
 
@@ -1123,7 +1330,20 @@ class EmulatorManager:
     def _probe_mame_version(executable: Path) -> str | None:
         """Consulta a versão do MAME."""
         try:
-            result = subprocess.run([str(executable), "-noreadconfig", "-version"], cwd=str(executable.parent), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", shell=False, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), timeout=4, check=False)
+            result = subprocess.run(
+                [str(executable), "-noreadconfig", "-version"],
+                cwd=str(executable.parent),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                shell=False,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                timeout=4,
+                check=False,
+            )
             match = re.search(r"\b(?:v)?(\d+\.\d+)\b", (result.stdout or "").strip())
             return match.group(1) if match else None
         except (OSError, subprocess.SubprocessError):
@@ -1132,6 +1352,7 @@ class EmulatorManager:
 
 class RetroArchManager:
     """Gerencia RetroArch x64 e catálogo de cores libretro."""
+
     BUILD_ROOT = "https://buildbot.libretro.com"
     WINDOWS_ARCH = "x86_64"
     NIGHTLY_ROOT = f"{BUILD_ROOT}/nightly/windows/{WINDOWS_ARCH}/latest/"
@@ -1140,9 +1361,54 @@ class RetroArchManager:
     CHUNK_SIZE = 1024 * 1024
     TIMEOUT = 60
     RETRIES = 3
-    LEGACY_CORE_NAMES = frozenset({"bnes2014", "desmume2015", "puae2021", "stella2014", "stella2023", "snes9x2002", "snes9x2005", "snes9x2005plus", "snes9x2010", "mame2000", "mame2003", "mame2003plus", "mame2003midway", "mame2009", "mame2010", "fbalpha2012", "fbalpha2012cps1", "fbalpha2012cps2", "fbalpha2012cps3", "fbalpha2012neogeo", "citra2018", "melonds2021", "bsnes2014accuracy", "bsnes2014balanced", "bsnes2014performance"})
-    LEGACY_CORE_PATTERNS = (re.compile(r"^snes9x20(?:0[25]|10)(?:plus)?$", re.I), re.compile(r"^mame(?:2000|2003|2003plus|2003midway|2009|2010)$", re.I), re.compile(r"^(?:bnes|desmume|puae|stella)20(?:14|15|21|23)$", re.I))
-    GAME_ENGINE_CORE_PATTERNS = (re.compile(r"^(?:2048|anarch|boom|boom3|boom3xp|craft|cruzes|gong|jumpnbump|mrboom|opentyrian|puzzlescript|superbroswar)$", re.I), re.compile(r"^(?:openlara|prboom|prboomplus|nxengine|cannonball|chailove|lutro|lowresnx|retro8|reminiscence|scummvm|mkxpz)$", re.I), re.compile(r"^vita(?:quake|quake2|quake3|voyager).*$", re.I), re.compile(r"^(?:xrick|pascalpong|vircon32|wasm4|3dengine|imageviewer|mpv|pocketcdg)$", re.I))
+    LEGACY_CORE_NAMES = frozenset(
+        {
+            "bnes2014",
+            "desmume2015",
+            "puae2021",
+            "stella2014",
+            "stella2023",
+            "snes9x2002",
+            "snes9x2005",
+            "snes9x2005plus",
+            "snes9x2010",
+            "mame2000",
+            "mame2003",
+            "mame2003plus",
+            "mame2003midway",
+            "mame2009",
+            "mame2010",
+            "fbalpha2012",
+            "fbalpha2012cps1",
+            "fbalpha2012cps2",
+            "fbalpha2012cps3",
+            "fbalpha2012neogeo",
+            "citra2018",
+            "melonds2021",
+            "bsnes2014accuracy",
+            "bsnes2014balanced",
+            "bsnes2014performance",
+        }
+    )
+    LEGACY_CORE_PATTERNS = (
+        re.compile(r"^snes9x20(?:0[25]|10)(?:plus)?$", re.I),
+        re.compile(r"^mame(?:2000|2003|2003plus|2003midway|2009|2010)$", re.I),
+        re.compile(r"^(?:bnes|desmume|puae|stella)20(?:14|15|21|23)$", re.I),
+    )
+    GAME_ENGINE_CORE_PATTERNS = (
+        re.compile(
+            r"^(?:2048|anarch|boom|boom3|boom3xp|craft|cruzes|gong|jumpnbump|mrboom|opentyrian|puzzlescript|superbroswar)$",
+            re.I,
+        ),
+        re.compile(
+            r"^(?:openlara|prboom|prboomplus|nxengine|cannonball|chailove|lutro|lowresnx|retro8|reminiscence|scummvm|mkxpz)$",
+            re.I,
+        ),
+        re.compile(r"^vita(?:quake|quake2|quake3|voyager).*$", re.I),
+        re.compile(
+            r"^(?:xrick|pascalpong|vircon32|wasm4|3dengine|imageviewer|mpv|pocketcdg)$", re.I
+        ),
+    )
 
     def __init__(self, root: Path | None = None) -> None:
         """Inicializa o gerenciador."""
@@ -1151,7 +1417,9 @@ class RetroArchManager:
     def discover(self) -> tuple[Path | None, Path | None, Path | None]:
         """Localiza retroarch.exe, raiz e diretório de cores."""
         candidates = [self.root / "retroarch.exe"] if self.root else []
-        candidates.extend((Path.home() / "RetroArch-Win64/retroarch.exe", Path("C:/RetroArch/retroarch.exe")))
+        candidates.extend(
+            (Path.home() / "RetroArch-Win64/retroarch.exe", Path("C:/RetroArch/retroarch.exe"))
+        )
         executable = next((path.resolve() for path in candidates if path.is_file()), None)
         root = executable.parent if executable else self.root
         cores = root / "cores" if root else None
@@ -1169,7 +1437,20 @@ class RetroArchManager:
             except OSError:
                 pass
         try:
-            result = subprocess.run([str(executable), "--version"], cwd=str(executable.parent), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", shell=False, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), timeout=4, check=False)
+            result = subprocess.run(
+                [str(executable), "--version"],
+                cwd=str(executable.parent),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                shell=False,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                timeout=4,
+                check=False,
+            )
             match = re.search(r"RetroArch\s+(\d+\.\d+(?:\.\d+)?)", result.stdout or "", re.I)
             return match.group(1) if match else None
         except (OSError, subprocess.SubprocessError):
@@ -1181,7 +1462,9 @@ class RetroArchManager:
         last: Exception | None = None
         for _ in range(cls.RETRIES):
             try:
-                request = Request(url, headers={"User-Agent": USER_AGENT, "Accept-Encoding": "identity"})
+                request = Request(
+                    url, headers={"User-Agent": USER_AGENT, "Accept-Encoding": "identity"}
+                )
                 with urlopen(request, timeout=cls.TIMEOUT) as response:
                     return response.read().decode("utf-8", errors="replace")
             except URLError as exc:
@@ -1212,8 +1495,14 @@ class RetroArchManager:
         """Localiza o pacote Nightly x64 mais recente."""
         base = f"{cls.BUILD_ROOT}/nightly/windows/{cls.WINDOWS_ARCH}/"
         html = cls._download_text(base)
-        filenames = [href.rsplit("/", 1)[-1] for href in re.findall(r'href=["\']([^"\']+)["\']', html, re.I)]
-        filenames = [name for name in filenames if re.fullmatch(r"\d{4}-\d{2}-\d{2}_RetroArch\.7z", name, re.I)]
+        filenames = [
+            href.rsplit("/", 1)[-1] for href in re.findall(r'href=["\']([^"\']+)["\']', html, re.I)
+        ]
+        filenames = [
+            name
+            for name in filenames
+            if re.fullmatch(r"\d{4}-\d{2}-\d{2}_RetroArch\.7z", name, re.I)
+        ]
         if not filenames:
             raise RuntimeError("Nenhum pacote Nightly encontrado.")
         filename = max(filenames, key=lambda value: value[:10])
@@ -1248,14 +1537,24 @@ class RetroArchManager:
             if not filename.casefold().endswith("_libretro.dll.zip"):
                 continue
             name = re.sub(r"_libretro\.dll$", "", filename.removesuffix(".zip"), flags=re.I)
-            result.append(CoreInfo(filename=filename, core_name=name, date=date, crc32=crc.lower().removeprefix("0x").zfill(8), channel=channel))
+            result.append(
+                CoreInfo(
+                    filename=filename,
+                    core_name=name,
+                    date=date,
+                    crc32=crc.lower().removeprefix("0x").zfill(8),
+                    channel=channel,
+                )
+            )
         return tuple(sorted(result, key=lambda item: item.core_name.casefold()))
 
     @classmethod
     def is_legacy_core(cls, core: CoreInfo) -> bool:
         """Identifica snapshots históricos."""
         normalized = re.sub(r"[^a-z0-9]", "", core.core_name.casefold())
-        return normalized in cls.LEGACY_CORE_NAMES or any(pattern.fullmatch(normalized) for pattern in cls.LEGACY_CORE_PATTERNS)
+        return normalized in cls.LEGACY_CORE_NAMES or any(
+            pattern.fullmatch(normalized) for pattern in cls.LEGACY_CORE_PATTERNS
+        )
 
     @classmethod
     def is_game_or_engine_core(cls, core: CoreInfo) -> bool:
@@ -1264,29 +1563,56 @@ class RetroArchManager:
         return any(pattern.fullmatch(normalized) for pattern in cls.GAME_ENGINE_CORE_PATTERNS)
 
     @classmethod
-    def filter_cores(cls, cores: tuple[CoreInfo, ...], *, current_only: bool = True, hide_games: bool = True) -> tuple[CoreInfo, ...]:
+    def filter_cores(
+        cls, cores: tuple[CoreInfo, ...], *, current_only: bool = True, hide_games: bool = True
+    ) -> tuple[CoreInfo, ...]:
         """Aplica os filtros solicitados para o catálogo."""
-        return tuple(core for core in cores if (not current_only or not cls.is_legacy_core(core)) and (not hide_games or not cls.is_game_or_engine_core(core)))
+        return tuple(
+            core
+            for core in cores
+            if (not current_only or not cls.is_legacy_core(core))
+            and (not hide_games or not cls.is_game_or_engine_core(core))
+        )
 
-    def list_cores(self, channel: str = "nightly", stable_version: str | None = None, *, current_only: bool = False, hide_games: bool = False) -> tuple[CoreInfo, ...]:
+    def list_cores(
+        self,
+        channel: str = "nightly",
+        stable_version: str | None = None,
+        *,
+        current_only: bool = False,
+        hide_games: bool = False,
+    ) -> tuple[CoreInfo, ...]:
         """Lê o catálogo oficial sem gerar 404 no caminho Stable."""
         _ = stable_version
-        result = self._parse_core_index(self._download_text(self._core_catalog_url(channel)), channel)
+        result = self._parse_core_index(
+            self._download_text(self._core_catalog_url(channel)), channel
+        )
         filtered = self.filter_cores(result, current_only=current_only, hide_games=hide_games)
         if not filtered:
             raise RuntimeError(f"Nenhum core corresponde aos filtros no catálogo {channel}.")
         return filtered
 
-    def list_filtered_cores(self, *, include_beta: bool = False, current_only: bool = True, hide_games: bool = True, stable_version: str | None = None) -> tuple[CoreInfo, ...]:
+    def list_filtered_cores(
+        self,
+        *,
+        include_beta: bool = False,
+        current_only: bool = True,
+        hide_games: bool = True,
+        stable_version: str | None = None,
+    ) -> tuple[CoreInfo, ...]:
         """Monta Stable ou Stable+Nightly sem consultar uma URL Stable inexistente."""
         channels = ("stable", "nightly") if include_beta else ("stable",)
         merged: dict[str, CoreInfo] = {}
         for channel in channels:
-            for core in self.list_cores(channel, stable_version, current_only=False, hide_games=False):
+            for core in self.list_cores(
+                channel, stable_version, current_only=False, hide_games=False
+            ):
                 key = core.core_name.casefold()
                 if key not in merged or channel == "stable":
                     merged[key] = core
-        return self.filter_cores(tuple(merged.values()), current_only=current_only, hide_games=hide_games)
+        return self.filter_cores(
+            tuple(merged.values()), current_only=current_only, hide_games=hide_games
+        )
 
     @staticmethod
     def _crc32(path: Path) -> str:
@@ -1308,20 +1634,39 @@ class RetroArchManager:
         if cores_dir is None:
             return ()
         path = Path(cores_dir).expanduser().resolve()
-        return tuple(sorted(path.glob("*_libretro.dll"), key=lambda item: item.name.casefold())) if path.is_dir() else ()
+        return (
+            tuple(sorted(path.glob("*_libretro.dll"), key=lambda item: item.name.casefold()))
+            if path.is_dir()
+            else ()
+        )
 
-    def compare_installed_cores(self, cores: tuple[CoreInfo, ...], cores_dir: Path | None) -> list[tuple[Path, CoreInfo | None, str]]:
+    def compare_installed_cores(
+        self, cores: tuple[CoreInfo, ...], cores_dir: Path | None
+    ) -> list[tuple[Path, CoreInfo | None, str]]:
         """Compara CRC32 local com o catálogo."""
         remote = {core.filename.removesuffix(".zip").casefold(): core for core in cores}
         result: list[tuple[Path, CoreInfo | None, str]] = []
         for path in self.installed_cores(cores_dir):
             remote_core = remote.get(path.name.casefold())
             local_crc = self._crc32(path)
-            state = "unknown" if remote_core is None else ("current" if local_crc == remote_core.crc32 else "update")
+            state = (
+                "unknown"
+                if remote_core is None
+                else ("current" if local_crc == remote_core.crc32 else "update")
+            )
             result.append((path, remote_core, state))
         return result
 
-    def install_core(self, filename: str, destination: Path, *, channel: str = "nightly", stable_version: str | None = None, progress=None, log=None) -> Path:
+    def install_core(
+        self,
+        filename: str,
+        destination: Path,
+        *,
+        channel: str = "nightly",
+        stable_version: str | None = None,
+        progress=None,
+        log=None,
+    ) -> Path:
         """Baixa e instala um core individual do Buildbot Nightly."""
         self._validate_core_channel(channel)
         filename = self._validate_core_filename(filename)
@@ -1363,7 +1708,9 @@ class RetroArchManager:
     @staticmethod
     def _validate_core_channel(channel: str) -> None:
         if channel.casefold() == "stable":
-            raise RuntimeError("O Buildbot Stable não publica cores individuais; o snapshot Stable é RetroArch_cores.7z. Use Nightly para instalação individual.")
+            raise RuntimeError(
+                "O Buildbot Stable não publica cores individuais; o snapshot Stable é RetroArch_cores.7z. Use Nightly para instalação individual."
+            )
 
     @staticmethod
     def _validate_core_filename(filename: str) -> str:
@@ -1378,7 +1725,9 @@ class RetroArchManager:
             bad = package.testzip()
             if bad:
                 raise RuntimeError(f"ZIP corrompido do core: {bad}")
-            dll_names = [name for name in package.namelist() if name.casefold().endswith("_libretro.dll")]
+            dll_names = [
+                name for name in package.namelist() if name.casefold().endswith("_libretro.dll")
+            ]
             if not dll_names:
                 raise RuntimeError(f"ZIP sem DLL libretro: {filename}")
             return dll_names[0], package.read(dll_names[0])
@@ -1389,16 +1738,29 @@ class RetroArchManager:
             raise RuntimeError("Caminho inseguro no core.")
 
     def _find_core(self, filename: str, stable_version: str | None) -> CoreInfo | None:
-        return next((core for core in self.list_cores("nightly", stable_version) if core.filename.casefold() == filename.casefold()), None)
+        return next(
+            (
+                core
+                for core in self.list_cores("nightly", stable_version)
+                if core.filename.casefold() == filename.casefold()
+            ),
+            None,
+        )
 
     @staticmethod
-    def _validate_core_crc(temp_dll: Path, target: Path, actual_crc: str, remote: CoreInfo | None) -> None:
+    def _validate_core_crc(
+        temp_dll: Path, target: Path, actual_crc: str, remote: CoreInfo | None
+    ) -> None:
         if remote is None or remote.crc32 != actual_crc:
             temp_dll.unlink(missing_ok=True)
             expected = remote.crc32 if remote else "desconhecido"
-            raise RuntimeError(f"CRC32 inválido para {target.name}: recebido={actual_crc}, esperado={expected}")
+            raise RuntimeError(
+                f"CRC32 inválido para {target.name}: recebido={actual_crc}, esperado={expected}"
+            )
 
-    def install_frontend(self, destination: Path, *, channel: str = "stable", progress=None, log=None) -> DownloadResult:
+    def install_frontend(
+        self, destination: Path, *, channel: str = "stable", progress=None, log=None
+    ) -> DownloadResult:
         """Baixa e instala o frontend RetroArch x64 Stable ou Nightly diretamente no diretório selecionado."""
         channel = channel.casefold().strip()
         if channel not in {"stable", "nightly"}:
@@ -1420,7 +1782,9 @@ class RetroArchManager:
         extracted.mkdir()
         try:
             if log:
-                log(f"RETROARCH | canal={channel} | versão={version_label} | arquivo={archive_name}")
+                log(
+                    f"RETROARCH | canal={channel} | versão={version_label} | arquivo={archive_name}"
+                )
                 log(f"DOWNLOAD | {url}")
             self._download_file(url, archive, progress, log)
             self._extract(archive, extracted, log)
@@ -1433,7 +1797,9 @@ class RetroArchManager:
             shutil.rmtree(temp_dir, ignore_errors=True)
         executable = destination / "retroarch.exe"
         if not executable.is_file():
-            raise RuntimeError(f"Download concluído, mas retroarch.exe não foi encontrado diretamente em {destination}.")
+            raise RuntimeError(
+                f"Download concluído, mas retroarch.exe não foi encontrado diretamente em {destination}."
+            )
         return DownloadResult("retroarch", version_label, executable.resolve(), archive_name)
 
     @staticmethod
@@ -1468,8 +1834,11 @@ class RetroArchManager:
             cls._merge(executable.parent, destination)
 
         wrappers = sorted(
-            (path for path in destination.rglob("*")
-             if path.is_dir() and path.name.casefold() == "retroarch-win64"),
+            (
+                path
+                for path in destination.rglob("*")
+                if path.is_dir() and path.name.casefold() == "retroarch-win64"
+            ),
             key=lambda path: len(path.parts),
             reverse=True,
         )
@@ -1491,9 +1860,22 @@ class RetroArchManager:
         seven_zip = cls.detect_7zip()
         if seven_zip is None:
             raise RuntimeError("7z.exe não foi encontrado.")
-        result = subprocess.run([str(seven_zip), "x", "-y", f"-o{destination}", str(archive)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", shell=False, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), timeout=300, check=False)
+        result = subprocess.run(
+            [str(seven_zip), "x", "-y", f"-o{destination}", str(archive)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            shell=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            timeout=300,
+            check=False,
+        )
         if result.returncode != 0:
-            raise RuntimeError(f"7-Zip falhou ({result.returncode}): {(result.stdout or '').strip()}")
+            raise RuntimeError(
+                f"7-Zip falhou ({result.returncode}): {(result.stdout or '').strip()}"
+            )
 
     @staticmethod
     def _merge(source: Path, destination: Path) -> None:
@@ -1512,7 +1894,15 @@ class RetroArchManager:
             found = shutil.which(command)
             if found:
                 return Path(found).resolve()
-        for root in filter(None, (os.environ.get("ProgramFiles"), os.environ.get("ProgramW6432"), os.environ.get("ProgramFiles(x86)"), os.environ.get("LOCALAPPDATA"))):
+        for root in filter(
+            None,
+            (
+                os.environ.get("ProgramFiles"),
+                os.environ.get("ProgramW6432"),
+                os.environ.get("ProgramFiles(x86)"),
+                os.environ.get("LOCALAPPDATA"),
+            ),
+        ):
             path = Path(root) / "7-Zip/7z.exe"
             if path.is_file():
                 return path.resolve()

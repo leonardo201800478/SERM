@@ -31,7 +31,10 @@ from PySide6.QtWidgets import (
 )
 
 from ..runtime.paths import data_root
-from .directories_guide_page import ConfigFileEditor
+from .altirra_settings_page import AltirraSettingsPage
+from .amiberry_settings_page import AmiberrySettingsPage
+from .directories_guide_page import ConfigFileEditor, DirectoryGuidePage
+from .winuae_settings_page import WinUAESettingsPage
 
 VIDEO_CATEGORY = "Vídeo"
 AUDIO_CATEGORY = "Áudio"
@@ -55,6 +58,13 @@ class SettingSpec:
     minimum: int = 0
     maximum: int = 100
     description: str = ""
+
+
+class SliderControl(QWidget):
+    """Container that keeps its paired slider widgets explicitly typed."""
+
+    slider: QSlider
+    spin: QSpinBox
 
 
 class EmulatorSettingsPage(QWidget):
@@ -507,12 +517,68 @@ class EmulatorSettingsPage(QWidget):
         )
         info.setWordWrap(True)
         root.addWidget(info)
-        self.emulators = QTabWidget()
-        for emulator in self.SPECS:
-            self._build_emulator(emulator)
-        root.addWidget(self.emulators, 1)
+        self.category_tabs = QTabWidget()
+        self.emulator_tabs: dict[str, QTabWidget] = {}
+        self.pending_status: dict[str, tuple[QLabel, QLabel, str]] = {}
+        self.altirra_page: AltirraSettingsPage | None = None
+        self.amiberry_page: AmiberrySettingsPage | None = None
+        self.winuae_page: WinUAESettingsPage | None = None
+        labels = {key: label for key, label, _config in DirectoryGuidePage.EMULATORS}
+        config_keys = {
+            key: config_key or f"{key}_config"
+            for key, _label, config_key in DirectoryGuidePage.EMULATORS
+        }
+        for category, members in DirectoryGuidePage.CATEGORIES:
+            category_page = QWidget()
+            category_layout = QVBoxLayout(category_page)
+            category_layout.setContentsMargins(0, 0, 0, 0)
+            tabs = QTabWidget()
+            self.emulator_tabs[category] = tabs
+            for emulator in members:
+                if emulator in self.SPECS:
+                    self._build_emulator(emulator, tabs)
+                elif emulator == "altirra":
+                    self.altirra_page = AltirraSettingsPage(self)
+                    tabs.addTab(self.altirra_page, labels[emulator].split(" · ", 1)[0])
+                elif emulator == "amiberry":
+                    self.amiberry_page = AmiberrySettingsPage(self)
+                    tabs.addTab(self.amiberry_page, "Amiberry")
+                elif emulator == "winuae":
+                    self.winuae_page = WinUAESettingsPage(self)
+                    tabs.addTab(self.winuae_page, "WinUAE")
+                else:
+                    self._build_pending_emulator(
+                        emulator, labels[emulator], config_keys[emulator], tabs
+                    )
+            category_layout.addWidget(tabs)
+            self.category_tabs.addTab(category_page, category)
+        root.addWidget(self.category_tabs, 1)
 
-    def _build_emulator(self, emulator: str) -> None:
+    def _build_pending_emulator(
+        self, emulator: str, label: str, config_key: str, tabs: QTabWidget
+    ) -> None:
+        """Give every directory registry emulator a settings page from day one."""
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        heading = QLabel(label)
+        heading.setProperty("role", "title")
+        layout.addWidget(heading)
+        information = QLabel(
+            "A guia deste emulador está pronta para receber opções específicas. "
+            "Selecione o arquivo em 01-Diretórios e envie-o para mapear as opções "
+            "compatíveis com o formato nativo."
+        )
+        information.setWordWrap(True)
+        layout.addWidget(information)
+        executable_status = QLabel()
+        config_status = QLabel()
+        layout.addWidget(executable_status)
+        layout.addWidget(config_status)
+        self.pending_status[emulator] = (executable_status, config_status, config_key)
+        layout.addStretch(1)
+        tabs.addTab(page, label.split(" · ", 1)[0])
+
+    def _build_emulator(self, emulator: str, tabs_container: QTabWidget) -> None:
         """Cria a guia de segundo nível e suas categorias de terceiro nível."""
         page = QWidget()
         outer = QVBoxLayout(page)
@@ -546,7 +612,7 @@ class EmulatorSettingsPage(QWidget):
         buttons.addWidget(reload_button)
         buttons.addWidget(save)
         outer.addLayout(buttons)
-        self.emulators.addTab(page, emulator.upper() if emulator != "retroarch" else "RetroArch")
+        tabs_container.addTab(page, emulator.upper() if emulator != "retroarch" else "RetroArch")
 
     def _label(self, spec: SettingSpec) -> QLabel:
         """Cria rótulo com tooltip documental."""
@@ -564,7 +630,7 @@ class EmulatorSettingsPage(QWidget):
                 combo.addItem(label, value)
             return combo
         if spec.kind == "slider":
-            widget = QWidget()
+            widget = SliderControl()
             box = QHBoxLayout(widget)
             slider = QSlider(Qt.Orientation.Horizontal)
             slider.setRange(spec.minimum, spec.maximum)
@@ -574,8 +640,8 @@ class EmulatorSettingsPage(QWidget):
             spin.valueChanged.connect(slider.setValue)
             box.addWidget(slider, 1)
             box.addWidget(spin)
-            setattr(widget, "_serm_slider", slider)
-            setattr(widget, "_serm_spin", spin)
+            widget.slider = slider
+            widget.spin = spin
             return widget
         return QLineEdit()
 
@@ -631,11 +697,9 @@ class EmulatorSettingsPage(QWidget):
             except ValueError:
                 number = spec.minimum
             number = max(spec.minimum, min(spec.maximum, number))
-            slider = getattr(control, "_serm_slider", None)
-            spin = getattr(control, "_serm_spin", None)
-            if isinstance(slider, QSlider) and isinstance(spin, QSpinBox):
-                slider.setValue(number)
-                spin.setValue(number)
+            if isinstance(control, SliderControl):
+                control.slider.setValue(number)
+                control.spin.setValue(number)
         else:
             control.setText(raw)  # type: ignore[attr-defined]
 
@@ -646,8 +710,7 @@ class EmulatorSettingsPage(QWidget):
         if spec.kind == "combo":
             return str(control.currentData())  # type: ignore[attr-defined]
         if spec.kind == "slider":
-            spin = getattr(control, "_serm_spin", None)
-            return str(spin.value()) if isinstance(spin, QSpinBox) else "0"
+            return str(control.spin.value()) if isinstance(control, SliderControl) else "0"
         return control.text().strip()  # type: ignore[attr-defined]
 
     def _disable_emulator_controls(self, emulator: str) -> None:
@@ -676,6 +739,18 @@ class EmulatorSettingsPage(QWidget):
                 self._disable_emulator_controls(emulator)
                 continue
             self._refresh_emulator(emulator, editor)
+        if self.altirra_page is not None:
+            self.altirra_page.refresh()
+        if self.amiberry_page is not None:
+            self.amiberry_page.refresh()
+        if self.winuae_page is not None:
+            self.winuae_page.refresh()
+        paths = self._load_paths()
+        for emulator, (executable_label, config_label, config_key) in self.pending_status.items():
+            executable_label.setText(
+                f"Executável registrado: {paths.get(f'{emulator}_exe') or '—'}"
+            )
+            config_label.setText(f"Arquivo de configuração: {paths.get(config_key) or '—'}")
 
     def save(self, emulator: str) -> None:
         """Grava somente chaves existentes, com backup atômico."""

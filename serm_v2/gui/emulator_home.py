@@ -57,7 +57,9 @@ class _Worker(QThread):
             self.done.emit(
                 self.operation(
                     progress=lambda received, total: self.progress.emit(received, total),
-                    install_progress=lambda completed, total: self.install_progress.emit(completed, total),
+                    install_progress=lambda completed, total: self.install_progress.emit(
+                        completed, total
+                    ),
                     log=lambda message: self.log.emit(str(message)),
                 )
             )
@@ -70,23 +72,63 @@ class EmulatorHomePage(QWidget):
     """Home 16:9 para emuladores standalone e RetroArch."""
 
     EMULATOR_GROUPS = (
-        ("Consoles · gerações", (
-            "stella", "mesence", "blastem", "super_zsnes", "ymir", "yabasanshiro",
-            "duckstation", "rmg", "bigpemu", "pcsx2",
-            "xemu", "xenia_canary", "dolphin", "rpcs3", "cemu", "shadps4",
-            "ryujinx_nextendo", "ares",
-        )),
-        ("Portáteis · gerações", (
-            "sameboy", "mgba", "melonds", "ppsspp", "azaharplus",
-        )),
-        ("Computadores · gerações", (
-            "vice", "altirra", "dosbox_staging", "dosbox_pure", "dosbox_x", "winuae",
-            "xm6pro68k", "scummvm",
-        )),
+        (
+            "Consoles · gerações",
+            (
+                "stella",
+                "mesence",
+                "blastem",
+                "super_zsnes",
+                "ymir",
+                "yabasanshiro",
+                "duckstation",
+                "rmg",
+                "bigpemu",
+                "pcsx2",
+                "xemu",
+                "xenia_canary",
+                "dolphin",
+                "rpcs3",
+                "cemu",
+                "shadps4",
+                "ryujinx_nextendo",
+                "ares",
+            ),
+        ),
+        (
+            "Portáteis · gerações",
+            (
+                "sameboy",
+                "mgba",
+                "melonds",
+                "ppsspp",
+                "azaharplus",
+            ),
+        ),
+        (
+            "Computadores · gerações",
+            (
+                "vice",
+                "altirra",
+                "dosbox_staging",
+                "dosbox_pure",
+                "dosbox_x",
+                "winuae",
+                "xm6pro68k",
+                "scummvm",
+                "amiberry",
+            ),
+        ),
         ("Multi-sistema", ("bizhawk",)),
-        ("Arcade · gerações", (
-            "mame", "fbneo", "supermodel", "flycast",
-        )),
+        (
+            "Arcade · gerações",
+            (
+                "mame",
+                "fbneo",
+                "supermodel",
+                "flycast",
+            ),
+        ),
     )
     EMULATORS = tuple(EmulatorManager.LABELS)
     LABELS = EmulatorManager.LABELS
@@ -127,6 +169,7 @@ class EmulatorHomePage(QWidget):
         "bizhawk": "https://github.com/TASEmulators/BizHawk/releases/latest",
         "dosbox_pure": "https://github.com/schellingb/dosbox-pure-unleashed/releases/latest",
         "yabasanshiro": "https://www.emu-france.com/emulateurs/5-consoles-de-salon/50-sega-saturn/7869-yabasanshiro-2/",
+        "amiberry": "https://github.com/BlitterStudio/amiberry/releases",
     }
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -135,7 +178,9 @@ class EmulatorHomePage(QWidget):
         self.retroarch = RetroArchManager(self.manager.roots.get("retroarch"))
         self.worker: _Worker | None = None
         self._pending_continuation = None
-        self.cards: dict[str, tuple[QLabel, QLabel, QLabel, QProgressBar, QProgressBar, QPushButton]] = {}
+        self.cards: dict[
+            str, tuple[QLabel, QLabel, QLabel, QProgressBar, QProgressBar, QPushButton]
+        ] = {}
         self.core_items: dict[str, QListWidgetItem] = {}
         self._core_queue: list[str] = []
         self._retro_channel = "stable"
@@ -195,9 +240,10 @@ class EmulatorHomePage(QWidget):
 
         self.home_tabs = QTabWidget()
         grouped_keys = {key for _title, keys in self.EMULATOR_GROUPS for key in keys}
-        groups = (*self.EMULATOR_GROUPS, (
-            "Outros", tuple(key for key in self.EMULATORS if key not in grouped_keys)
-        ))
+        groups = (
+            *self.EMULATOR_GROUPS,
+            ("Outros", tuple(key for key in self.EMULATORS if key not in grouped_keys)),
+        )
         for group_title, keys in groups:
             if keys:
                 self.home_tabs.addTab(self._emulator_group_tab(keys), group_title)
@@ -242,7 +288,9 @@ class EmulatorHomePage(QWidget):
         for index, key in enumerate(keys):
             card = QFrame()
             card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-            card.setStyleSheet("QFrame{background:#151515;border:1px solid #3d3d3d;border-radius:8px;}")
+            card.setStyleSheet(
+                "QFrame{background:#151515;border:1px solid #3d3d3d;border-radius:8px;}"
+            )
             box = QVBoxLayout(card)
             name = QLabel(self.LABELS[key])
             name.setWordWrap(True)
