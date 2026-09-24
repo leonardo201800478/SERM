@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
 
 from ..runtime.paths import data_root
 from ..services.emulator_manager import EmulatorManager, RetroArchManager
+from .emulator_catalog import grouped_emulators
 
 if TYPE_CHECKING:
     from .main_window import MainWindow
@@ -71,65 +72,8 @@ class _Worker(QThread):
 class EmulatorHomePage(QWidget):
     """Home 16:9 para emuladores standalone e RetroArch."""
 
-    EMULATOR_GROUPS = (
-        (
-            "Consoles · gerações",
-            (
-                "stella",
-                "mesence",
-                "blastem",
-                "super_zsnes",
-                "ymir",
-                "yabasanshiro",
-                "duckstation",
-                "rmg",
-                "bigpemu",
-                "pcsx2",
-                "xemu",
-                "xenia_canary",
-                "dolphin",
-                "rpcs3",
-                "cemu",
-                "shadps4",
-                "ryujinx_nextendo",
-                "ares",
-            ),
-        ),
-        (
-            "Portáteis · gerações",
-            (
-                "sameboy",
-                "mgba",
-                "melonds",
-                "ppsspp",
-                "azaharplus",
-            ),
-        ),
-        (
-            "Computadores · gerações",
-            (
-                "vice",
-                "altirra",
-                "dosbox_staging",
-                "dosbox_pure",
-                "dosbox_x",
-                "winuae",
-                "xm6pro68k",
-                "scummvm",
-                "amiberry",
-            ),
-        ),
-        ("Multi-sistema", ("bizhawk",)),
-        (
-            "Arcade · gerações",
-            (
-                "mame",
-                "fbneo",
-                "supermodel",
-                "flycast",
-            ),
-        ),
-    )
+    EMULATOR_GROUPS = grouped_emulators(EmulatorManager.LABELS, include_retroarch=False)
+
     EMULATORS = tuple(EmulatorManager.LABELS)
     LABELS = EmulatorManager.LABELS
     SITES = {

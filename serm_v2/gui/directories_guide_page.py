@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..runtime.paths import data_root
+from .emulator_catalog import grouped_emulators
 
 
 class ConfigFileEditor:
@@ -139,47 +140,8 @@ class DirectoryGuidePage(QWidget):
         ("amiberry", "Amiberry · Amiga", "amiberry_ini"),
     )
 
-    CATEGORIES = (
-        ("Arcade", ("mame", "fbneo", "flycast", "supermodel")),
-        (
-            "Consoles",
-            (
-                "ymir",
-                "duckstation",
-                "pcsx2",
-                "dolphin",
-                "xemu",
-                "azaharplus",
-                "rpcs3",
-                "xenia_canary",
-                "cemu",
-                "ryujinx_nextendo",
-                "shadps4",
-                "super_zsnes",
-                "bigpemu",
-                "blastem",
-                "yabasanshiro",
-                "rmg",
-            ),
-        ),
-        ("Portáteis", ("ppsspp", "melonds", "mgba", "sameboy")),
-        (
-            "Computadores",
-            (
-                "dosbox_staging",
-                "dosbox_pure",
-                "scummvm",
-                "winuae",
-                "vice",
-                "xm6pro68k",
-                "dosbox_x",
-                "stella",
-                "altirra",
-                "amiberry",
-            ),
-        ),
-        ("Multi-sistema", ("mesence", "ares", "retroarch", "bizhawk")),
-    )
+    CATEGORIES = grouped_emulators((key for key, _label, _config in EMULATORS))
+
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
