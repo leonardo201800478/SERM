@@ -4,11 +4,7 @@
 
 SERM is a desktop application for managing emulators, catalogs, ROM collections, scans, filtering, reconstruction and execution metadata from a single local workspace.
 
-<<<<<<< HEAD
-> **V2 is the active implementation.** The current `main` tree contains the V2 project; no V1 source tree is present in the active filesystem hierarchy. Historical V1 behavior is treated as reference material and must not become a V2 runtime dependency.
-=======
 > **V2 is the active implementation.** The current `main` tree contains the V2 project. Historical V1 behavior is treated as reference material and must not become a V2 runtime dependency.
->>>>>>> 3d414c6db1590e3f790ccdb9e2ab01e6100067ca
 
 ## Architecture
 
@@ -68,7 +64,7 @@ V1 is not part of the active V2 package hierarchy. If historical V1 material is 
 
 ## Development status
 
-The project is in **alpha development**. The current V2 tree contains functional application infrastructure, Home and emulator-management flows, catalog acquisition/normalization, MAME and No-Intro filtering/scanning foundations, scan persistence/resilience, and reconstruction components. Some source families and advanced reconstruction workflows remain under active development.
+The project is in **alpha development**. The V2 tree contains functional application infrastructure, Home and emulator-management flows, catalog acquisition/normalization, MAME and No-Intro filtering/scanning foundations, scan persistence/resilience, and reconstruction components. Emulator configuration is organized into shared Directories, Emulators, Video, Drivers, Sound and Controls areas, with dedicated pages for supported native formats. The complete implementation status and remaining work are tracked in [`docs/phases.md`](docs/phases.md).
 
 The roadmap in [`docs/phases.md`](docs/phases.md) is authoritative for planned work. Historical audit documents are not current status documents.
 
@@ -83,11 +79,7 @@ Development dependencies: pytest, pytest-cov and Ruff.
 
 ## Installation
 
-<<<<<<< HEAD
-From the `v2` directory:
-=======
 From the **repository root**:
->>>>>>> 3d414c6db1590e3f790ccdb9e2ab01e6100067ca
 
 ```powershell
 python -m venv .venv
@@ -153,12 +145,14 @@ Recommended reading order:
 
 1. [`docs/architecture.md`](docs/architecture.md) — architecture and boundaries;
 2. [`docs/project-tree.md`](docs/project-tree.md) — source tree;
-3. [`docs/development-environment.md`](docs/development-environment.md) — development setup;
-4. [`docs/database.md`](docs/database.md) — persistence and migrations;
-5. [`docs/catalogs.md`](docs/catalogs.md) — catalog model;
-6. [`docs/source-strategy.md`](docs/source-strategy.md) — source authority;
-7. [`docs/status/scan_status.md`](docs/status/scan_status.md) — scanner invariants;
-8. [`docs/phases.md`](docs/phases.md) — roadmap.
+3. [`docs/gui-architecture-v2.md`](docs/gui-architecture-v2.md) — configuration navigation and emulator settings;
+4. [`docs/emulator-config-policy.md`](docs/emulator-config-policy.md) — native configuration editing rules;
+5. [`docs/development-environment.md`](docs/development-environment.md) — development setup;
+6. [`docs/database.md`](docs/database.md) — persistence and migrations;
+7. [`docs/catalogs.md`](docs/catalogs.md) — catalog model;
+8. [`docs/source-strategy.md`](docs/source-strategy.md) — source authority;
+9. [`docs/status/scan_status.md`](docs/status/scan_status.md) — scanner invariants;
+10. [`docs/phases.md`](docs/phases.md) — roadmap and current work status.
 
 ## License
 

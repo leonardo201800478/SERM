@@ -30,20 +30,26 @@ class ConfigurationPage(QWidget):
         (
             "01",
             "Diretórios",
-            "Pastas, arquivos de configuração e dados dos emuladores.",
+            "Diretórios e arquivos de configuração de todos os emuladores.",
             "directories",
         ),
         ("02", "Ferramentas", "Executáveis auxiliares utilizados pelo SERM.", "tools"),
         ("03", "Emuladores", "Executáveis, versões e parâmetros dos emuladores.", "emulators"),
-        ("04", "Vídeo", "Shaders, bezels e apresentação de vídeo.", "video"),
-        ("05", "Som", "Configurações iniciais de áudio do ambiente SERM.", "sound"),
+        ("04", "Vídeo", "Todas as configurações de vídeo dos emuladores.", "video"),
         (
-            "06",
+            "05",
+            "Drivers",
+            "Seleção de drivers de vídeo, áudio e controles dos emuladores.",
+            "drivers",
+        ),
+        ("06", "Som", "Todas as configurações de som dos emuladores.", "sound"),
+        (
+            "07",
             "Controles",
-            "Detecção, identidade e diagnóstico dos dispositivos de entrada.",
+            "Configurações de controles dos emuladores e diagnóstico de dispositivos.",
             "controls",
         ),
-        ("07", "Aparência e idioma", "Tema, idioma e preferências da interface.", "settings"),
+        ("08", "Aparência e idioma", "Tema, idioma e preferências da interface.", "settings"),
     )
 
     def __init__(self, parent=None) -> None:
@@ -117,14 +123,24 @@ class ConfigurationPage(QWidget):
         self.tools_page = ToolsDirectoriesPage(self)
         self.emulators_page = EmulatorSettingsPage(self)
         self.video_page = EmulatorShadersBezelsPage(self)
+        self.drivers_page = EmulatorSettingsPage(self, section="drivers")
         self.sound_page = SoundSettingsPage(self)
-        self.controls_page = InputControlsPage(self)
+        self.controls_page = QWidget(self)
+        controls_layout = QVBoxLayout(self.controls_page)
+        controls_layout.setContentsMargins(0, 0, 0, 0)
+        self.controls_tabs = QTabWidget(self.controls_page)
+        self.emulator_controls_page = EmulatorSettingsPage(self.controls_page, section="controls")
+        self.input_diagnostics_page = InputControlsPage(self.controls_page)
+        self.controls_tabs.addTab(self.emulator_controls_page, "Configurações dos emuladores")
+        self.controls_tabs.addTab(self.input_diagnostics_page, "Diagnóstico de dispositivos")
+        controls_layout.addWidget(self.controls_tabs)
         self.appearance_page = AppearanceLanguagePage(self)
         self._pages = [
             self.directories_page,
             self.tools_page,
             self.emulators_page,
             self.video_page,
+            self.drivers_page,
             self.sound_page,
             self.controls_page,
             self.appearance_page,
@@ -151,15 +167,16 @@ class ConfigurationPage(QWidget):
             self.tabs.setCurrentIndex(index)
             self.section_title.setText(self._entry_title(index))
             self.section_description.setText(self.ENTRIES[index][2])
-            # Controles acessa backends nativos (SDL3/HIDAPI). A página deve
-            # abrir sem executar descoberta; a leitura é uma ação explícita.
-            if self._pages[index] is not self.controls_page:
-                self._refresh_current()
+            # A guia de diagnóstico acessa SDL3/HIDAPI somente por ação explícita.
+            self._refresh_current()
 
     def _entry_title(self, index: int) -> str:
         return UiPreferences.text(self.ENTRIES[index][3])
 
     def _refresh_current(self) -> None:
+        if self.tabs.currentWidget() is self.controls_page:
+            self.emulator_controls_page.refresh()
+            return
         page = self.tabs.currentWidget()
         refresh = getattr(page, "refresh", None)
         if callable(refresh):
@@ -176,9 +193,8 @@ class ConfigurationPage(QWidget):
             self.section_description.setText(self.ENTRIES[current][2])
 
     def refresh(self) -> None:
-        # Não dispara descoberta automaticamente: Controles exige ação explícita.
-        if self.tabs.currentWidget() is not self.controls_page:
-            self._refresh_current()
+        # A detecção de dispositivos continua ligada ao botão da guia de diagnóstico.
+        self._refresh_current()
 
 
 __all__ = ["ConfigurationPage"]

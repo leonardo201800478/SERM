@@ -33,11 +33,13 @@ from PySide6.QtWidgets import (
 from ..runtime.paths import data_root
 from .altirra_settings_page import AltirraSettingsPage
 from .amiberry_settings_page import AmiberrySettingsPage
+from .ares_controls_page import AresControlsPage
 from .directories_guide_page import ConfigFileEditor, DirectoryGuidePage
 from .winuae_settings_page import WinUAESettingsPage
 
 VIDEO_CATEGORY = "Vídeo"
 AUDIO_CATEGORY = "Áudio"
+DRIVER_CATEGORY = "Drivers"
 AUTO_OPTION_LABEL = "Automático"
 ADVANCED_CATEGORY = "Avançado"
 SAMPLE_RATE_22050_LABEL = "22.05 kHz"
@@ -58,6 +60,8 @@ class SettingSpec:
     minimum: int = 0
     maximum: int = 100
     description: str = ""
+    value_scale: float = 1.0
+    value_offset: float = 0.0
 
 
 class SliderControl(QWidget):
@@ -77,6 +81,8 @@ class EmulatorSettingsPage(QWidget):
         "flycast": "flycast_config",
         "supermodel": "supermodel_config",
         "retroarch": "retroarch_cfg",
+        "azahar": "azahar_config",
+        "ares": "ares_config",
     }
 
     SPECS: dict[str, tuple[SettingSpec, ...]] = {
@@ -85,7 +91,7 @@ class EmulatorSettingsPage(QWidget):
                 "video",
                 "Driver de vídeo",
                 "combo",
-                VIDEO_CATEGORY,
+                DRIVER_CATEGORY,
                 (
                     ("bgfx", "BGFX"),
                     ("d3d", "Direct3D 9"),
@@ -100,7 +106,7 @@ class EmulatorSettingsPage(QWidget):
                 "bgfx_backend",
                 "Backend BGFX",
                 "combo",
-                VIDEO_CATEGORY,
+                DRIVER_CATEGORY,
                 (
                     ("auto", AUTO_OPTION_LABEL),
                     ("d3d9", "Direct3D 9"),
@@ -130,7 +136,7 @@ class EmulatorSettingsPage(QWidget):
             SettingSpec(
                 "volume", "Volume inicial (dB)", "slider", AUDIO_CATEGORY, minimum=-32, maximum=0
             ),
-            SettingSpec("sound", "Backend de som", "text", AUDIO_CATEGORY),
+            SettingSpec("sound", "Backend de som", "text", DRIVER_CATEGORY),
             SettingSpec("joystick", "Joystick", "bool", "Controles"),
             SettingSpec("mouse", "Mouse", "bool", "Controles"),
             SettingSpec("lightgun", "Lightgun", "bool", "Controles"),
@@ -140,30 +146,30 @@ class EmulatorSettingsPage(QWidget):
                 "joystickprovider",
                 "Driver de joystick",
                 "combo",
-                "Controles",
+                DRIVER_CATEGORY,
                 (("auto", AUTO_OPTION_LABEL), ("dinput", "DirectInput"), ("sdl", "SDL")),
             ),
             SettingSpec("language", "Diretório de idiomas", "text", "Sistema"),
             SettingSpec(
                 "priority", "Prioridade do processo", "slider", "Desempenho", minimum=0, maximum=7
             ),
-            SettingSpec("triplebuffer", "Triple buffering", "bool", "Desempenho"),
-            SettingSpec("syncrefresh", "Sincronizar refresh", "bool", "Desempenho"),
+            SettingSpec("triplebuffer", "Triple buffering", "bool", VIDEO_CATEGORY),
+            SettingSpec("syncrefresh", "Sincronizar refresh", "bool", VIDEO_CATEGORY),
             SettingSpec("unevenstretch", "Escala não inteira", "bool", VIDEO_CATEGORY),
             SettingSpec("switchres", "Trocar resolução em fullscreen", "bool", VIDEO_CATEGORY),
             SettingSpec("artwork_crop", "Cortar artwork", "bool", VIDEO_CATEGORY),
-            SettingSpec("gl_glsl", "GLSL", "bool", ADVANCED_CATEGORY),
+            SettingSpec("gl_glsl", "GLSL", "bool", VIDEO_CATEGORY),
             SettingSpec(
                 "gl_glsl_filter",
                 "Filtro GLSL",
                 "combo",
-                ADVANCED_CATEGORY,
+                VIDEO_CATEGORY,
                 (("0", "Plain"), ("1", "Bilinear"), ("2", "Bicubic")),
             ),
         ),
         "fbneo": (
             SettingSpec(
-                "nVidSelect", "Blitter de vídeo", "slider", VIDEO_CATEGORY, minimum=0, maximum=6
+                "nVidSelect", "Blitter de vídeo", "slider", DRIVER_CATEGORY, minimum=0, maximum=6
             ),
             SettingSpec("bVidBilinear", "Filtragem bilinear", "bool", VIDEO_CATEGORY),
             SettingSpec("bVidScanlines", "Scanlines", "bool", VIDEO_CATEGORY),
@@ -175,7 +181,7 @@ class EmulatorSettingsPage(QWidget):
             SettingSpec("bAlwaysDrawFrames", "Sempre desenhar frames", "bool", "Desempenho"),
             SettingSpec("bRunAhead", "Run-ahead", "bool", "Desempenho"),
             SettingSpec(
-                "nAudSelect", "Plugin de áudio", "slider", AUDIO_CATEGORY, minimum=0, maximum=8
+                "nAudSelect", "Plugin de áudio", "slider", DRIVER_CATEGORY, minimum=0, maximum=8
             ),
             SettingSpec("nAudVolume", "Volume", "slider", AUDIO_CATEGORY, minimum=0, maximum=10000),
             SettingSpec(
@@ -289,7 +295,7 @@ class EmulatorSettingsPage(QWidget):
                 "backend",
                 "Backend de áudio",
                 "combo",
-                AUDIO_CATEGORY,
+                DRIVER_CATEGORY,
                 (
                     ("auto", AUTO_OPTION_LABEL),
                     ("wasapi", "WASAPI"),
@@ -335,10 +341,10 @@ class EmulatorSettingsPage(QWidget):
             SettingSpec("rend.Fog", "Fog", "bool", VIDEO_CATEGORY),
             SettingSpec("rend.Rotate90", "Rotacionar 90°", "bool", VIDEO_CATEGORY),
             SettingSpec(
-                "rend.WidescreenGameHacks", "Widescreen game hacks", "bool", ADVANCED_CATEGORY
+                "rend.WidescreenGameHacks", "Widescreen game hacks", "bool", VIDEO_CATEGORY
             ),
             SettingSpec(
-                "pvr.rend", "Renderer PVR", "slider", ADVANCED_CATEGORY, minimum=0, maximum=8
+                "pvr.rend", "Renderer PVR", "slider", DRIVER_CATEGORY, minimum=0, maximum=8
             ),
             SettingSpec(
                 "pvr.MaxThreads", "Threads do PVR", "slider", "Desempenho", minimum=1, maximum=16
@@ -377,7 +383,7 @@ class EmulatorSettingsPage(QWidget):
                 "InputSystem",
                 "Sistema de input",
                 "combo",
-                "Controles",
+                DRIVER_CATEGORY,
                 (
                     ("dinput", "DirectInput"),
                     ("xinput", "XInput"),
@@ -399,7 +405,7 @@ class EmulatorSettingsPage(QWidget):
                 "video_driver",
                 "Driver de vídeo",
                 "combo",
-                VIDEO_CATEGORY,
+                DRIVER_CATEGORY,
                 (
                     ("gl", "OpenGL"),
                     ("d3d11", "Direct3D 11"),
@@ -440,7 +446,7 @@ class EmulatorSettingsPage(QWidget):
                 "audio_driver",
                 "Driver de áudio",
                 "combo",
-                AUDIO_CATEGORY,
+                DRIVER_CATEGORY,
                 (("wasapi", "WASAPI"), ("xaudio", "XAudio"), ("sdl", "SDL"), ("null", "Nulo")),
             ),
             SettingSpec(
@@ -467,14 +473,14 @@ class EmulatorSettingsPage(QWidget):
                 "input_driver",
                 "Driver de input",
                 "combo",
-                "Controles",
+                DRIVER_CATEGORY,
                 (("dinput", "DirectInput"), ("sdl", "SDL"), ("raw", "Raw"), ("xinput", "XInput")),
             ),
             SettingSpec(
                 "input_joypad_driver",
                 "Driver de gamepad",
                 "combo",
-                "Controles",
+                DRIVER_CATEGORY,
                 (("dinput", "DirectInput"), ("sdl", "SDL"), ("xinput", "XInput")),
             ),
             SettingSpec("input_autodetect_enable", "Autodetectar controles", "bool", "Controles"),
@@ -498,10 +504,249 @@ class EmulatorSettingsPage(QWidget):
             SettingSpec("fps_show", "Mostrar FPS", "bool", "Interface"),
             SettingSpec("threaded_video", "Vídeo em thread", "bool", "Desempenho"),
         ),
+        "azahar": (
+            SettingSpec("fullscreen", "Tela cheia", "bool", VIDEO_CATEGORY),
+            SettingSpec(
+                "muteWhenInBackground", "Silenciar em segundo plano", "bool", AUDIO_CATEGORY
+            ),
+            SettingSpec("use_cpu_jit", "Usar JIT da CPU", "bool", "Desempenho"),
+            SettingSpec(
+                "graphics_api",
+                "API gráfica",
+                "combo",
+                DRIVER_CATEGORY,
+                (("0", "Software"), ("1", "OpenGL"), ("2", "Vulkan")),
+            ),
+            SettingSpec("use_hw_shader", "Usar shaders de hardware", "bool", VIDEO_CATEGORY),
+            SettingSpec("use_vsync_new", "VSync", "bool", VIDEO_CATEGORY),
+            SettingSpec(
+                "resolution_factor",
+                "Escala da resolução",
+                "combo",
+                VIDEO_CATEGORY,
+                (
+                    ("0", "Automática"),
+                    ("1", "Nativa (1×)"),
+                    *((str(scale), f"{scale}×") for scale in range(2, 19)),
+                ),
+            ),
+            SettingSpec(
+                "texture_filter",
+                "Filtro de textura",
+                "combo",
+                VIDEO_CATEGORY,
+                (
+                    ("0", "Sem filtro"),
+                    ("1", "Anime4K"),
+                    ("2", "Bicúbico"),
+                    ("3", "ScaleForce"),
+                    ("4", "xBRZ"),
+                    ("5", "MMPX"),
+                ),
+            ),
+            SettingSpec(
+                "texture_sampling",
+                "Amostragem de textura",
+                "combo",
+                VIDEO_CATEGORY,
+                (("0", "Controlada pelo jogo"), ("1", "Vizinho mais próximo"), ("2", "Linear")),
+            ),
+            SettingSpec("use_integer_scaling", "Escala inteira", "bool", VIDEO_CATEGORY),
+            SettingSpec("volume", "Volume", "text", AUDIO_CATEGORY),
+            SettingSpec(
+                "region_value",
+                "Região",
+                "combo",
+                "Sistema",
+                (
+                    ("-1", "Automática"),
+                    ("0", "Japão"),
+                    ("1", "EUA"),
+                    ("2", "Europa"),
+                    ("3", "Austrália"),
+                    ("4", "China"),
+                    ("5", "Coreia"),
+                    ("6", "Taiwan"),
+                ),
+            ),
+            SettingSpec(
+                "layout_option",
+                "Layout das telas",
+                "combo",
+                VIDEO_CATEGORY,
+                (
+                    ("0", "Original"),
+                    ("1", "Tela única"),
+                    ("2", "Tela ampliada"),
+                    ("3", "Lado a lado"),
+                    ("4", "Janelas separadas"),
+                    ("5", "Híbrido"),
+                    ("6", "Personalizado"),
+                ),
+            ),
+            SettingSpec(
+                "aspect_ratio",
+                "Proporção da imagem",
+                "combo",
+                VIDEO_CATEGORY,
+                (
+                    ("0", "Padrão"),
+                    ("1", "16:9"),
+                    ("2", "4:3"),
+                    ("3", "21:9"),
+                    ("4", "16:10"),
+                    ("5", "Esticar"),
+                ),
+            ),
+            SettingSpec(
+                "audio_emulation",
+                "Emulação de áudio",
+                "combo",
+                AUDIO_CATEGORY,
+                (("0", "HLE"), ("1", "LLE"), ("2", "LLE multithread")),
+            ),
+            SettingSpec("use_virtual_sd", "Usar cartão SD virtual", "bool", "Sistema"),
+        ),
+        "ares": (
+            SettingSpec("Boot.Fast", "Inicialização rápida", "bool", "Sistema"),
+            SettingSpec("Boot.Prefer", "Região preferencial", "text", "Sistema"),
+            SettingSpec("General.Rewind", "Rewind", "bool", "Desempenho"),
+            SettingSpec("General.RunAhead", "Run-ahead", "bool", "Desempenho"),
+            SettingSpec(
+                "General.AutoSaveMemory", "Salvar memória automaticamente", "bool", "Sistema"
+            ),
+            SettingSpec("General.NoFilePrompt", "Não solicitar mídia adicional", "bool", "Sistema"),
+            SettingSpec(
+                "Developer.HomebrewMode", "Modo de desenvolvimento homebrew", "bool", "Avançado"
+            ),
+            SettingSpec("Developer.ForceInterpreter", "Forçar interpretador", "bool", "Avançado"),
+            SettingSpec(
+                "Nintendo64.ExpansionPak", "Expansion Pak do Nintendo 64", "bool", "Nintendo 64"
+            ),
+            SettingSpec(
+                "Nintendo64.ControllerPakBankString",
+                "Tamanho do Controller Pak",
+                "combo",
+                "Nintendo 64",
+                (
+                    ("32KiB (Default)", "32 KiB (padrão)"),
+                    ("128KiB (Datel 1Meg)", "128 KiB (Datel 1Meg)"),
+                    ("512KiB (Datel 4Meg)", "512 KiB (Datel 4Meg)"),
+                    ("1984KiB (Maximum)", "1984 KiB (máximo)"),
+                ),
+            ),
+            SettingSpec("GameBoyAdvance.Player", "Game Boy Player", "bool", "Game Boy Advance"),
+            SettingSpec("MegaDrive.TMSS", "TMSS Boot ROM", "bool", "Mega Drive"),
+            SettingSpec(
+                "Rewind.Length",
+                "Duração do rewind",
+                "combo",
+                "Desempenho",
+                tuple((str(value), f"{value} estados") for value in (10, 20, 40, 80, 160, 320)),
+            ),
+            SettingSpec(
+                "Rewind.Frequency",
+                "Frequência do rewind",
+                "combo",
+                "Desempenho",
+                tuple(
+                    (str(value), f"A cada {value} quadros") for value in (20, 40, 60, 80, 100, 120)
+                ),
+            ),
+            SettingSpec("Audio.Frequency", "Frequência de saída", "readonly", AUDIO_CATEGORY),
+            SettingSpec("Audio.Latency", "Latência", "readonly", AUDIO_CATEGORY),
+            SettingSpec("Audio.Mute", "Silenciar áudio", "bool", AUDIO_CATEGORY),
+            SettingSpec(
+                "Audio.Volume",
+                "Volume",
+                "slider",
+                AUDIO_CATEGORY,
+                minimum=0,
+                maximum=200,
+                value_scale=100.0,
+            ),
+            SettingSpec(
+                "Audio.Balance",
+                "Balance",
+                "slider",
+                AUDIO_CATEGORY,
+                minimum=0,
+                maximum=100,
+                value_scale=50.0,
+                value_offset=50.0,
+            ),
+            SettingSpec(
+                "Video.Driver",
+                "Driver de vídeo (reinicie o ares para aplicar)",
+                "combo",
+                DRIVER_CATEGORY,
+                (
+                    ("OpenGL 3.2", "OpenGL 3.2"),
+                    ("OpenGL 4.6", "OpenGL 4.6"),
+                    ("Direct3D 9.0", "Direct3D 9.0"),
+                    ("None", "Nenhum"),
+                ),
+            ),
+            SettingSpec(
+                "Audio.Driver",
+                "Driver de áudio",
+                "combo",
+                DRIVER_CATEGORY,
+                (
+                    ("WASAPI", "WASAPI"),
+                    ("XAudio 2.9", "XAudio 2.9"),
+                    ("SDL", "SDL"),
+                    ("DirectSound 7.0", "DirectSound 7.0"),
+                    ("waveOut", "waveOut"),
+                    ("None", "Nenhum"),
+                ),
+            ),
+            SettingSpec(
+                "Input.Driver",
+                "Driver de controles",
+                "combo",
+                DRIVER_CATEGORY,
+                (("Windows", "Windows"), ("SDL", "SDL"), ("None", "Nenhum")),
+            ),
+            SettingSpec(
+                "Input.Defocus",
+                "Comportamento ao perder foco",
+                "combo",
+                "Controles",
+                (("Pause", "Pausar"), ("Block", "Bloquear entrada"), ("Allow", "Continuar")),
+            ),
+            SettingSpec(
+                "Input.DigitalToAnalog",
+                "Digital para analógico",
+                "combo",
+                "Controles",
+                (
+                    ("Immediate", "Imediato"),
+                    ("GradualReturn", "Gradual, retorna ao centro"),
+                    ("GradualHold", "Gradual, mantém posição"),
+                ),
+            ),
+            SettingSpec(
+                "Input.DigitalToAnalogTime",
+                "Tempo de deslocamento (ms)",
+                "slider",
+                "Controles",
+                minimum=100,
+                maximum=1000,
+            ),
+        ),
     }
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        *,
+        section: str = "emulators",
+        only_emulator: str | None = None,
+    ) -> None:
         super().__init__(parent)
+        self.section = section
+        self.only_emulator = only_emulator
         self.controls: dict[tuple[str, str], QWidget] = {}
         self._build_ui()
         self.refresh()
@@ -509,7 +754,17 @@ class EmulatorSettingsPage(QWidget):
     def _build_ui(self) -> None:
         """Cria nível 2 por emulador e nível 3 por categoria."""
         root = QVBoxLayout(self)
-        title = QLabel("Configurações dos Emuladores")
+        titles = {
+            "emulators": "Configurações gerais dos Emuladores",
+            "video": "Configurações de vídeo dos Emuladores",
+            "drivers": "Drivers de vídeo, áudio e controles dos Emuladores",
+            "audio": "Configurações de som dos Emuladores",
+            "controls": "Configurações de controles dos Emuladores",
+        }
+        title_text = titles.get(self.section, "Configurações dos Emuladores")
+        if self.only_emulator:
+            title_text = f"{title_text} · {self.only_emulator.upper()}"
+        title = QLabel(title_text)
         title.setProperty("role", "title")
         root.addWidget(title)
         info = QLabel(
@@ -523,6 +778,12 @@ class EmulatorSettingsPage(QWidget):
         self.altirra_page: AltirraSettingsPage | None = None
         self.amiberry_page: AmiberrySettingsPage | None = None
         self.winuae_page: WinUAESettingsPage | None = None
+        self.ares_controls_page: AresControlsPage | None = None
+        if self.only_emulator:
+            self._build_emulator(self.only_emulator, self.category_tabs)
+            self.category_tabs.tabBar().hide()
+            root.addWidget(self.category_tabs, 1)
+            return
         labels = {key: label for key, label, _config in DirectoryGuidePage.EMULATORS}
         config_keys = {
             key: config_key or f"{key}_config"
@@ -538,18 +799,23 @@ class EmulatorSettingsPage(QWidget):
                 if emulator in self.SPECS:
                     self._build_emulator(emulator, tabs)
                 elif emulator == "altirra":
-                    self.altirra_page = AltirraSettingsPage(self)
-                    tabs.addTab(self.altirra_page, labels[emulator].split(" · ", 1)[0])
+                    if AltirraSettingsPage.supports_section(self.section):
+                        self.altirra_page = AltirraSettingsPage(self, section=self.section)
+                        tabs.addTab(self.altirra_page, labels[emulator].split(" · ", 1)[0])
                 elif emulator == "amiberry":
-                    self.amiberry_page = AmiberrySettingsPage(self)
-                    tabs.addTab(self.amiberry_page, "Amiberry")
+                    if AmiberrySettingsPage.supports_section(self.section):
+                        self.amiberry_page = AmiberrySettingsPage(self, section=self.section)
+                        tabs.addTab(self.amiberry_page, "Amiberry")
                 elif emulator == "winuae":
-                    self.winuae_page = WinUAESettingsPage(self)
-                    tabs.addTab(self.winuae_page, "WinUAE")
-                else:
+                    if WinUAESettingsPage.supports_section(self.section):
+                        self.winuae_page = WinUAESettingsPage(self, section=self.section)
+                        tabs.addTab(self.winuae_page, "WinUAE")
+                elif self.section == "emulators":
                     self._build_pending_emulator(
                         emulator, labels[emulator], config_keys[emulator], tabs
                     )
+            if tabs.count() == 0:
+                continue
             category_layout.addWidget(tabs)
             self.category_tabs.addTab(category_page, category)
         root.addWidget(self.category_tabs, 1)
@@ -580,12 +846,13 @@ class EmulatorSettingsPage(QWidget):
 
     def _build_emulator(self, emulator: str, tabs_container: QTabWidget) -> None:
         """Cria a guia de segundo nível e suas categorias de terceiro nível."""
+        specs = self._specs_for(emulator)
+        if not specs:
+            return
         page = QWidget()
         outer = QVBoxLayout(page)
         tabs = QTabWidget()
-        categories = sorted(
-            {s.category for s in self.SPECS[emulator]}, key=lambda x: (x == ADVANCED_CATEGORY, x)
-        )
+        categories = sorted({s.category for s in specs}, key=lambda x: (x == ADVANCED_CATEGORY, x))
         for category in categories:
             cat_page = QWidget()
             scroll = QScrollArea()
@@ -594,11 +861,14 @@ class EmulatorSettingsPage(QWidget):
             form = QFormLayout(cat_page)
             form.setContentsMargins(14, 14, 14, 14)
             form.setHorizontalSpacing(18)
-            for spec in (s for s in self.SPECS[emulator] if s.category == category):
+            for spec in (s for s in specs if s.category == category):
                 control = self._make_control(spec)
                 self.controls[(emulator, spec.key)] = control
                 form.addRow(self._label(spec), control)
             tabs.addTab(scroll, category)
+        if emulator == "ares" and self.section == "controls":
+            self.ares_controls_page = AresControlsPage(tabs)
+            tabs.addTab(self.ares_controls_page, "Gamepads virtuais")
         outer.addWidget(tabs, 1)
         buttons = QHBoxLayout()
         status = QLabel("Arquivo: não carregado")
@@ -613,6 +883,29 @@ class EmulatorSettingsPage(QWidget):
         buttons.addWidget(save)
         outer.addLayout(buttons)
         tabs_container.addTab(page, emulator.upper() if emulator != "retroarch" else "RetroArch")
+
+    @staticmethod
+    def _category_section(category: str) -> str | None:
+        normalized = category.casefold().replace("í", "i").replace("á", "a")
+        if normalized == "drivers":
+            return "drivers"
+        if "video" in normalized:
+            return "video"
+        if "audio" in normalized:
+            return "audio"
+        if "controle" in normalized or "input" in normalized or "hotkey" in normalized:
+            return "controls"
+        return None
+
+    def _specs_for(self, emulator: str) -> tuple[SettingSpec, ...]:
+        if self.only_emulator and emulator != self.only_emulator:
+            return ()
+        specs = self.SPECS.get(emulator, ())
+        if self.section == "emulators":
+            return tuple(spec for spec in specs if self._category_section(spec.category) is None)
+        return tuple(
+            spec for spec in specs if self._category_section(spec.category) == self.section
+        )
 
     def _label(self, spec: SettingSpec) -> QLabel:
         """Cria rótulo com tooltip documental."""
@@ -643,7 +936,13 @@ class EmulatorSettingsPage(QWidget):
             widget.slider = slider
             widget.spin = spin
             return widget
-        return QLineEdit()
+        edit = QLineEdit()
+        if spec.kind == "readonly":
+            edit.setReadOnly(True)
+            edit.setToolTip(
+                "Opção dinâmica do backend; os valores possíveis dependem deste computador."
+            )
+        return edit
 
     @staticmethod
     def _load_paths() -> dict[str, Any]:
@@ -688,12 +987,16 @@ class EmulatorSettingsPage(QWidget):
             control.setChecked(self._parse_bool(raw))  # type: ignore[attr-defined]
         elif spec.kind == "combo":
             index = control.findData(raw)  # type: ignore[attr-defined]
-            control.setCurrentIndex(index if index >= 0 else -1)  # type: ignore[attr-defined]
+            if index < 0:
+                control.addItem(f"Current value (preserved): {raw}", raw)  # type: ignore[attr-defined]
+                index = control.count() - 1  # type: ignore[attr-defined]
+            control.setCurrentIndex(index)  # type: ignore[attr-defined]
             if index < 0:
                 control.setToolTip(f"Valor atual não documentado nesta lista: {raw}")
         elif spec.kind == "slider":
             try:
-                number = int(float(raw.replace(",", ".")))
+                raw_number = float(raw.replace(",", "."))
+                number = round(raw_number * spec.value_scale + spec.value_offset)
             except ValueError:
                 number = spec.minimum
             number = max(spec.minimum, min(spec.maximum, number))
@@ -710,18 +1013,21 @@ class EmulatorSettingsPage(QWidget):
         if spec.kind == "combo":
             return str(control.currentData())  # type: ignore[attr-defined]
         if spec.kind == "slider":
-            return str(control.spin.value()) if isinstance(control, SliderControl) else "0"
+            if not isinstance(control, SliderControl):
+                return "0"
+            value = (control.spin.value() - spec.value_offset) / spec.value_scale
+            return f"{value:.4f}".rstrip("0").rstrip(".")
         return control.text().strip()  # type: ignore[attr-defined]
 
     def _disable_emulator_controls(self, emulator: str) -> None:
-        for spec in self.SPECS[emulator]:
+        for spec in self._specs_for(emulator):
             self.controls[(emulator, spec.key)].setEnabled(False)
 
     def _refresh_emulator(self, emulator: str, editor) -> None:
         status = self.findChild(QLabel, f"settings_status_{emulator}")
         if status:
             status.setText(f"Arquivo: {editor.path}")
-        for spec in self.SPECS[emulator]:
+        for spec in self._specs_for(emulator):
             control = self.controls[(emulator, spec.key)]
             values = editor.values(spec.key)
             control.setEnabled(bool(values))
@@ -730,7 +1036,11 @@ class EmulatorSettingsPage(QWidget):
 
     def refresh(self) -> None:
         """Lê os arquivos e atualiza todos os controles sem gravar nada."""
+        if self.ares_controls_page is not None:
+            self.ares_controls_page.refresh()
         for emulator in self.SPECS:
+            if not self._specs_for(emulator):
+                continue
             editor = self._editor(emulator)
             if editor is None:
                 status = self.findChild(QLabel, f"settings_status_{emulator}")
@@ -764,7 +1074,7 @@ class EmulatorSettingsPage(QWidget):
             return
         changed = 0
         try:
-            for spec in self.SPECS[emulator]:
+            for spec in self._specs_for(emulator):
                 values = editor.values(spec.key)
                 if not values:
                     continue

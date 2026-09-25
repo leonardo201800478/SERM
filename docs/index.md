@@ -23,6 +23,8 @@ A V1 é referência histórica e comportamental. A árvore ativa de `main` cont�
 | [`../README.md`](../README.md) | Visão geral, instalação, execução e estado |
 | [`architecture.md`](architecture.md) | Arquitetura e limites entre camadas |
 | [`project-tree.md`](project-tree.md) | Estrutura real do pacote V2 |
+| [`gui-architecture-v2.md`](gui-architecture-v2.md) | Navegação e configuração da GUI, incluindo os emuladores |
+| [`emulator-config-policy.md`](emulator-config-policy.md) | Política de configuração de emuladores |
 | [`development-environment.md`](development-environment.md) | Ambiente, testes e qualidade |
 | [`database.md`](database.md) | SQLite, SQLAlchemy e migrations |
 | [`data-foundation.md`](data-foundation.md) | Modelo de dados, identidade e proveniência |

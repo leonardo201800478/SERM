@@ -11,15 +11,29 @@ from collections.abc import Iterable
 
 EMULATOR_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Arcade", ("mame", "fbneo", "supermodel")),
-    ("Nintendo", ("super_zsnes", "rmg", "dolphin", "cemu", "azaharplus", "ryujinx_nextendo")),
+    (
+        "Nintendo",
+        ("super_zsnes", "rmg", "dolphin", "cemu", "azaharplus", "azahar", "ryujinx_nextendo"),
+    ),
     ("Sony", ("duckstation", "pcsx2", "rpcs3", "shadps4")),
     ("Sega", ("blastem", "ymir", "yabasanshiro", "flycast")),
     ("Microsoft", ("xemu", "xenia_canary")),
     ("Portáteis", ("sameboy", "mgba", "melonds", "ppsspp")),
     (
         "Computadores",
-        ("vice", "altirra", "dosbox_staging", "dosbox_pure", "dosbox_x", "winuae",
-         "xm6pro68k", "scummvm", "amiberry", "stella", "bigpemu"),
+        (
+            "vice",
+            "altirra",
+            "dosbox_staging",
+            "dosbox_pure",
+            "dosbox_x",
+            "winuae",
+            "xm6pro68k",
+            "scummvm",
+            "amiberry",
+            "stella",
+            "bigpemu",
+        ),
     ),
     ("Multi-sistema", ("mesence", "ares", "bizhawk")),
 )

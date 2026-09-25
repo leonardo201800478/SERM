@@ -39,6 +39,25 @@ class ConfigFileEditor:
     def values(self, key: str) -> list[str]:
         """Return all values for an uncommented key."""
         values: list[str] = []
+        if self.path.suffix.casefold() == ".bml":
+            parents: list[tuple[int, str]] = []
+            for line in self._lines:
+                stripped = line.strip()
+                if not stripped or stripped.startswith(("#", ";")):
+                    continue
+                indent = len(line) - len(line.lstrip())
+                while parents and parents[-1][0] >= indent:
+                    parents.pop()
+                if ":" not in stripped:
+                    parents.append((indent, stripped))
+                    continue
+                name, value = stripped.split(":", 1)
+                full_key = ".".join([part for _, part in parents] + [name.strip()])
+                if full_key == key:
+                    values.append(value.strip())
+                if not value.strip():
+                    parents.append((indent, name.strip()))
+            return values
         for line in self._lines:
             stripped = line.strip()
             if stripped.startswith(("#", ";")):
@@ -50,6 +69,27 @@ class ConfigFileEditor:
 
     def set_value(self, key: str, value: str) -> None:
         """Replace the first occurrence of an existing key."""
+        if self.path.suffix.casefold() == ".bml":
+            parents: list[tuple[int, str]] = []
+            for index, line in enumerate(self._lines):
+                stripped = line.strip()
+                if not stripped or stripped.startswith(("#", ";")):
+                    continue
+                indent = len(line) - len(line.lstrip())
+                while parents and parents[-1][0] >= indent:
+                    parents.pop()
+                if ":" not in stripped:
+                    parents.append((indent, stripped))
+                    continue
+                name, current = stripped.split(":", 1)
+                full_key = ".".join([part for _, part in parents] + [name.strip()])
+                if full_key == key:
+                    newline = "\n" if line.endswith("\n") else ""
+                    self._lines[index] = f"{line[:indent]}{name.strip()}: {value}{newline}"
+                    return
+                if not current.strip():
+                    parents.append((indent, name.strip()))
+            raise KeyError(key)
         for index, line in enumerate(self._lines):
             stripped = line.lstrip()
             if stripped.startswith(("#", ";")):
@@ -111,13 +151,14 @@ class DirectoryGuidePage(QWidget):
         ("dolphin", "Dolphin · GameCube / Wii", None),
         ("xemu", "Xemu · Xbox", None),
         ("azaharplus", "AzaharPlus · Nintendo 3DS", None),
+        ("azahar", "Azahar · Nintendo 3DS", "azahar_config"),
         ("rpcs3", "RPCS3 · PlayStation 3", None),
         ("xenia_canary", "Xenia Canary · Xbox 360", None),
         ("cemu", "Cemu · Wii U", None),
         ("melonds", "melonDS · Nintendo DS", None),
         ("mgba", "mGBA · Game Boy Advance", None),
         ("shadps4", "shadPS4 · PlayStation 4", None),
-        ("ares", "ares · Multi-sistema", None),
+        ("ares", "ares · Multi-sistema", "ares_config"),
         ("dosbox_staging", "DOSBox Staging · DOS", None),
         ("scummvm", "ScummVM · Aventuras gráficas", None),
         ("mesence", "MesenCE · Multi-sistema 8/16-bit", None),
@@ -141,7 +182,6 @@ class DirectoryGuidePage(QWidget):
     )
 
     CATEGORIES = grouped_emulators((key for key, _label, _config in EMULATORS))
-
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -236,7 +276,7 @@ class DirectoryGuidePage(QWidget):
             self,
             "Selecionar arquivo de configuração",
             str(Path(current).parent) if current else str(Path.home()),
-            "Arquivos de configuração (*.ini *.cfg *.conf);;Todos os arquivos (*)",
+            "Arquivos de configuração (*.ini *.cfg *.conf *.bml);;Todos os arquivos (*)",
         )
         if not path:
             return
@@ -288,6 +328,7 @@ class DirectoryGuidePage(QWidget):
                 data["altirra_config"] = str(config_file.resolve())
         elif emulator == "amiberry":
             for key, candidate in (
+                ("amiberry_exe", Path(selected) / "Amiberry.exe"),
                 ("amiberry_ini", Path(selected) / "Settings" / "amiberry.ini"),
                 ("amiberry_conf", Path(selected) / "Settings" / "amiberry.conf"),
             ):
@@ -304,6 +345,18 @@ class DirectoryGuidePage(QWidget):
             ):
                 if candidate.is_file():
                     data[key] = str(candidate.resolve())
+        elif emulator == "ares":
+            candidate = Path(selected) / "settings.bml"
+            if candidate.is_file():
+                data["ares_config"] = str(candidate.resolve())
+            for name in ("Database", "hiro", "Nintendo 64", "Shaders", "Systems"):
+                candidate_dir = Path(selected) / name
+                if candidate_dir.is_dir():
+                    data[f"ares_{name.casefold().replace(' ', '_')}"] = str(candidate_dir.resolve())
+        elif emulator == "azahar":
+            candidate = Path(selected) / "user" / "config" / "qt-config.ini"
+            if candidate.is_file():
+                data["azahar_config"] = str(candidate.resolve())
         self._save_json(self.PATHS_FILE, data)
         self.refresh()
 

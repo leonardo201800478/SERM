@@ -46,9 +46,6 @@ class WinUAESettingsPage(QWidget):
             WinUAEOption("QuickStartHostConfig", "Perfil do computador hospedeiro", "text"),
             WinUAEOption("QuickStartModel", "Modelo Quickstart", "integer"),
             WinUAEOption("SaveImageOriginalPath", "Manter caminho original da imagem"),
-            WinUAEOption(
-                "SoundDriverMask", "Máscara de drivers de áudio", "integer", 0, 2_147_483_647
-            ),
         ),
         "Interface": (
             WinUAEOption("GUIFullscreen", "Abrir interface em tela cheia"),
@@ -75,17 +72,43 @@ class WinUAESettingsPage(QWidget):
             WinUAEOption("ConfigFileHardwareSearch", "Filtro de busca de hardware", "text"),
             WinUAEOption("ConfigFileSearch", "Filtro de busca de configurações", "text"),
         ),
+        "Drivers": (
+            WinUAEOption(
+                "SoundDriverMask", "Máscara de drivers de áudio", "integer", 0, 2_147_483_647
+            ),
+        ),
     }
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    GROUP_SECTIONS = {
+        "Geral e compatibilidade": "emulators",
+        "Interface": "emulators",
+        "Artes e apresentação": "video",
+        "Busca de configurações": "emulators",
+        "Drivers": "drivers",
+    }
+
+    @classmethod
+    def supports_section(cls, section: str) -> bool:
+        return section in cls.GROUP_SECTIONS.values()
+
+    def __init__(self, parent: QWidget | None = None, *, section: str = "emulators") -> None:
         super().__init__(parent)
+        self.section = section
+        self.options = tuple(
+            option
+            for group_name, group_options in self.GROUPS.items()
+            if self.GROUP_SECTIONS.get(group_name) == section
+            for option in group_options
+        )
         self.controls: dict[str, QCheckBox | QSpinBox | QLineEdit] = {}
         root = QVBoxLayout(self)
-        title = QLabel("Configurações do WinUAE")
+        title = QLabel(f"Configurações do WinUAE · {section}")
         title.setProperty("role", "title")
         root.addWidget(title)
         self.group_tabs = QTabWidget()
         for group_name, options in self.GROUPS.items():
+            if self.GROUP_SECTIONS.get(group_name) != self.section:
+                continue
             page = QWidget()
             form = QFormLayout(page)
             form.setContentsMargins(14, 14, 14, 14)
@@ -150,23 +173,22 @@ class WinUAESettingsPage(QWidget):
         self.status.setText(
             f"Arquivo: {editor.path}" if editor else "Arquivo: não configurado / não encontrado"
         )
-        for group in self.GROUPS.values():
-            for option in group:
-                control = self.controls[option.key]
-                values = editor.values(option.key) if editor else []
-                control.setEnabled(bool(values))
-                if not values:
-                    continue
-                raw = values[0]
-                if option.kind == "bool" and isinstance(control, QCheckBox):
-                    control.setChecked(raw.strip().casefold() in {"1", "yes", "true", "on"})
-                elif option.kind == "integer" and isinstance(control, QSpinBox):
-                    try:
-                        control.setValue(int(raw))
-                    except ValueError:
-                        control.setValue(0)
-                elif isinstance(control, QLineEdit):
-                    control.setText(raw)
+        for option in self.options:
+            control = self.controls[option.key]
+            values = editor.values(option.key) if editor else []
+            control.setEnabled(bool(values))
+            if not values:
+                continue
+            raw = values[0]
+            if option.kind == "bool" and isinstance(control, QCheckBox):
+                control.setChecked(raw.strip().casefold() in {"1", "yes", "true", "on"})
+            elif option.kind == "integer" and isinstance(control, QSpinBox):
+                try:
+                    control.setValue(int(raw))
+                except ValueError:
+                    control.setValue(0)
+            elif isinstance(control, QLineEdit):
+                control.setText(raw)
 
     @staticmethod
     def _bool_text(value: bool, original: str) -> str:
@@ -184,24 +206,23 @@ class WinUAESettingsPage(QWidget):
             return
         changed = 0
         try:
-            for group in self.GROUPS.values():
-                for option in group:
-                    existing = editor.values(option.key)
-                    control = self.controls[option.key]
-                    if not existing or not control.isEnabled():
-                        continue
-                    old = existing[0]
-                    if option.kind == "bool" and isinstance(control, QCheckBox):
-                        value = self._bool_text(control.isChecked(), old)
-                    elif option.kind == "integer" and isinstance(control, QSpinBox):
-                        value = str(control.value())
-                    elif isinstance(control, QLineEdit):
-                        value = control.text().strip()
-                    else:
-                        continue
-                    if value != old:
-                        editor.set_value(option.key, value)
-                        changed += 1
+            for option in self.options:
+                existing = editor.values(option.key)
+                control = self.controls[option.key]
+                if not existing or not control.isEnabled():
+                    continue
+                old = existing[0]
+                if option.kind == "bool" and isinstance(control, QCheckBox):
+                    value = self._bool_text(control.isChecked(), old)
+                elif option.kind == "integer" and isinstance(control, QSpinBox):
+                    value = str(control.value())
+                elif isinstance(control, QLineEdit):
+                    value = control.text().strip()
+                else:
+                    continue
+                if value != old:
+                    editor.set_value(option.key, value)
+                    changed += 1
             if not changed:
                 QMessageBox.information(self, "WinUAE", "Nenhuma alteração pendente.")
                 return

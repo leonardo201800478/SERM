@@ -8,6 +8,7 @@ from pathlib import Path
 
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -32,6 +33,7 @@ class AmiberryOption:
     kind: str = "bool"
     minimum: int = -2_147_483_648
     maximum: int = 2_147_483_647
+    choices: tuple[tuple[str, str], ...] = ()
 
 
 class AmiberrySettingsPage(QWidget):
@@ -43,6 +45,49 @@ class AmiberrySettingsPage(QWidget):
                 "read_config_descriptions", "Ler descrições dos arquivos de configuração"
             ),
             AmiberryOption("write_logfile", "Gravar arquivo de log"),
+        ),
+        "Vídeo": (
+            AmiberryOption("default_horizontal_centering", "Centralização horizontal"),
+            AmiberryOption("default_vertical_centering", "Centralização vertical"),
+            AmiberryOption(
+                "default_scaling_method",
+                "Escala",
+                "choice",
+                choices=(("-1", "Auto"), ("0", "Nearest"), ("1", "Linear"), ("2", "Integer")),
+            ),
+            AmiberryOption("default_gfx_autoresolution", "Resolução automática"),
+            AmiberryOption("default_frameskip", "Pular quadros"),
+            AmiberryOption("default_correct_aspect_ratio", "Corrigir proporção"),
+            AmiberryOption("default_auto_crop", "Recorte automático"),
+            AmiberryOption("default_width", "Largura padrão", "integer", 1, 32768),
+            AmiberryOption("default_height", "Altura padrão", "integer", 1, 32768),
+            AmiberryOption(
+                "default_fullscreen_mode",
+                "Modo de tela",
+                "choice",
+                choices=(
+                    ("0", "Windowed"),
+                    ("1", "Fullscreen (exclusive)"),
+                    ("2", "Full-window (borderless)"),
+                ),
+            ),
+            AmiberryOption("shader", "Shader do modo Amiga", "choice"),
+            AmiberryOption("shader_rtg", "Shader do modo RTG", "choice"),
+            AmiberryOption("use_bezel", "Usar bezel"),
+            AmiberryOption("use_custom_bezel", "Usar bezel personalizado"),
+            AmiberryOption("custom_bezel", "Arquivo / identificador do bezel", "choice"),
+        ),
+        "Áudio": (
+            AmiberryOption(
+                "default_sound_frequency", "Frequência de áudio (Hz)", "integer", 1, 384000
+            ),
+            AmiberryOption("default_sound_buffer", "Buffer de áudio", "integer", 0, 1000000),
+            AmiberryOption("default_stereo_separation", "Separação estéreo", "integer", 0, 100),
+        ),
+        "Drivers": (
+            AmiberryOption("default_soundcard", "Dispositivo de áudio", "integer", 0, 1000),
+        ),
+        "Controles": (
             AmiberryOption("default_open_gui_key", "Tecla para abrir a interface", "text"),
             AmiberryOption("default_quit_key", "Tecla para sair", "text"),
             AmiberryOption("default_ar_key", "Tecla para alternar proporção", "text"),
@@ -50,35 +95,6 @@ class AmiberrySettingsPage(QWidget):
             AmiberryOption("default_retroarch_menu", "Permitir abrir o menu do RetroArch"),
             AmiberryOption("default_retroarch_reset", "Permitir reiniciar pelo RetroArch"),
             AmiberryOption("default_retroarch_vkbd", "Permitir teclado virtual do RetroArch"),
-            AmiberryOption("update_check", "Verificar atualizações", "integer", 0, 10),
-            AmiberryOption("update_channel", "Canal de atualização", "integer", 0, 100),
-        ),
-        "Vídeo": (
-            AmiberryOption("default_horizontal_centering", "Centralização horizontal"),
-            AmiberryOption("default_vertical_centering", "Centralização vertical"),
-            AmiberryOption("default_scaling_method", "Método de escala", "integer"),
-            AmiberryOption("default_gfx_autoresolution", "Resolução automática", "integer"),
-            AmiberryOption("default_frameskip", "Pular quadros"),
-            AmiberryOption("default_correct_aspect_ratio", "Corrigir proporção"),
-            AmiberryOption("default_auto_crop", "Recorte automático"),
-            AmiberryOption("default_width", "Largura padrão", "integer", 1, 32768),
-            AmiberryOption("default_height", "Altura padrão", "integer", 1, 32768),
-            AmiberryOption("default_fullscreen_mode", "Modo de tela cheia", "integer"),
-            AmiberryOption("shader", "Shader do modo Amiga", "text"),
-            AmiberryOption("shader_rtg", "Shader do modo RTG", "text"),
-            AmiberryOption("use_bezel", "Usar bezel"),
-            AmiberryOption("use_custom_bezel", "Usar bezel personalizado"),
-            AmiberryOption("custom_bezel", "Arquivo / identificador do bezel", "text"),
-        ),
-        "Áudio": (
-            AmiberryOption(
-                "default_sound_frequency", "Frequência de áudio (Hz)", "integer", 1, 384000
-            ),
-            AmiberryOption("default_sound_buffer", "Buffer de áudio", "integer", 0, 1000000),
-            AmiberryOption("default_soundcard", "Dispositivo de áudio", "integer", 0, 1000),
-            AmiberryOption("default_stereo_separation", "Separação estéreo", "integer", 0, 100),
-        ),
-        "Controles": (
             AmiberryOption("gui_joystick_control", "Controlar a interface com joystick"),
             AmiberryOption(
                 "input_default_mouse_speed", "Velocidade padrão do mouse", "integer", 0, 10000
@@ -97,7 +113,12 @@ class AmiberrySettingsPage(QWidget):
             AmiberryOption("default_mouse2", "Dispositivo do mouse 2", "text"),
             AmiberryOption("default_onscreen_joystick", "Joystick na tela"),
             AmiberryOption("default_vkbd_enabled", "Ativar teclado virtual"),
-            AmiberryOption("default_vkbd_language", "Idioma do teclado virtual", "text"),
+            AmiberryOption(
+                "default_vkbd_language",
+                "Idioma do teclado virtual",
+                "choice",
+                choices=(("US", "US"), ("UK", "UK"), ("DE", "DE"), ("FR", "FR")),
+            ),
             AmiberryOption(
                 "default_vkbd_transparency", "Transparência do teclado virtual", "integer", 0, 100
             ),
@@ -118,9 +139,11 @@ class AmiberrySettingsPage(QWidget):
             AmiberryOption("slow_host_warning", "Avisar sobre desempenho do computador"),
             AmiberryOption("use_adpf", "Ativar ajuste dinâmico de desempenho"),
             AmiberryOption("default_disable_cycle_exact", "Desativar ciclo exato por padrão"),
-            AmiberryOption("default_line_mode", "Modo de linhas", "integer"),
             AmiberryOption(
-                "default_quickstart_compatibility", "Compatibilidade do Quickstart", "integer"
+                "default_line_mode",
+                "Modo de linhas",
+                "choice",
+                choices=(("0", "Single"), ("1", "Double"), ("2", "Scanlines")),
             ),
             AmiberryOption("rctrl_as_ramiga", "Usar Ctrl direito como Amiga direito"),
             AmiberryOption("disable_shutdown_button", "Desativar botão de desligar"),
@@ -128,15 +151,38 @@ class AmiberrySettingsPage(QWidget):
         ),
     }
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    GROUP_SECTIONS = {
+        "Geral": "emulators",
+        "Vídeo": "video",
+        "Áudio": "audio",
+        "Drivers": "drivers",
+        "Controles": "controls",
+        "WHDLoad": "emulators",
+        "Desempenho e avançado": "emulators",
+    }
+
+    @classmethod
+    def supports_section(cls, section: str) -> bool:
+        return section in cls.GROUP_SECTIONS.values()
+
+    def __init__(self, parent: QWidget | None = None, *, section: str = "emulators") -> None:
         super().__init__(parent)
-        self.controls: dict[str, QCheckBox | QSpinBox | QLineEdit] = {}
+        self.section = section
+        self.options = tuple(
+            option
+            for group_name, group_options in self.GROUPS.items()
+            if self.GROUP_SECTIONS.get(group_name) == section
+            for option in group_options
+        )
+        self.controls: dict[str, QCheckBox | QSpinBox | QLineEdit | QComboBox] = {}
         root = QVBoxLayout(self)
-        title = QLabel("Configurações do Amiberry")
+        title = QLabel(f"Configurações do Amiberry · {section}")
         title.setProperty("role", "title")
         root.addWidget(title)
         self.group_tabs = QTabWidget()
         for group_name, options in self.GROUPS.items():
+            if self.GROUP_SECTIONS.get(group_name) != self.section:
+                continue
             page = QWidget()
             form = QFormLayout(page)
             form.setContentsMargins(14, 14, 14, 14)
@@ -169,12 +215,17 @@ class AmiberrySettingsPage(QWidget):
         self.refresh()
 
     @staticmethod
-    def _make_control(option: AmiberryOption) -> QCheckBox | QSpinBox | QLineEdit:
+    def _make_control(option: AmiberryOption) -> QCheckBox | QSpinBox | QLineEdit | QComboBox:
         if option.kind == "bool":
             control = QCheckBox("Ativado")
         elif option.kind == "integer":
             control = QSpinBox()
             control.setRange(option.minimum, option.maximum)
+        elif option.kind == "choice":
+            control = QComboBox()
+            control.setEditable(option.key in {"shader", "shader_rtg", "custom_bezel"})
+            for value, label in option.choices:
+                control.addItem(label, value)
         else:
             control = QLineEdit()
         control.setEnabled(False)
@@ -211,23 +262,58 @@ class AmiberrySettingsPage(QWidget):
         self.status.setText(
             f"Arquivo: {editor.path}" if editor else "Arquivo: não configurado / não encontrado"
         )
-        for group in self.GROUPS.values():
-            for option in group:
-                control = self.controls[option.key]
-                values = editor.values(option.key) if editor else []
-                control.setEnabled(bool(values))
-                if not values:
-                    continue
-                raw = values[0]
-                if option.kind == "bool" and isinstance(control, QCheckBox):
-                    control.setChecked(raw.strip().casefold() in {"1", "yes", "true", "on"})
-                elif option.kind == "integer" and isinstance(control, QSpinBox):
-                    try:
-                        control.setValue(int(raw))
-                    except ValueError:
-                        control.setValue(0)
-                elif isinstance(control, QLineEdit):
-                    control.setText(raw)
+        for option in self.options:
+            control = self.controls[option.key]
+            values = editor.values(option.key) if editor else []
+            control.setEnabled(bool(values))
+            if not values:
+                continue
+            raw = values[0]
+            if option.key in {"shader", "shader_rtg", "custom_bezel"} and isinstance(
+                control, QComboBox
+            ):
+                known = {control.itemData(i) for i in range(control.count())}
+                if option.key in {"shader", "shader_rtg"}:
+                    for builtin in ("none", "tv", "pc", "lite", "1084"):
+                        if builtin not in known:
+                            control.addItem(builtin, builtin)
+                            known.add(builtin)
+                    roots, extensions = (
+                        editor.values("shaders_path") if editor else [],
+                        {".glsl", ".glslp"},
+                    )
+                else:
+                    roots, extensions = (
+                        editor.values("bezels_path") if editor else [],
+                        {".png", ".jpg", ".jpeg", ".bmp", ".webp"},
+                    )
+                    if "none" not in known:
+                        control.addItem("none", "none")
+                        known.add("none")
+                if editor and roots:
+                    resource_root = Path(roots[0])
+                    if resource_root.is_dir():
+                        for resource in sorted(resource_root.rglob("*")):
+                            if resource.is_file() and resource.suffix.casefold() in extensions:
+                                value = resource.relative_to(resource_root).as_posix()
+                                if value not in known:
+                                    control.addItem(value, value)
+                                    known.add(value)
+            if option.kind == "bool" and isinstance(control, QCheckBox):
+                control.setChecked(raw.strip().casefold() in {"1", "yes", "true", "on"})
+            elif option.kind == "integer" and isinstance(control, QSpinBox):
+                try:
+                    control.setValue(int(raw))
+                except ValueError:
+                    control.setValue(0)
+            elif option.kind == "choice" and isinstance(control, QComboBox):
+                index = control.findData(raw)
+                if index < 0:
+                    control.addItem(raw, raw)
+                    index = control.count() - 1
+                control.setCurrentIndex(index)
+            elif isinstance(control, QLineEdit):
+                control.setText(raw)
 
     def save(self) -> None:
         editor = self._editor()
@@ -236,24 +322,35 @@ class AmiberrySettingsPage(QWidget):
             return
         changed = 0
         try:
-            for group in self.GROUPS.values():
-                for option in group:
-                    existing = editor.values(option.key)
-                    control = self.controls[option.key]
-                    if not existing or not control.isEnabled():
-                        continue
-                    old = existing[0]
-                    if option.kind == "bool" and isinstance(control, QCheckBox):
-                        value = self._bool_text(control.isChecked(), old)
-                    elif option.kind == "integer" and isinstance(control, QSpinBox):
-                        value = str(control.value())
-                    elif isinstance(control, QLineEdit):
-                        value = control.text().strip()
+            for option in self.options:
+                existing = editor.values(option.key)
+                control = self.controls[option.key]
+                if not existing or not control.isEnabled():
+                    continue
+                old = existing[0]
+                if option.kind == "bool" and isinstance(control, QCheckBox):
+                    value = self._bool_text(control.isChecked(), old)
+                elif option.kind == "integer" and isinstance(control, QSpinBox):
+                    value = str(control.value())
+                elif option.kind == "choice" and isinstance(control, QComboBox):
+                    if (
+                        option.key in {"shader", "shader_rtg", "custom_bezel"}
+                        and control.currentIndex() < 0
+                    ):
+                        value = control.currentText().strip()
                     else:
-                        continue
-                    if value != old:
-                        editor.set_value(option.key, value)
-                        changed += 1
+                        value = str(
+                            control.currentData()
+                            if control.currentData() is not None
+                            else control.currentText().strip()
+                        )
+                elif isinstance(control, QLineEdit):
+                    value = control.text().strip()
+                else:
+                    continue
+                if value != old:
+                    editor.set_value(option.key, value)
+                    changed += 1
             if not changed:
                 QMessageBox.information(self, "Amiberry", "Nenhuma alteração pendente.")
                 return

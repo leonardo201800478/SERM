@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
@@ -74,6 +75,55 @@ class AmiberryDirectoriesPage(QWidget):
         choose_conf.clicked.connect(self._select_config)
         form.addRow("Configuração nativa:", choose_conf)
         root.addWidget(group)
+        inventory = QGroupBox("Instalação Amiberry reconhecida")
+        inventory_layout = QFormLayout(inventory)
+        self.inventory_labels: dict[str, QLabel] = {}
+        for name in (
+            "Amiberry.exe",
+            "amiberry.portable",
+            "amiberry.conf",
+            "amiberry.ini",
+            "Settings",
+            "CDROMs",
+            "Configurations",
+            "Controllers",
+            "data",
+            "Floppies",
+            "HardDrives",
+            "InputRecordings",
+            "LHA",
+            "NVRAM",
+            "plugins",
+            "Ripper",
+            "ROMs",
+            "RP9",
+            "SaveStates",
+            "Screenshots",
+            "Videos",
+            "Visuals",
+            "WHDBoot",
+            "unins000.exe",
+            "unins000.dat",
+            "libc++.dll",
+            "libcurl.dll",
+            "libFLAC.dll",
+            "libmpg123.dll",
+            "libogg.dll",
+            "libpng16.dll",
+            "libunwind.dll",
+            "libwinpthread-1.dll",
+            "libz.dll",
+            "libzstd.dll",
+            "SDL3.dll",
+            "SDL3_image.dll",
+        ):
+            label = QLabel()
+            label.setTextInteractionFlags(
+                label.textInteractionFlags() | Qt.TextInteractionFlag.TextSelectableByMouse
+            )
+            self.inventory_labels[name] = label
+            inventory_layout.addRow(name, label)
+        root.addWidget(inventory)
         note = QLabel(
             "São exibidas apenas as chaves de caminho existentes no arquivo. Aplicar cria backup .bak; as entradas WHDLoad recentes e outras opções permanecem intactas."
         )
@@ -108,6 +158,14 @@ class AmiberryDirectoriesPage(QWidget):
 
     def refresh(self):
         editor = self._config()
+        paths = self._paths()
+        emulator_root = Path(str(paths.get("amiberry", ""))) if paths.get("amiberry") else None
+        for name, label in self.inventory_labels.items():
+            relative = (
+                Path("Settings") / name if name in {"amiberry.conf", "amiberry.ini"} else Path(name)
+            )
+            candidate = emulator_root / relative if emulator_root else None
+            label.setText(str(candidate) if candidate and candidate.exists() else "Não encontrado")
         self.status.setText(
             str(editor.path) if editor else "amiberry.conf não configurado / não encontrado"
         )

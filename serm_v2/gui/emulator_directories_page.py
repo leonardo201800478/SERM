@@ -15,10 +15,12 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QVBoxLayout,
 )
 
 from .altirra_directories_page import AltirraDirectoriesPage
 from .amiberry_directories_page import AmiberryDirectoriesPage
+from .ares_directories_page import AresDirectoriesPage
 from .directories_guide_page import DirectoryGuidePage
 from .winuae_directories_page import WinUAEDirectoriesPage
 
@@ -29,7 +31,35 @@ class DirectoriesPage(DirectoryGuidePage):
     """Expose emulator directories with compact controls and MAME executable selection."""
 
     def _build_emulator_directory_settings(self, emulator: str, page) -> None:
-        if emulator == "altirra":
+        if emulator == "ares":
+            self.ares_paths_page = AresDirectoriesPage(self)
+            paths_group = QGroupBox("Paths do ares")
+            paths_layout = QVBoxLayout(paths_group)
+            paths_layout.addWidget(self.ares_paths_page)
+            page.layout().addWidget(paths_group)
+            group = QGroupBox("Pastas de recursos do ares")
+            form = QFormLayout(group)
+            self.ares_resource_fields = {}
+            for name in ("Database", "hiro", "Nintendo 64", "Shaders", "Systems"):
+                key = f"ares_{name.casefold().replace(' ', '_')}"
+                field = QLineEdit()
+                field.setReadOnly(True)
+                button = QPushButton("Selecionar pasta")
+                button.clicked.connect(
+                    lambda _=False, k=key, n=name, f=field: self._browse_ares_resource(k, n, f)
+                )
+                row = QHBoxLayout()
+                row.addWidget(field, 1)
+                row.addWidget(button)
+                form.addRow(name, row)
+                self.ares_resource_fields[key] = field
+            form.addRow(
+                "Bibliotecas", QLabel("librashader.dll e SDL3.dll permanecem junto ao ares.exe.")
+            )
+            page.layout().addWidget(group)
+            self.refresh()
+            return
+        elif emulator == "altirra":
             self.altirra_paths_page = AltirraDirectoriesPage(self)
             widget = self.altirra_paths_page
         elif emulator == "amiberry":
@@ -71,6 +101,17 @@ class DirectoriesPage(DirectoryGuidePage):
         info.setWordWrap(True)
         form.addRow("", info)
         layout.insertWidget(1, group)
+
+    def _browse_ares_resource(self, key: str, label: str, field: QLineEdit) -> None:
+        selected = QFileDialog.getExistingDirectory(
+            self, f"Selecionar pasta {label} do ares", field.text() or str(Path.home())
+        )
+        if not selected:
+            return
+        data = self._load_json(self.PATHS_FILE)
+        data[key] = str(Path(selected).resolve())
+        self._save_json(self.PATHS_FILE, data)
+        field.setText(data[key])
 
     def select_mame_executable(self) -> None:
         current = self.mame_executable_edit.text().strip()
@@ -141,10 +182,14 @@ class DirectoriesPage(DirectoryGuidePage):
             self.amiberry_paths_page.refresh()
         if hasattr(self, "winuae_paths_page"):
             self.winuae_paths_page.refresh()
+        if hasattr(self, "ares_paths_page"):
+            self.ares_paths_page.refresh()
         if hasattr(self, "mame_executable_edit"):
             paths = self._load_json(self.PATHS_FILE)
             raw = paths.get("mame_executable") or paths.get("mame_exe")
             self.mame_executable_edit.setText(str(raw) if raw else "")
+        for key, field in getattr(self, "ares_resource_fields", {}).items():
+            field.setText(str(self._load_json(self.PATHS_FILE).get(key) or ""))
 
 
 __all__ = ["DirectoriesPage"]

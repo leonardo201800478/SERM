@@ -122,8 +122,26 @@ class AltirraSettingsPage(QWidget):
         ),
     )
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    @staticmethod
+    def _section_for(category: str) -> str:
+        normalized = category.casefold().replace("í", "i").replace("á", "a")
+        if "video" in normalized:
+            return "video"
+        if "audio" in normalized:
+            return "audio"
+        if "controle" in normalized or "input" in normalized:
+            return "controls"
+        return "emulators"
+
+    @classmethod
+    def supports_section(cls, section: str) -> bool:
+        return any(cls._section_for(option.category) == section for option in cls.OPTIONS)
+
+    def __init__(self, parent: QWidget | None = None, *, section: str = "emulators") -> None:
         super().__init__(parent)
+        self.options = tuple(
+            option for option in self.OPTIONS if self._section_for(option.category) == section
+        )
         self.controls: dict[str, QWidget] = {}
         self._build_ui()
         self.refresh()
@@ -140,12 +158,12 @@ class AltirraSettingsPage(QWidget):
         body = QWidget()
         body_layout = QVBoxLayout(body)
         categories: dict[str, QFormLayout] = {}
-        for category in dict.fromkeys(option.category for option in self.OPTIONS):
+        for category in dict.fromkeys(option.category for option in self.options):
             group = QGroupBox(category)
             form = QFormLayout(group)
             body_layout.addWidget(group)
             categories[category] = form
-        for option in self.OPTIONS:
+        for option in self.options:
             if option.kind == "bool":
                 control: QWidget = QCheckBox("Ativado")
             else:
@@ -199,7 +217,7 @@ class AltirraSettingsPage(QWidget):
         profile_section = editor.active_profile_section()
         profile_name = profile_section.rsplit("\\", 1)[-1]
         self.status.setText(f"Arquivo: {editor.path}\nPerfil: {profile_name}")
-        for option in self.OPTIONS:
+        for option in self.options:
             section = profile_section if option.section == "@active" else option.section
             values = editor.values(section, option.key)
             control = self.controls[option.key]
@@ -225,7 +243,7 @@ class AltirraSettingsPage(QWidget):
         profile_section = editor.active_profile_section()
         changed = 0
         try:
-            for option in self.OPTIONS:
+            for option in self.options:
                 section = profile_section if option.section == "@active" else option.section
                 current = editor.values(section, option.key)
                 control = self.controls[option.key]
