@@ -935,7 +935,8 @@ class AresFirmwareService:
             matches,
             missing,
             examined,
-            emulator=emulator,
+            tuple(invalid.values()),
+            emulator,
         )
 
     @classmethod
