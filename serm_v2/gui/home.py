@@ -8,7 +8,6 @@ from PySide6.QtCore import QSettings, Qt
 from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (
     QCheckBox,
-    QFileDialog,
     QFrame,
     QGroupBox,
     QHBoxLayout,
