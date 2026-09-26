@@ -875,11 +875,17 @@ class EmulatorSettingsPage(QWidget):
         status.setObjectName(f"settings_status_{emulator}")
         save = QPushButton("💾 Salvar configurações")
         save.setProperty("role", "primary")
+        save.setToolTip("Salva as configurações alteradas deste emulador e cria um backup do arquivo.")
         save.clicked.connect(lambda: self.save(emulator))
+        defaults = QPushButton("↺ Restaurar Padrões")
+        defaults.setToolTip("Restaura os controles desta tela aos valores padrão do SERM sem gravar no arquivo até você clicar em Salvar.")
+        defaults.clicked.connect(lambda: self.restore_defaults(emulator))
         reload_button = QPushButton("↻ Recarregar")
+        reload_button.setToolTip("Descarta alterações não salvas e recarrega os valores do arquivo do emulador.")
         reload_button.clicked.connect(self.refresh)
         buttons.addWidget(status, 1)
         buttons.addWidget(reload_button)
+        buttons.addWidget(defaults)
         buttons.addWidget(save)
         outer.addLayout(buttons)
         tabs_container.addTab(page, emulator.upper() if emulator != "retroarch" else "RetroArch")
@@ -1061,6 +1067,34 @@ class EmulatorSettingsPage(QWidget):
                 f"Executável registrado: {paths.get(f'{emulator}_exe') or '—'}"
             )
             config_label.setText(f"Arquivo de configuração: {paths.get(config_key) or '—'}")
+
+    def restore_defaults(self, emulator: str) -> None:
+        """Restaura os controles para os padrões definidos pela interface do SERM."""
+        controls = [
+            (spec, self.controls[(emulator, spec.key)])
+            for spec in self._specs_for(emulator)
+            if (emulator, spec.key) in self.controls
+        ]
+        if not controls:
+            return
+        answer = QMessageBox.question(
+            self,
+            "Restaurar padrões",
+            "Restaurar os valores padrão desta tela? As alterações só serão gravadas se você clicar em Salvar.",
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        for spec, control in controls:
+            control.setEnabled(True)
+            if spec.kind == "bool":
+                control.setChecked(False)  # type: ignore[attr-defined]
+            elif spec.kind == "combo":
+                control.setCurrentIndex(0)  # type: ignore[attr-defined]
+            elif spec.kind == "slider" and isinstance(control, SliderControl):
+                control.slider.setValue(spec.minimum)
+                control.spin.setValue(spec.minimum)
+            elif spec.kind == "text":
+                control.setText("")  # type: ignore[attr-defined]
 
     def save(self, emulator: str) -> None:
         """Grava somente chaves existentes, com backup atômico."""
