@@ -2758,8 +2758,6 @@ class RetroArchManager:
             raise RuntimeError(f"Falha no download: {url} | {exc}") from exc
         if log:
             log(f"DOWNLOAD | recebido={target.stat().st_size:,} bytes")
-()*+,;/?"),
-        ).geturl()
 
     @staticmethod
     def _download(url: str, target: Path, expected: int, progress=None, log=None) -> None:
