@@ -234,7 +234,7 @@ class RetroBiosFirmwarePanel(QWidget):
         self.cancel_button.clicked.connect(self.cancel)
         self.export_missing_button = QPushButton("EXPORTAR AUSENTES (.TXT)")
         self.export_missing_button.clicked.connect(self.export_missing_report)
-        self.export_missing_button.setEnabled(False)
+        self.export_missing_button.setEnabled(True)
         actions.addWidget(self.catalog_button)
         actions.addWidget(self.scan_button)
         actions.addWidget(self.refresh_destination_button)
@@ -394,7 +394,7 @@ class RetroBiosFirmwarePanel(QWidget):
         self._destination_scan = None
         self._destination_matches.clear()
         self._missing_candidates = ()
-        self.export_missing_button.setEnabled(False)
+        self.export_missing_button.setEnabled(True)
         self.reconstruct_button.setEnabled(False)
         self.status.setText(f"Atualizando o scan do destino de {self.label}…")
         self._start_worker(
@@ -637,7 +637,14 @@ class RetroBiosFirmwarePanel(QWidget):
             f"fonte de reconstrução={len(self._matches):,} arquivo(s)"
         )
         self.reconstruct_button.setEnabled(bool(self._matches) and destination is not None)
-        self.export_missing_button.setEnabled(bool(self._missing_candidates))
+        self.export_missing_button.setEnabled(True)
+
+    def _pack_name_for_entry(self, entry: AresFirmwareEntry) -> str:
+        """Retorna o pack que forneceu uma BIOS ausente, quando a fonte é um pack local."""
+        match = self._matches.get(entry.key)
+        if match is None:
+            return ""
+        return RetroBiosPackService.pack_name_for_path(match.path, source=self._source)
 
     def export_missing_report(self) -> None:
         """Exporta BIOS/firmwares ausentes com metadados para pesquisa rápida."""
@@ -649,9 +656,6 @@ class RetroBiosFirmwarePanel(QWidget):
             )
             return
         missing = tuple(self._missing_candidates)
-        if not missing:
-            QMessageBox.information(self, f"Firmware {self.label}", "Nenhuma BIOS/firmware ausente foi encontrada.")
-            return
         selected, _ = QFileDialog.getSaveFileName(
             self,
             "Exportar BIOS/firmwares ausentes",
@@ -669,6 +673,7 @@ class RetroBiosFirmwarePanel(QWidget):
             f"Catálogo RetroBIOS: {self._scan.catalog_version}",
             f"Diretório de destino examinado: {self._destination_scan.source_directory}",
             f"Itens ausentes: {len(missing)}",
+            "O campo \"Pack RetroBIOS\" identifica o pack local quando a origem foi o armazenamento de packs do SERM.",
             "",
             "Pesquisa Google: use o hash como identificador principal quando disponível.",
             "",
@@ -690,6 +695,11 @@ class RetroBiosFirmwarePanel(QWidget):
                     break
             query = " ".join(f'"{part}"' for part in query_parts if part)
             required = "SIM" if entry.required else "NÃO"
+            pack_name = self._pack_name_for_entry(entry)
+            if not pack_name and entry.catalog_available:
+                pack_name = "DISPONÍVEL NO RETROBIOS, PACK LOCAL NÃO IDENTIFICADO"
+            elif not pack_name:
+                pack_name = "não identificado"
             lines.extend((
                 f"{index:03d}. {entry.name}",
                 f"    Sistema: {entry.system}",
@@ -697,6 +707,7 @@ class RetroBiosFirmwarePanel(QWidget):
                 f"    Tamanho: {size} bytes",
                 f"    Hash: {hash_text}",
                 f"    Obrigatório: {required}",
+                f"    Pack RetroBIOS: {pack_name}",
                 f"    Descrição: {entry.description or 'não informada'}",
                 f"    Pesquisa Google: {query} BIOS firmware ROM",
                 "",
@@ -727,7 +738,7 @@ class RetroBiosFirmwarePanel(QWidget):
         self._destination_matches.clear()
         self._missing_candidates = ()
         self.reconstruct_button.setEnabled(False)
-        self.export_missing_button.setEnabled(False)
+        self.export_missing_button.setEnabled(True)
         self.status.setText(
             f"Reconstrução concluída: {created:,} arquivo(s) materializado(s); "
             f"{removed:,} arquivo(s) inválido(s) removido(s). "
@@ -752,7 +763,7 @@ class RetroBiosFirmwarePanel(QWidget):
         self.scan_button.setEnabled(True)
         self.refresh_destination_button.setEnabled(True)
         self.reconstruct_button.setEnabled(bool(self._missing_candidates))
-        self.export_missing_button.setEnabled(bool(self._missing_candidates))
+        self.export_missing_button.setEnabled(True)
         self.cancel_button.setEnabled(False)
 
     def _populate_catalog_preview(self) -> None:
@@ -803,7 +814,7 @@ class RetroBiosFirmwarePanel(QWidget):
             self.items.clear()
         self._plan = None
         self.reconstruct_button.setEnabled(False)
-        self.export_missing_button.setEnabled(False)
+        self.export_missing_button.setEnabled(True)
 
 
 __all__ = ["RetroBiosFirmwarePanel"]
