@@ -357,11 +357,15 @@ class RetroBiosFirmwarePanel(QWidget):
             match = self._matches.get(entry.key)
             if match:
                 label = f"VALIDADO | {entry.output_path} | {entry.system}"
+                state = "valid"
             elif not entry.is_verifiable:
-                label = f"SEM CHECKSUM | {entry.output_path} | não verificável"
+                label = f"HASH NÃO CHECADO | {entry.output_path} | {entry.system}"
+                state = "unverified"
             else:
                 label = f"AUSENTE | {entry.output_path} | {entry.system}"
+                state = "missing"
             item = QListWidgetItem(label)
+            item.setData(Qt.ItemDataRole.UserRole + 1, state)
             item.setData(Qt.ItemDataRole.UserRole, entry.key)
             if match:
                 item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
@@ -370,6 +374,15 @@ class RetroBiosFirmwarePanel(QWidget):
                     f"{match.path}"
                     + (f" :: {match.archive_member}" if match.archive_member else "")
                 )
+            if state == "valid":
+                item.setBackground(Qt.GlobalColor.darkGreen)
+                item.setForeground(Qt.GlobalColor.white)
+            elif state == "unverified":
+                item.setBackground(Qt.GlobalColor.darkYellow)
+                item.setForeground(Qt.GlobalColor.black)
+            else:
+                item.setBackground(Qt.GlobalColor.darkRed)
+                item.setForeground(Qt.GlobalColor.white)
             self.items.addItem(item)
         verifiable = sum(entry.is_verifiable for entry in self._catalog[1])
         self.catalog_status.setText(
@@ -381,6 +394,7 @@ class RetroBiosFirmwarePanel(QWidget):
             f"ausentes/não encontrados={len(scan.missing):,} | sem hash={len(self._catalog[1]) - verifiable:,}"
         )
         self.reconstruct_button.setEnabled(bool(self._matches))
+        self.export_missing_button.setEnabled(bool(scan.missing))
         self.status.setText(f"Scan concluído em {scan.source_directory}.")
 
     def _is_checked(self, key: str) -> bool:
@@ -428,6 +442,7 @@ class RetroBiosFirmwarePanel(QWidget):
         self.items.clear()
         self._plan = None
         self.reconstruct_button.setEnabled(False)
+        self.export_missing_button.setEnabled(False)
 
 
 __all__ = ["RetroBiosFirmwarePanel"]
