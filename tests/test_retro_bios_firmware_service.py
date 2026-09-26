@@ -459,6 +459,67 @@ def test_ares_source_catalog_matches_firmware_declarations() -> None:
     }
 
 
+def test_ares_destination_scan_validates_physical_destination_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    entry = next(
+        item
+        for item in AresFirmwareService._ares_source_entries()
+        if item.system == "Famicom Disk System"
+    )
+    destination = tmp_path / "destination"
+    destination.mkdir()
+    firmware = destination / "BIOS"
+    firmware.write_bytes(b"fds")
+
+    def fake_hash_file(path: Path, algorithms: frozenset[str]) -> dict[str, object]:
+        assert path == firmware
+        assert algorithms == {"sha256"}
+        return {
+            "size": 3,
+            "sha256": entry.sha256,
+            "sha1": "",
+            "md5": "",
+            "crc32": "",
+        }
+
+    monkeypatch.setattr(
+        AresFirmwareService, "_hash_file_for_algorithms", staticmethod(fake_hash_file)
+    )
+    result = AresFirmwareService.scan(
+        destination,
+        (entry,),
+        catalog_version="ARES source test",
+        emulator="ares",
+    )
+
+    assert result.source_directory == str(destination.resolve())
+    assert result.missing == ()
+    assert len(result.matches) == 1
+    assert result.matches[0].path == str(firmware)
+    assert result.matches[0].match_mode == "hash"
+
+
+def test_scan_uses_only_hash_algorithms_declared_by_catalog() -> None:
+    entry = AresFirmwareEntry(
+        name="bios.bin",
+        system="Test",
+        description="test",
+        required=True,
+        sha256="a" * 64,
+    )
+
+    assert AresFirmwareService._required_hash_algorithms((entry,)) == {"sha256"}
+    identity = AresFirmwareService._hash_stream(
+        iter([b"payload"]).__iter__(),
+        {"sha256"},
+    )
+    assert identity["sha256"] == __import__("hashlib").sha256(b"payload").hexdigest()
+    assert identity["sha1"] == ""
+    assert identity["md5"] == ""
+    assert identity["crc32"] == ""
+
+
 def test_ares_configured_scan_uses_settings_assignments(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
