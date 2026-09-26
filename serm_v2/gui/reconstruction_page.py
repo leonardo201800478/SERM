@@ -20,7 +20,6 @@ from PySide6.QtWidgets import (
 )
 
 from ..runtime.paths import scans_root
-from .directory_dialogs import get_existing_directory
 from ..services.reconstruction_service import (
     ReconstructionError,
     ReconstructionPlan,
