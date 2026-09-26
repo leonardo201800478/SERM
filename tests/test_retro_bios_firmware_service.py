@@ -434,7 +434,7 @@ def test_panel_state_classifies_required_available_and_optional_entries() -> Non
     database = {
         "files": [
             {"name": "valid.bin", "sha256": "a" * 64, "release_asset": "valid.bin"},
-            {"name": "plain.bin", "name": "plain.bin", "repo_path": "bios/plain.bin"},
+            {"name": "plain.bin", "repo_path": "bios/plain.bin"},
             {"name": "hle.bin", "repo_path": "bios/hle.bin"},
         ]
     }
