@@ -35,8 +35,8 @@ from PySide6.QtWidgets import (
 
 from ..runtime.paths import data_root
 from .ares_settings_page import AresSettingsPage
-from .directory_dialogs import get_existing_directory
 from .directories_guide_page import ConfigFileEditor
+from .directory_dialogs import get_existing_directory
 from .emulator_catalog import grouped_emulators
 from .emulator_settings_page import EmulatorSettingsPage
 

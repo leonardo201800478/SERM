@@ -9,8 +9,8 @@ import shutil
 import tempfile
 import urllib.request
 import zipfile
-from dataclasses import dataclass
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 from ..runtime.paths import data_root, integrations_root

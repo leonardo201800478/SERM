@@ -1,9 +1,8 @@
 import json
-from pathlib import Path
 import zipfile
+from pathlib import Path
 
 import pytest
-
 from serm_v2.services.reconstruction_service import ReconstructionError, ReconstructionService
 
 
