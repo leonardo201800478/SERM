@@ -285,7 +285,7 @@ class RetroBiosFirmwarePanel(QWidget):
         )
         self.catalog_button.clicked.connect(self.update_catalog)
         self.scan_button = QPushButton("ATUALIZAR SCAN")
-        self.scan_button.setToolTip("Reexamina automaticamente a origem e o destino para atualizar a lista de BIOS faltantes.")
+        self.scan_button.setToolTip("Reexamina manualmente a origem e o destino para atualizar a lista de BIOS.")
         self.scan_button.clicked.connect(self.scan)
         self.refresh_destination_button = QPushButton("REFRESH")
         self.refresh_destination_button.setToolTip("Reescaneia somente o diretório de destino e atualiza imediatamente as BIOS ainda ausentes para exportação.")
