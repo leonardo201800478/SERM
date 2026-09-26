@@ -315,7 +315,7 @@ class RetroBiosFirmwarePanel(QWidget):
             else "EXPORTAR AUSENTES (.TXT)"
         )
         self.export_missing_button.clicked.connect(self.export_missing_report)
-        self.export_missing_button.setEnabled(True)
+        self.export_missing_button.setEnabled(False)
         actions.addWidget(self.catalog_button)
         actions.addWidget(self.scan_button)
         actions.addWidget(self.refresh_destination_button)
@@ -431,7 +431,8 @@ class RetroBiosFirmwarePanel(QWidget):
             self._destination_matches.clear()
             self._destination_invalid_matches.clear()
             self.reconstruct_button.setEnabled(False)
-            self.export_missing_button.setEnabled(True)
+            self.export_missing_button.setEnabled(False)
+            self._missing_report_ready = False
             self.refresh()
 
     def scan(self) -> None:
@@ -762,7 +763,7 @@ class RetroBiosFirmwarePanel(QWidget):
             f"fonte de reconstrução={len(self._matches):,} arquivo(s)"
         )
         self.reconstruct_button.setEnabled(bool(self._matches) and destination is not None)
-        self.export_missing_button.setEnabled(True)
+        self.export_missing_button.setEnabled(self._missing_report_ready)
 
     def _pack_name_for_entry(self, entry: AresFirmwareEntry) -> str:
         """Retorna o pack que forneceu uma BIOS ausente, quando a fonte é um pack local."""
