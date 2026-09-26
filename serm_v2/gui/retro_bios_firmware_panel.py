@@ -436,22 +436,47 @@ class RetroBiosFirmwarePanel(QWidget):
         self._scan = scan
         self._matches = {match.entry.key: match for match in scan.matches}
         self.items.clear()
+        state_counts = {
+            "VALIDADO": 0,
+            "PRESENTE — HASH NÃO VERIFICÁVEL": 0,
+            "AUSENTE — DISPONÍVEL": 0,
+            "AUSENTE — NÃO DISPONÍVEL": 0,
+            "HLE / OPCIONAL": 0,
+        }
         for entry in self._catalog[1]:
             match = self._matches.get(entry.key)
-            if match:
-                if entry.is_verifiable:
-                    label = f"VALIDADO | {entry.output_path} | {entry.system}"
+            if entry.required:
+                if match and entry.is_verifiable:
+                    state = "VALIDADO"
+                    state_detail = "Arquivo encontrado; hash correto."
+                    background = Qt.GlobalColor.darkGreen
+                    foreground = Qt.GlobalColor.white
+                elif match:
+                    state = "PRESENTE — HASH NÃO VERIFICÁVEL"
+                    state_detail = "Arquivo encontrado; catálogo não fornece hash. Identificação por nome."
+                    background = Qt.GlobalColor.darkYellow
+                    foreground = Qt.GlobalColor.black
+                elif entry.catalog_available:
+                    state = "AUSENTE — DISPONÍVEL"
+                    state_detail = "Arquivo não encontrado localmente; RetroBIOS possui o arquivo."
+                    background = Qt.GlobalColor.darkRed
+                    foreground = Qt.GlobalColor.white
                 else:
-                    label = f"IMPORTADO PELO NOME | {entry.output_path} | {entry.system}"
-                state = "valid"
-            elif not entry.is_verifiable:
-                label = f"HASH NÃO CHECADO | {entry.output_path} | {entry.system}"
-                state = "unverified"
+                    state = "AUSENTE — NÃO DISPONÍVEL"
+                    state_detail = "Arquivo exigido pelo emulador; RetroBIOS não possui payload."
+                    background = Qt.GlobalColor.black
+                    foreground = Qt.GlobalColor.white
             else:
-                label = f"AUSENTE | {entry.output_path} | {entry.system}"
-                state = "missing"
-            availability = entry.availability_label
-            label = f"{label} | {availability} | {entry.distribution_label}"
+                state = "HLE / OPCIONAL"
+                state_detail = "Arquivo opcional; o emulador possui fallback/HLE."
+                background = Qt.GlobalColor.darkBlue
+                foreground = Qt.GlobalColor.white
+
+            state_counts[state] += 1
+            label = (
+                f"{state} | {entry.output_path} | {entry.system} | "
+                f"{entry.availability_label} | {entry.distribution_label}"
+            )
             item = QListWidgetItem(label)
             item.setData(Qt.ItemDataRole.UserRole + 1, state)
             item.setData(Qt.ItemDataRole.UserRole, entry.key)
@@ -461,16 +486,18 @@ class RetroBiosFirmwarePanel(QWidget):
                 item.setToolTip(
                     f"{match.path}"
                     + (f" :: {match.archive_member}" if match.archive_member else "")
+                    + f"\n\nEstado: {state}\n{state_detail}"
                 )
-            if state == "valid":
-                item.setBackground(Qt.GlobalColor.darkGreen)
-                item.setForeground(Qt.GlobalColor.white)
-            elif state == "unverified":
-                item.setBackground(Qt.GlobalColor.darkYellow)
-                item.setForeground(Qt.GlobalColor.black)
             else:
-                item.setBackground(Qt.GlobalColor.darkRed)
-                item.setForeground(Qt.GlobalColor.white)
+                item.setToolTip(
+                    f"Estado: {state}\n{state_detail}\n"
+                    f"Disponibilidade: {entry.availability_label}\n"
+                    f"Distribuição: {entry.distribution_label}\n"
+                    f"Cobertura: {entry.coverage_label}\n"
+                    f"Lacuna: {entry.gap_reason or 'não informada'}"
+                )
+            item.setBackground(background)
+            item.setForeground(foreground)
             self.items.addItem(item)
         verifiable = sum(entry.is_verifiable for entry in self._catalog[1])
         available = sum(entry.catalog_available for entry in self._catalog[1])
@@ -482,15 +509,13 @@ class RetroBiosFirmwarePanel(QWidget):
         optional = len(self._catalog[1]) - required
         missing_required = sum(entry.required for entry in scan.missing)
         missing_optional = len(scan.missing) - missing_required
-        missing_release = sum(bool(entry.release_asset) for entry in scan.missing)
-        missing_repository = sum(bool(entry.repository_path) and not entry.release_asset for entry in scan.missing)
-        missing_unavailable = sum(not entry.catalog_available for entry in scan.missing)
-        missing_gaps = sum(entry.gap_layer == "emulator" for entry in scan.missing)
         self.summary.setText(
-            f"Examinados={scan.files_examined:,} | validados={len(scan.matches):,} | "
-            f"ausentes={len(scan.missing):,} (obrigatórios={missing_required:,}, opcionais={missing_optional:,}) | "
-            f"obtenção: release={missing_release:,}, repositório={missing_repository:,}, "
-            f"não disponíveis={missing_unavailable:,}, lacunas={missing_gaps:,} | "
+            f"Examinados={scan.files_examined:,} | "
+            f"🟢 validados={state_counts['VALIDADO']:,} | "
+            f"🟡 hash não verificável={state_counts['PRESENTE — HASH NÃO VERIFICÁVEL']:,} | "
+            f"🔴 ausente/disponível={state_counts['AUSENTE — DISPONÍVEL']:,} | "
+            f"⚫ ausente/não disponível={state_counts['AUSENTE — NÃO DISPONÍVEL']:,} | "
+            f"🔵 HLE/opcional={state_counts['HLE / OPCIONAL']:,} | "
             f"catálogo: obrigatórios={required:,}, opcionais={optional:,}, sem hash={len(self._catalog[1]) - verifiable:,}"
         )
         self.reconstruct_button.setEnabled(bool(self._matches))
