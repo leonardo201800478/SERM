@@ -65,20 +65,24 @@ class AresFirmwareEntry:
             return "OBTENÇÃO: LACUNA"
         return "OBTENÇÃO: NÃO DISPONÍVEL"
 
-    def panel_state(self, present: bool) -> str:
+    def panel_state(self, present: bool, *, match_mode: str = "hash") -> str:
         """Classifica o estado visual do item considerando a presença local."""
         if not self.required:
             return "HLE / OPCIONAL"
         if present:
+            if self.is_verifiable and match_mode == "name":
+                return "PRESENTE — NOME COMPATÍVEL"
             return "VALIDADO" if self.is_verifiable else "PRESENTE — HASH NÃO VERIFICÁVEL"
         if self.catalog_available:
             return "AUSENTE — DISPONÍVEL"
         return "AUSENTE — NÃO DISPONÍVEL"
 
-    def panel_state_detail(self, present: bool) -> str:
+    def panel_state_detail(self, present: bool, *, match_mode: str = "hash") -> str:
         if not self.required:
             return "Arquivo opcional; o emulador possui fallback/HLE."
         if present:
+            if self.is_verifiable and match_mode == "name":
+                return "Arquivo encontrado pelo nome; o hash do catálogo não coincidiu."
             if self.is_verifiable:
                 return "Arquivo encontrado; hash correto."
             return "Arquivo encontrado; catálogo não fornece hash. Identificação por nome."
