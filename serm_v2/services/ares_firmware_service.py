@@ -35,6 +35,19 @@ class AresFirmwareEntry:
     output_path: str = ""
     aliases: tuple[str, ...] = ()
     profile_id: str = ""
+    repository_path: str = ""
+    release_asset: str = ""
+    catalog_available: bool = False
+
+    @property
+    def availability_label(self) -> str:
+        if self.catalog_available:
+            if self.release_asset:
+                return "DISPONÍVEL (RELEASE)"
+            if self.repository_path:
+                return "DISPONÍVEL (REPOSITÓRIO)"
+            return "CATALOGADO"
+        return "NÃO LOCALIZADO NO ACERVO"
 
     @property
     def is_verifiable(self) -> bool:
@@ -107,8 +120,11 @@ class AresFirmwareService:
     """Load RetroBIOS profiles and audit user-owned files by catalog checksums."""
 
     CATALOG_URL = "https://abdess.github.io/retrobios/api/v1/emulators.json"
+    DATABASE_URL = "https://abdess.github.io/retrobios/api/v1/database.json"
     CATALOG_CACHE = data_root() / "catalog" / "retrobios_emulators.json"
+    DATABASE_CACHE = data_root() / "catalog" / "retrobios_database.json"
     MAX_CATALOG_BYTES = 8 * 1024 * 1024
+    MAX_DATABASE_BYTES = 32 * 1024 * 1024
     CHUNK_SIZE = 1024 * 1024
     PROFILE_ALIASES = {
         "super_zsnes": ("superzsnes",),
@@ -219,7 +235,149 @@ class AresFirmwareService:
             raise AresFirmwareError(
                 f"O RetroBIOS não possui perfil com arquivos para '{emulator}'."
             )
+
+        database = cls.load_database(refresh=refresh)
+        entries = cls._enrich_entries_from_database(entries, database)
         return version, entries
+
+    @classmethod
+    def load_database(cls, *, refresh: bool = False) -> object:
+        """Carrega o banco de conteúdo do RetroBIOS para complementar os perfis."""
+        payload: object | None = None
+        if refresh:
+            try:
+                request = urllib.request.Request(
+                    cls.DATABASE_URL,
+                    headers={"User-Agent": "SERM/2.x", "Accept": "application/json"},
+                )
+                with urllib.request.urlopen(request, timeout=60) as response:
+                    raw = response.read(cls.MAX_DATABASE_BYTES + 1)
+                if len(raw) > cls.MAX_DATABASE_BYTES:
+                    raise AresFirmwareError(
+                        "O banco de conteúdo RetroBIOS ultrapassou o limite de 32 MiB."
+                    )
+                payload = json.loads(raw.decode("utf-8"))
+                cls.DATABASE_CACHE.parent.mkdir(parents=True, exist_ok=True)
+                cls.DATABASE_CACHE.write_text(
+                    json.dumps(payload, ensure_ascii=False), encoding="utf-8"
+                )
+            except AresFirmwareError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                if cls.DATABASE_CACHE.is_file():
+                    payload = cls._read_database_cache()
+                else:
+                    raise AresFirmwareError(
+                        f"Não foi possível atualizar o banco de conteúdo RetroBIOS: {exc}"
+                    ) from exc
+        else:
+            payload = cls._read_database_cache()
+            if payload is None:
+                return cls.load_database(refresh=True)
+
+        if payload is None:
+            raise AresFirmwareError("O banco de conteúdo RetroBIOS não retornou dados.")
+        return payload
+
+    @classmethod
+    def _enrich_entries_from_database(
+        cls,
+        entries: tuple[AresFirmwareEntry, ...],
+        database: object,
+    ) -> tuple[AresFirmwareEntry, ...]:
+        """Relaciona perfis de emulador ao conteúdo disponível no banco RetroBIOS."""
+        records = cls._database_records(database)
+        by_identity: dict[tuple[str, str], dict[str, object]] = {}
+        by_name: dict[str, dict[str, object]] = {}
+
+        for record in records:
+            for algorithm in ("sha256", "sha1", "md5", "crc32"):
+                digest = str(record.get(algorithm) or "").casefold()
+                if digest:
+                    by_identity[(algorithm, digest)] = record
+            for name in cls._record_names(record):
+                if name:
+                    by_name.setdefault(name, record)
+
+        enriched: list[AresFirmwareEntry] = []
+        for entry in entries:
+            record = None
+            for algorithm in ("sha256", "sha1", "md5", "crc32"):
+                digest = getattr(entry, algorithm)
+                if digest:
+                    record = by_identity.get((algorithm, digest.casefold()))
+                    if record:
+                        break
+            if record is None:
+                names = {Path(entry.name).name.casefold(), Path(entry.output_path).name.casefold()}
+                names.update(Path(alias).name.casefold() for alias in entry.aliases)
+                for name in names:
+                    record = by_name.get(name)
+                    if record:
+                        break
+
+            if record is None:
+                enriched.append(entry)
+                continue
+
+            repository_path = str(record.get("repo_path") or record.get("path") or "").strip()
+            release_asset = str(record.get("release_asset") or "").strip()
+            enriched.append(
+                AresFirmwareEntry(
+                    name=entry.name,
+                    system=entry.system,
+                    description=entry.description,
+                    required=entry.required,
+                    sha256=entry.sha256,
+                    size=entry.size,
+                    sha1=entry.sha1,
+                    md5=entry.md5,
+                    crc32=entry.crc32,
+                    validation=entry.validation,
+                    output_path=entry.output_path,
+                    aliases=entry.aliases,
+                    profile_id=entry.profile_id,
+                    repository_path=repository_path,
+                    release_asset=release_asset,
+                    catalog_available=bool(repository_path or release_asset),
+                )
+            )
+        return tuple(enriched)
+
+    @staticmethod
+    def _database_records(payload: object) -> tuple[dict[str, object], ...]:
+        """Extrai registros de arquivo de versões v1 sem depender do índice interno."""
+        records: list[dict[str, object]] = []
+
+        def visit(value: object) -> None:
+            if isinstance(value, dict):
+                has_identity = any(
+                    str(value.get(key) or "").strip()
+                    for key in ("sha256", "sha1", "md5", "crc32")
+                )
+                has_location = any(
+                    str(value.get(key) or "").strip()
+                    for key in ("repo_path", "release_asset", "path")
+                )
+                if has_identity and has_location:
+                    records.append(value)
+                for child in value.values():
+                    visit(child)
+            elif isinstance(value, list):
+                for child in value:
+                    visit(child)
+
+        visit(payload)
+        return tuple(records)
+
+    @staticmethod
+    def _record_names(record: dict[str, object]) -> tuple[str, ...]:
+        names: list[str] = []
+        for key in ("name", "filename", "file", "dest", "path", "repo_path"):
+            value = record.get(key)
+            if isinstance(value, str) and value.strip():
+                names.append(Path(value).name.casefold())
+        return tuple(dict.fromkeys(names))
 
     @classmethod
     def scan(
@@ -536,6 +694,15 @@ class AresFirmwareService:
         ):
             return None
         return normalized.as_posix()
+
+    @classmethod
+    def _read_database_cache(cls) -> object | None:
+        try:
+            if cls.DATABASE_CACHE.stat().st_size > cls.MAX_DATABASE_BYTES:
+                return None
+            return json.loads(cls.DATABASE_CACHE.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            return None
 
     @classmethod
     def _read_cache(cls) -> object | None:
