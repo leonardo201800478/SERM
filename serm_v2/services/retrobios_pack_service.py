@@ -194,6 +194,10 @@ class RetroBiosPackService:
             progress_callback=progress_callback,
             progress_total=extraction_total,
         )
+
+        # Somente após a extração e a cópia terem terminado com sucesso,
+        # removemos o ZIP montado e todos os volumes temporários.
+        cls._cleanup_pack_temporary_files(download_dir, archive, downloaded)
         return target
 
     @classmethod
@@ -373,6 +377,43 @@ class RetroBiosPackService:
             progress_callback(copied, progress_total)
         shutil.rmtree(source, ignore_errors=True)
 
+
+    @staticmethod
+    def _cleanup_pack_temporary_files(
+        download_dir: Path,
+        archive: Path,
+        downloaded: list[Path],
+    ) -> None:
+        """Remove temporários somente após uma instalação concluída."""
+        paths = set(downloaded)
+        paths.add(archive)
+        for path in paths:
+            try:
+                if path.is_file():
+                    path.unlink()
+            except OSError:
+                continue
+
+        # Remove arquivos .part/.download remanescentes do motor de download.
+        if download_dir.is_dir():
+            for path in download_dir.rglob("*"):
+                if path.is_file() and (
+                    path.name.endswith(".part") or ".download" in path.name
+                ):
+                    try:
+                        path.unlink()
+                    except OSError:
+                        pass
+
+        # Diretório do pack pode ser removido quando ficou vazio.
+        try:
+            if download_dir.is_dir() and not any(download_dir.iterdir()):
+                download_dir.rmdir()
+            downloads_root = download_dir.parent
+            if downloads_root.is_dir() and not any(downloads_root.iterdir()):
+                downloads_root.rmdir()
+        except OSError:
+            pass
 
     @staticmethod
     def _safe_archive_path(name: str) -> Path | None:
