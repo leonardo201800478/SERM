@@ -306,7 +306,11 @@ class RetroBiosFirmwarePanel(QWidget):
         self.cancel_button = QPushButton("CANCELAR")
         self.cancel_button.setEnabled(False)
         self.cancel_button.clicked.connect(self.cancel)
-        self.export_missing_button = QPushButton("EXPORTAR AUSENTES (.TXT)")
+        self.export_missing_button = QPushButton(
+            "EXPORTAR NÃO VALIDADOS (.TXT)"
+            if self.emulator == "ares"
+            else "EXPORTAR AUSENTES (.TXT)"
+        )
         self.export_missing_button.clicked.connect(self.export_missing_report)
         self.export_missing_button.setEnabled(True)
         actions.addWidget(self.catalog_button)
