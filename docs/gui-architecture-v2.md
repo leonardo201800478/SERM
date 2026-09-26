@@ -1,5 +1,27 @@
 # Arquitetura da GUI — SERM V2
 
+## Padrões obrigatórios de interface
+
+Estas regras são obrigatórias para toda nova tela, painel, botão ou controle interativo da GUI V2 e devem ser aplicadas também ao corrigir ou ampliar telas existentes.
+
+### Ajuda contextual por mouse
+
+Todo botão, ação ou controle interativo que não tenha sua finalidade inequívoca pelo próprio texto deve possuir **tooltip/ajuda contextual ao passar o cursor do mouse**. A ajuda deve explicar de forma curta e objetiva o que a ação faz, seu efeito e, quando relevante, suas condições ou consequências.
+
+Como regra de consistência, novos controles devem receber o tooltip no mesmo ponto em que são criados, evitando controles sem ajuda contextual. Ícones ou botões cuja finalidade dependa apenas de um símbolo devem obrigatoriamente possuir tooltip descritivo.
+
+### Salvar e restaurar padrões
+
+Toda tela relacionada a **Diretórios** ou **Configurações de Emuladores** deve disponibilizar, quando houver estado configurável persistente, as ações **Salvar** e **Restaurar Padrões**.
+
+- **Salvar** aplica e persiste somente as configurações suportadas pela tela, respeitando o formato nativo do emulador e as regras de backup existentes.
+- **Restaurar Padrões** retorna os campos editáveis aos valores padrão definidos pelo contrato do emulador/SERM, sem alterar silenciosamente outras chaves ou arquivos não administrados pela tela.
+- As duas ações devem possuir tooltip explicativo.
+- A restauração deve ser explícita e não deve ocorrer automaticamente ao abrir a tela.
+- Quando o formato nativo não possuir um conceito seguro de valor padrão, a tela deve definir/documentar o comportamento de restauração antes de expor a ação.
+
+Essas regras complementam a política de configuração de emuladores em [`emulator-config-policy.md`](emulator-config-policy.md) e são parte do padrão visual e funcional da V2.
+
 ## Navegação principal
 
 A aplicação separa a Home, a central de Configuração e os fluxos de trabalho de catálogo e reconstrução. A Home organiza a gestão de instalações por grupos de sistemas; a central de Configuração reúne as preferências do ambiente em uma navegação própria.
