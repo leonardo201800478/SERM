@@ -660,8 +660,6 @@ class RetroBiosFirmwarePanel(QWidget):
             elif state == "AUSENTE — NÃO DISPONÍVEL":
                 background = Qt.GlobalColor.black
                 foreground = Qt.GlobalColor.green
-            else:
-                # BIOS opcional/HLE permanece visualmente amarela, como no preview do catálogo.
             elif state == "CONFIGURADO — SEM HASH":
                 background = Qt.GlobalColor.darkGreen
                 foreground = Qt.GlobalColor.white
@@ -669,6 +667,7 @@ class RetroBiosFirmwarePanel(QWidget):
                 background = Qt.GlobalColor.darkRed
                 foreground = Qt.GlobalColor.yellow
             else:
+                # BIOS opcional/HLE permanece visualmente amarela, com texto branco.
                 background = Qt.GlobalColor.darkYellow
                 foreground = Qt.GlobalColor.white
             state_counts[state] += 1
