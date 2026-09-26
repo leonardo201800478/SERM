@@ -25,6 +25,7 @@ from ..services.reconstruction_service import (
     ReconstructionPlan,
     ReconstructionService,
 )
+from .directory_dialogs import get_existing_directory
 
 _RECONSTRUCTION_TITLE = "Reconstrução"
 _MAME_SET_LABELS = {
