@@ -7,8 +7,7 @@ from pathlib import Path
 import pytest
 
 from serm_v2.services import ares_firmware_service
-from serm_v2.services.ares_firmware_service import AresFirmwareService
-from serm_v2.services.ares_firmware_service import AresFirmwareScan
+from serm_v2.services.ares_firmware_service import AresFirmwareScan, AresFirmwareService
 from serm_v2.services.reconstruction_service import ReconstructionError, ReconstructionService
 
 
