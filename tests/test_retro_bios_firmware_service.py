@@ -554,6 +554,7 @@ def test_ares_merge_does_not_import_retro_bios_only_entries() -> None:
     assert all(entry.system != "RetroBIOS only" for entry in merged)
     assert len(merged) == 39
 
+
 def test_ares_source_catalog_contains_exact_firmware_hashes() -> None:
     entries = AresFirmwareService._ares_source_entries()
     by_system = {(entry.system, entry.description): entry for entry in entries}
