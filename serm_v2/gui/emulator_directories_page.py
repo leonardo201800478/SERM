@@ -38,7 +38,8 @@ class DirectoriesPage(DirectoryGuidePage):
         self._retro_bios_by_emulator: dict[str, RetroBiosFirmwarePanel] = {}
         super().__init__(parent)
         self._connect_lazy_retro_bios_tabs()
-        QTimer.singleShot(0, self._ensure_current_retro_bios_panels)
+        self.category_tabs.currentChanged.connect(self._category_tab_changed)
+        QTimer.singleShot(0, self._ensure_active_category_panel)
 
     def _build_emulator_directory_settings(self, emulator: str, page) -> None:
         if emulator == "ares":
@@ -97,12 +98,19 @@ class DirectoriesPage(DirectoryGuidePage):
         for tabs in self.emulator_tabs.values():
             tabs.currentChanged.connect(self._retro_bios_tab_changed)
 
-    def _ensure_current_retro_bios_panels(self) -> None:
-        """Cria apenas o painel da aba atualmente visível em cada categoria."""
-        for tabs in self.emulator_tabs.values():
-            index = tabs.currentIndex()
-            if index >= 0:
-                self._ensure_retro_bios_panel(tabs, index)
+    def _ensure_active_category_panel(self) -> None:
+        """Materializa somente o reconstrutor da categoria atualmente visível."""
+        category_index = self.category_tabs.currentIndex()
+        if category_index < 0 or category_index >= len(self.CATEGORIES):
+            return
+        category = self.CATEGORIES[category_index][0]
+        tabs = self.emulator_tabs.get(category)
+        if tabs is not None and tabs.currentIndex() >= 0:
+            self._ensure_retro_bios_panel(tabs, tabs.currentIndex())
+
+    def _category_tab_changed(self, _index: int) -> None:
+        """Carrega o reconstrutor apenas ao entrar em uma categoria."""
+        self._ensure_active_category_panel()
 
     def _retro_bios_tab_changed(self, index: int) -> None:
         """Inicializa o reconstrutor somente quando o usuário abre a aba."""
