@@ -120,9 +120,11 @@ class AresFirmwareMatch:
     entry: AresFirmwareEntry
     path: str
     archive_member: str | None = None
+    match_mode: str = "hash"
 
     def to_evidence(self) -> dict[str, object]:
         evidence: dict[str, object] = {
+            "match_mode": self.match_mode,
             "kind": "firmware",
             "output_name": self.entry.output_path or self.entry.name,
             "system": self.entry.system,
@@ -693,11 +695,9 @@ class AresFirmwareService:
     def _build_name_index(
         entries: tuple[AresFirmwareEntry, ...],
     ) -> dict[str, tuple[AresFirmwareEntry, ...]]:
-        """Indexa apenas entradas sem hash para fallback pelo nome do arquivo."""
+        """Indexa todos os nomes para fallback quando não houver hash compatível."""
         index: dict[str, list[AresFirmwareEntry]] = {}
-        for entry in entries:
-            if entry.is_verifiable:
-                continue
+        for entry in entries
             names = {
                 Path(entry.name).name.casefold(),
                 Path(entry.output_path).name.casefold(),
@@ -723,16 +723,24 @@ class AresFirmwareService:
             digest = str(identity.get(algorithm) or "").casefold()
             for entry in hash_index.get((algorithm, digest), ()):
                 candidates[entry.key] = entry
-        for entry in candidates.values():
-            if entry.key not in found and cls._matches_entry(identity, entry):
-                found[entry.key] = AresFirmwareMatch(entry, str(path), member)
 
-        # Entradas sem hash só podem ser associadas pelo nome do arquivo.
-        # Entradas que possuem hash continuam exigindo validação criptográfica.
+        hash_matches = [
+            entry for entry in candidates.values()
+            if entry.key not in found and cls._matches_entry(identity, entry)
+        ]
+        for entry in hash_matches:
+            found[entry.key] = AresFirmwareMatch(entry, str(path), member, "hash")
+
+        # O hash sempre tem precedência. Se nenhum hash do arquivo coincidir,
+        # aceita a mesma nomenclatura como fallback, inclusive para entradas
+        # que possuem hash no catálogo. Isso permite usar um dump com nome
+        # reconhecido quando o catálogo não oferece uma identidade coincidente.
+        if hash_matches:
+            return
         member_name = Path(member).name.casefold() if member else path.name.casefold()
         for entry in name_index.get(member_name, ()):
             if entry.key not in found:
-                found[entry.key] = AresFirmwareMatch(entry, str(path), member)
+                found[entry.key] = AresFirmwareMatch(entry, str(path), member, "name")
 
     @staticmethod
     def _matches_entry(identity: dict[str, object], entry: AresFirmwareEntry) -> bool:
