@@ -377,10 +377,11 @@ class RetroBiosFirmwarePanel(QWidget):
         required = sum(entry.required for entry in self._catalog[1])
         optional = len(self._catalog[1]) - required
         verifiable = sum(entry.is_verifiable for entry in self._catalog[1])
+        available = sum(entry.catalog_available for entry in self._catalog[1])
         self.catalog_status.setText(
             f"RetroBIOS {version} | {len(self._catalog[1]):,} arquivo(s) | "
             f"obrigatórios={required:,} | opcionais={optional:,} | "
-            f"com checksum={verifiable:,}"
+            f"com checksum={verifiable:,} | disponíveis no acervo={available:,}"
         )
         self._populate_catalog_preview()
         self._clear_scan(preserve_catalog=True)
@@ -412,6 +413,8 @@ class RetroBiosFirmwarePanel(QWidget):
             else:
                 label = f"AUSENTE | {entry.output_path} | {entry.system}"
                 state = "missing"
+            availability = entry.availability_label
+            label = f"{label} | {availability}"
             item = QListWidgetItem(label)
             item.setData(Qt.ItemDataRole.UserRole + 1, state)
             item.setData(Qt.ItemDataRole.UserRole, entry.key)
@@ -433,9 +436,10 @@ class RetroBiosFirmwarePanel(QWidget):
                 item.setForeground(Qt.GlobalColor.white)
             self.items.addItem(item)
         verifiable = sum(entry.is_verifiable for entry in self._catalog[1])
+        available = sum(entry.catalog_available for entry in self._catalog[1])
         self.catalog_status.setText(
             f"RetroBIOS {self._catalog[0]} | {len(self._catalog[1]):,} arquivo(s) catalogado(s) | "
-            f"{verifiable:,} com identidade verificável"
+            f"{verifiable:,} com identidade verificável | acervo={available:,}"
         )
         required = sum(entry.required for entry in self._catalog[1])
         optional = len(self._catalog[1]) - required
@@ -563,7 +567,8 @@ class RetroBiosFirmwarePanel(QWidget):
             required = "OBRIGATÓRIO" if entry.required else "OPCIONAL"
             hash_state = "com hash" if entry.is_verifiable else "sem hash"
             item = QListWidgetItem(
-                f"{required} | {entry.output_path} | {entry.system} | {hash_state}"
+                f"{required} | {entry.output_path} | {entry.system} | {hash_state} | "
+                f"{entry.availability_label}"
             )
             item.setData(Qt.ItemDataRole.UserRole, entry.key)
             item.setData(Qt.ItemDataRole.UserRole + 1, "catalog")
@@ -573,6 +578,9 @@ class RetroBiosFirmwarePanel(QWidget):
                 f"Destino: {entry.output_path}\n"
                 f"Tipo: {required}\n"
                 f"Hash verificável: {hash_label}\n"
+                f"Disponibilidade: {entry.availability_label}\n"
+                f"Repo path: {entry.repository_path or 'não informado'}\n"
+                f"Release asset: {entry.release_asset or 'não informado'}\n"
                 f"Descrição: {entry.description or 'não informada'}"
             )
             if entry.required:
