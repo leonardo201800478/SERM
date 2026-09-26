@@ -1249,10 +1249,14 @@ class EmulatorManager:
         """Codifica espaços literais encontrados em links de download HTML."""
         parsed = urlparse(url)
         return parsed._replace(
-            path=quote(unquote(parsed.path), safe="/%:@-._~!    @staticmethod
+            path=quote(unquote(parsed.path), safe="/%:@-._~!$&'()*+,;="),
+            query=quote(unquote(parsed.query), safe="=&%:@-._~!$'()*+,;/?"),
+            fragment=quote(unquote(parsed.fragment), safe="=&%:@-._~!$'()*+,;/?"),
+        ).geturl()
+
+    @staticmethod
     def _download(url: str, target: Path, expected: int, progress=None, log=None) -> None:
-'()*+,;="),
-            query=quote(unquote(parsed.query), safe="=&%:@-._~!        """Baixa um arquivo usando o motor HTTP compartilhado."""
+        """Baixa um arquivo usando o motor HTTP compartilhado."""
         try:
             DownloadEngine().download(
                 url,
