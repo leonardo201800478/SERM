@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib.error import URLError
-from urllib.parse import urlencode, urljoin, urlparse
+from urllib.parse import unquote, urlencode, urljoin, urlparse
 from urllib.request import Request, urlopen
 
 from .download_engine import DownloadEngine, DownloadEngineError
@@ -633,7 +633,7 @@ class EmulatorManager:
             (
                 url
                 for url in links
-                if Path(urlparse(url).path).name.casefold() == "xm6 pro-68k.7z"
+                if unquote(Path(urlparse(url).path).name).casefold() == "xm6 pro-68k.7z"
             ),
             None,
         )
@@ -641,7 +641,7 @@ class EmulatorManager:
             (
                 url
                 for url in links
-                if Path(urlparse(url).path).name.casefold() == "xm6 pro-68k dll package.7z"
+                if unquote(Path(urlparse(url).path).name).casefold() == "xm6 pro-68k dll package.7z"
             ),
             None,
         )
@@ -660,7 +660,7 @@ class EmulatorManager:
     ) -> DownloadResult:
         """Baixa e instala os pacotes principal e DLL oficiais do XM6 Pro-68k."""
         base_url, archive_name, version, dll_url = self._latest_xm6pro68k_build()
-        dll_archive_name = Path(urlparse(dll_url).path).name
+        dll_archive_name = unquote(Path(urlparse(dll_url).path).name)
         with tempfile.TemporaryDirectory(prefix="serm-xm6pro68k-") as temp_name:
             temp = Path(temp_name)
             extracted = temp / "extracted"
