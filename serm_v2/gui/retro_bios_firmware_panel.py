@@ -397,6 +397,71 @@ class RetroBiosFirmwarePanel(QWidget):
         self.export_missing_button.setEnabled(bool(scan.missing))
         self.status.setText(f"Scan concluído em {scan.source_directory}.")
 
+    def export_missing_report(self) -> None:
+        """Exporta BIOS/firmwares ausentes com metadados para pesquisa rápida."""
+        if self._scan is None:
+            QMessageBox.information(self, f"Firmware {self.label}", "Execute o scan antes de exportar.")
+            return
+        missing = tuple(self._scan.missing)
+        if not missing:
+            QMessageBox.information(self, f"Firmware {self.label}", "Nenhuma BIOS/firmware ausente foi encontrada.")
+            return
+        selected, _ = QFileDialog.getSaveFileName(
+            self,
+            "Exportar BIOS/firmwares ausentes",
+            str(Path.home() / f"bios_firmwares_ausentes_{self.emulator}.txt"),
+            "Arquivo de texto (*.txt);;Todos os arquivos (*)",
+        )
+        if not selected:
+            return
+        output = Path(selected)
+        if output.suffix.casefold() != ".txt":
+            output = output.with_suffix(".txt")
+        lines = [
+            "SERM — BIOS / FIRMWARES AUSENTES",
+            f"Emulador: {self.label} ({self.emulator})",
+            f"Catálogo RetroBIOS: {self._scan.catalog_version}",
+            f"Diretório examinado: {self._scan.source_directory}",
+            f"Itens ausentes: {len(missing)}",
+            "",
+            "Pesquisa Google: use o hash como identificador principal quando disponível.",
+            "",
+        ]
+        for index, entry in enumerate(missing, start=1):
+            size = str(entry.size) if entry.size is not None else "não informado"
+            hashes = []
+            for algorithm in ("sha256", "sha1", "md5", "crc32"):
+                value = getattr(entry, algorithm)
+                if value:
+                    hashes.append(f"{algorithm.upper()}={value}")
+            hash_text = " | ".join(hashes) if hashes else "não informado"
+            query_parts = [entry.name, entry.system]
+            if entry.size is not None:
+                query_parts.append(f"{entry.size} bytes")
+            for value in (entry.sha256, entry.sha1, entry.md5, entry.crc32):
+                if value:
+                    query_parts.append(value)
+                    break
+            query = " ".join(f'"{part}"' for part in query_parts if part)
+            required = "SIM" if entry.required else "NÃO"
+            lines.extend((
+                f"{index:03d}. {entry.name}",
+                f"    Sistema: {entry.system}",
+                f"    Caminho esperado: {entry.output_path or entry.name}",
+                f"    Tamanho: {size} bytes",
+                f"    Hash: {hash_text}",
+                f"    Obrigatório: {required}",
+                f"    Descrição: {entry.description or 'não informada'}",
+                f"    Pesquisa Google: {query} BIOS firmware ROM",
+                "",
+            ))
+        try:
+            output.write_text("\n".join(lines), encoding="utf-8-sig")
+        except OSError as exc:
+            QMessageBox.warning(self, f"Firmware {self.label}", f"Não foi possível salvar o relatório.\n\n{exc}")
+            return
+        self.status.setText(f"Relatório de ausentes exportado: {output}")
+        QMessageBox.information(self, f"Firmware {self.label}", f"Relatório salvo em:\n{output}")
     def _is_checked(self, key: str) -> bool:
         for index in range(self.items.count()):
             item = self.items.item(index)
