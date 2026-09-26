@@ -40,6 +40,7 @@ class _RetroBiosWorker(QThread):
     progress = Signal(int, int)
     catalog_ready = Signal(object)
     scanned = Signal(object)
+    destination_scanned = Signal(object)
     completed = Signal(object)
     failed = Signal(str)
 
@@ -81,6 +82,18 @@ class _RetroBiosWorker(QThread):
                     cancel_callback=lambda: self.cancel_requested,
                 )
                 self.scanned.emit((catalog, scan))
+            elif self.operation == "destination_scan" and self.destination is not None:
+                catalog = self.catalog or AresFirmwareService.load_catalog(emulator=self.emulator)
+                version, entries = catalog
+                scan = AresFirmwareService.scan(
+                    self.destination,
+                    entries,
+                    catalog_version=version,
+                    emulator=self.emulator,
+                    progress_callback=self.progress.emit,
+                    cancel_callback=lambda: self.cancel_requested,
+                )
+                self.destination_scanned.emit((catalog, scan))
             elif self.operation == "reconstruct" and self.plan is not None:
                 result = ReconstructionService.execute(
                     self.plan,
@@ -135,7 +148,9 @@ class RetroBiosFirmwarePanel(QWidget):
         self.label = label
         self._catalog: tuple[str, tuple[AresFirmwareEntry, ...]] | None = None
         self._scan: AresFirmwareScan | None = None
+        self._destination_scan: AresFirmwareScan | None = None
         self._matches: dict[str, AresFirmwareMatch] = {}
+        self._destination_matches: dict[str, AresFirmwareMatch] = {}
         self._plan: ReconstructionPlan | None = None
         self._worker: _RetroBiosWorker | None = None
         self._source: Path | None = None
@@ -186,8 +201,12 @@ class RetroBiosFirmwarePanel(QWidget):
         actions = QHBoxLayout()
         self.catalog_button = QPushButton("ATUALIZAR RETROBIOS")
         self.catalog_button.clicked.connect(self.update_catalog)
-        self.scan_button = QPushButton("ESCANEAR RETROBIOS")
+        self.scan_button = QPushButton("ESCANEAR FONTE")
+        self.scan_button.setToolTip("Escaneia a fonte de aquisição e identifica os arquivos que podem ser reconstruídos.")
         self.scan_button.clicked.connect(self.scan)
+        self.destination_scan_button = QPushButton("ESCANEAR DESTINO")
+        self.destination_scan_button.setToolTip("Escaneia recursivamente a pasta de destino e determina o estado real das BIOS instaladas.")
+        self.destination_scan_button.clicked.connect(self.scan_destination)
         self.reconstruct_button = QPushButton("RECONSTRUIR SELECIONADOS")
         self.reconstruct_button.setEnabled(False)
         self.reconstruct_button.clicked.connect(self.reconstruct)
@@ -199,6 +218,7 @@ class RetroBiosFirmwarePanel(QWidget):
         self.export_missing_button.setEnabled(False)
         actions.addWidget(self.catalog_button)
         actions.addWidget(self.scan_button)
+        actions.addWidget(self.destination_scan_button)
         actions.addWidget(self.reconstruct_button)
         actions.addWidget(self.cancel_button)
         actions.addWidget(self.export_missing_button)
@@ -331,7 +351,29 @@ class RetroBiosFirmwarePanel(QWidget):
         self.status.setText(f"Carregando RetroBIOS e examinando {self._source}…")
         self._start_worker(
             _RetroBiosWorker(
-                "scan", self.emulator, source=self._source, parent=self
+                "scan", self.emulator, source=self._source, catalog=self._catalog, parent=self
+            )
+        )
+
+    def scan_destination(self) -> None:
+        if self._worker is not None:
+            return
+        self.refresh()
+        if self._destination is None or not self._destination.is_dir():
+            QMessageBox.information(
+                self,
+                f"Firmware {self.label}",
+                "Configure primeiro o diretório de destino da reconstrução.",
+            )
+            return
+        self.status.setText(f"Examinando recursivamente o destino {self._destination}…")
+        self._start_worker(
+            _RetroBiosWorker(
+                "destination_scan",
+                self.emulator,
+                catalog=self._catalog,
+                destination=self._destination,
+                parent=self,
             )
         )
 
@@ -352,7 +394,7 @@ class RetroBiosFirmwarePanel(QWidget):
         selected = tuple(
             match
             for key, match in self._matches.items()
-            if self._is_checked(key)
+            if key not in self._destination_matches and self._is_checked(key)
         )
         if not selected:
             QMessageBox.information(
@@ -395,11 +437,13 @@ class RetroBiosFirmwarePanel(QWidget):
         worker.progress.connect(self._progress)
         worker.catalog_ready.connect(self._catalog_loaded)
         worker.scanned.connect(self._scan_finished)
+        worker.destination_scanned.connect(self._destination_scan_finished)
         worker.completed.connect(self._reconstruction_finished)
         worker.failed.connect(self._failed)
         worker.finished.connect(self._worker_finished)
         self.catalog_button.setEnabled(False)
         self.scan_button.setEnabled(False)
+        self.destination_scan_button.setEnabled(False)
         self.reconstruct_button.setEnabled(False)
         self.cancel_button.setEnabled(True)
         self.progress.setValue(0)
@@ -435,6 +479,32 @@ class RetroBiosFirmwarePanel(QWidget):
         self._catalog = (str(catalog[0]), tuple(catalog[1]))
         self._scan = scan
         self._matches = {match.entry.key: match for match in scan.matches}
+        self._render_scan_state()
+        self.status.setText(
+            f"Scan da fonte concluído em {scan.source_directory}: "
+            f"{len(scan.matches):,} arquivo(s) reconhecido(s). "
+            "Execute também o scan do destino para determinar as ausentes reais."
+        )
+
+    def _destination_scan_finished(self, payload: object) -> None:
+        if not isinstance(payload, tuple) or len(payload) != 2:
+            self._failed("Resposta do scan do destino inválida.")
+            return
+        catalog, scan = payload
+        self._catalog = (str(catalog[0]), tuple(catalog[1]))
+        self._destination_scan = scan
+        self._destination_matches = {match.entry.key: match for match in scan.matches}
+        self._render_scan_state(destination_scan=scan)
+        self.status.setText(
+            f"Scan do destino concluído em {scan.source_directory}: "
+            f"{len(scan.matches):,} arquivo(s) reconhecido(s), "
+            f"{len(scan.missing):,} ausente(s)."
+        )
+
+    def _render_scan_state(self, *, destination_scan: AresFirmwareScan | None = None) -> None:
+        destination = destination_scan or self._destination_scan
+        if self._catalog is None:
+            return
         self.items.clear()
         state_counts = {
             "VALIDADO": 0,
@@ -444,9 +514,12 @@ class RetroBiosFirmwarePanel(QWidget):
             "HLE / OPCIONAL": 0,
         }
         for entry in self._catalog[1]:
-            match = self._matches.get(entry.key)
-            state = entry.panel_state(match is not None)
-            state_detail = entry.panel_state_detail(match is not None)
+            source_match = self._matches.get(entry.key)
+            destination_match = self._destination_matches.get(entry.key)
+            match = destination_match or source_match
+            present = destination_match is not None
+            state = entry.panel_state(present)
+            state_detail = entry.panel_state_detail(present)
             if state == "VALIDADO":
                 background = Qt.GlobalColor.darkGreen
                 foreground = Qt.GlobalColor.white
@@ -462,26 +535,25 @@ class RetroBiosFirmwarePanel(QWidget):
             else:
                 background = Qt.GlobalColor.darkBlue
                 foreground = Qt.GlobalColor.white
-
             state_counts[state] += 1
-            label = (
+            item = QListWidgetItem(
                 f"{state} | {entry.output_path} | {entry.system} | "
                 f"{entry.availability_label} | {entry.distribution_label}"
             )
-            item = QListWidgetItem(label)
             item.setData(Qt.ItemDataRole.UserRole + 1, state)
             item.setData(Qt.ItemDataRole.UserRole, entry.key)
-            if match:
+            if source_match is not None and not present:
                 item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
                 item.setCheckState(Qt.CheckState.Checked)
+            if match:
                 item.setToolTip(
                     f"{match.path}"
                     + (f" :: {match.archive_member}" if match.archive_member else "")
-                    + f"\n\nEstado: {state}\n{state_detail}"
+                    + f"\n\nEstado no destino: {state}\n{state_detail}"
                 )
             else:
                 item.setToolTip(
-                    f"Estado: {state}\n{state_detail}\n"
+                    f"Estado no destino: {state}\n{state_detail}\n"
                     f"Disponibilidade: {entry.availability_label}\n"
                     f"Distribuição: {entry.distribution_label}\n"
                     f"Cobertura: {entry.coverage_label}\n"
@@ -492,31 +564,38 @@ class RetroBiosFirmwarePanel(QWidget):
             self.items.addItem(item)
         verifiable = sum(entry.is_verifiable for entry in self._catalog[1])
         available = sum(entry.catalog_available for entry in self._catalog[1])
-        self.catalog_status.setText(
-            f"RetroBIOS {self._catalog[0]} | {len(self._catalog[1]):,} arquivo(s) catalogado(s) | "
-            f"{verifiable:,} com identidade verificável | acervo={available:,}"
-        )
         required = sum(entry.required for entry in self._catalog[1])
         optional = len(self._catalog[1]) - required
-        self.summary.setText(
-            f"Examinados={scan.files_examined:,} | "
-            f"🟢 validados={state_counts['VALIDADO']:,} | "
-            f"🟡 hash não verificável={state_counts['PRESENTE — HASH NÃO VERIFICÁVEL']:,} | "
-            f"🔴 ausente/disponível={state_counts['AUSENTE — DISPONÍVEL']:,} | "
-            f"⚫ ausente/não disponível={state_counts['AUSENTE — NÃO DISPONÍVEL']:,} | "
-            f"🔵 HLE/opcional={state_counts['HLE / OPCIONAL']:,} | "
-            f"catálogo: obrigatórios={required:,}, opcionais={optional:,}, sem hash={len(self._catalog[1]) - verifiable:,}"
+        scan_label = (
+            f"destino={len(destination.matches):,} reconhecido(s)"
+            if destination else "destino ainda não escaneado"
         )
-        self.reconstruct_button.setEnabled(bool(self._matches))
-        self.export_missing_button.setEnabled(bool(scan.missing))
-        self.status.setText(f"Scan concluído em {scan.source_directory}.")
+        self.catalog_status.setText(
+            f"RetroBIOS {self._catalog[0]} | {len(self._catalog[1]):,} arquivo(s) | "
+            f"{verifiable:,} com identidade verificável | acervo={available:,} | {scan_label}"
+        )
+        self.summary.setText(
+            f"Destino: examinados={destination.files_examined:,} | "
+            f"🟢 presentes/validados={state_counts['VALIDADO']:,} | "
+            f"🟡 presentes sem hash={state_counts['PRESENTE — HASH NÃO VERIFICÁVEL']:,} | "
+            f"🔴 ausentes/disponíveis={state_counts['AUSENTE — DISPONÍVEL']:,} | "
+            f"⚫ ausentes/não disponíveis={state_counts['AUSENTE — NÃO DISPONÍVEL']:,} | "
+            f"🔵 HLE/opcional={state_counts['HLE / OPCIONAL']:,} | "
+            f"fonte de reconstrução={len(self._matches):,} arquivo(s)"
+        )
+        self.reconstruct_button.setEnabled(bool(self._matches) and destination is not None)
+        self.export_missing_button.setEnabled(bool(destination and destination.missing))
 
     def export_missing_report(self) -> None:
         """Exporta BIOS/firmwares ausentes com metadados para pesquisa rápida."""
-        if self._scan is None:
-            QMessageBox.information(self, f"Firmware {self.label}", "Execute o scan antes de exportar.")
+        if self._destination_scan is None:
+            QMessageBox.information(
+                self,
+                f"Firmware {self.label}",
+                "Execute o scan do destino antes de exportar as ausentes.",
+            )
             return
-        missing = tuple(self._scan.missing)
+        missing = tuple(self._destination_scan.missing)
         if not missing:
             QMessageBox.information(self, f"Firmware {self.label}", "Nenhuma BIOS/firmware ausente foi encontrada.")
             return
@@ -535,7 +614,7 @@ class RetroBiosFirmwarePanel(QWidget):
             "SERM — BIOS / FIRMWARES AUSENTES",
             f"Emulador: {self.label} ({self.emulator})",
             f"Catálogo RetroBIOS: {self._scan.catalog_version}",
-            f"Diretório examinado: {self._scan.source_directory}",
+            f"Diretório de destino examinado: {self._destination_scan.source_directory}",
             f"Itens ausentes: {len(missing)}",
             "",
             "Pesquisa Google: use o hash como identificador principal quando disponível.",
@@ -612,7 +691,8 @@ class RetroBiosFirmwarePanel(QWidget):
         self._worker = None
         self.catalog_button.setEnabled(True)
         self.scan_button.setEnabled(True)
-        self.reconstruct_button.setEnabled(bool(self._matches))
+        self.destination_scan_button.setEnabled(True)
+        self.reconstruct_button.setEnabled(bool(self._matches) and self._destination_scan is not None)
         self.cancel_button.setEnabled(False)
 
     def _populate_catalog_preview(self) -> None:
@@ -653,7 +733,9 @@ class RetroBiosFirmwarePanel(QWidget):
 
     def _clear_scan(self, *, preserve_catalog: bool = False) -> None:
         self._scan = None
+        self._destination_scan = None
         self._matches.clear()
+        self._destination_matches.clear()
         if preserve_catalog:
             self._populate_catalog_preview()
         else:
