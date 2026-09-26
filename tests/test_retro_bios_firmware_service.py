@@ -262,6 +262,92 @@ def test_scan_recognizes_the_zip_container_itself(tmp_path: Path) -> None:
 
 
 
+def test_scan_requires_retroarch_nested_output_path_even_when_hash_matches(tmp_path: Path) -> None:
+    source = tmp_path / "system"
+    source.mkdir()
+    correct = source / "dc"
+    correct.mkdir()
+    data = b"dreamcast bios"
+    wrong = source / "dc_boot.bin"
+    wrong.write_bytes(data)
+
+    digest = hashlib.sha256(data).hexdigest()
+    payload = {
+        "items": [{
+            "id": "retroarch",
+            "profile": {
+                "emulator": "RetroArch",
+                "type": "libretro",
+                "files": [{
+                    "name": "dc_boot.bin",
+                    "path": "dc/dc_boot.bin",
+                    "sha256": digest,
+                }],
+            },
+        }],
+    }
+    entries, _version = AresFirmwareService._parse_catalog(payload, emulator="retroarch")
+    scan = AresFirmwareService.scan(source, entries, emulator="retroarch")
+
+    assert scan.matches == ()
+    assert scan.missing == entries
+
+
+def test_bizhawk_sha1_match_is_accepted_from_firmware_root(tmp_path: Path) -> None:
+    source = tmp_path / "Firmware"
+    source.mkdir()
+    data = b"bizhawk firmware"
+    firmware = source / "boot.rom"
+    firmware.write_bytes(data)
+
+    payload = {
+        "items": [{
+            "id": "bizhawk",
+            "profile": {
+                "emulator": "BizHawk",
+                "files": [{
+                    "name": "boot.rom",
+                    "sha1": hashlib.sha1(data, usedforsecurity=False).hexdigest(),
+                }],
+            },
+        }],
+    }
+    entries, _version = AresFirmwareService._parse_catalog(payload, emulator="bizhawk")
+    scan = AresFirmwareService.scan(source, entries, emulator="bizhawk")
+
+    assert len(scan.matches) == 1
+    assert scan.matches[0].match_mode == "hash"
+    assert scan.missing == ()
+
+
+def test_bizhawk_wrong_sha1_falls_back_to_name_but_not_validation(tmp_path: Path) -> None:
+    source = tmp_path / "Firmware"
+    source.mkdir()
+    firmware = source / "boot.rom"
+    firmware.write_bytes(b"wrong dump")
+
+    payload = {
+        "items": [{
+            "id": "bizhawk",
+            "profile": {
+                "emulator": "BizHawk",
+                "files": [{
+                    "name": "boot.rom",
+                    "sha1": "0" * 40,
+                }],
+            },
+        }],
+    }
+    entries, _version = AresFirmwareService._parse_catalog(payload, emulator="bizhawk")
+    scan = AresFirmwareService.scan(source, entries, emulator="bizhawk")
+
+    assert len(scan.matches) == 1
+    assert scan.matches[0].match_mode == "name"
+    assert scan.matches[0].entry.name == "boot.rom"
+
+
+
+
 def test_ares_neo_geo_direct_files_remain_supported(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
