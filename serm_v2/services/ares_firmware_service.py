@@ -38,6 +38,19 @@ class AresFirmwareEntry:
     repository_path: str = ""
     release_asset: str = ""
     catalog_available: bool = False
+    gap_layer: str = ""
+    gap_status: str = ""
+    gap_in_repo: bool | None = None
+    gap_reason: str = ""
+
+    @property
+    def coverage_label(self) -> str:
+        if self.gap_layer == "emulator":
+            if self.gap_status == "bios":
+                return "LACUNA DE COBERTURA" if self.gap_in_repo else "LACUNA DE COBERTURA (NÃO LOCALIZADO)"
+            if self.gap_status:
+                return f"COBERTURA: {self.gap_status.upper()}"
+        return "SEM LACUNA REGISTRADA"
 
     @property
     def availability_label(self) -> str:
@@ -121,10 +134,13 @@ class AresFirmwareService:
 
     CATALOG_URL = "https://abdess.github.io/retrobios/api/v1/emulators.json"
     DATABASE_URL = "https://abdess.github.io/retrobios/api/v1/database.json"
+    GAPS_URL = "https://abdess.github.io/retrobios/api/v1/gaps.json"
     CATALOG_CACHE = data_root() / "catalog" / "retrobios_emulators.json"
     DATABASE_CACHE = data_root() / "catalog" / "retrobios_database.json"
+    GAPS_CACHE = data_root() / "catalog" / "retrobios_gaps.json"
     MAX_CATALOG_BYTES = 8 * 1024 * 1024
     MAX_DATABASE_BYTES = 32 * 1024 * 1024
+    MAX_GAPS_BYTES = 8 * 1024 * 1024
     CHUNK_SIZE = 1024 * 1024
     PROFILE_ALIASES = {
         "super_zsnes": ("superzsnes",),
@@ -238,6 +254,8 @@ class AresFirmwareService:
 
         database = cls.load_database(refresh=refresh)
         entries = cls._enrich_entries_from_database(entries, database)
+        gaps = cls.load_gaps(refresh=refresh)
+        entries = cls._enrich_entries_from_gaps(entries, gaps)
         return version, entries
 
     @classmethod
@@ -278,6 +296,127 @@ class AresFirmwareService:
         if payload is None:
             raise AresFirmwareError("O banco de conteúdo RetroBIOS não retornou dados.")
         return payload
+
+    @classmethod
+    def load_gaps(cls, *, refresh: bool = False) -> object:
+        """Carrega as lacunas de cobertura publicadas pelo RetroBIOS."""
+        payload: object | None = None
+        if refresh:
+            try:
+                request = urllib.request.Request(
+                    cls.GAPS_URL,
+                    headers={"User-Agent": "SERM/2.x", "Accept": "application/json"},
+                )
+                with urllib.request.urlopen(request, timeout=30) as response:
+                    raw = response.read(cls.MAX_GAPS_BYTES + 1)
+                if len(raw) > cls.MAX_GAPS_BYTES:
+                    raise AresFirmwareError(
+                        "O banco de lacunas RetroBIOS ultrapassou o limite de 8 MiB."
+                    )
+                payload = json.loads(raw.decode("utf-8"))
+                cls.GAPS_CACHE.parent.mkdir(parents=True, exist_ok=True)
+                cls.GAPS_CACHE.write_text(
+                    json.dumps(payload, ensure_ascii=False), encoding="utf-8"
+                )
+            except AresFirmwareError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                if cls.GAPS_CACHE.is_file():
+                    payload = cls._read_gaps_cache()
+                else:
+                    raise AresFirmwareError(
+                        f"Não foi possível atualizar as lacunas RetroBIOS: {exc}"
+                    ) from exc
+        else:
+            payload = cls._read_gaps_cache()
+            if payload is None:
+                return cls.load_gaps(refresh=True)
+        if payload is None:
+            raise AresFirmwareError("O banco de lacunas RetroBIOS não retornou dados.")
+        return payload
+
+    @classmethod
+    def _enrich_entries_from_gaps(
+        cls,
+        entries: tuple[AresFirmwareEntry, ...],
+        gaps: object,
+    ) -> tuple[AresFirmwareEntry, ...]:
+        """Relaciona somente lacunas da camada de emulador aos arquivos do perfil."""
+        records = cls._gap_records(gaps)
+        by_name: dict[str, list[dict[str, object]]] = {}
+        for record in records:
+            for name in cls._gap_names(record):
+                by_name.setdefault(name, []).append(record)
+
+        enriched: list[AresFirmwareEntry] = []
+        for entry in entries:
+            candidates: list[dict[str, object]] = []
+            names = {Path(entry.name).name.casefold(), Path(entry.output_path).name.casefold()}
+            names.update(Path(alias).name.casefold() for alias in entry.aliases)
+            for name in names:
+                candidates.extend(by_name.get(name, ()))
+            candidate = next(
+                (
+                    record for record in candidates
+                    if cls._gap_matches_entry(record, entry)
+                ),
+                None,
+            )
+            if candidate is None:
+                enriched.append(entry)
+                continue
+            enriched.append(
+                AresFirmwareEntry(
+                    name=entry.name,
+                    system=entry.system,
+                    description=entry.description,
+                    required=entry.required,
+                    sha256=entry.sha256,
+                    size=entry.size,
+                    sha1=entry.sha1,
+                    md5=entry.md5,
+                    crc32=entry.crc32,
+                    validation=entry.validation,
+                    output_path=entry.output_path,
+                    aliases=entry.aliases,
+                    profile_id=entry.profile_id,
+                    repository_path=entry.repository_path,
+                    release_asset=entry.release_asset,
+                    catalog_available=entry.catalog_available,
+                    gap_layer="emulator",
+                    gap_status=str(candidate.get("status") or "").strip(),
+                    gap_in_repo=(bool(candidate.get("in_repo")) if "in_repo" in candidate else None),
+                    gap_reason=str(candidate.get("reason") or "").strip(),
+                )
+            )
+        return tuple(enriched)
+
+    @staticmethod
+    def _gap_records(payload: object) -> tuple[dict[str, object], ...]:
+        if not isinstance(payload, dict):
+            return ()
+        items = payload.get("items")
+        if not isinstance(items, list):
+            return ()
+        return tuple(
+            item for item in items
+            if isinstance(item, dict) and str(item.get("layer") or "").casefold() == "emulator"
+        )
+
+    @staticmethod
+    def _gap_names(record: dict[str, object]) -> tuple[str, ...]:
+        value = record.get("name")
+        if not isinstance(value, str) or not value.strip():
+            return ()
+        return (Path(value).name.casefold(),)
+
+    @staticmethod
+    def _gap_matches_entry(record: dict[str, object], entry: AresFirmwareEntry) -> bool:
+        system = str(record.get("system") or "").strip().casefold()
+        if not system:
+            return True
+        entry_systems = {part.strip().casefold() for part in entry.system.split(";") if part.strip()}
+        return system in entry_systems
 
     @classmethod
     def _enrich_entries_from_database(
@@ -694,6 +833,15 @@ class AresFirmwareService:
         ):
             return None
         return normalized.as_posix()
+
+    @classmethod
+    def _read_gaps_cache(cls) -> object | None:
+        try:
+            if cls.GAPS_CACHE.stat().st_size > cls.MAX_GAPS_BYTES:
+                return None
+            return json.loads(cls.GAPS_CACHE.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            return None
 
     @classmethod
     def _read_database_cache(cls) -> object | None:
