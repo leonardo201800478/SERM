@@ -309,6 +309,7 @@ class AresFirmwareService:
     def load_catalog(
         cls, *, emulator: str = "ares", refresh: bool = False
     ) -> tuple[str, tuple[AresFirmwareEntry, ...]]:
+        source_entries = cls._ares_source_entries() if emulator.casefold() == "ares" else ()
         payload: object | None = None
         if refresh:
             try:
@@ -978,7 +979,6 @@ class AresFirmwareService:
         target = emulator.casefold()
         if target == "mame":
             return (), "excluded"
-        source_entries = cls._ares_source_entries() if target == "ares" else ()
         if target == "retroarch":
             selected = [
                 (profile_id, profile)
