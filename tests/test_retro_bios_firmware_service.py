@@ -197,6 +197,71 @@ def test_ares_neo_geo_zip_satisfies_aes_and_mvs_members(tmp_path: Path) -> None:
     assert {entry.container_name for entry in entries} == {"neogeo.zip"}
 
 
+def test_catalog_archive_entries_require_the_declared_zip(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    loose = source / "bios.bin"
+    loose.write_bytes(b"archive BIOS")
+    archive_path = source / "required.zip"
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        archive.writestr("bios.bin", b"archive BIOS")
+
+    payload = {
+        "items": [{
+            "id": "testemu",
+            "profile": {
+                "emulator": "Test",
+                "files": [{
+                    "name": "bios.bin",
+                    "archive": "required.zip",
+                    "sha256": hashlib.sha256(b"archive BIOS").hexdigest(),
+                }],
+            },
+        }]
+    }
+    entries, _version = AresFirmwareService._parse_catalog(payload, emulator="testemu")
+
+    scan = AresFirmwareService.scan(source, entries, emulator="testemu")
+
+    assert len(scan.matches) == 1
+    assert scan.matches[0].archive_member == "bios.bin"
+    assert scan.matches[0].path == str(archive_path)
+    assert scan.matches[0].match_mode == "hash"
+    assert entries[0].archive_required is True
+
+
+def test_scan_recognizes_the_zip_container_itself(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    archive_path = source / "bios.zip"
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        archive.writestr("bios.bin", b"payload")
+
+    data = archive_path.read_bytes()
+    payload = {
+        "items": [{
+            "id": "testemu",
+            "profile": {
+                "emulator": "Test",
+                "files": [{
+                    "name": "bios.zip",
+                    "sha256": hashlib.sha256(data).hexdigest(),
+                }],
+            },
+        }]
+    }
+    entries, _version = AresFirmwareService._parse_catalog(payload, emulator="testemu")
+
+    scan = AresFirmwareService.scan(source, entries, emulator="testemu")
+
+    assert len(scan.matches) == 1
+    assert scan.matches[0].entry.name == "bios.zip"
+    assert scan.matches[0].archive_member is None
+    assert scan.matches[0].match_mode == "hash"
+
+
+
+
 def test_ares_neo_geo_direct_files_remain_supported(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
