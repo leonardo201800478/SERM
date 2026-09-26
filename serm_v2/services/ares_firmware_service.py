@@ -8,8 +8,8 @@ import os
 import urllib.request
 import zipfile
 import zlib
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath, PureWindowsPath
