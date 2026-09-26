@@ -1149,10 +1149,12 @@ def test_scan_does_not_accept_same_filename_when_hash_does_not_match(tmp_path: P
 
     scan = AresFirmwareService.scan(source, entries, emulator="amiberry")
 
-    assert len(scan.matches) == 1
-    assert scan.matches[0].path == str(firmware)
-    assert scan.matches[0].match_mode == "name"
-    assert scan.matches[0].entry.name == "kick13.rom"
+    assert scan.matches == ()
+    assert len(scan.invalid) == 1
+    assert scan.invalid[0].path == str(firmware)
+    assert scan.invalid[0].match_mode == "invalid"
+    assert scan.invalid[0].entry.name == "kick13.rom"
+    assert scan.missing == (entries[0],)
 
 
 def test_scan_prefers_hash_match_over_same_filename_fallback(tmp_path: Path) -> None:
