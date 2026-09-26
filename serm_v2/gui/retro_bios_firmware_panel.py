@@ -32,6 +32,7 @@ from ..services.reconstruction_service import (
     ReconstructionPlan,
     ReconstructionService,
 )
+from ..services.retrobios_pack_service import RetroBiosPackService
 from .directory_dialogs import get_existing_directory
 
 
@@ -159,11 +160,15 @@ class RetroBiosFirmwarePanel(QWidget):
         self.source_label.setWordWrap(True)
         source_row = QHBoxLayout()
         source_row.addWidget(self.source_label, 1)
-        choose_source = QPushButton("Origem…")
-        choose_source.setToolTip("Escolhe a pasta que será examinada por hashes.")
+        choose_source = QPushButton("Fonte alternativa…")
+        choose_source.setToolTip("Usa uma pasta externa em vez do diretório local dos packs RetroBIOS.")
         choose_source.clicked.connect(self._choose_source)
         source_row.addWidget(choose_source)
-        form.addRow("Scan:", source_row)
+        use_packs = QPushButton("Usar packs")
+        use_packs.setToolTip("Restaura o diretório configurado em Ferramentas > Packs de BIOS RetroBIOS.")
+        use_packs.clicked.connect(self._use_retrobios_packs)
+        source_row.addWidget(use_packs)
+        form.addRow("Fonte de aquisição:", source_row)
 
         self.destination_label = QLabel("Selecione o diretório de firmware do emulador")
         self.destination_label.setWordWrap(True)
@@ -235,6 +240,8 @@ class RetroBiosFirmwarePanel(QWidget):
             self._source = Path(configured_source).expanduser()
         elif not self._source_selected and isinstance(configured, str) and configured.strip():
             self._source = Path(configured).expanduser()
+        elif not self._source_selected:
+            self._source = RetroBiosPackService.storage_directory()
         if (
             not self._destination_selected
             and isinstance(configured_destination, str)
@@ -243,7 +250,10 @@ class RetroBiosFirmwarePanel(QWidget):
             self._destination = Path(configured_destination).expanduser()
         elif not self._destination_selected and self._source is not None:
             self._destination = self._source
-        self.source_label.setText(str(self._source) if self._source else "Diretório não configurado")
+        if self._source and self._source.resolve() == RetroBiosPackService.storage_directory().resolve():
+            self.source_label.setText(f"{self._source} (packs RetroBIOS — fonte padrão)")
+        else:
+            self.source_label.setText(str(self._source) if self._source else "Diretório não configurado")
         self.destination_label.setText(
             str(self._destination) if self._destination else "Selecione o diretório de firmware do emulador"
         )
@@ -262,6 +272,30 @@ class RetroBiosFirmwarePanel(QWidget):
             self._save_paths()
             self._clear_scan()
             self.refresh()
+
+    def _use_retrobios_packs(self) -> None:
+        self._source = RetroBiosPackService.storage_directory()
+        self._source_selected = False
+        self._remove_saved_source()
+        if not self._destination_selected:
+            self._destination = self._source
+        self._save_paths()
+        self._clear_scan()
+        self.refresh()
+
+    def _remove_saved_source(self) -> None:
+        data: dict[str, object] = {}
+        try:
+            value = json.loads(self.PATHS_FILE.read_text(encoding="utf-8"))
+            if isinstance(value, dict):
+                data = value
+        except (OSError, ValueError, TypeError):
+            pass
+        data.pop(self._source_key(), None)
+        self.PATHS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        self.PATHS_FILE.write_text(
+            json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
 
     def _choose_destination(self) -> None:
         selected = get_existing_directory(
