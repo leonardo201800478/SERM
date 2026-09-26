@@ -78,7 +78,7 @@ class MainWindow(QMainWindow):
         self.configuration_page.appearance_page.language_changed.connect(self._language_changed)
         self._retranslate_navigation()
         self._restore_window_layout()
-        self._apply_button_tooltips()
+        self._apply_button_tooltips(self)
 
     @staticmethod
     def _qt_settings() -> QSettings:
