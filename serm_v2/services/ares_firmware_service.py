@@ -608,7 +608,7 @@ class AresFirmwareService:
     def write_filter_file(
         cls, scan: AresFirmwareScan, selected: tuple[AresFirmwareMatch, ...]
     ) -> Path:
-        """Write SERM's reconstruction input for the selected, hash-verified files."""
+        """Write SERM reconstruction input for the selected firmware matches."""
         run_id = uuid4().hex
         emulator = scan.emulator.casefold()
         is_ares = emulator == "ares"
