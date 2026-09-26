@@ -227,6 +227,7 @@ class DirectoryGuidePage(QWidget):
                 directory_field = QLineEdit()
                 directory_field.setReadOnly(True)
                 browse_directory = QPushButton("Selecionar diretório")
+                browse_directory.setToolTip("Seleciona e registra o diretório de instalação deste emulador.")
                 browse_directory.clicked.connect(
                     lambda _checked=False, name=_key: self._browse_directory(name)
                 )
@@ -238,6 +239,7 @@ class DirectoryGuidePage(QWidget):
                     executable_field = QLineEdit()
                     executable_field.setReadOnly(True)
                     browse_executable = QPushButton("Selecionar executável")
+                    browse_executable.setToolTip("Seleciona e registra o executável deste emulador.")
                     browse_executable.clicked.connect(
                         lambda _checked=False, name=_key: self._browse_executable(name)
                     )
@@ -265,12 +267,86 @@ class DirectoryGuidePage(QWidget):
             category_layout.addWidget(tabs)
             self.category_tabs.addTab(category_page, category)
         root.addWidget(self.category_tabs, 1)
+        actions = QHBoxLayout()
+        save = QPushButton("💾 Salvar")
+        save.setToolTip("Persiste os caminhos atualmente registrados pelo SERM.")
+        save.clicked.connect(self.save_directory_settings)
+        defaults = QPushButton("↺ Restaurar Padrões")
+        defaults.setToolTip("Remove o registro de diretórios, executável e configuração do emulador atualmente selecionado.")
+        defaults.clicked.connect(self.restore_directory_defaults)
+        actions.addStretch(1)
+        actions.addWidget(defaults)
+        actions.addWidget(save)
+        root.addLayout(actions)
 
     def _build_mame_tab(self, _page: QWidget) -> None:
         """Hook for the MAME executable selector supplied by DirectoriesPage."""
 
     def _build_emulator_directory_settings(self, _emulator: str, _page: QWidget) -> None:
         """Hook for emulator-specific paths stored inside its configuration file."""
+
+    def _current_emulator_key(self) -> str | None:
+        category_index = self.category_tabs.currentIndex()
+        if category_index < 0 or category_index >= self.category_tabs.count():
+            return None
+        category = self.category_tabs.tabText(category_index)
+        tabs = self.emulator_tabs.get(category)
+        if tabs is None or tabs.currentIndex() < 0:
+            return None
+        page = tabs.widget(tabs.currentIndex())
+        content = page.widget() if isinstance(page, SmoothScrollArea) else page
+        return str(content.property("serm_emulator_key") or "") or None
+
+    def save_directory_settings(self) -> None:
+        """Persiste o mapa atual de caminhos mantido pelo SERM."""
+        data = self._load_json(self.PATHS_FILE)
+        for emulator, field in self._directory_fields.items():
+            value = field.text().strip()
+            if value:
+                data[emulator] = value
+        for key, field in self._fields.items():
+            value = field.text().strip()
+            if value:
+                data[key] = value
+        for key, field in self._executable_fields.items():
+            value = field.text().strip()
+            if value:
+                data[key] = value
+        self._save_json(self.PATHS_FILE, data)
+        self.refresh()
+
+    def restore_directory_defaults(self) -> None:
+        """Remove os caminhos registrados para o emulador selecionado."""
+        emulator = self._current_emulator_key()
+        if not emulator:
+            return
+        from PySide6.QtWidgets import QMessageBox
+        answer = QMessageBox.question(
+            self,
+            "Restaurar padrões",
+            f"Remover os diretórios e arquivos registrados de {emulator.upper()}? Esta ação não apaga arquivos físicos.",
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        data = self._load_json(self.PATHS_FILE)
+        keys = {emulator, self._executable_key(emulator), f"{emulator}_config"}
+        if emulator == "mame":
+            keys.add("mame_executable")
+        if emulator == "altirra":
+            keys.add("altirra_config")
+        elif emulator == "amiberry":
+            keys.update({"amiberry_exe", "amiberry_ini", "amiberry_conf"})
+        elif emulator == "winuae":
+            keys.update({"winuae_ini", "winuae_cache"})
+        elif emulator == "ares":
+            keys.add("ares_config")
+            keys.update(f"ares_{name.casefold().replace(' ', '_')}" for name in ("Database", "hiro", "Nintendo 64", "Shaders", "Systems"))
+        elif emulator == "azahar":
+            keys.add("azahar_config")
+        for key in keys:
+            data.pop(key, None)
+        self._save_json(self.PATHS_FILE, data)
+        self.refresh()
 
     def _browse(self, config_key: str) -> None:
         current = self._fields[config_key].text()
