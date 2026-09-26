@@ -223,6 +223,9 @@ class RetroBiosFirmwarePanel(QWidget):
         self.scan_button = QPushButton("ATUALIZAR SCAN")
         self.scan_button.setToolTip("Reexamina automaticamente a origem e o destino para atualizar a lista de BIOS faltantes.")
         self.scan_button.clicked.connect(self.scan)
+        self.refresh_destination_button = QPushButton("REFRESH")
+        self.refresh_destination_button.setToolTip("Reescaneia somente o diretório de destino e atualiza imediatamente as BIOS ainda ausentes para exportação.")
+        self.refresh_destination_button.clicked.connect(self.refresh_destination_scan)
         self.reconstruct_button = QPushButton("RECONSTRUIR SELECIONADOS")
         self.reconstruct_button.setEnabled(False)
         self.reconstruct_button.clicked.connect(self.reconstruct)
@@ -234,6 +237,7 @@ class RetroBiosFirmwarePanel(QWidget):
         self.export_missing_button.setEnabled(False)
         actions.addWidget(self.catalog_button)
         actions.addWidget(self.scan_button)
+        actions.addWidget(self.refresh_destination_button)
         actions.addWidget(self.reconstruct_button)
         actions.addWidget(self.cancel_button)
         actions.addWidget(self.export_missing_button)
@@ -382,6 +386,33 @@ class RetroBiosFirmwarePanel(QWidget):
             )
         )
 
+    def refresh_destination_scan(self) -> None:
+        """Reescaneia somente o destino usando a origem já reconhecida."""
+        if self._worker is not None:
+            return
+        self.refresh()
+        if self._scan is None:
+            self.scan()
+            return
+        if self._destination is None or not self._destination.is_dir():
+            self.status.setText("Configure um diretório de destino válido para executar o refresh.")
+            return
+        self._destination_scan = None
+        self._destination_matches.clear()
+        self._missing_candidates = ()
+        self.export_missing_button.setEnabled(False)
+        self.reconstruct_button.setEnabled(False)
+        self.status.setText(f"Atualizando o scan do destino de {self.label}…")
+        self._start_worker(
+            _RetroBiosWorker(
+                "destination_scan",
+                self.emulator,
+                catalog=self._catalog,
+                destination=self._destination,
+                parent=self,
+            )
+        )
+
     def update_catalog(self) -> None:
         if self._worker is not None:
             return
@@ -448,6 +479,7 @@ class RetroBiosFirmwarePanel(QWidget):
         worker.finished.connect(self._worker_finished)
         self.catalog_button.setEnabled(False)
         self.scan_button.setEnabled(False)
+        self.refresh_destination_button.setEnabled(False)
         self.reconstruct_button.setEnabled(False)
         self.cancel_button.setEnabled(True)
         self.progress.setValue(0)
@@ -547,10 +579,10 @@ class RetroBiosFirmwarePanel(QWidget):
                 foreground = Qt.GlobalColor.black
             elif state == "AUSENTE — DISPONÍVEL":
                 background = Qt.GlobalColor.darkRed
-                foreground = Qt.GlobalColor.white
+                foreground = Qt.GlobalColor.green
             elif state == "AUSENTE — NÃO DISPONÍVEL":
                 background = Qt.GlobalColor.black
-                foreground = Qt.GlobalColor.white
+                foreground = Qt.GlobalColor.green
             else:
                 background = Qt.GlobalColor.darkBlue
                 foreground = Qt.GlobalColor.white
@@ -720,7 +752,9 @@ class RetroBiosFirmwarePanel(QWidget):
         self._worker = None
         self.catalog_button.setEnabled(True)
         self.scan_button.setEnabled(True)
+        self.refresh_destination_button.setEnabled(True)
         self.reconstruct_button.setEnabled(bool(self._missing_candidates))
+        self.export_missing_button.setEnabled(bool(self._missing_candidates))
         self.cancel_button.setEnabled(False)
 
     def _populate_catalog_preview(self) -> None:
