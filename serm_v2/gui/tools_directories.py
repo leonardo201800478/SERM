@@ -27,7 +27,6 @@ from ..runtime.paths import integrations_root
 from ..services.emulator_manager import EmulatorManager
 from ..services.retrobios_pack_service import (
     RetroBiosPack,
-    RetroBiosPackError,
     RetroBiosPackService,
 )
 
