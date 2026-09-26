@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING, cast
 
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import (
-    QFileDialog,
     QFrame,
     QGridLayout,
     QGroupBox,
