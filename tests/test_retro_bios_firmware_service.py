@@ -437,6 +437,72 @@ def test_retroarch_info_without_firmware_does_not_create_bios(tmp_path: Path) ->
 
 
 
+def test_ares_source_catalog_contains_exact_firmware_hashes() -> None:
+    entries = AresFirmwareService._ares_source_entries()
+    by_system = {(entry.system, entry.description): entry for entry in entries}
+
+    fds = next(entry for entry in entries if entry.system == "Famicom Disk System")
+    assert fds.sha256 == "fdc1a76e654feea993fcb38366e05ee5f4eb641f86fe6bebaeefd412e112dd72"
+
+    laser_jp = next(
+        entry for entry in entries
+        if entry.system == "LaserActive (SEGA PAC)" and entry.description.endswith("NTSC-J v1.02")
+    )
+    assert laser_jp.sha256 == "dca942d977217f703d8d1c6eb1aeb6b32c78ecc421486bbb46c459d385161c94"
+
+    laser_us = next(
+        entry for entry in entries
+        if entry.system == "LaserActive (SEGA PAC)" and entry.description.endswith("NTSC-U v1.04")
+    )
+    assert laser_us.sha256 == "e89b5a319f66406611ec82fe5c4aa6827c175a05135bd7bd177366cba0465021"
+    assert by_system
+
+
+def test_ares_source_catalog_identifies_neo_geo_archive_members() -> None:
+    entries = AresFirmwareService._ares_source_entries()
+    aes = next(entry for entry in entries if entry.system == "Neo Geo AES")
+    mvs = next(entry for entry in entries if entry.system == "Neo Geo MVS")
+
+    assert aes.name == "neo-epo.bin"
+    assert aes.container_name == "neogeo.zip"
+    assert not aes.is_verifiable
+    assert mvs.name == "sp-45.sp1"
+    assert mvs.container_name == "neogeo.zip"
+    assert not mvs.is_verifiable
+
+
+def test_ares_source_hash_does_not_fall_back_to_filename(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    bios = source / "BIOS"
+    bios.write_bytes(b"wrong ARES dump")
+    entry = next(
+        entry for entry in AresFirmwareService._ares_source_entries()
+        if entry.system == "Famicom Disk System"
+    )
+
+    scan = AresFirmwareService.scan(source, (entry,), emulator="ares")
+
+    assert scan.matches == ()
+    assert scan.missing == (entry,)
+
+
+def test_ares_source_entries_are_merged_with_retrobios(monkeypatch) -> None:
+    retrobios_entry = AresFirmwareEntry(
+        name="BIOS",
+        system="Famicom Disk System",
+        description="RetroBIOS",
+        required=True,
+        sha256="0" * 64,
+    )
+    merged = AresFirmwareService._merge_ares_source_entries((retrobios_entry,))
+
+    fds = [entry for entry in merged if entry.system == "Famicom Disk System"]
+    assert len(fds) == 1
+    assert fds[0].sha256 == "fdc1a76e654feea993fcb38366e05ee5f4eb641f86fe6bebaeefd412e112dd72"
+    assert fds[0].profile_id == "ares-source"
+
+
 def test_ares_neo_geo_direct_files_remain_supported(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
