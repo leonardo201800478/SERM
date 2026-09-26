@@ -1022,7 +1022,7 @@ class AresFirmwareService:
                 # nenhum checksum no catálogo.
                 if hash_algorithms:
                     with archive.open(member, "r") as stream:
-                        identity = cls._hash_stream(stream, hash_algorithms)
+                        identity: dict[str, object] = cls._hash_stream(stream, hash_algorithms)
                 elif member_name in name_index:
                     identity = {"size": member.file_size}
                 else:
