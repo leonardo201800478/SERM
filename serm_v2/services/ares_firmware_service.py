@@ -42,6 +42,7 @@ class AresFirmwareEntry:
     gap_status: str = ""
     gap_in_repo: bool | None = None
     gap_reason: str = ""
+    container_name: str = ""
 
     @property
     def coverage_label(self) -> str:
@@ -70,6 +71,8 @@ class AresFirmwareEntry:
         if not self.required:
             return "HLE / OPCIONAL"
         if present:
+            if match_mode == "archive":
+                return "PRESENTE — ARQUIVO COMPATÍVEL"
             if self.is_verifiable and match_mode == "name":
                 return "PRESENTE — NOME COMPATÍVEL"
             return "VALIDADO" if self.is_verifiable else "PRESENTE — HASH NÃO VERIFICÁVEL"
@@ -81,6 +84,8 @@ class AresFirmwareEntry:
         if not self.required:
             return "Arquivo opcional; o emulador possui fallback/HLE."
         if present:
+            if match_mode == "archive":
+                return f"Arquivo encontrado dentro de {self.container_name}; o contêiner é aceito pelo emulador."
             if self.is_verifiable and match_mode == "name":
                 return "Arquivo encontrado pelo nome; o hash do catálogo não coincidiu."
             if self.is_verifiable:
@@ -427,6 +432,7 @@ class AresFirmwareService:
                     gap_status=str(candidate.get("status") or "").strip(),
                     gap_in_repo=(bool(candidate.get("in_repo")) if "in_repo" in candidate else None),
                     gap_reason=str(candidate.get("reason") or "").strip(),
+                    container_name=entry.container_name,
                 )
             )
         return tuple(enriched)
@@ -519,6 +525,7 @@ class AresFirmwareService:
                     repository_path=repository_path,
                     release_asset=release_asset,
                     catalog_available=bool(repository_path or release_asset),
+                    container_name=entry.container_name,
                 )
             )
         return tuple(enriched)
@@ -683,6 +690,18 @@ class AresFirmwareService:
                     identity = cls._hash_stream(stream)
                 cls._record_matches(hash_index, name_index, identity, path, member.filename, found)
 
+                archive_name = path.name.casefold()
+                member_name = Path(member.filename).name.casefold()
+                for entry in name_index.get(member_name, ()):
+                    if (
+                        entry.key not in found
+                        and entry.container_name
+                        and Path(entry.container_name).name.casefold() == archive_name
+                    ):
+                        found[entry.key] = AresFirmwareMatch(
+                            entry, str(path), member.filename, "archive"
+                        )
+
     @staticmethod
     def _build_hash_index(
         entries: tuple[AresFirmwareEntry, ...],
@@ -843,9 +862,24 @@ class AresFirmwareService:
                     if isinstance(aliases_value, list)
                     else ()
                 )
+                system = str(item.get("system") or profile.get("display_name") or profile_id)
+                container_name = str(
+                    item.get("container_name")
+                    or item.get("archive_name")
+                    or item.get("archive")
+                    or item.get("container")
+                    or ""
+                ).strip()
+                if (
+                    not container_name
+                    and target == "ares"
+                    and system.casefold() == "neo-geo"
+                    and name.casefold() in {"neo-epo.bin", "sp-45.sp1"}
+                ):
+                    container_name = "neogeo.zip"
                 entry = AresFirmwareEntry(
                     name=name,
-                    system=str(item.get("system") or profile.get("display_name") or profile_id),
+                    system=system,
                     description=str(item.get("description") or item.get("notes") or ""),
                     required=bool(item.get("required", True)),
                     sha256=digest_values.get("sha256", ""),
@@ -857,6 +891,7 @@ class AresFirmwareService:
                     output_path=output_path,
                     aliases=file_aliases,
                     profile_id=profile_id,
+                    container_name=container_name,
                 )
                 entries.setdefault(entry.key, entry)
         catalog_version = payload.get("generated_at") if isinstance(payload, dict) else None
