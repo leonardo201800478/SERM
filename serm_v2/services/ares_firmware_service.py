@@ -53,6 +53,19 @@ class AresFirmwareEntry:
         return "SEM LACUNA REGISTRADA"
 
     @property
+    def distribution_label(self) -> str:
+        """Classifica a origem prática do arquivo para a próxima etapa do SERM."""
+        if self.catalog_available:
+            if self.release_asset:
+                return "OBTENÇÃO: RELEASE"
+            if self.repository_path:
+                return "OBTENÇÃO: REPOSITÓRIO"
+            return "OBTENÇÃO: CATALOGADA"
+        if self.gap_layer == "emulator" and self.gap_status == "bios":
+            return "OBTENÇÃO: LACUNA"
+        return "OBTENÇÃO: NÃO DISPONÍVEL"
+
+    @property
     def availability_label(self) -> str:
         if self.catalog_available:
             if self.release_asset:
