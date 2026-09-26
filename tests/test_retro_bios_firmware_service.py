@@ -301,6 +301,54 @@ def test_database_records_ignore_hash_only_entries_without_storage() -> None:
     assert records[0]["name"] == "available.bin"
 
 
+def test_reconstruction_keeps_neo_geo_bios_inside_neogeo_zip(tmp_path: Path) -> None:
+    source = tmp_path / "neogeo.zip"
+    with zipfile.ZipFile(source, "w") as archive:
+        archive.writestr("neo-epo.bin", b"aes bios")
+        archive.writestr("sp-45.sp1", b"mvs bios")
+    destination = tmp_path / "destination"
+    filter_path = tmp_path / "firmware-filter.json"
+    filter_path.write_text(
+        json.dumps(
+            {
+                "format": "SERM-FILTER-V2",
+                "source": "ares-firmware",
+                "system": "ares",
+                "filters": {"verification": "catalog", "preserve_destination_files": True},
+                "evidence": [
+                    {
+                        "output_name": "neo-epo.bin",
+                        "path": str(source),
+                        "archive_path": str(source),
+                        "archive_member": "neo-epo.bin",
+                        "container_output_name": "neogeo.zip",
+                        "status": "CURRENT",
+                    },
+                    {
+                        "output_name": "sp-45.sp1",
+                        "path": str(source),
+                        "archive_path": str(source),
+                        "archive_member": "sp-45.sp1",
+                        "container_output_name": "neogeo.zip",
+                        "status": "CURRENT",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    plan = ReconstructionService.plan(filter_path, destination)
+    result = ReconstructionService.execute(plan)
+
+    assert result["created_count"] == 1
+    rebuilt = destination / "neogeo.zip"
+    with zipfile.ZipFile(rebuilt) as archive:
+        assert archive.namelist() == ["neo-epo.bin", "sp-45.sp1"]
+        assert archive.read("neo-epo.bin") == b"aes bios"
+        assert archive.read("sp-45.sp1") == b"mvs bios"
+
+
 def test_reconstruction_preserves_unrelated_emulator_install_files(tmp_path: Path) -> None:
     source = tmp_path / "verified-bios.bin"
     source.write_bytes(b"verified BIOS")
