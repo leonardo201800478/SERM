@@ -1022,7 +1022,10 @@ class RetroBiosFirmwarePanel(QWidget):
         self.catalog_button.setEnabled(True)
         self.scan_button.setEnabled(True)
         self.refresh_destination_button.setEnabled(True)
-        self.reconstruct_button.setEnabled(bool(self._missing_candidates))
+        rebuildable = bool(self._missing_candidates)
+        if self.emulator == "ares":
+            rebuildable = any(entry.key in self._matches for entry in self._missing_candidates)
+        self.reconstruct_button.setEnabled(rebuildable)
         self.export_missing_button.setEnabled(self._missing_report_ready)
         self.cancel_button.setEnabled(False)
         if self._post_reconstruction_refresh and self._destination is not None and self._destination.is_dir():
