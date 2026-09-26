@@ -126,19 +126,24 @@ class _RetroBiosWorker(QThread):
                 if self.cancel_requested:
                     return
                 self.scanned.emit((catalog, source_scan))
-                destination_scan = (
-                    RetroArchBiosService.scan(
+                if self.emulator == "retroarch":
+                    destination_scan = RetroArchBiosService.scan(
                         self.destination, entries, catalog_version=version,
                         progress_callback=self.progress.emit,
                         cancel_callback=lambda: self.cancel_requested,
                     )
-                    if self.emulator == "retroarch"
-                    else AresFirmwareService.scan(
+                elif self.emulator == "ares" and AresFirmwareService.configured_settings_path():
+                    destination_scan = AresFirmwareService.scan_configured(
+                        AresFirmwareService.configured_settings_path(),
+                        entries,
+                        catalog_version=version,
+                    )
+                else:
+                    destination_scan = AresFirmwareService.scan(
                         self.destination, entries, catalog_version=version, emulator=self.emulator,
                         progress_callback=self.progress.emit,
                         cancel_callback=lambda: self.cancel_requested,
                     )
-                )
                 self.destination_scanned.emit((catalog, destination_scan))
             elif self.operation == "destination_scan" and self.destination is not None:
                 catalog = self.catalog
@@ -149,14 +154,20 @@ class _RetroBiosWorker(QThread):
                         else AresFirmwareService.load_catalog(emulator=self.emulator)
                     )
                 version, entries = catalog
-                scan = (
-                    RetroArchBiosService.scan(
+                if self.emulator == "retroarch":
+                    scan = RetroArchBiosService.scan(
                         self.destination, entries, catalog_version=version,
                         progress_callback=self.progress.emit,
                         cancel_callback=lambda: self.cancel_requested,
                     )
-                    if self.emulator == "retroarch"
-                    else AresFirmwareService.scan(
+                elif self.emulator == "ares" and AresFirmwareService.configured_settings_path():
+                    scan = AresFirmwareService.scan_configured(
+                        AresFirmwareService.configured_settings_path(),
+                        entries,
+                        catalog_version=version,
+                    )
+                else:
+                    scan = AresFirmwareService.scan(
                         self.destination,
                         entries,
                         catalog_version=version,
@@ -164,7 +175,6 @@ class _RetroBiosWorker(QThread):
                         progress_callback=self.progress.emit,
                         cancel_callback=lambda: self.cancel_requested,
                     )
-                )
                 self.destination_scanned.emit((catalog, scan))
             elif self.operation == "reconstruct" and self.plan is not None:
                 result = ReconstructionService.execute(
@@ -223,6 +233,7 @@ class RetroBiosFirmwarePanel(QWidget):
         self._destination_scan: AresFirmwareScan | None = None
         self._matches: dict[str, AresFirmwareMatch] = {}
         self._destination_matches: dict[str, AresFirmwareMatch] = {}
+        self._destination_invalid_matches: dict[str, AresFirmwareMatch] = {}
         self._missing_candidates: tuple[AresFirmwareEntry, ...] = ()
         self._plan: ReconstructionPlan | None = None
         self._worker: _RetroBiosWorker | None = None
@@ -448,6 +459,7 @@ class RetroBiosFirmwarePanel(QWidget):
             return
         self._destination_scan = None
         self._destination_matches.clear()
+        self._destination_invalid_matches.clear()
         self._missing_candidates = ()
         self.export_missing_button.setEnabled(True)
         self.reconstruct_button.setEnabled(False)
@@ -579,6 +591,7 @@ class RetroBiosFirmwarePanel(QWidget):
         self._catalog = (str(catalog[0]), tuple(catalog[1]))
         self._destination_scan = scan
         self._destination_matches = {match.entry.key: match for match in scan.matches}
+        self._destination_invalid_matches = {match.entry.key: match for match in scan.invalid}
         self._update_missing_candidates()
         self._render_scan_state(destination_scan=scan)
         self.status.setText(
@@ -591,11 +604,20 @@ class RetroBiosFirmwarePanel(QWidget):
         if self._catalog is None:
             self._missing_candidates = ()
             return
-        self._missing_candidates = tuple(
-            entry
-            for entry in self._catalog[1]
-            if entry.key in self._matches and entry.key not in self._destination_matches
-        )
+        if self.emulator == "ares":
+            self._missing_candidates = tuple(
+                entry for entry in self._catalog[1]
+                if entry.key not in self._destination_matches
+                and entry.key not in self._destination_invalid_matches
+            ) + tuple(
+                match.entry for match in self._destination_invalid_matches.values()
+            )
+        else:
+            self._missing_candidates = tuple(
+                entry
+                for entry in self._catalog[1]
+                if entry.key in self._matches and entry.key not in self._destination_matches
+            )
 
     def _render_scan_state(self, *, destination_scan: AresFirmwareScan | None = None) -> None:
         destination = destination_scan or self._destination_scan
@@ -607,6 +629,8 @@ class RetroBiosFirmwarePanel(QWidget):
             "PRESENTE — HASH NÃO VERIFICÁVEL": 0,
             "PRESENTE — NOME COMPATÍVEL": 0,
             "PRESENTE — ARQUIVO COMPATÍVEL": 0,
+            "CONFIGURADO — SEM HASH": 0,
+            "CONFIGURADO — HASH INVÁLIDO": 0,
             "AUSENTE — DISPONÍVEL": 0,
             "AUSENTE — NÃO DISPONÍVEL": 0,
             "HLE / OPCIONAL": 0,
@@ -614,9 +638,10 @@ class RetroBiosFirmwarePanel(QWidget):
         for entry in self._catalog[1]:
             source_match = self._matches.get(entry.key)
             destination_match = self._destination_matches.get(entry.key)
-            match = destination_match or source_match
+            invalid_match = self._destination_invalid_matches.get(entry.key)
+            match = destination_match or invalid_match or source_match
             present = (
-                destination_match is not None
+                (destination_match is not None or invalid_match is not None)
                 if destination is not None
                 else source_match is not None
             )
@@ -694,6 +719,8 @@ class RetroBiosFirmwarePanel(QWidget):
             f"🟡 presentes sem hash={state_counts['PRESENTE — HASH NÃO VERIFICÁVEL']:,} | "
             f"🟠 presentes por nomenclatura={state_counts['PRESENTE — NOME COMPATÍVEL']:,} | "
             f"🟢 presentes dentro de ZIP compatível={state_counts['PRESENTE — ARQUIVO COMPATÍVEL']:,} | "
+            f"⚪ configurados sem hash={state_counts['CONFIGURADO — SEM HASH']:,} | "
+            f"🟠 configurados com hash inválido={state_counts['CONFIGURADO — HASH INVÁLIDO']:,} | "
             f"🔴 ausentes/disponíveis={state_counts['AUSENTE — DISPONÍVEL']:,} | "
             f"⚫ ausentes/não disponíveis={state_counts['AUSENTE — NÃO DISPONÍVEL']:,} | "
             f"🔵 HLE/opcional={state_counts['HLE / OPCIONAL']:,} | "
