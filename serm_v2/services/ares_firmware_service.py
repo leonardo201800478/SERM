@@ -237,9 +237,8 @@ class AresFirmwareService:
             raise AresFirmwareError(f"Diretório de origem do {emulator} não encontrado: {root}")
         if emulator.casefold() == "mame":
             raise AresFirmwareError("O scan RetroBIOS não opera no MAME.")
-        if not any(entry.is_verifiable for entry in entries):
-            return AresFirmwareScan(catalog_version, str(root), (), entries, 0, emulator)
         hash_index = cls._build_hash_index(entries)
+        name_index = cls._build_name_index(entries)
 
         candidates = sorted(
             (path for path in root.rglob("*") if path.is_file()),
@@ -253,10 +252,10 @@ class AresFirmwareService:
                 raise AresFirmwareError(f"Scan de firmware do {emulator} cancelado.")
             try:
                 if candidate.suffix.casefold() == ".zip":
-                    cls._scan_zip(candidate, hash_index, found)
+                    cls._scan_zip(candidate, hash_index, name_index, found)
                 else:
                     identity = cls._hash_file(candidate)
-                    cls._record_matches(hash_index, identity, candidate, None, found)
+                    cls._record_matches(hash_index, name_index, identity, candidate, None, found)
             except (OSError, zipfile.BadZipFile, RuntimeError):
                 pass
             examined += 1
@@ -336,6 +335,7 @@ class AresFirmwareService:
         cls,
         path: Path,
         hash_index: dict[tuple[str, str], tuple[AresFirmwareEntry, ...]],
+        name_index: dict[str, tuple[AresFirmwareEntry, ...]],
         found: dict[str, AresFirmwareMatch],
     ) -> None:
         with zipfile.ZipFile(path) as archive:
@@ -344,7 +344,7 @@ class AresFirmwareService:
                     continue
                 with archive.open(member, "r") as stream:
                     identity = cls._hash_stream(stream)
-                cls._record_matches(hash_index, identity, path, member.filename, found)
+                cls._record_matches(hash_index, name_index, identity, path, member.filename, found)
 
     @staticmethod
     def _build_hash_index(
@@ -358,10 +358,30 @@ class AresFirmwareService:
                     index.setdefault((algorithm, digest.casefold()), []).append(entry)
         return {key: tuple(value) for key, value in index.items()}
 
+    @staticmethod
+    def _build_name_index(
+        entries: tuple[AresFirmwareEntry, ...],
+    ) -> dict[str, tuple[AresFirmwareEntry, ...]]:
+        """Indexa apenas entradas sem hash para fallback pelo nome do arquivo."""
+        index: dict[str, list[AresFirmwareEntry]] = {}
+        for entry in entries:
+            if entry.is_verifiable:
+                continue
+            names = {
+                Path(entry.name).name.casefold(),
+                Path(entry.output_path).name.casefold(),
+                *(Path(alias).name.casefold() for alias in entry.aliases),
+            }
+            for name in names:
+                if name:
+                    index.setdefault(name, []).append(entry)
+        return {key: tuple(value) for key, value in index.items()}
+
     @classmethod
     def _record_matches(
         cls,
         hash_index: dict[tuple[str, str], tuple[AresFirmwareEntry, ...]],
+        name_index: dict[str, tuple[AresFirmwareEntry, ...]],
         identity: dict[str, object],
         path: Path,
         member: str | None,
@@ -374,6 +394,13 @@ class AresFirmwareService:
                 candidates[entry.key] = entry
         for entry in candidates.values():
             if entry.key not in found and cls._matches_entry(identity, entry):
+                found[entry.key] = AresFirmwareMatch(entry, str(path), member)
+
+        # Entradas sem hash só podem ser associadas pelo nome do arquivo.
+        # Entradas que possuem hash continuam exigindo validação criptográfica.
+        member_name = Path(member).name.casefold() if member else path.name.casefold()
+        for entry in name_index.get(member_name, ()):
+            if entry.key not in found:
                 found[entry.key] = AresFirmwareMatch(entry, str(path), member)
 
     @staticmethod
