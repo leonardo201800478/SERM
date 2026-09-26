@@ -106,3 +106,48 @@ def test_safe_archive_path_rejects_absolute_and_parent_paths() -> None:
     assert RetroBiosPackService._safe_archive_path("../bios.bin") is None
     assert RetroBiosPackService._safe_archive_path("bios/../bios.bin") is None
     assert RetroBiosPackService._safe_archive_path("bios/system.bin") == Path("bios/system.bin")
+
+
+def test_download_and_extract_reports_download_extract_and_copy_stages(
+    monkeypatch, tmp_path: Path
+) -> None:
+    source_zip = tmp_path / "pack.zip"
+    with zipfile.ZipFile(source_zip, "w") as zf:
+        zf.writestr("bios/a.bin", b"a" * 10)
+        zf.writestr("bios/b.bin", b"b" * 20)
+
+    payload = source_zip.read_bytes()
+    digest = hashlib.sha256(payload).hexdigest()
+    asset = RetroBiosPackAsset(
+        name="Stage_BIOS_Pack.zip",
+        url="https://github.com/Abdess/retrobios/releases/download/test/Stage_BIOS_Pack.zip",
+        size=len(payload),
+        sha256=digest,
+    )
+    pack = RetroBiosPack("Stage", asset.name, (asset,))
+
+    def fake_download(asset, target, *, progress_callback, cancel_callback):
+        target.write_bytes(payload)
+        if progress_callback:
+            progress_callback(asset.size, asset.size)
+
+    monkeypatch.setattr(RetroBiosPackService, "_download", fake_download)
+
+    progress: list[tuple[int, int]] = []
+    stages: list[str] = []
+    root = tmp_path / "packs"
+
+    extracted = RetroBiosPackService.download_and_extract(
+        pack,
+        destination=root,
+        progress_callback=lambda done, total: progress.append((done, total)),
+        status_callback=stages.append,
+    )
+
+    assert extracted == (root / "Stage").resolve()
+    assert stages == ["BAIXANDO", "EXTRAINDO", "COPIANDO PARA O DESTINO"]
+    assert progress
+    assert progress[0] == (len(payload), len(payload))
+    assert progress[-1] == (30, 30)
+    assert (extracted / "bios" / "a.bin").read_bytes() == b"a" * 10
+    assert (extracted / "bios" / "b.bin").read_bytes() == b"b" * 20
