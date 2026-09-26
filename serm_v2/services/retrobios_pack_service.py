@@ -136,40 +136,37 @@ class RetroBiosPackService:
         download_dir.mkdir(parents=True, exist_ok=True)
 
         download_total = pack.size
-        assembly_total = pack.size if pack.multipart else 0
         downloaded: list[Path] = []
 
         if status_callback:
             status_callback("BAIXANDO")
-        operation_total = download_total + assembly_total
-        done_total = 0
-
+        done_bytes = 0
         for asset in pack.assets:
             if cancel_callback and cancel_callback():
                 raise RetroBiosPackError("Download do pack cancelado.")
             target_file = download_dir / asset.name
-            asset_base = done_total
+            asset_base = done_bytes
             cls._download(
                 asset,
                 target_file,
                 progress_callback=lambda done, _total, base=asset_base: (
-                    progress_callback(base + done, operation_total)
+                    progress_callback(base + done, download_total)
                     if progress_callback
                     else None
                 ),
                 cancel_callback=cancel_callback,
             )
-            done_total += asset.size
+            done_bytes += asset.size
             downloaded.append(target_file)
 
-        if status_callback and pack.multipart:
+        if pack.multipart and status_callback:
             status_callback("MONTANDO VOLUMES")
         archive = cls._assemble_archive(
             pack,
             downloaded,
             download_dir,
             progress_callback=(
-                lambda done: progress_callback(download_total + done, operation_total)
+                (lambda done: progress_callback(done, pack.size))
                 if progress_callback
                 else None
             ),
@@ -178,40 +175,24 @@ class RetroBiosPackService:
         cls._verify_pack_checksum(pack, archive)
 
         extraction_total = cls._archive_content_size(archive)
-        copy_total = extraction_total
-        operation_total += extraction_total + copy_total
-        if progress_callback:
-            progress_callback(done_total + assembly_total, operation_total)
-
         if status_callback:
             status_callback("EXTRAINDO")
-        cls._extract_safe(
+        extracted_root = cls._extract_safe(
             archive,
             target,
             cancel_callback=cancel_callback,
-            progress_callback=(
-                lambda done: progress_callback(
-                    download_total + assembly_total + done,
-                    operation_total,
-                )
-                if progress_callback
-                else None
-            ),
+            progress_callback=progress_callback,
+            progress_total=extraction_total,
         )
 
         if status_callback:
             status_callback("COPIANDO PARA O DESTINO")
         cls._merge_extraction(
+            extracted_root,
             target,
             cancel_callback=cancel_callback,
-            progress_callback=(
-                lambda done: progress_callback(
-                    download_total + assembly_total + extraction_total + done,
-                    operation_total,
-                )
-                if progress_callback
-                else None
-            ),
+            progress_callback=progress_callback,
+            progress_total=extraction_total,
         )
         return target
 
@@ -306,7 +287,6 @@ class RetroBiosPackService:
         value = url.split(marker, 1)[1]
         return value.split("/", 1)[0]
 
-    @classmethod
     @staticmethod
     def _archive_content_size(archive: Path) -> int:
         with zipfile.ZipFile(archive, "r") as zin:
@@ -319,8 +299,9 @@ class RetroBiosPackService:
         destination: Path,
         *,
         cancel_callback: Callable[[], bool] | None,
-        progress_callback: Callable[[int], None] | None = None,
-    ) -> None:
+        progress_callback: Callable[[int, int], None] | None = None,
+        progress_total: int = 0,
+    ) -> Path:
         temp_root = Path(tempfile.mkdtemp(prefix="serm-retrobios-", dir=str(destination.parent)))
         try:
             extracted = 0
@@ -350,7 +331,9 @@ class RetroBiosPackService:
                             target.write(chunk)
                             extracted += len(chunk)
                             if progress_callback:
-                                progress_callback(extracted)
+                                progress_callback(extracted, progress_total)
+            if progress_callback:
+                progress_callback(extracted, progress_total)
             return temp_root
         except Exception:
             shutil.rmtree(temp_root, ignore_errors=True)
@@ -363,7 +346,8 @@ class RetroBiosPackService:
         destination: Path,
         *,
         cancel_callback: Callable[[], bool] | None,
-        progress_callback: Callable[[int], None] | None = None,
+        progress_callback: Callable[[int, int], None] | None = None,
+        progress_total: int = 0,
     ) -> None:
         files = [path for path in source.rglob("*") if path.is_file()]
         copied = 0
@@ -376,7 +360,7 @@ class RetroBiosPackService:
                 if target.stat().st_size == item.stat().st_size:
                     copied += item.stat().st_size
                     if progress_callback:
-                        progress_callback(copied)
+                        progress_callback(copied, progress_total)
                     continue
                 raise RetroBiosPackError(
                     f"Conflito de arquivo ao extrair pack: {target}"
@@ -384,8 +368,11 @@ class RetroBiosPackService:
             shutil.copy2(item, target)
             copied += item.stat().st_size
             if progress_callback:
-                progress_callback(copied)
+                progress_callback(copied, progress_total)
+        if progress_callback:
+            progress_callback(copied, progress_total)
         shutil.rmtree(source, ignore_errors=True)
+
 
     @staticmethod
     def _safe_archive_path(name: str) -> Path | None:
