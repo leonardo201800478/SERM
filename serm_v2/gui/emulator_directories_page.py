@@ -144,6 +144,24 @@ class DirectoriesPage(DirectoryGuidePage):
         self._retro_bios_by_emulator[emulator] = panel
         self.retro_bios_panels.append(panel)
 
+    def _active_retro_bios_panel(self) -> RetroBiosFirmwarePanel | None:
+        category_index = self.category_tabs.currentIndex()
+        if category_index < 0 or category_index >= len(self.CATEGORIES):
+            return None
+        category = self.CATEGORIES[category_index][0]
+        tabs = self.emulator_tabs.get(category)
+        if tabs is None:
+            return None
+        index = tabs.currentIndex()
+        if index < 0 or index >= tabs.count():
+            return None
+        page = tabs.widget(index)
+        if page is None or page.widget() is None:
+            return None
+        content = page.widget()
+        emulator = str(content.property("serm_emulator_key") or "").casefold()
+        return self._retro_bios_by_emulator.get(emulator)
+
     def _build_mame_tab(self, page) -> None:
         super()._build_mame_tab(page)
         layout = page.layout()
@@ -252,8 +270,9 @@ class DirectoriesPage(DirectoryGuidePage):
             self.amiberry_paths_page.refresh()
         if hasattr(self, "winuae_paths_page"):
             self.winuae_paths_page.refresh()
-        for panel in self.retro_bios_panels:
-            panel.refresh()
+        active_panel = self._active_retro_bios_panel()
+        if active_panel is not None:
+            active_panel.refresh()
         if hasattr(self, "ares_paths_page"):
             self.ares_paths_page.refresh()
         if hasattr(self, "mame_executable_edit"):
