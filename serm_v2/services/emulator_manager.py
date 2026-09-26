@@ -2014,21 +2014,6 @@ class RetroArchManager:
             raise RuntimeError(f"Falha no download: {url} | {exc}") from exc
         if log:
             log(f"DOWNLOAD | recebido={target.stat().st_size:,} bytes")
-()*+,;/?"),
-            fragment=quote(unquote(parsed.fragment), safe="=&%:@-._~!        """Baixa um arquivo usando o motor HTTP compartilhado."""
-        try:
-            DownloadEngine().download(
-                url,
-                target,
-                expected_size=expected or None,
-                headers={"Accept-Encoding": "identity"},
-                progress_callback=progress,
-            )
-        except DownloadEngineError as exc:
-            raise RuntimeError(str(exc)) from exc
-        if log:
-            received = Path(target).stat().st_size
-            log(f"DOWNLOAD | recebido={received:,} bytes | esperado={expected:,} bytes")
 
     @classmethod
     def _extract(cls, archive: Path, destination: Path, log=None, *, install_progress=None) -> None:
