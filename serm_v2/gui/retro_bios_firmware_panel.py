@@ -333,7 +333,10 @@ class RetroBiosFirmwarePanel(QWidget):
             self._destination_selected = True
             self._save_paths()
             self._plan = None
-            self.reconstruct_button.setEnabled(bool(self._scan and self._matches))
+            self._destination_scan = None
+            self._destination_matches.clear()
+            self.reconstruct_button.setEnabled(False)
+            self.export_missing_button.setEnabled(False)
             self.refresh()
 
     def scan(self) -> None:
@@ -678,9 +681,14 @@ class RetroBiosFirmwarePanel(QWidget):
     def _reconstruction_finished(self, result: object) -> None:
         created = int(result.get("created_count", 0)) if isinstance(result, dict) else 0
         removed = int(result.get("invalid_removed", 0)) if isinstance(result, dict) else 0
+        self._destination_scan = None
+        self._destination_matches.clear()
+        self.reconstruct_button.setEnabled(False)
+        self.export_missing_button.setEnabled(False)
         self.status.setText(
             f"Reconstrução concluída: {created:,} arquivo(s) materializado(s); "
-            f"{removed:,} arquivo(s) inválido(s) removido(s)."
+            f"{removed:,} arquivo(s) inválido(s) removido(s). "
+            "Execute o scan do destino novamente para atualizar o estado real."
         )
 
     def _failed(self, message: str) -> None:
