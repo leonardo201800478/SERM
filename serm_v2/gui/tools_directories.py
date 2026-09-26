@@ -34,6 +34,7 @@ from ..services.retrobios_pack_service import (
 class _RetroBiosPackWorker(QThread):
     listed = Signal(object)
     progress = Signal(int, int)
+    stage = Signal(str)
     completed = Signal(object)
     failed = Signal(str)
 
@@ -54,6 +55,7 @@ class _RetroBiosPackWorker(QThread):
                     destination=self.destination,
                     progress_callback=self._emit_progress,
                     cancel_callback=lambda: self.cancel_requested,
+                    status_callback=self.stage.emit,
                 )
                 self.completed.emit(target)
         except Exception as exc:  # noqa: BLE001
@@ -61,6 +63,14 @@ class _RetroBiosPackWorker(QThread):
 
     def _emit_progress(self, done: int, total: int) -> None:
         """Converte bytes para a escala segura usada pelo QProgressBar."""
+        if total <= 0:
+            self.progress.emit(0, 1000)
+            return
+        value = min(1000, max(0, int(done * 1000 / total)))
+        self.progress.emit(value, 1000)
+
+    def _emit_progress(self, done: int, total: int) -> None:
+        """Converte o progresso da etapa para a escala segura do Qt."""
         if total <= 0:
             self.progress.emit(0, 1000)
             return
@@ -343,25 +353,47 @@ class ToolsDirectoriesPage(QWidget):
         # de 0..1000 e convertemos o progresso real para essa faixa.
         self.retrobios_pack_progress.setRange(0, 1000)
         self.retrobios_pack_progress.setValue(0)
-        self.retrobios_pack_status.setText(f"Baixando {pack.platform}…")
+        self.retrobios_pack_progress.setFormat("%p%")
+        self._retrobios_pack_stage("BAIXANDO")
         self._set_pack_controls(False)
         self._pack_worker = _RetroBiosPackWorker(
             "download", pack=pack, destination=destination, parent=self
         )
         self._pack_worker.progress.connect(self._retrobios_pack_progress)
+        self._pack_worker.stage.connect(self._retrobios_pack_stage)
         self._pack_worker.completed.connect(self._retrobios_pack_completed)
         self._pack_worker.failed.connect(self._retrobios_pack_failed)
         self._pack_worker.finished.connect(self._retrobios_pack_worker_finished)
         self._pack_worker.start()
 
+    def _retrobios_pack_stage(self, stage: str) -> None:
+        labels = {
+            "BAIXANDO": "Baixando volumes",
+            "MONTANDO VOLUMES": "Montando volumes multipart",
+            "EXTRAINDO": "Extraindo arquivos",
+            "COPIANDO PARA O DESTINO": "Copiando arquivos para o destino",
+        }
+        self._pack_stage = labels.get(stage, stage.title())
+        self.retrobios_pack_progress.setValue(0)
+        self.retrobios_pack_status.setText(f"{self._pack_stage}…")
+
     def _retrobios_pack_progress(self, done: int, total: int) -> None:
-        # O valor real pode exceder o limite de int32 do QProgressBar.
-        # A barra representa a fração concluída em milésimos.
         if total <= 0:
             self.retrobios_pack_progress.setValue(0)
             return
         value = min(1000, max(0, int(done * 1000 / total)))
         self.retrobios_pack_progress.setValue(value)
+        self.retrobios_pack_status.setText(
+            f"{self._pack_stage} — {self._format_bytes(done)} / {self._format_bytes(total)}"
+        )
+
+    @staticmethod
+    def _format_bytes(value: int) -> str:
+        if value >= 1024**3:
+            return f"{value / 1024**3:.2f} GiB"
+        if value >= 1024**2:
+            return f"{value / 1024**2:.0f} MiB"
+        return f"{value / 1024:.0f} KiB"
 
     def _retrobios_pack_completed(self, payload: object) -> None:
         self.retrobios_pack_status.setText(
