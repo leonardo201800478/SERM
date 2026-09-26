@@ -5,6 +5,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
     QBoxLayout,
     QFileDialog,
@@ -21,7 +22,6 @@ from PySide6.QtWidgets import (
 from .altirra_directories_page import AltirraDirectoriesPage
 from .amiberry_directories_page import AmiberryDirectoriesPage
 from .ares_directories_page import AresDirectoriesPage
-from .ares_firmware_page import AresFirmwarePage
 from .directories_guide_page import DirectoryGuidePage
 from .directory_dialogs import get_existing_directory
 from .retro_bios_firmware_panel import RetroBiosFirmwarePanel
@@ -35,7 +35,10 @@ class DirectoriesPage(DirectoryGuidePage):
 
     def __init__(self, parent=None) -> None:
         self.retro_bios_panels: list[RetroBiosFirmwarePanel] = []
+        self._retro_bios_by_emulator: dict[str, RetroBiosFirmwarePanel] = {}
         super().__init__(parent)
+        self._connect_lazy_retro_bios_tabs()
+        QTimer.singleShot(0, self._ensure_current_retro_bios_panels)
 
     def _build_emulator_directory_settings(self, emulator: str, page) -> None:
         if emulator == "ares":
@@ -88,18 +91,53 @@ class DirectoriesPage(DirectoryGuidePage):
         layout = page.layout()
         if isinstance(layout, QBoxLayout) and widget is not None:
             layout.addWidget(widget)
-        if emulator != "mame":
-            label = next(
-                (name for key, name, _config in self.EMULATORS if key == emulator),
-                emulator,
-            )
-            panel = RetroBiosFirmwarePanel(emulator, label, page)
-            group = QGroupBox(f"Scan RetroBIOS — {label}")
-            firmware_layout = QVBoxLayout(group)
-            firmware_layout.addWidget(panel)
-            if isinstance(layout, QBoxLayout):
-                layout.addWidget(group)
-            self.retro_bios_panels.append(panel)
+        # O reconstrutor universal é carregado sob demanda, quando a aba é aberta.
+        # Isso evita construir dezenas de árvores Qt pesadas durante o boot.
+        return
+
+    def _connect_lazy_retro_bios_tabs(self) -> None:
+        """Liga a criação do painel universal à seleção de cada aba."""
+        for tabs in self.emulator_tabs.values():
+            tabs.currentChanged.connect(self._retro_bios_tab_changed)
+
+    def _ensure_current_retro_bios_panels(self) -> None:
+        """Cria apenas o painel da aba atualmente visível em cada categoria."""
+        for tabs in self.emulator_tabs.values():
+            index = tabs.currentIndex()
+            if index >= 0:
+                self._ensure_retro_bios_panel(tabs, index)
+
+    def _retro_bios_tab_changed(self, index: int) -> None:
+        """Inicializa o reconstrutor somente quando o usuário abre a aba."""
+        tabs = self.sender()
+        if index >= 0 and tabs is not None:
+            self._ensure_retro_bios_panel(tabs, index)
+
+    def _ensure_retro_bios_panel(self, tabs, index: int) -> None:
+        """Instancia e anexa o painel universal uma única vez por emulador."""
+        if index < 0 or index >= tabs.count():
+            return
+        scroll_area = tabs.widget(index)
+        if scroll_area is None or scroll_area.widget() is None:
+            return
+        content = scroll_area.widget()
+        emulator = str(content.property("serm_emulator_key") or "").casefold()
+        if not emulator or emulator == "mame" or emulator in self._retro_bios_by_emulator:
+            return
+        label = next(
+            (name for key, name, _config in self.EMULATORS if key == emulator),
+            emulator,
+        )
+        layout = content.layout()
+        if not isinstance(layout, QBoxLayout):
+            return
+        panel = RetroBiosFirmwarePanel(emulator, label, content)
+        group = QGroupBox(f"Reconstrutor universal de BIOS / firmware — {label}")
+        firmware_layout = QVBoxLayout(group)
+        firmware_layout.addWidget(panel)
+        layout.addWidget(group)
+        self._retro_bios_by_emulator[emulator] = panel
+        self.retro_bios_panels.append(panel)
 
     def _build_mame_tab(self, page) -> None:
         super()._build_mame_tab(page)
