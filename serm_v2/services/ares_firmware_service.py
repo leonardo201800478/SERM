@@ -912,7 +912,6 @@ class AresFirmwareService:
                     or Path(member).name.casefold() == Path(entry.name).name.casefold()
                 )
             if entry.archive_required:
-            if entry.archive_required:
                 if member is None or Path(entry.container_name).name.casefold() != path.name.casefold():
                     return False
                 return Path(member).name.casefold() == Path(entry.name).name.casefold()
