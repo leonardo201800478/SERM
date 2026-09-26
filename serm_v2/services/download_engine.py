@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import os
 import shutil
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
@@ -275,29 +276,43 @@ class DownloadEngine:
         request_headers = dict(headers)
         if existing:
             request_headers["Range"] = f"bytes={existing}-"
-        request = urllib.request.Request(url, headers=request_headers)
-        try:
-            with urllib.request.urlopen(request, timeout=self.config.timeout) as response:
-                append = existing > 0 and response.status == 206
-                if not append:
-                    existing = 0
-                done = existing
-                with temporary.open("ab" if append else "wb") as output:
-                    while True:
-                        if cancel_callback and cancel_callback():
-                            raise DownloadEngineError("Download cancelado.")
-                        chunk = response.read(self.config.chunk_size)
-                        if not chunk:
-                            break
-                        output.write(chunk)
-                        done += len(chunk)
-                        if progress_callback:
-                            progress_callback(done, total or done)
-            os.replace(temporary, destination)
-        except DownloadEngineError:
-            raise
-        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError) as exc:
-            raise DownloadEngineError(f"Falha no download: {exc}") from exc
+        last_error: Exception | None = None
+        for attempt in range(self.config.retries):
+            try:
+                if cancel_callback and cancel_callback():
+                    raise DownloadEngineError("Download cancelado.")
+                existing = temporary.stat().st_size if temporary.is_file() else 0
+                request_headers = dict(headers)
+                if existing:
+                    request_headers["Range"] = f"bytes={existing}-"
+                request = urllib.request.Request(url, headers=request_headers)
+                with urllib.request.urlopen(request, timeout=self.config.timeout) as response:
+                    append = existing > 0 and response.status == 206
+                    if not append:
+                        existing = 0
+                    done = existing
+                    with temporary.open("ab" if append else "wb") as output:
+                        while True:
+                            if cancel_callback and cancel_callback():
+                                raise DownloadEngineError("Download cancelado.")
+                            chunk = response.read(self.config.chunk_size)
+                            if not chunk:
+                                break
+                            output.write(chunk)
+                            done += len(chunk)
+                            if progress_callback:
+                                progress_callback(done, total or done)
+                os.replace(temporary, destination)
+                return
+            except DownloadEngineError as exc:
+                if "cancelado" in str(exc).casefold():
+                    raise
+                last_error = exc
+            except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError) as exc:
+                last_error = exc
+            if attempt + 1 < self.config.retries:
+                time.sleep(min(2 ** attempt, 4))
+        raise DownloadEngineError(f"Falha no download: {last_error}") from last_error
 
     def _segment_size(self, index: int, start: int, end: int, work_dir: Path) -> int:
         part = work_dir / f"segment-{index:04d}.part"
