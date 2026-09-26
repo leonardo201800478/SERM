@@ -343,16 +343,33 @@ class AresFirmwareService:
             raise AresFirmwareError("O catálogo RetroBIOS não retornou dados.")
         entries, version = cls._parse_catalog(payload, emulator=emulator)
         if not entries:
+            if source_entries:
+                return f"ARES source {cls.ARES_SOURCE_REVISION}", source_entries
             raise AresFirmwareError(
                 f"O RetroBIOS não possui perfil com arquivos para '{emulator}'."
             )
+
+        if source_entries:
+            # O ARES é a autoridade primária para seus próprios firmwares.
+            # O RetroBIOS continua sendo usado apenas para enriquecer origem,
+            # disponibilidade e lacunas de cobertura.
+            entries = cls._merge_ares_source_entries(entries)
+            try:
+                database = cls.load_database(refresh=refresh)
+                entries = cls._enrich_entries_from_database(entries, database)
+            except AresFirmwareError:
+                pass
+            try:
+                gaps = cls.load_gaps(refresh=refresh)
+                entries = cls._enrich_entries_from_gaps(entries, gaps)
+            except AresFirmwareError:
+                pass
+            return f"ARES source {cls.ARES_SOURCE_REVISION}", entries
 
         database = cls.load_database(refresh=refresh)
         entries = cls._enrich_entries_from_database(entries, database)
         gaps = cls.load_gaps(refresh=refresh)
         entries = cls._enrich_entries_from_gaps(entries, gaps)
-        if emulator.casefold() == "ares":
-            entries = cls._merge_ares_source_entries(entries)
         return version, entries
 
     @classmethod
@@ -962,6 +979,7 @@ class AresFirmwareService:
         target = emulator.casefold()
         if target == "mame":
             return (), "excluded"
+        source_entries = cls._ares_source_entries() if target == "ares" else ()
         if target == "retroarch":
             selected = [
                 (profile_id, profile)
