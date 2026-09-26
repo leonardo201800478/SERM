@@ -47,11 +47,8 @@ class DirectoriesPage(DirectoryGuidePage):
             paths_layout = QVBoxLayout(paths_group)
             paths_layout.addWidget(self.ares_paths_page)
             page.layout().addWidget(paths_group)
-            self.ares_firmware_page = AresFirmwarePage(self)
-            firmware_group = QGroupBox("Scan e reconstrução de firmware ares")
-            firmware_layout = QVBoxLayout(firmware_group)
-            firmware_layout.addWidget(self.ares_firmware_page)
-            page.layout().addWidget(firmware_group)
+            # O firmware ares usa o mesmo reconstrutor universal RetroBIOS.
+            # O painel específico antigo foi removido para evitar dois motores na mesma aba.
             group = QGroupBox("Pastas de recursos do ares")
             form = QFormLayout(group)
             self.ares_resource_fields = {}
