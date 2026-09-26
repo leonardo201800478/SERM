@@ -105,6 +105,29 @@ class RetroBiosFirmwarePanel(QWidget):
 
     PATHS_FILE = data_root() / "emulator_paths.json"
 
+    def _source_key(self) -> str:
+        return f"retro_bios_{self.emulator}_source"
+
+    def _destination_key(self) -> str:
+        return f"retro_bios_{self.emulator}_destination"
+
+    def _save_paths(self) -> None:
+        data: dict[str, object] = {}
+        try:
+            value = json.loads(self.PATHS_FILE.read_text(encoding="utf-8"))
+            if isinstance(value, dict):
+                data = value
+        except (OSError, ValueError, TypeError):
+            pass
+        if self._source is not None:
+            data[self._source_key()] = str(self._source)
+        if self._destination is not None:
+            data[self._destination_key()] = str(self._destination)
+        self.PATHS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        self.PATHS_FILE.write_text(
+            json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+
     def __init__(self, emulator: str, label: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.emulator = emulator.casefold()
@@ -202,9 +225,23 @@ class RetroBiosFirmwarePanel(QWidget):
         except (OSError, ValueError, TypeError):
             pass
         configured = paths.get(self.emulator)
-        if not self._source_selected and isinstance(configured, str) and configured.strip():
+        configured_source = paths.get(self._source_key())
+        configured_destination = paths.get(self._destination_key())
+        if (
+            not self._source_selected
+            and isinstance(configured_source, str)
+            and configured_source.strip()
+        ):
+            self._source = Path(configured_source).expanduser()
+        elif not self._source_selected and isinstance(configured, str) and configured.strip():
             self._source = Path(configured).expanduser()
-        if not self._destination_selected and self._source is not None:
+        if (
+            not self._destination_selected
+            and isinstance(configured_destination, str)
+            and configured_destination.strip()
+        ):
+            self._destination = Path(configured_destination).expanduser()
+        elif not self._destination_selected and self._source is not None:
             self._destination = self._source
         self.source_label.setText(str(self._source) if self._source else "Diretório não configurado")
         self.destination_label.setText(
@@ -222,6 +259,7 @@ class RetroBiosFirmwarePanel(QWidget):
             self._source_selected = True
             if not self._destination_selected:
                 self._destination = self._source
+            self._save_paths()
             self._clear_scan()
             self.refresh()
 
@@ -236,6 +274,7 @@ class RetroBiosFirmwarePanel(QWidget):
         if selected:
             self._destination = Path(selected).expanduser().resolve()
             self._destination_selected = True
+            self._save_paths()
             self._plan = None
             self.reconstruct_button.setEnabled(bool(self._scan and self._matches))
             self.refresh()
@@ -335,13 +374,20 @@ class RetroBiosFirmwarePanel(QWidget):
             return
         version, entries = payload
         self._catalog = (str(version), tuple(entries))
+        required = sum(entry.required for entry in self._catalog[1])
+        optional = len(self._catalog[1]) - required
         verifiable = sum(entry.is_verifiable for entry in self._catalog[1])
         self.catalog_status.setText(
             f"RetroBIOS {version} | {len(self._catalog[1]):,} arquivo(s) | "
-            f"{verifiable:,} com checksum"
+            f"obrigatórios={required:,} | opcionais={optional:,} | "
+            f"com checksum={verifiable:,}"
         )
-        self._clear_scan()
-        self.status.setText(f"Perfil RetroBIOS de {self.label} atualizado.")
+        self._populate_catalog_preview()
+        self._clear_scan(preserve_catalog=True)
+        self.status.setText(
+            f"Perfil RetroBIOS de {self.label} atualizado: "
+            f"{required:,} obrigatório(s) e {optional:,} opcional(is)."
+        )
 
     def _scan_finished(self, payload: object) -> None:
         if not isinstance(payload, tuple) or len(payload) != 2:
@@ -391,9 +437,14 @@ class RetroBiosFirmwarePanel(QWidget):
             f"RetroBIOS {self._catalog[0]} | {len(self._catalog[1]):,} arquivo(s) catalogado(s) | "
             f"{verifiable:,} com identidade verificável"
         )
+        required = sum(entry.required for entry in self._catalog[1])
+        optional = len(self._catalog[1]) - required
+        missing_required = sum(entry.required for entry in scan.missing)
+        missing_optional = len(scan.missing) - missing_required
         self.summary.setText(
             f"Examinados={scan.files_examined:,} | validados={len(scan.matches):,} | "
-            f"ausentes/não encontrados={len(scan.missing):,} | sem hash={len(self._catalog[1]) - verifiable:,}"
+            f"ausentes={len(scan.missing):,} (obrigatórios={missing_required:,}, opcionais={missing_optional:,}) | "
+            f"catálogo: obrigatórios={required:,}, opcionais={optional:,}, sem hash={len(self._catalog[1]) - verifiable:,}"
         )
         self.reconstruct_button.setEnabled(bool(self._matches))
         self.export_missing_button.setEnabled(bool(scan.missing))
@@ -503,10 +554,42 @@ class RetroBiosFirmwarePanel(QWidget):
         self.reconstruct_button.setEnabled(bool(self._matches))
         self.cancel_button.setEnabled(False)
 
-    def _clear_scan(self) -> None:
+    def _populate_catalog_preview(self) -> None:
+        """Mostra o catálogo com obrigatório/opcional antes do scan local."""
+        self.items.clear()
+        if self._catalog is None:
+            return
+        for entry in self._catalog[1]:
+            required = "OBRIGATÓRIO" if entry.required else "OPCIONAL"
+            hash_state = "com hash" if entry.is_verifiable else "sem hash"
+            item = QListWidgetItem(
+                f"{required} | {entry.output_path} | {entry.system} | {hash_state}"
+            )
+            item.setData(Qt.ItemDataRole.UserRole, entry.key)
+            item.setData(Qt.ItemDataRole.UserRole + 1, "catalog")
+            hash_label = "SIM" if entry.is_verifiable else "NÃO"
+            item.setToolTip(
+                f"Nome: {entry.name}\n"
+                f"Destino: {entry.output_path}\n"
+                f"Tipo: {required}\n"
+                f"Hash verificável: {hash_label}\n"
+                f"Descrição: {entry.description or 'não informada'}"
+            )
+            if entry.required:
+                item.setBackground(Qt.GlobalColor.darkRed)
+                item.setForeground(Qt.GlobalColor.white)
+            else:
+                item.setBackground(Qt.GlobalColor.darkYellow)
+                item.setForeground(Qt.GlobalColor.black)
+            self.items.addItem(item)
+
+    def _clear_scan(self, *, preserve_catalog: bool = False) -> None:
         self._scan = None
         self._matches.clear()
-        self.items.clear()
+        if preserve_catalog:
+            self._populate_catalog_preview()
+        else:
+            self.items.clear()
         self._plan = None
         self.reconstruct_button.setEnabled(False)
         self.export_missing_button.setEnabled(False)
