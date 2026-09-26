@@ -265,6 +265,10 @@ class EmulatorManager:
             return self._install_latest_flycast_master(
                 destination, progress=progress, install_progress=install_progress, log=log
             )
+        if key == "xm6pro68k":
+            return self._install_latest_xm6pro68k(
+                destination, progress=progress, install_progress=install_progress, log=log
+            )
         if key in {
             "ymir",
             "duckstation",
@@ -288,7 +292,6 @@ class EmulatorManager:
             "super_zsnes",
             "winuae",
             "vice",
-            "xm6pro68k",
             "dosbox_x",
             "stella",
             "altirra",
@@ -621,14 +624,77 @@ class EmulatorManager:
         )
 
     @classmethod
-    def _latest_xm6pro68k_build(cls) -> tuple[str, str, str]:
-        return cls._latest_emufrance_download(
-            query="XM6 Pro-68k",
-            post_slug=re.compile(r"/news/\d+-[^\"']*xm6-pro-68k-release-[^\"']*/?", re.I),
-            release_version=re.compile(r"XM6\s+Pro-68k\s+Release\s*(\d+)\s*\((\d{6})\)", re.I),
-            download_label=re.compile(r"Télécharger\s+XM6\s+Pro-68k\s+Release\s*\d+", re.I),
-            filename=lambda version: f"XM6-Pro-68k-{version.replace(' ', '-')}.zip",
+    def _latest_xm6pro68k_build(cls) -> tuple[str, str, str, str]:
+        """Resolve os pacotes oficiais do XM6 Pro-68k no site do projeto."""
+        page_url = "https://mijet.eludevisibility.org/XM6%20Pro-68k/XM6%20Pro-68k.html"
+        page = html.unescape(cls._download_text(page_url))
+        links = cls._extract_links(page, page_url)
+        base_url = next(
+            (
+                url
+                for url in links
+                if Path(urlparse(url).path).name.casefold() == "xm6 pro-68k.7z"
+            ),
+            None,
         )
+        dll_url = next(
+            (
+                url
+                for url in links
+                if Path(urlparse(url).path).name.casefold() == "xm6 pro-68k dll package.7z"
+            ),
+            None,
+        )
+        if not base_url or not dll_url:
+            raise RuntimeError(
+                "A página oficial do XM6 Pro-68k não indicou os pacotes principal e DLL obrigatórios."
+            )
+        version_text = cls._download_text(
+            urljoin(page_url, "Version.txt")
+        ).strip()
+        version = version_text.splitlines()[0].strip() if version_text else "desconhecida"
+        return base_url, "XM6-Pro-68k.7z", f"Release {version}", dll_url
+
+    def _install_latest_xm6pro68k(
+        self, destination: Path, *, progress=None, install_progress=None, log=None
+    ) -> DownloadResult:
+        """Baixa e instala os pacotes principal e DLL oficiais do XM6 Pro-68k."""
+        base_url, archive_name, version, dll_url = self._latest_xm6pro68k_build()
+        dll_archive_name = Path(urlparse(dll_url).path).name
+        with tempfile.TemporaryDirectory(prefix="serm-xm6pro68k-") as temp_name:
+            temp = Path(temp_name)
+            extracted = temp / "extracted"
+            extracted.mkdir()
+
+            base_archive = temp / archive_name
+            dll_archive = temp / dll_archive_name
+
+            if log:
+                log(f"XM6 PRO-68K | versão={version} | pacote={archive_name}")
+                log(f"DOWNLOAD | {base_url}")
+            self._download(base_url, base_archive, 0, progress, log)
+            self._extract(base_archive, extracted, log, install_progress=install_progress)
+
+            if log:
+                log(f"XM6 PRO-68K | pacote obrigatório={dll_archive_name}")
+                log(f"DOWNLOAD | {dll_url}")
+            self._download(dll_url, dll_archive, 0, progress, log)
+            self._extract(dll_archive, extracted, log, install_progress=install_progress)
+
+            self._merge(
+                self._normalize_archive_root(extracted),
+                destination,
+                install_progress=install_progress,
+                start=40,
+            )
+
+        executable = self._find_executable("xm6pro68k", destination)
+        if executable is None:
+            raise RuntimeError(
+                f"Instalação concluída, mas {self.EXECUTABLES['xm6pro68k']} não foi encontrado em {destination}."
+            )
+        self._enable_portable_mode("xm6pro68k", executable, log=log)
+        return DownloadResult("xm6pro68k", version, executable, archive_name)
 
     @classmethod
     def _latest_emufrance_download(
