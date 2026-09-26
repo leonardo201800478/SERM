@@ -694,13 +694,21 @@ class AresFirmwareService:
                 member_name = Path(member.filename).name.casefold()
                 for entry in name_index.get(member_name, ()):
                     if (
-                        entry.key not in found
-                        and entry.container_name
+                        entry.container_name
                         and Path(entry.container_name).name.casefold() == archive_name
                     ):
-                        found[entry.key] = AresFirmwareMatch(
-                            entry, str(path), member.filename, "archive"
-                        )
+                        existing = found.get(entry.key)
+                        if existing is None:
+                            found[entry.key] = AresFirmwareMatch(
+                                entry, str(path), member.filename, "archive"
+                            )
+                        elif (
+                            existing.archive_member == member.filename
+                            and existing.match_mode == "name"
+                        ):
+                            found[entry.key] = AresFirmwareMatch(
+                                entry, str(path), member.filename, "archive"
+                            )
 
     @staticmethod
     def _build_hash_index(
