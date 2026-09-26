@@ -357,11 +357,11 @@ def test_retroarch_info_is_structural_authority(tmp_path: Path) -> None:
     system.mkdir(parents=True)
     info.mkdir()
     (info / "bluemsx_libretro.info").write_text(
-        'firmware_count = 2\\n'
-        'firmware0_path = "Databases/msxromdb.xml"\\n'
-        'firmware0_opt = "false"\\n'
-        'firmware1_path = "Machines/Shared Roms/MSX.rom"\\n'
-        'firmware1_opt = "false"\\n',
+        'firmware_count = 2\n'
+        'firmware0_path = "Databases/msxromdb.xml"\n'
+        'firmware0_opt = "false"\n'
+        'firmware1_path = "Machines/Shared Roms/MSX.rom"\n'
+        'firmware1_opt = "false"\n',
         encoding="utf-8",
     )
     entries = (
@@ -401,11 +401,11 @@ def test_retroarch_info_optional_firmware_is_not_required(tmp_path: Path) -> Non
 
     info = tmp_path / "genesis_plus_gx_libretro.info"
     info.write_text(
-        'firmware_count = 2\\n'
-        'firmware0_path = "bios_MD.bin"\\n'
-        'firmware0_opt = "true"\\n'
-        'firmware1_path = "bios_CD_E.bin"\\n'
-        'firmware1_opt = "true"\\n',
+        'firmware_count = 2\n'
+        'firmware0_path = "bios_MD.bin"\n'
+        'firmware0_opt = "true"\n'
+        'firmware1_path = "bios_CD_E.bin"\n'
+        'firmware1_opt = "true"\n',
         encoding="utf-8",
     )
     result = RetroArchBiosService._firmware_from_info(
@@ -422,8 +422,8 @@ def test_retroarch_info_without_firmware_does_not_create_bios(tmp_path: Path) ->
 
     info = tmp_path / "nes_libretro.info"
     info.write_text(
-        'systemname = "Nintendo Entertainment System"\\n'
-        'systemid = "nes"\\n',
+        'systemname = "Nintendo Entertainment System"\n'
+        'systemid = "nes"\n',
         encoding="utf-8",
     )
     assert RetroArchBiosService._firmware_from_info(
