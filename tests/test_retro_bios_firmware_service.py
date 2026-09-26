@@ -1,4 +1,5 @@
 import hashlib
+import hashlib
 import json
 import zipfile
 import zlib
@@ -11,7 +12,10 @@ from serm_v2.services.ares_firmware_service import (
     AresFirmwareScan,
     AresFirmwareService,
 )
-from serm_v2.services.reconstruction_service import ReconstructionError, ReconstructionService
+from serm_v2.services.reconstruction_service import (
+    ReconstructionError,
+    ReconstructionService,
+)
 
 
 def test_catalog_selects_mapped_emulator_and_preserves_hash_metadata() -> None:
