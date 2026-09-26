@@ -601,10 +601,10 @@ class AresFirmwareService:
                 raise AresFirmwareError(f"Scan de firmware do {emulator} cancelado.")
             try:
                 if candidate.suffix.casefold() == ".zip":
-                    cls._scan_zip(candidate, hash_index, name_index, found)
+                    cls._scan_zip(candidate, hash_index, name_index, found, root)
                 else:
                     identity = cls._hash_file(candidate)
-                    cls._record_matches(hash_index, name_index, identity, candidate, None, found)
+                    cls._record_matches(hash_index, name_index, identity, candidate, None, found, root)
             except (OSError, zipfile.BadZipFile, RuntimeError):
                 pass
             examined += 1
@@ -686,16 +686,17 @@ class AresFirmwareService:
         hash_index: dict[tuple[str, str], tuple[AresFirmwareEntry, ...]],
         name_index: dict[str, tuple[AresFirmwareEntry, ...]],
         found: dict[str, AresFirmwareMatch],
+        root: Path,
     ) -> None:
         archive_identity = cls._hash_file(path)
-        cls._record_matches(hash_index, name_index, archive_identity, path, None, found)
+        cls._record_matches(hash_index, name_index, archive_identity, path, None, found, root)
         with zipfile.ZipFile(path) as archive:
             for member in archive.infolist():
                 if member.is_dir():
                     continue
                 with archive.open(member, "r") as stream:
                     identity = cls._hash_stream(stream)
-                cls._record_matches(hash_index, name_index, identity, path, member.filename, found)
+                cls._record_matches(hash_index, name_index, identity, path, member.filename, found, root)
 
                 archive_name = path.name.casefold()
                 member_name = Path(member.filename).name.casefold()
@@ -755,6 +756,7 @@ class AresFirmwareService:
         path: Path,
         member: str | None,
         found: dict[str, AresFirmwareMatch],
+        root: Path | None = None,
     ) -> None:
         candidates: dict[str, AresFirmwareEntry] = {}
         for algorithm in ("sha256", "sha1", "md5", "crc32"):
@@ -763,11 +765,21 @@ class AresFirmwareService:
                 candidates[entry.key] = entry
 
         def allowed(entry: AresFirmwareEntry) -> bool:
-            if not entry.archive_required:
+            if entry.archive_required:
+                if member is None or Path(entry.container_name).name.casefold() != path.name.casefold():
+                    return False
+            expected = PurePosixPath(entry.output_path.replace("\\", "/"))
+            if len(expected.parts) <= 1:
                 return True
-            if member is None:
+            if member is not None:
+                return PurePosixPath(member.replace("\\", "/")) == expected
+            if root is None:
+                return True
+            try:
+                actual = PurePosixPath(path.relative_to(root).as_posix())
+            except ValueError:
                 return False
-            return Path(entry.container_name).name.casefold() == path.name.casefold()
+            return actual == expected
 
         hash_matches = [
             entry for entry in candidates.values()
