@@ -65,6 +65,30 @@ class RetroBiosPackService:
         return cls.PACKS_ROOT
 
     @classmethod
+    def pack_name_for_path(
+        cls, path: str | Path, *, source: str | Path | None = None
+    ) -> str:
+        """Identifica o pack RetroBIOS a partir da pasta de extração do arquivo.
+
+        Os packs oficiais são extraídos em <storage>/<plataforma>/. Quando o
+        arquivo pertence à fonte padrão, o primeiro componente relativo ao
+        armazenamento identifica a plataforma/pack. Para fontes alternativas,
+        retorna string vazia porque não há evidência de qual pack originou o arquivo.
+        """
+        root = Path(source).expanduser().resolve() if source is not None else cls.storage_directory()
+        candidate = Path(path).expanduser().resolve()
+        try:
+            relative = candidate.relative_to(root)
+        except ValueError:
+            return ""
+        if not relative.parts:
+            return ""
+        platform = relative.parts[0].strip()
+        if not platform or platform.startswith("."):
+            return ""
+        return f"{platform}_BIOS_Pack.zip"
+
+    @classmethod
     def storage_directory(cls) -> Path:
         """Retorna a pasta configurada em Ferramentas ou o padrão do SERM."""
         try:
