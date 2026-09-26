@@ -312,8 +312,8 @@ class RetroBiosFirmwarePanel(QWidget):
         if selected:
             self._source = Path(selected).expanduser().resolve()
             self._source_selected = True
-            if not self._destination_selected:
-                self._destination = self._source
+            # A origem e o destino são configurações independentes.
+            # Trocar a origem nunca pode alterar o diretório de reconstrução.
             self._save_paths()
             self._clear_scan()
             self.refresh()
@@ -586,8 +586,9 @@ class RetroBiosFirmwarePanel(QWidget):
                 background = Qt.GlobalColor.black
                 foreground = Qt.GlobalColor.green
             else:
-                background = Qt.GlobalColor.darkBlue
-                foreground = Qt.GlobalColor.white
+                # BIOS opcional/HLE permanece visualmente amarela, como no preview do catálogo.
+                background = Qt.GlobalColor.darkYellow
+                foreground = Qt.GlobalColor.black
             state_counts[state] += 1
             item = QListWidgetItem(
                 f"{state} | {entry.output_path} | {entry.system} | "
