@@ -280,6 +280,9 @@ class AresFirmwareService:
                 parents.append((indent, stripped))
                 continue
             name, raw_location = stripped.split(":", 1)
+            if not raw_location.strip():
+                parents.append((indent, name.strip()))
+                continue
             ancestors = [part for _level, part in parents]
             try:
                 firmware_index = next(
