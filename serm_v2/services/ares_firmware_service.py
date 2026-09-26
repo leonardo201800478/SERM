@@ -1017,13 +1017,16 @@ class AresFirmwareService:
                 if member.is_dir():
                     continue
                 member_name = Path(member.filename).name.casefold()
-                if member_name not in name_index:
-                    continue
+                # Conteúdo renomeado dentro de ZIP também precisa ser auditado
+                # pelo hash. O nome só pode limitar o trabalho quando não há
+                # nenhum checksum no catálogo.
                 if hash_algorithms:
                     with archive.open(member, "r") as stream:
                         identity = cls._hash_stream(stream, hash_algorithms)
-                else:
+                elif member_name in name_index:
                     identity = {"size": member.file_size}
+                else:
+                    continue
                 cls._record_matches(
                     hash_index,
                     name_index,
