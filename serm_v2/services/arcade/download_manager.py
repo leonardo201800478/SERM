@@ -13,6 +13,7 @@ from enum import StrEnum
 from pathlib import Path, PurePosixPath
 
 from ...models.external_resource import ExternalResource, ExtractionMode
+from ..download_engine import DownloadEngine, DownloadEngineError
 from .latest_resource_resolver import LatestResourceResolver
 
 
@@ -52,14 +53,17 @@ class DownloadManager:
                 with tempfile.NamedTemporaryFile(prefix=".download-", dir=target.parent, delete=False) as tmp:
                     temporary = Path(tmp.name)
                 try:
-                    request = urllib.request.Request(url, headers=self._request_headers(resource, url))
-                    with urllib.request.urlopen(request, timeout=60) as response, temporary.open("wb") as output:
-                        shutil.copyfileobj(response, output, length=1024 * 1024)
-                    self._validate(temporary, resource)
+                    DownloadEngine().download(
+                        url,
+                        temporary,
+                        expected_size=resource.expected_size,
+                        expected_sha256=resource.content_sha256,
+                        headers=self._request_headers(resource, url),
+                    )
                     os.replace(temporary, target)
                     temporary = None
                     return target
-                except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as exc:
+                except (DownloadEngineError, urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as exc:
                     last_error = exc
                 finally:
                     if temporary is not None:
