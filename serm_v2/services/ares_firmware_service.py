@@ -44,6 +44,7 @@ class AresFirmwareEntry:
     gap_reason: str = ""
     container_name: str = ""
     archive_required: bool = False
+    region: str = ""
 
     @property
     def coverage_label(self) -> str:
@@ -121,6 +122,7 @@ class AresFirmwareEntry:
                 self.sha1,
                 self.md5,
                 self.crc32,
+                self.region.casefold(),
             )
         )
 
@@ -195,46 +197,45 @@ class AresFirmwareService:
     # emulador realmente declara/carrega. O revision fixa a referência auditada.
     ARES_SOURCE_REVISION = "4cb8d92b441557cb6bcaf133c4cbc7f6819b1122"
     ARES_SOURCE_FIRMWARE = (
-        {
-            "name": "BIOS",
-            "system": "Famicom Disk System",
-            "description": "ARES source: Japan",
-            "region": "Japan",
-            "sha256": "fdc1a76e654feea993fcb38366e05ee5f4eb641f86fe6bebaeefd412e112dd72",
-            "strict_hash": True,
-        },
-        {
-            "name": "BIOS",
-            "system": "LaserActive (SEGA PAC)",
-            "description": "ARES source: NTSC-J v1.02",
-            "region": "Japan",
-            "sha256": "dca942d977217f703d8d1c6eb1aeb6b32c78ecc421486bbb46c459d385161c94",
-            "strict_hash": True,
-        },
-        {
-            "name": "BIOS",
-            "system": "LaserActive (SEGA PAC)",
-            "description": "ARES source: NTSC-U v1.04",
-            "region": "US",
-            "sha256": "e89b5a319f66406611ec82fe5c4aa6827c175a05135bd7bd177366cba0465021",
-            "strict_hash": True,
-        },
-        {
-            "name": "neo-epo.bin",
-            "system": "Neo Geo AES",
-            "description": "ARES source: BIOS World; accepts direct file or ZIP member neo-epo.bin",
-            "region": "World",
-            "container_name": "neogeo.zip",
-            "strict_hash": False,
-        },
-        {
-            "name": "sp-45.sp1",
-            "system": "Neo Geo MVS",
-            "description": "ARES source: BIOS World; accepts direct file or ZIP member sp-45.sp1",
-            "region": "World",
-            "container_name": "neogeo.zip",
-            "strict_hash": False,
-        },
+        {"system": "MSX2", "name": "MAIN", "region": "Japan", "sha256": "0c672d86ead61a97f49a583b88b7c1905da120645cd44f0c9f2baf4f4631e0b1", "source_path": "desktop-ui/emulator/msx2.cpp"},
+        {"system": "MSX2", "name": "SUB", "region": "Japan", "sha256": "6c6f421a10c428d960b7ecc990f99af1c638147f747bddca7b0bf0e2ab738300", "source_path": "desktop-ui/emulator/msx2.cpp"},
+        {"system": "Saturn", "name": "BIOS", "region": "US", "source_path": "desktop-ui/emulator/saturn.cpp"},
+        {"system": "Saturn", "name": "BIOS", "region": "Japan", "source_path": "desktop-ui/emulator/saturn.cpp"},
+        {"system": "Saturn", "name": "BIOS", "region": "Europe", "source_path": "desktop-ui/emulator/saturn.cpp"},
+        {"system": "Mega CD", "name": "BIOS", "region": "US", "sha256": "fb477cdbf94c84424c2feca4fe40656d85393fe7b7b401911b45ad2eb991258c", "source_path": "desktop-ui/emulator/mega-cd.cpp"},
+        {"system": "Mega CD", "name": "BIOS", "region": "Japan", "sha256": "7133fc2dd2fe5b7d0acd53a5f10f3d00b5d31270239ad20d74ef32393e24af88", "source_path": "desktop-ui/emulator/mega-cd.cpp"},
+        {"system": "Mega CD", "name": "BIOS", "region": "Europe", "sha256": "fe608a2a07676a23ab5fd5eee2f53c9e2526d69a28aa16ccd85c0ec42e6933cb", "source_path": "desktop-ui/emulator/mega-cd.cpp"},
+        {"system": "Game Gear", "name": "BIOS", "region": "World", "sha256": "8c8a21335038285cfa03dc076100c1f0bfadf3e4ff70796f11f3dfaaab2e85fd87350abd36570", "source_path": "desktop-ui/emulator/game-gear.cpp"},
+        {"system": "PC Engine CD", "name": "System-Card 1.0", "region": "Japan", "sha256": "afe9f27f91ac918348555b86298b4f984643eafa2773196f2c5441ea84f0c3bb", "source_path": "desktop-ui/emulator/pc-engine-cd.cpp"},
+        {"system": "PC Engine CD", "name": "System Card 3.0", "region": "Japan", "sha256": "e11527b3b96ce112a037138988ca72fd117a6b0779c2480d9e03eaebece3d9ce", "source_path": "desktop-ui/emulator/pc-engine-cd.cpp"},
+        {"system": "PC Engine CD", "name": "System Card 3.0", "region": "US", "sha256": "cadac2725711b3c442bcf237b02f5a5210c96f17625c35fa58f009e0ed39e4db", "source_path": "desktop-ui/emulator/pc-engine-cd.cpp"},
+        {"system": "PC Engine CD", "name": "Games Express", "region": "Japan", "sha256": "4b86bb96a48a4ca8375fc0109631d0b1d64f255a03b01de70594d40788ba6c3d", "source_path": "desktop-ui/emulator/pc-engine-cd.cpp"},
+        {"system": "LaserActive (NEC PAC)", "name": "PAC-N10", "region": "US", "sha256": "0e87a3385a27b3a4cac51934819b7eefa5b3d690768d2495633838488cd0e2e4", "source_path": "desktop-ui/emulator/pc-engine-ld.cpp"},
+        {"system": "LaserActive (NEC PAC)", "name": "PAC-N1", "region": "Japan", "sha256": "459325690a458baebd77495c91e37c4dddfdd542ba13a821ce954e5bb245627f", "source_path": "desktop-ui/emulator/pc-engine-ld.cpp"},
+        {"system": "LaserActive (NEC PAC)", "name": "PCE-LP1", "region": "Japan", "sha256": "3f43b3b577117d84002e99cb0baeb97b0d65b1d70b4adadc68817185c6a687f0", "source_path": "desktop-ui/emulator/pc-engine-ld.cpp"},
+        {"system": "LaserActive (NEC PAC)", "name": "System-Card 1.0", "region": "Japan", "sha256": "afe9f27f91ac918348555b86298b4f984643eafa2773196f2c5441ea84f0c3bb", "source_path": "desktop-ui/emulator/pc-engine-ld.cpp"},
+        {"system": "LaserActive (NEC PAC)", "name": "Games Express", "region": "Japan", "sha256": "4b86bb96a48a4ca8375fc0109631d0b1d64f255a03b01de70594d40788ba6c3d", "source_path": "desktop-ui/emulator/pc-engine-ld.cpp"},
+        {"system": "Master System", "name": "BIOS", "region": "US", "sha256": "477617917a12a30f9f43844909dc2de6e6a617430f5c9a36306c86414a670d50", "source_path": "desktop-ui/emulator/master-system.cpp"},
+        {"system": "Master System", "name": "BIOS", "region": "Japan", "sha256": "67846e26764bd862f19179294347f7353a4166b62ac4198a5ec32933b7da486e", "source_path": "desktop-ui/emulator/master-system.cpp"},
+        {"system": "Master System", "name": "BIOS", "region": "Europe", "sha256": "477617917a12a30f9f43844909dc2de6e6a617430f5c9a36306c86414a670d50", "source_path": "desktop-ui/emulator/master-system.cpp"},
+        {"system": "LaserActive (SEGA PAC)", "name": "BIOS", "region": "US", "sha256": "e89b5a319f66406611ec82fe5c4aa6827c175a05135bd7bd177366cba0465021", "source_path": "desktop-ui/emulator/mega-ld.cpp"},
+        {"system": "LaserActive (SEGA PAC)", "name": "BIOS", "region": "Japan", "sha256": "dca942d977217f703d8d1c6eb1aeb6b32c78ecc421486bbb46c459d385161c94", "source_path": "desktop-ui/emulator/mega-ld.cpp"},
+        {"system": "SuperGrafx CD", "name": "Arcade Card", "region": "Japan", "sha256": "e11527b3b96ce112a037138988ca72fd117a6b0779c2480d9e03eaebece3d9ce", "source_path": "desktop-ui/emulator/supergrafx-cd.cpp"},
+        {"system": "PlayStation", "name": "BIOS", "region": "US", "sha256": "11052b6499e466bbf0a709b1f9cb6834a9418e66680387912451e971cf8a1fef", "source_path": "desktop-ui/emulator/playstation.cpp"},
+        {"system": "PlayStation", "name": "BIOS", "region": "Japan", "sha256": "9c0421858e217805f4abe18698afea8d5aa36ff0727eb8484944e00eb5e7eadb", "source_path": "desktop-ui/emulator/playstation.cpp"},
+        {"system": "PlayStation", "name": "BIOS", "region": "Europe", "sha256": "1faaa18fa820a0225e488d9f086296b8e6c46df739666093987ff7d8fd352c09", "source_path": "desktop-ui/emulator/playstation.cpp"},
+        {"system": "Neo Geo Pocket", "name": "BIOS", "region": "World", "sha256": "0293555b21c4fac516d25199df7809b26beeae150e1d4504a050db32264a6ad7", "source_path": "desktop-ui/emulator/neo-geo-pocket.cpp"},
+        {"system": "Neo Geo AES", "name": "BIOS", "region": "World", "source_path": "desktop-ui/emulator/neo-geo-aes.cpp"},
+        {"system": "Neo Geo MVS", "name": "BIOS", "region": "World", "source_path": "desktop-ui/emulator/neo-geo-mvs.cpp"},
+        {"system": "Nintendo 64DD", "name": "BIOS", "region": "Japan", "sha256": "806400ec0df94b0755de6c5b8249d6b6a9866124c5ddbdac198bde22499bfb8b", "source_path": "desktop-ui/emulator/nintendo-64dd.cpp"},
+        {"system": "Nintendo 64DD", "name": "BIOS", "region": "US", "sha256": "e9fec87a45fba02399e88064b9e2f8cf0f2106e351c58279a87f05da5bc984ad", "source_path": "desktop-ui/emulator/nintendo-64dd.cpp"},
+        {"system": "Nintendo 64DD", "name": "BIOS", "region": "DEV", "sha256": "9c2962a8b994a29e4cd04b3a6e4ed730a751414655ab6a9799ebf5fc08b79d44", "source_path": "desktop-ui/emulator/nintendo-64dd.cpp"},
+        {"system": "Neo Geo Pocket Color", "name": "BIOS", "region": "World", "sha256": "8fb845a2f71514cec20728e2f0fecfade69444f8d50898b92c2259f1ba63e10d", "source_path": "desktop-ui/emulator/neo-geo-pocket-color.cpp"},
+        {"system": "ColecoVision", "name": "BIOS", "region": "World", "sha256": "990bf1956f10207d8781b619eb74f89b00d921c8d45c95c334c16c8cceca09ad", "source_path": "desktop-ui/emulator/colecovision.cpp"},
+        {"system": "Game Boy Advance", "name": "BIOS", "region": "World", "sha256": "fd2547724b505f487e6dcb29ec2ecff3af35a841a77ab2e85fd87350abd36570", "source_path": "desktop-ui/emulator/game-boy-advance.cpp"},
+        {"system": "Atari 5200", "name": "BIOS", "region": "NTSC-U Four-port", "sha256": "06b250f18983d058c0f156ce7ee88ae48b6eaf11e6f10f21dccf6ac7ffb6a6af", "source_path": "desktop-ui/emulator/atari-5200.cpp"},
+        {"system": "MSX", "name": "BIOS", "region": "Japan", "sha256": "413a2b601a94b3792e054be2439cc77a1819cceadbfa9542f88d51c7480f2ef0", "source_path": "desktop-ui/emulator/msx.cpp"},
+        {"system": "Famicom Disk System", "name": "BIOS", "region": "Japan", "sha256": "fdc1a76e654feea993fcb38366e05ee5f4eb641f86fe6bebaeefd412e112dd72", "source_path": "desktop-ui/emulator/famicom-disk-system.cpp"},
     )
 
     PROFILE_ALIASES = {
@@ -389,6 +390,8 @@ class AresFirmwareService:
                     profile_id="ares-source",
                     container_name=item.get("container_name", ""),
                     archive_required=False,
+                    region=item.get("region", ""),
+
                 )
             )
         return tuple(entries)
@@ -408,6 +411,8 @@ class AresFirmwareService:
                     if (
                         entry.system.casefold() == source_entry.system.casefold()
                         and entry.name.casefold() == source_entry.name.casefold()
+                    )
+                    and entry.region.casefold() == source_entry.region.casefold()
                     )
                     or (
                         source_entry.sha256
@@ -443,6 +448,7 @@ class AresFirmwareService:
                 gap_reason=existing.gap_reason,
                 container_name=source_entry.container_name or existing.container_name,
                 archive_required=source_entry.archive_required,
+                region=source_entry.region or existing.region,
             )
         return tuple(merged)
 
