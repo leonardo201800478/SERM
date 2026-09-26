@@ -12,7 +12,6 @@ from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
-    QFileDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
