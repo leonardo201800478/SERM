@@ -462,3 +462,75 @@ def test_panel_state_marks_required_entry_with_catalog_payload_as_available() ->
         {"files": [{"name": "missing.bin", "sha256": "c" * 64, "release_asset": "missing.bin"}]},
     )
     assert enriched[0].panel_state(False) == "AUSENTE — DISPONÍVEL"
+
+
+def test_scan_falls_back_to_same_filename_when_hash_does_not_match(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    firmware = source / "kick13.rom"
+    firmware.write_bytes(b"dump with different identity")
+    payload = {
+        "items": [{
+            "id": "amiberry",
+            "profile": {
+                "emulator": "Amiberry",
+                "files": [{
+                    "name": "kick13.rom",
+                    "sha256": "0" * 64,
+                    "size": len(firmware.read_bytes()),
+                }],
+            },
+        }]
+    }
+    entries, _version = AresFirmwareService._parse_catalog(payload, emulator="amiberry")
+
+    scan = AresFirmwareService.scan(source, entries, emulator="amiberry")
+
+    assert len(scan.matches) == 1
+    assert scan.matches[0].path == str(firmware)
+    assert scan.matches[0].match_mode == "name"
+    assert scan.matches[0].entry.name == "kick13.rom"
+
+
+def test_scan_prefers_hash_match_over_same_filename_fallback(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    firmware = source / "bios.bin"
+    data = b"correct BIOS"
+    firmware.write_bytes(data)
+    payload = {
+        "items": [{
+            "id": "testemu",
+            "profile": {
+                "emulator": "Test",
+                "files": [{
+                    "name": "bios.bin",
+                    "sha256": hashlib.sha256(data).hexdigest(),
+                }],
+            },
+        }]
+    }
+    entries, _version = AresFirmwareService._parse_catalog(payload, emulator="testemu")
+
+    scan = AresFirmwareService.scan(source, entries, emulator="testemu")
+
+    assert len(scan.matches) == 1
+    assert scan.matches[0].match_mode == "hash"
+    assert scan.matches[0].entry.name == "bios.bin"
+
+
+def test_panel_state_distinguishes_filename_fallback() -> None:
+    payload = {
+        "items": [{
+            "id": "testemu",
+            "profile": {
+                "emulator": "Test",
+                "files": [{"name": "bios.bin", "sha256": "a" * 64, "required": True}],
+            },
+        }]
+    }
+    entries, _version = AresFirmwareService._parse_catalog(payload, emulator="testemu")
+
+    assert entries[0].panel_state(True, match_mode="hash") == "VALIDADO"
+    assert entries[0].panel_state(True, match_mode="name") == "PRESENTE — NOME COMPATÍVEL"
+    assert "não coincidiu" in entries[0].panel_state_detail(True, match_mode="name")
