@@ -236,6 +236,7 @@ class RetroBiosFirmwarePanel(QWidget):
         self._destination_invalid_matches: dict[str, AresFirmwareMatch] = {}
         self._missing_candidates: tuple[AresFirmwareEntry, ...] = ()
         self._missing_report_ready = False
+        self._destination_scan_allows_report = False
         self._post_reconstruction_refresh = False
         self._plan: ReconstructionPlan | None = None
         self._worker: _RetroBiosWorker | None = None
@@ -445,6 +446,7 @@ class RetroBiosFirmwarePanel(QWidget):
             )
             return
         self._clear_scan()
+        self._destination_scan_allows_report = False
         if self._destination is None or not self._destination.is_dir():
             self.status.setText("Configure o diretório de destino para iniciar o scan automático.")
             return
@@ -477,6 +479,7 @@ class RetroBiosFirmwarePanel(QWidget):
         self._destination_invalid_matches.clear()
         self._missing_candidates = ()
         self._missing_report_ready = False
+        self._destination_scan_allows_report = True
         self.export_missing_button.setEnabled(False)
         self.reconstruct_button.setEnabled(False)
         self.status.setText(f"Atualizando o scan do destino de {self.label}…")
@@ -609,7 +612,8 @@ class RetroBiosFirmwarePanel(QWidget):
         self._destination_matches = {match.entry.key: match for match in scan.matches}
         self._destination_invalid_matches = {match.entry.key: match for match in scan.invalid}
         self._update_missing_candidates()
-        self._missing_report_ready = True
+        self._missing_report_ready = self._destination_scan_allows_report
+        self._destination_scan_allows_report = False
         self._render_scan_state(destination_scan=scan)
         if self.emulator == "ares":
             self.status.setText(
@@ -991,6 +995,7 @@ class RetroBiosFirmwarePanel(QWidget):
         if self._post_reconstruction_refresh and self._destination is not None and self._destination.is_dir():
             self._post_reconstruction_refresh = False
             self._missing_report_ready = False
+            self._destination_scan_allows_report = True
             self._start_worker(
                 _RetroBiosWorker(
                     "destination_scan",
