@@ -10,6 +10,10 @@ Esta documentação descreve o código ativo em `serm_v2/`. O SERM está em dese
 - [Estrutura do projeto](project-tree.md) — organização atual do repositório e pacote.
 - [Ambiente de desenvolvimento](development-environment.md) — instalação, execução e ferramentas.
 
+## Regra operacional de scan
+
+- [Política geral de SCAN, REFRESH e reconstrução](scan-policy.md) — contrato obrigatório para separar origem, destino, reconstrução e exportação.
+
 ## Arquitetura e dados
 
 - [Arquitetura](architecture.md) — camadas e limites entre componentes.
