@@ -615,8 +615,6 @@ class MameFiltersPanel(QWidget):
         self.mamecab.setChecked(True)
         self.show_clones = QCheckBox("Mostrar clones")
         self.show_clones.setChecked(True)
-        self.latest = QCheckBox("Última release (0.289)")
-        self.latest.setChecked(True)
         self.full_text = QLineEdit()
         self.full_text.setPlaceholderText("Full text search (mameinfo, history, etc.)")
         self.search_button = QPushButton("🔎 BUSCAR")
@@ -641,7 +639,6 @@ class MameFiltersPanel(QWidget):
         grid.addWidget(self.genre_quick, 0, 7)
         grid.addWidget(self.mamecab, 1, 0)
         grid.addWidget(self.show_clones, 1, 1)
-        grid.addWidget(self.latest, 1, 2)
         grid.addWidget(self.search_button, 1, 3)
         grid.addWidget(self.advanced_button, 1, 6)
         grid.addWidget(self.clear_button, 1, 7)
@@ -707,22 +704,13 @@ class MameFiltersPanel(QWidget):
             layout.addWidget(box, 1)
 
     def refresh(self) -> None:
-        old = str(self._scan_path) if self._scan_path else ""
         root = scans_root() / "mame"
         files = (
             sorted(root.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
             if root.is_dir()
             else []
         )
-        preferred = root / "MAME - 0.289_mame0289 - Arcade.json"
-        if preferred.is_file():
-            files = [preferred] + [p for p in files if p != preferred]
-        if self._scan_path is None and files:
-            self._scan_path = files[0]
-        elif old:
-            candidate = Path(old)
-            if candidate.is_file():
-                self._scan_path = candidate
+        self._scan_path = files[0] if files else None
         self._scan_changed()
 
     def _scan_changed(self) -> None:

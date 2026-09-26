@@ -7,6 +7,7 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
+    QGraphicsDropShadowEffect,
     QLabel,
     QLayout,
     QListWidget,
@@ -15,7 +16,6 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QTabWidget,
-    QGraphicsDropShadowEffect,
 )
 
 PIXEL_THEME = """

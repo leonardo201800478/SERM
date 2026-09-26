@@ -1,6 +1,6 @@
 # SERM V2
 
-**Strife Emulator and ROMs Manager — V2**
+## Strife Emulator and ROMs Manager — V2
 
 SERM is a desktop application for managing emulators, catalogs, ROM collections, scans, filtering, reconstruction and execution metadata from a single local workspace.
 

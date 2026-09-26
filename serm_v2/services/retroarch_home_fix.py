@@ -169,7 +169,7 @@ def _patch_gui() -> None:
                 child.setEnabled(False)
         return page
 
-    retroarch_tab_without_channel._serm_distribution_channel_removed = True
+    retroarch_tab_without_channel.__dict__["_serm_distribution_channel_removed"] = True
     EmulatorHomePage._retroarch_tab = retroarch_tab_without_channel
 
     original_load = EmulatorHomePage._load_paths

@@ -118,8 +118,9 @@ class AresControlsPage(QWidget):
             assignments = raw.split(";") if raw else []
             for column in range(1, 4):
                 value = assignments[column - 1] if len(assignments) >= column else ""
-                self.table.setItem(row, column, QTableWidgetItem(value))
-                self.table.item(row, column).setData(256, key)
+                item = QTableWidgetItem(value)
+                item.setData(256, key)
+                self.table.setItem(row, column, item)
         self.status.setText(f"Virtual Gamepad {pad} · {len(available)} entradas encontradas")
 
     def save(self) -> None:
@@ -130,8 +131,16 @@ class AresControlsPage(QWidget):
         changed = 0
         try:
             for row in range(self.table.rowCount()):
-                key = self.table.item(row, 1).data(256)
-                values = [self.table.item(row, column).text().strip() for column in range(1, 4)]
+                key_item = self.table.item(row, 1)
+                if key_item is None:
+                    continue
+                key = key_item.data(256)
+                if not isinstance(key, str):
+                    continue
+                values = []
+                for column in range(1, 4):
+                    item = self.table.item(row, column)
+                    values.append(item.text().strip() if item is not None else "")
                 current = editor.values(key)
                 if not current:
                     continue

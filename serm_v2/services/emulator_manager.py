@@ -517,6 +517,8 @@ class EmulatorManager:
                 re.compile(r"^xenia_canary_windows\.7z$", re.I),
             )
             version = self._release_version(release, "latest Canary")
+        else:
+            raise ValueError(f"Build mais recente não configurado para o emulador: {key}")
 
         archive_name = str(asset["name"])
         url = str(asset["browser_download_url"])
