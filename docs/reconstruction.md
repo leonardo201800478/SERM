@@ -4,7 +4,9 @@
 
 Reconstrução converte conteúdo disponível no filesystem em uma organização compatível com um catálogo e um destino de execução, usando evidências do scan e regras do sistema.
 
-Reconstrução não é scan: **scan observa; reconstrução transforma.**
+Reconstrução não é scan: **SCAN observa a origem; REFRESH observa o destino; reconstrução transforma.**
+
+O contrato completo está em [`scan-policy.md`](scan-policy.md). Para qualquer fluxo com duas pastas físicas, a reconstrução deve partir da diferença entre a origem reconhecida e o destino validado.
 
 ## Pipeline V2
 
