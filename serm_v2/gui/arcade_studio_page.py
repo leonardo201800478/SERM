@@ -39,6 +39,7 @@ from ..services.arcade.scan_comparison import (
     ScanComparisonResult,
 )
 from ..services.chd_header import ChdFormatError, ChdHeaderReader
+from .directory_dialogs import get_existing_directory
 from .mame_filters_panel import MameFiltersPanel
 
 _STATUS_LABELS = {
