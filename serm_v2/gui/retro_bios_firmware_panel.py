@@ -556,6 +556,7 @@ class RetroBiosFirmwarePanel(QWidget):
         state_counts = {
             "VALIDADO": 0,
             "PRESENTE — HASH NÃO VERIFICÁVEL": 0,
+            "PRESENTE — NOME COMPATÍVEL": 0,
             "AUSENTE — DISPONÍVEL": 0,
             "AUSENTE — NÃO DISPONÍVEL": 0,
             "HLE / OPCIONAL": 0,
@@ -569,8 +570,9 @@ class RetroBiosFirmwarePanel(QWidget):
                 if destination is not None
                 else source_match is not None
             )
-            state = entry.panel_state(present)
-            state_detail = entry.panel_state_detail(present)
+            match_mode = match.match_mode if match is not None else "hash"
+            state = entry.panel_state(present, match_mode=match_mode)
+            state_detail = entry.panel_state_detail(present, match_mode=match_mode)
             if state == "VALIDADO":
                 background = Qt.GlobalColor.darkGreen
                 foreground = Qt.GlobalColor.white
@@ -633,6 +635,7 @@ class RetroBiosFirmwarePanel(QWidget):
             f"Examinados={examined_label} | "
             f"🟢 presentes/validados={state_counts['VALIDADO']:,} | "
             f"🟡 presentes sem hash={state_counts['PRESENTE — HASH NÃO VERIFICÁVEL']:,} | "
+            f"🟠 presentes por nomenclatura={state_counts['PRESENTE — NOME COMPATÍVEL']:,} | "
             f"🔴 ausentes/disponíveis={state_counts['AUSENTE — DISPONÍVEL']:,} | "
             f"⚫ ausentes/não disponíveis={state_counts['AUSENTE — NÃO DISPONÍVEL']:,} | "
             f"🔵 HLE/opcional={state_counts['HLE / OPCIONAL']:,} | "
