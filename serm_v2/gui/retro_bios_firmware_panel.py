@@ -675,8 +675,13 @@ class RetroBiosFirmwarePanel(QWidget):
             f"destino={len(destination.matches):,} reconhecido(s)"
             if destination else "destino ainda não escaneado"
         )
+        catalog_label = (
+            f"ARES source {self._catalog[0]}"
+            if self.emulator == "ares"
+            else f"RetroBIOS {self._catalog[0]}"
+        )
         self.catalog_status.setText(
-            f"RetroBIOS {self._catalog[0]} | {len(self._catalog[1]):,} arquivo(s) | "
+            f"{catalog_label} | {len(self._catalog[1]):,} arquivo(s) | "
             f"{verifiable:,} com identidade verificável | acervo={available:,} | {scan_label}"
         )
         examined_label = (
