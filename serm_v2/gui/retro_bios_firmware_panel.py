@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import QTimer, Qt, QThread, Signal
 from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
@@ -82,6 +82,23 @@ class _RetroBiosWorker(QThread):
                     cancel_callback=lambda: self.cancel_requested,
                 )
                 self.scanned.emit((catalog, scan))
+            elif self.operation == "compare" and self.source is not None and self.destination is not None:
+                catalog = self.catalog or AresFirmwareService.load_catalog(emulator=self.emulator)
+                version, entries = catalog
+                source_scan = AresFirmwareService.scan(
+                    self.source, entries, catalog_version=version, emulator=self.emulator,
+                    progress_callback=self.progress.emit,
+                    cancel_callback=lambda: self.cancel_requested,
+                )
+                if self.cancel_requested:
+                    return
+                self.scanned.emit((catalog, source_scan))
+                destination_scan = AresFirmwareService.scan(
+                    self.destination, entries, catalog_version=version, emulator=self.emulator,
+                    progress_callback=self.progress.emit,
+                    cancel_callback=lambda: self.cancel_requested,
+                )
+                self.destination_scanned.emit((catalog, destination_scan))
             elif self.operation == "destination_scan" and self.destination is not None:
                 catalog = self.catalog or AresFirmwareService.load_catalog(emulator=self.emulator)
                 version, entries = catalog
@@ -151,6 +168,7 @@ class RetroBiosFirmwarePanel(QWidget):
         self._destination_scan: AresFirmwareScan | None = None
         self._matches: dict[str, AresFirmwareMatch] = {}
         self._destination_matches: dict[str, AresFirmwareMatch] = {}
+        self._missing_candidates: tuple[AresFirmwareEntry, ...] = ()
         self._plan: ReconstructionPlan | None = None
         self._worker: _RetroBiosWorker | None = None
         self._source: Path | None = None
@@ -159,6 +177,7 @@ class RetroBiosFirmwarePanel(QWidget):
         self._destination_selected = False
         self._build_ui()
         self.refresh()
+        QTimer.singleShot(0, self.scan)
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
@@ -201,12 +220,9 @@ class RetroBiosFirmwarePanel(QWidget):
         actions = QHBoxLayout()
         self.catalog_button = QPushButton("ATUALIZAR RETROBIOS")
         self.catalog_button.clicked.connect(self.update_catalog)
-        self.scan_button = QPushButton("ESCANEAR FONTE")
-        self.scan_button.setToolTip("Escaneia a fonte de aquisição e identifica os arquivos que podem ser reconstruídos.")
+        self.scan_button = QPushButton("ATUALIZAR SCAN")
+        self.scan_button.setToolTip("Reexamina automaticamente a origem e o destino para atualizar a lista de BIOS faltantes.")
         self.scan_button.clicked.connect(self.scan)
-        self.destination_scan_button = QPushButton("ESCANEAR DESTINO")
-        self.destination_scan_button.setToolTip("Escaneia recursivamente a pasta de destino e determina o estado real das BIOS instaladas.")
-        self.destination_scan_button.clicked.connect(self.scan_destination)
         self.reconstruct_button = QPushButton("RECONSTRUIR SELECIONADOS")
         self.reconstruct_button.setEnabled(False)
         self.reconstruct_button.clicked.connect(self.reconstruct)
@@ -218,7 +234,6 @@ class RetroBiosFirmwarePanel(QWidget):
         self.export_missing_button.setEnabled(False)
         actions.addWidget(self.catalog_button)
         actions.addWidget(self.scan_button)
-        actions.addWidget(self.destination_scan_button)
         actions.addWidget(self.reconstruct_button)
         actions.addWidget(self.cancel_button)
         actions.addWidget(self.export_missing_button)
@@ -351,10 +366,19 @@ class RetroBiosFirmwarePanel(QWidget):
             )
             return
         self._clear_scan()
-        self.status.setText(f"Carregando RetroBIOS e examinando {self._source}…")
+        if self._destination is None or not self._destination.is_dir():
+            self.status.setText("Configure o diretório de destino para iniciar o scan automático.")
+            return
+        self._clear_scan()
+        self.status.setText(f"Comparando origem e destino de {self.label}…")
         self._start_worker(
             _RetroBiosWorker(
-                "scan", self.emulator, source=self._source, catalog=self._catalog, parent=self
+                "compare",
+                self.emulator,
+                source=self._source,
+                catalog=self._catalog,
+                destination=self._destination,
+                parent=self,
             )
         )
 
