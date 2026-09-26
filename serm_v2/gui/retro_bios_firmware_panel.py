@@ -235,6 +235,8 @@ class RetroBiosFirmwarePanel(QWidget):
         self._destination_matches: dict[str, AresFirmwareMatch] = {}
         self._destination_invalid_matches: dict[str, AresFirmwareMatch] = {}
         self._missing_candidates: tuple[AresFirmwareEntry, ...] = ()
+        self._missing_report_ready = False
+        self._post_reconstruction_refresh = False
         self._plan: ReconstructionPlan | None = None
         self._worker: _RetroBiosWorker | None = None
         self._source: Path | None = None
@@ -474,7 +476,8 @@ class RetroBiosFirmwarePanel(QWidget):
         self._destination_matches.clear()
         self._destination_invalid_matches.clear()
         self._missing_candidates = ()
-        self.export_missing_button.setEnabled(True)
+        self._missing_report_ready = False
+        self.export_missing_button.setEnabled(False)
         self.reconstruct_button.setEnabled(False)
         self.status.setText(f"Atualizando o scan do destino de {self.label}…")
         self._start_worker(
@@ -606,6 +609,7 @@ class RetroBiosFirmwarePanel(QWidget):
         self._destination_matches = {match.entry.key: match for match in scan.matches}
         self._destination_invalid_matches = {match.entry.key: match for match in scan.invalid}
         self._update_missing_candidates()
+        self._missing_report_ready = True
         self._render_scan_state(destination_scan=scan)
         if self.emulator == "ares":
             self.status.setText(
@@ -765,7 +769,7 @@ class RetroBiosFirmwarePanel(QWidget):
 
     def export_missing_report(self) -> None:
         """Exporta o estado real de firmware, respeitando a configuração do emulador."""
-        if self._destination_scan is None or self._scan is None:
+        if not self._missing_report_ready or self._destination_scan is None or self._scan is None:
             QMessageBox.information(
                 self,
                 f"Firmware {self.label}",
@@ -954,8 +958,10 @@ class RetroBiosFirmwarePanel(QWidget):
         self._destination_scan = None
         self._destination_matches.clear()
         self._missing_candidates = ()
+        self._missing_report_ready = False
+        self._post_reconstruction_refresh = True
         self.reconstruct_button.setEnabled(False)
-        self.export_missing_button.setEnabled(True)
+        self.export_missing_button.setEnabled(False)
         self.status.setText(
             f"Reconstrução concluída: {created:,} arquivo(s) materializado(s); "
             f"{removed:,} arquivo(s) inválido(s) removido(s). "
@@ -980,8 +986,21 @@ class RetroBiosFirmwarePanel(QWidget):
         self.scan_button.setEnabled(True)
         self.refresh_destination_button.setEnabled(True)
         self.reconstruct_button.setEnabled(bool(self._missing_candidates))
-        self.export_missing_button.setEnabled(True)
+        self.export_missing_button.setEnabled(self._missing_report_ready)
         self.cancel_button.setEnabled(False)
+        if self._post_reconstruction_refresh and self._destination is not None and self._destination.is_dir():
+            self._post_reconstruction_refresh = False
+            self._missing_report_ready = False
+            self._start_worker(
+                _RetroBiosWorker(
+                    "destination_scan",
+                    self.emulator,
+                    catalog=self._catalog,
+                    destination=self._destination,
+                    parent=self,
+                )
+            )
+            self.status.setText(f"Atualizando o estado após a reconstrução de {self.label}…")
 
     def _populate_catalog_preview(self) -> None:
         """Mostra o catálogo com obrigatório/opcional antes do scan local."""
@@ -1025,13 +1044,15 @@ class RetroBiosFirmwarePanel(QWidget):
         self._matches.clear()
         self._destination_matches.clear()
         self._missing_candidates = ()
+        self._missing_report_ready = False
+        self._post_reconstruction_refresh = False
         if preserve_catalog:
             self._populate_catalog_preview()
         else:
             self.items.clear()
         self._plan = None
         self.reconstruct_button.setEnabled(False)
-        self.export_missing_button.setEnabled(True)
+        self.export_missing_button.setEnabled(self._missing_report_ready)
 
 
 __all__ = ["RetroBiosFirmwarePanel"]
