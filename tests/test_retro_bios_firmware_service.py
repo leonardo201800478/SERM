@@ -372,3 +372,25 @@ def test_ares_filter_file_requests_preserving_destination(monkeypatch, tmp_path:
     payload = json.loads(filter_path.read_text(encoding="utf-8"))
 
     assert payload["filters"]["preserve_destination_files"] is True
+
+def test_enrich_entries_from_gaps_marks_emulator_coverage_gap() -> None:
+    entry = AresFirmwareService._parse_catalog(
+        {"items": [{"id": "testemu", "profile": {"emulator": "Test Emulator", "files": [{"name": "bios.bin", "system": "test-system", "sha256": "a" * 64}]}}]},
+        emulator="testemu",
+    )[0][0]
+    gaps = {"items": [
+        {"layer": "platform", "name": "bios.bin", "system": "test-system", "status": "missing"},
+        {"layer": "emulator", "name": "bios.bin", "emulator": "Test Emulator", "system": "test-system", "in_repo": True, "status": "bios", "required": True, "reason": "Arquivo usado pelo emulador, mas não declarado pela camada da plataforma."},
+    ]}
+    enriched = AresFirmwareService._enrich_entries_from_gaps((entry,), gaps)
+    assert enriched[0].gap_layer == "emulator"
+    assert enriched[0].gap_status == "bios"
+    assert enriched[0].gap_in_repo is True
+    assert enriched[0].coverage_label == "LACUNA DE COBERTURA"
+    assert "não declarado" in enriched[0].gap_reason
+
+
+def test_gap_records_ignore_platform_layer() -> None:
+    records = AresFirmwareService._gap_records({"items": [{"layer": "platform", "name": "platform.bin"}, {"layer": "emulator", "name": "emulator.bin"}]})
+    assert len(records) == 1
+    assert records[0]["name"] == "emulator.bin"
