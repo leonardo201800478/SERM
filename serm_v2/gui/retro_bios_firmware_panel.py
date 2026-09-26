@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from PySide6.QtCore import QTimer, Qt, QThread, Signal
+from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
@@ -21,7 +21,6 @@ from PySide6.QtWidgets import (
 )
 
 from ..runtime.paths import data_root
-from ..services.retroarch_bios_service import RetroArchBiosService
 from ..services.ares_firmware_service import (
     AresFirmwareEntry,
     AresFirmwareMatch,
@@ -33,6 +32,7 @@ from ..services.reconstruction_service import (
     ReconstructionPlan,
     ReconstructionService,
 )
+from ..services.retroarch_bios_service import RetroArchBiosService
 from ..services.retrobios_pack_service import RetroBiosPackService
 from .directory_dialogs import get_existing_directory
 
