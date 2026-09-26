@@ -424,7 +424,7 @@ class RetroBiosFirmwarePanel(QWidget):
             self._missing_report_ready = False
             self.refresh()
 
-    def scan(self, *, allow_report: bool = False) -> None:
+    def scan(self, _checked: bool = False, *, allow_report: bool = False) -> None:
         if self._worker is not None:
             return
         self.refresh()
