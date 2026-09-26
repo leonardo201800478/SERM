@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from ..runtime.paths import data_root
+from ..runtime.paths import data_root, integrations_root
 
 
 class RetroBiosPackError(RuntimeError):
@@ -51,6 +51,7 @@ class RetroBiosPackService:
 
     API_URL = "https://api.github.com/repos/Abdess/retrobios/releases/latest"
     PACKS_ROOT = data_root() / "retrobios_packs"
+    CONFIG_PATH = integrations_root() / "tools.json"
     DOWNLOADS_ROOT = PACKS_ROOT / ".downloads"
     MAX_RELEASE_BYTES = 4 * 1024 * 1024
     MAX_CHECKSUM_BYTES = 2 * 1024 * 1024
@@ -61,6 +62,18 @@ class RetroBiosPackService:
     @classmethod
     def default_directory(cls) -> Path:
         return cls.PACKS_ROOT
+
+    @classmethod
+    def storage_directory(cls) -> Path:
+        """Retorna a pasta configurada em Ferramentas ou o padrão do SERM."""
+        try:
+            payload = json.loads(cls.CONFIG_PATH.read_text(encoding="utf-8"))
+            value = payload.get("retrobios_packs_directory") if isinstance(payload, dict) else None
+            if isinstance(value, str) and value.strip():
+                return Path(value).expanduser().resolve()
+        except (OSError, ValueError, TypeError):
+            pass
+        return cls.PACKS_ROOT.resolve()
 
     @classmethod
     def list_available(cls) -> tuple[RetroBiosPack, ...]:
@@ -112,12 +125,12 @@ class RetroBiosPackService:
         progress_callback: Callable[[int, int], None] | None = None,
         cancel_callback: Callable[[], bool] | None = None,
     ) -> Path:
-        root = Path(destination).expanduser().resolve() if destination else cls.PACKS_ROOT.resolve()
+        root = Path(destination).expanduser().resolve() if destination else cls.storage_directory()
         root.mkdir(parents=True, exist_ok=True)
         safe_platform = cls._safe_name(pack.platform)
         target = root / safe_platform
         target.mkdir(parents=True, exist_ok=True)
-        download_dir = cls.DOWNLOADS_ROOT / safe_platform
+        download_dir = root / ".downloads" / safe_platform
         download_dir.mkdir(parents=True, exist_ok=True)
 
         total_bytes = pack.size
