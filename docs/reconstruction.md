@@ -41,6 +41,8 @@ A V2 possui:
 
 BIOS de No-Intro/Redump também podem usar o planejador comum: o filtro deve selecionar BIOS e a evidência precisa estar `CURRENT` ou `DUPLICATE` após validação pelo DAT. O executor extrai cada membro para o caminho/nome/extensão definidos no catálogo. Ares continua usando seu adaptador RetroBIOS e o mesmo `ReconstructionService`. Para RetroArch, BizHawk e outros emuladores, o DAT selecionado fornece a identidade; o diretório de destino deve ser a pasta que o emulador espera usar.
 
+As abas de Diretórios oferecem um painel RetroBIOS por emulador configurado, exceto MAME. O painel usa o perfil direto ou um alias conhecido, examina arquivos soltos e membros ZIP por SHA-256, SHA-1, MD5 ou CRC32, e reconstrói nos caminhos relativos do perfil. RetroArch agrega perfis libretro, excluindo MAME. Arquivos sem checksum utilizável e emuladores sem perfil correspondente são mostrados como não verificáveis/indisponíveis; não são reconstruídos. O destino preserva executáveis e conteúdo sem relação com o catálogo, removendo somente arquivos reconhecidos como firmware inválido.
+
 A lógica de ROM foi validada contra catálogo MAME real com 179.667 relações `merge`, sem divergências entre evidência esperada e decisão do planner.
 
 ## Matching físico
@@ -144,6 +146,6 @@ A próxima etapa não é criar mais heurísticas de matching. É fechar o ciclo 
 
 **Materialização física end-to-end: ainda em validação.**
 
-**Fluxo compartilhado de BIOS por DAT: disponível para No-Intro/Redump e reutilizável para destinos RetroArch/BizHawk.**
+**Fluxo RetroBIOS compartilhado: painéis por emulador configurado, com MAME excluído.**
 
-**Integração completa com GUI: parcial; a fase de reconstrução está exposta no menu principal.**
+**Cobertura do catálogo: depende de cada perfil RetroBIOS ter checksum; emuladores sem perfil/checksum compatível não podem ser validados automaticamente.**

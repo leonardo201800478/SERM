@@ -24,6 +24,7 @@ from .ares_directories_page import AresDirectoriesPage
 from .ares_firmware_page import AresFirmwarePage
 from .directories_guide_page import DirectoryGuidePage
 from .directory_dialogs import get_existing_directory
+from .retro_bios_firmware_panel import RetroBiosFirmwarePanel
 from .winuae_directories_page import WinUAEDirectoriesPage
 
 MAME_EXECUTABLE_TITLE = "Executável do MAME"
@@ -31,6 +32,10 @@ MAME_EXECUTABLE_TITLE = "Executável do MAME"
 
 class DirectoriesPage(DirectoryGuidePage):
     """Expose emulator directories with compact controls and MAME executable selection."""
+
+    def __init__(self, parent=None) -> None:
+        self.retro_bios_panels: list[RetroBiosFirmwarePanel] = []
+        super().__init__(parent)
 
     def _build_emulator_directory_settings(self, emulator: str, page) -> None:
         if emulator == "ares":
@@ -79,10 +84,22 @@ class DirectoriesPage(DirectoryGuidePage):
             self.winuae_paths_page = WinUAEDirectoriesPage(self)
             widget = self.winuae_paths_page
         else:
-            return
+            widget = None
         layout = page.layout()
-        if isinstance(layout, QBoxLayout):
+        if isinstance(layout, QBoxLayout) and widget is not None:
             layout.addWidget(widget)
+        if emulator != "mame":
+            label = next(
+                (name for key, name, _config in self.EMULATORS if key == emulator),
+                emulator,
+            )
+            panel = RetroBiosFirmwarePanel(emulator, label, page)
+            group = QGroupBox(f"Scan RetroBIOS — {label}")
+            firmware_layout = QVBoxLayout(group)
+            firmware_layout.addWidget(panel)
+            if isinstance(layout, QBoxLayout):
+                layout.addWidget(group)
+            self.retro_bios_panels.append(panel)
 
     def _build_mame_tab(self, page) -> None:
         super()._build_mame_tab(page)
@@ -192,6 +209,8 @@ class DirectoriesPage(DirectoryGuidePage):
             self.amiberry_paths_page.refresh()
         if hasattr(self, "winuae_paths_page"):
             self.winuae_paths_page.refresh()
+        for panel in self.retro_bios_panels:
+            panel.refresh()
         if hasattr(self, "ares_paths_page"):
             self.ares_paths_page.refresh()
         if hasattr(self, "mame_executable_edit"):

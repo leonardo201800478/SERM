@@ -37,6 +37,7 @@ class ReconstructionPlan:
     loose_count: int
     chd_count: int
     items: tuple[ReconstructionItem, ...]
+    preserve_destination_files: bool = False
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -92,7 +93,10 @@ class ReconstructionService:
             firmware_evidence = payload["evidence"]
             if has_bios_reconstruction:
                 firmware_evidence = [
-                    {**entry, "output_name": entry.get("rom_name")}
+                    {
+                        **entry,
+                        "output_name": entry.get("output_name") or entry.get("rom_name"),
+                    }
                     for entry in firmware_evidence
                     if isinstance(entry, dict)
                     and "type:bios"
@@ -144,13 +148,16 @@ class ReconstructionService:
             loose_count=loose_count,
             chd_count=chd_count,
             items=tuple(items),
+            preserve_destination_files=(
+                isinstance(filters, dict) and filters.get("preserve_destination_files") is True
+            ),
         )
 
     @staticmethod
     def _plan_firmware_items(evidence: list, destination: Path) -> list[ReconstructionItem]:
         """Plan verified firmware copies and ZIP-member extraction by expected filename."""
         items: list[ReconstructionItem] = []
-        used_outputs: set[str] = set()
+        used_outputs: dict[str, ReconstructionItem] = {}
         for entry in evidence:
             if not isinstance(entry, dict):
                 continue
@@ -170,17 +177,27 @@ class ReconstructionService:
                 raise ReconstructionError("EvidÃªncia de firmware com caminho invÃ¡lido.")
             output = destination.joinpath(*relative.parts)
             output_key = str(output).casefold()
-            if output_key in used_outputs:
-                continue
-            used_outputs.add(output_key)
-            items.append(
-                ReconstructionItem(
-                    source,
-                    member or None,
-                    str(output),
-                    "firmware_archive" if member else "firmware",
-                )
+            item = ReconstructionItem(
+                source,
+                member or None,
+                str(output),
+                "firmware_archive" if member else "firmware",
             )
+            previous = used_outputs.get(output_key)
+            if previous is not None:
+                if (
+                    previous.source_path == item.source_path
+                    and previous.archive_member == item.archive_member
+                ):
+                    continue
+                raise ReconstructionError(
+                    f"Conflito de BIOS/firmware no destino {relative.as_posix()}: "
+                    f"{previous.source_path} | {item.source_path}"
+                )
+            used_outputs[output_key] = item
+            if previous is not None:
+                continue
+            items.append(item)
         return items
 
     @classmethod
@@ -225,8 +242,6 @@ class ReconstructionService:
         loose: list[dict] = []
 
         for entry in evidence:
-            if not isinstance(entry, dict):
-                continue
             if str(entry.get("status") or "").strip().upper() != "CURRENT":
                 continue
             archive = str(entry.get("archive_path") or "").strip()
@@ -358,7 +373,11 @@ class ReconstructionService:
         destination.mkdir(parents=True, exist_ok=True)
         if not plan.items:
             raise ReconstructionError("O plano não contém arquivos físicos para reconstruir.")
-        expected_outputs = cls._validate_destination_outputs(plan.items, destination)
+        expected_outputs = cls._validate_destination_outputs(
+            plan.items,
+            destination,
+            validate_sources=not plan.preserve_destination_files,
+        )
         archive_groups, loose_items = cls._group_execution_items(plan.items)
         total = len(archive_groups) + len(loose_items)
         created: list[str] = []
@@ -373,7 +392,8 @@ class ReconstructionService:
             raise ReconstructionError(
                 "Reconstrução concluída com erros:\n" + "\n".join(errors[:20])
             )
-        cls._clean_destination(destination, expected_outputs)
+        if not plan.preserve_destination_files:
+            cls._clean_destination(destination, expected_outputs)
         return {
             "destination": str(destination),
             "filter_run_id": plan.filter_run_id,
@@ -385,7 +405,10 @@ class ReconstructionService:
 
     @staticmethod
     def _validate_destination_outputs(
-        items: tuple[ReconstructionItem, ...], destination: Path
+        items: tuple[ReconstructionItem, ...],
+        destination: Path,
+        *,
+        validate_sources: bool = True,
     ) -> set[Path]:
         expected: set[Path] = set()
         for item in items:
@@ -410,16 +433,17 @@ class ReconstructionService:
                 raise ReconstructionError(f"Saída aponta para um diretório: {output}")
             expected.add(output)
 
-        for item in items:
-            source = Path(item.source_path).expanduser().resolve()
-            try:
-                source.relative_to(destination)
-            except ValueError:
-                continue
-            if source not in expected:
-                raise ReconstructionError(
-                    f"Arquivo de origem dentro do diretório de destino: {source}"
-                )
+        if validate_sources:
+            for item in items:
+                source = Path(item.source_path).expanduser().resolve()
+                try:
+                    source.relative_to(destination)
+                except ValueError:
+                    continue
+                if source not in expected:
+                    raise ReconstructionError(
+                        f"Arquivo de origem dentro do diretório de destino: {source}"
+                    )
         return expected
 
     @staticmethod
