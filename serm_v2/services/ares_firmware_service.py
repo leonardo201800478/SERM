@@ -66,6 +66,25 @@ class AresFirmwareEntry:
         return "OBTENÇÃO: NÃO DISPONÍVEL"
 
     @property
+    def panel_state(self) -> str:
+        """Estado visual unificado do item no painel RetroBIOS."""
+        if not self.required:
+            return "HLE / OPCIONAL"
+        if self.catalog_available:
+            return "VALIDADO" if self.is_verifiable else "PRESENTE — HASH NÃO VERIFICÁVEL"
+        return "AUSENTE — NÃO DISPONÍVEL"
+
+    @property
+    def panel_state_detail(self) -> str:
+        if not self.required:
+            return "Arquivo opcional; o emulador possui fallback/HLE."
+        if self.catalog_available:
+            if self.is_verifiable:
+                return "Arquivo encontrado; hash correto."
+            return "Arquivo encontrado; catálogo não fornece hash. Identificação por nome."
+        return "Arquivo exigido pelo emulador; RetroBIOS não possui payload disponível."
+
+    @property
     def availability_label(self) -> str:
         if self.catalog_available:
             if self.release_asset:
