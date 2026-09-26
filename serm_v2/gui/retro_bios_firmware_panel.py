@@ -76,7 +76,7 @@ class _RetroBiosWorker(QThread):
                         emulator=self.emulator, refresh=True
                     )
                 self.catalog_ready.emit(catalog_result)
-            elif self.operation == "scan" and self.source is not None:
+            elif self.operation == "source_scan" and self.source is not None:
                 catalog = self.catalog
                 if catalog is None:
                     catalog = (
@@ -294,7 +294,9 @@ class RetroBiosFirmwarePanel(QWidget):
         self.scan_button.setToolTip("Reexamina manualmente a origem e o destino para atualizar a lista de BIOS.")
         self.scan_button.clicked.connect(self.scan)
         self.refresh_destination_button = QPushButton("REFRESH")
-        self.refresh_destination_button.setToolTip("Reescaneia somente o diretório de destino e atualiza imediatamente as BIOS ainda ausentes para exportação.")
+        self.refresh_destination_button.setToolTip(
+            "Última etapa: escaneia somente a pasta de destino, valida o set físico e prepara a lista de ROMs ausentes para exportação."
+        )
         self.refresh_destination_button.clicked.connect(self.refresh_destination_scan)
         self.reconstruct_button = QPushButton(
             "RECONSTRUIR AUSENTES" if self.emulator == "ares" else "RECONSTRUIR SELECIONADOS"
@@ -313,10 +315,10 @@ class RetroBiosFirmwarePanel(QWidget):
         self.export_missing_button.setEnabled(False)
         actions.addWidget(self.catalog_button)
         actions.addWidget(self.scan_button)
-        actions.addWidget(self.refresh_destination_button)
         actions.addWidget(self.reconstruct_button)
         actions.addWidget(self.cancel_button)
         actions.addWidget(self.export_missing_button)
+        actions.addWidget(self.refresh_destination_button)
         actions.addStretch()
         root.addLayout(actions)
 
@@ -460,6 +462,18 @@ class RetroBiosFirmwarePanel(QWidget):
         if self._destination is None or not self._destination.is_dir():
             self.status.setText("Configure o diretório de destino para executar o scan.")
             return
+        if self.emulator == "ares":
+            self.status.setText(f"Escaneando somente a pasta de origem do {self.label}…")
+            self._start_worker(
+                _RetroBiosWorker(
+                    "source_scan",
+                    self.emulator,
+                    source=self._source,
+                    catalog=self._catalog,
+                    parent=self,
+                )
+            )
+            return
         self.status.setText(f"Comparando origem e destino de {self.label}…")
         self._start_worker(
             _RetroBiosWorker(
@@ -477,9 +491,6 @@ class RetroBiosFirmwarePanel(QWidget):
         if self._worker is not None:
             return
         self.refresh()
-        if self._scan is None:
-            self.scan(allow_report=True)
-            return
         if self._destination is None or not self._destination.is_dir():
             self.status.setText("Configure um diretório de destino válido para executar o refresh.")
             return
@@ -551,11 +562,16 @@ class RetroBiosFirmwarePanel(QWidget):
         answer = QMessageBox.question(
             self,
             f"Reconstruir firmware {self.label}",
-            f"Reconstruir {len(selected):,} arquivo(s) em:\n{self._destination}?\n\n"
+            (
+                "Reconstruir automaticamente todos os firmwares ausentes ou inválidos "
+                f"encontrados na fonte para:\n{self._destination}?\n\n"
+                if self.emulator == "ares"
+                else f"Reconstruir {len(selected):,} arquivo(s) em:\n{self._destination}?\n\n"
+            )
             + (
-                "O ARES reconstruirá automaticamente todos os firmwares ausentes ou inválidos "
-                "no diretório de destino configurado em Diretórios. "
-                "Arquivos não identificados pelo catálogo serão preservados."
+                "Nenhum arquivo será selecionado manualmente. O conjunto será formado pela "
+                "diferença entre a fonte reconhecida e o destino validado; arquivos desconhecidos "
+                "no destino serão preservados."
                 if self.emulator == "ares"
                 else
                 "Arquivos não identificados pelo catálogo serão preservados; arquivos com nomes do catálogo "
@@ -628,7 +644,11 @@ class RetroBiosFirmwarePanel(QWidget):
         self.status.setText(
             f"Scan da fonte concluído em {scan.source_directory}: "
             f"{len(scan.matches):,} arquivo(s) reconhecido(s). "
-            "Execute também o scan do destino para determinar as ausentes reais."
+            + (
+                "Use REFRESH para validar a pasta de destino e determinar as ausentes reais."
+                if self.emulator == "ares"
+                else "Execute também o scan do destino para determinar as ausentes reais."
+            )
         )
 
     def _destination_scan_finished(self, payload: object) -> None:
@@ -790,8 +810,20 @@ class RetroBiosFirmwarePanel(QWidget):
             f"🔵 HLE/opcional={state_counts['HLE / OPCIONAL']:,} | "
             f"fonte de reconstrução={len(self._matches):,} arquivo(s)"
         )
-        self.reconstruct_button.setEnabled(bool(self._matches) and destination is not None)
-        self.export_missing_button.setEnabled(self._missing_report_ready)
+        if self.emulator == "ares":
+            rebuildable = (
+                self._scan is not None
+                and self._destination_scan is not None
+                and any(entry.key in self._matches for entry in self._missing_candidates)
+            )
+            self.reconstruct_button.setEnabled(rebuildable)
+        else:
+            self.reconstruct_button.setEnabled(bool(self._matches) and destination is not None)
+        self.export_missing_button.setEnabled(
+            self._destination_scan is not None
+            if self.emulator == "ares"
+            else self._missing_report_ready
+        )
 
     def _pack_name_for_entry(self, entry: AresFirmwareEntry) -> str:
         """Retorna o pack que forneceu uma BIOS ausente, quando a fonte é um pack local."""
@@ -802,34 +834,35 @@ class RetroBiosFirmwarePanel(QWidget):
 
     def export_missing_report(self) -> None:
         """Exporta o estado real de firmware, respeitando a configuração do emulador."""
-        if not self._missing_report_ready or self._destination_scan is None or self._scan is None:
+        if self.emulator == "ares":
+            if self._destination_scan is None:
+                QMessageBox.information(
+                    self,
+                    f"Firmware {self.label}",
+                    "Execute REFRESH antes de exportar os BIOS não validados.",
+                )
+                return
+        elif not self._missing_report_ready or self._destination_scan is None or self._scan is None:
             QMessageBox.information(
                 self,
                 f"Firmware {self.label}",
-                "O scan automático da origem e do destino ainda não foi concluído.",
+                "O scan da origem e do destino ainda não foi concluído.",
             )
             return
 
         if self.emulator == "ares":
+            # O arquivo de busca deve conter somente itens que não existem no
+            # destino. Um arquivo existente, porém com hash inválido, não entra
+            # nesta lista: ele será substituído pela reconstrução, mas não é uma
+            # ROM ausente para pesquisa na internet.
+            if self._destination_scan is None:
+                QMessageBox.information(
+                    self,
+                    f"Firmware {self.label}",
+                    "Execute REFRESH antes de exportar os BIOS não validados.",
+                )
+                return
             missing = tuple(self._destination_scan.missing)
-            invalid = tuple(match.entry for match in self._destination_scan.invalid)
-            entries = missing + tuple(
-                entry for entry in invalid if entry.key not in {item.key for item in missing}
-            )
-            settings_path = AresFirmwareService.configured_settings_path()
-            assignments = (
-                AresFirmwareService.read_firmware_assignments(settings_path)
-                if settings_path is not None
-                else ()
-            )
-            assignment_map = {
-                (
-                    assignment.emulator.casefold(),
-                    assignment.firmware_type.casefold(),
-                    assignment.region.casefold(),
-                ): assignment
-                for assignment in assignments
-            }
             selected, _ = QFileDialog.getSaveFileName(
                 self,
                 "Exportar BIOS/firmwares ARES não validados",
@@ -847,50 +880,43 @@ class RetroBiosFirmwarePanel(QWidget):
                 f"Emulador: {self.label} ({self.emulator})",
                 f"Fonte autoritativa: ARES source {self._destination_scan.catalog_version}",
                 f"Pasta de destino examinada: {self._destination_scan.source_directory}",
-                f"settings.bml: {settings_path if settings_path is not None else '(não configurado)'}",
-                f"Não configurados/ausentes: {len(missing)}",
-                f"Configurados com hash inválido: {len(invalid)}",
+                f"ROMs ausentes: {len(missing)}",
                 "",
-                "Esta relação reproduz as entradas Emulator/Firmware do ARES.",
-                "Um arquivo existente na pasta não é considerado válido se não estiver atribuído pelo ARES.",
+                "Esta relação contém somente entradas que não possuem arquivo válido no conjunto físico do destino.",
+                "Arquivos existentes com hash inválido não são exportados; a reconstrução os substitui.",
+                "Use o hash do ARES como identificador principal quando disponível.",
                 "",
             ]
-            for index, entry in enumerate(entries, start=1):
-                assignment = assignment_map.get(
-                    (
-                        entry.system.casefold(),
-                        entry.name.replace(" ", "-").casefold(),
-                        entry.region.casefold(),
-                    )
-                )
-                invalid_match = self._destination_invalid_matches.get(entry.key)
-                source_match = self._matches.get(entry.key)
-                status = "HASH INVÁLIDO" if invalid_match else "NÃO CONFIGURADO/AUSENTE"
-                assigned = assignment.location if assignment and assignment.location else "(unset)"
-                source = source_match.path if source_match else "não encontrado na fonte do SERM"
-                hashes = entry.sha256 or "não fornecido pelo código-fonte do ARES"
-                query = " ".join(
-                    f'"{part}"'
-                    for part in (entry.system, entry.name, entry.region, entry.sha256)
-                    if part
-                )
+            for index, entry in enumerate(missing, start=1):
+                size = str(entry.size) if entry.size is not None else "não informado"
+                hashes = []
+                for algorithm in ("sha256", "sha1", "md5", "crc32"):
+                    value = getattr(entry, algorithm)
+                    if value:
+                        hashes.append(f"{algorithm.upper()}={value}")
+                hash_text = " | ".join(hashes) if hashes else "não fornecido pelo código-fonte do ARES"
+                query_parts = [entry.name, entry.system, entry.region]
+                if entry.size is not None:
+                    query_parts.append(f"{entry.size} bytes")
+                for value in (entry.sha256, entry.sha1, entry.md5, entry.crc32):
+                    if value:
+                        query_parts.append(value)
+                        break
+                query = " ".join(f'"{part}"' for part in query_parts if part)
+                required = "SIM" if entry.required else "NÃO"
                 lines.extend(
                     (
-                        f"{index:03d}. {entry.system} | {entry.name} | {entry.region}",
-                        f"    Status: {status}",
-                        f"    Local atribuído pelo ARES: {assigned}",
-                        f"    Local encontrado na fonte SERM: {source}",
-                        f"    SHA-256 ARES: {hashes}",
-                        f"    Código-fonte ARES: {entry.description}",
-                        f"    Pesquisa Google: {query} ares BIOS firmware ROM",
+                        f"{index:03d}. {entry.name}",
+                        f"    Sistema: {entry.system}",
+                        f"    Região: {entry.region or 'não informada'}",
+                        f"    Caminho esperado: {entry.output_path or entry.name}",
+                        f"    Tamanho: {size} bytes",
+                        f"    Hash: {hash_text}",
+                        f"    Obrigatório: {required}",
+                        f"    Disponibilidade RetroBIOS: {entry.availability_label}",
+                        f"    Descrição ARES: {entry.description or 'não informada'}",
+                        f"    Pesquisa Google: {query} BIOS firmware ROM",
                         "",
-                    )
-                )
-            if not entries:
-                lines.extend(
-                    (
-                        "Nenhum firmware ARES não validado foi encontrado.",
-                        "Todas as entradas declaradas no código-fonte possuem atribuição existente e válida no settings.bml.",
                     )
                 )
             try:
@@ -902,7 +928,7 @@ class RetroBiosFirmwarePanel(QWidget):
                     f"Não foi possível salvar o relatório.\n\n{exc}",
                 )
                 return
-            self.status.setText(f"Relatório ARES exportado: {output}")
+            self.status.setText(f"Relatório ARES de ausentes exportado: {output}")
             QMessageBox.information(
                 self,
                 f"Firmware {self.label}",
