@@ -870,6 +870,7 @@ class AresFirmwareService:
             key=lambda path: str(path).casefold(),
         )
         found: dict[str, AresFirmwareMatch] = {}
+        invalid: dict[str, AresFirmwareMatch] = {}
         examined = 0
         total = len(candidates)
         zip_candidates = [path for path in candidates if path.suffix.casefold() == ".zip"]
@@ -900,7 +901,7 @@ class AresFirmwareService:
                 try:
                     identity = future.result()
                     cls._record_matches(
-                        hash_index, name_index, identity, candidate, None, found, root
+                        hash_index, name_index, identity, candidate, None, found, root, invalid
                     )
                 except (OSError, RuntimeError):
                     pass
@@ -918,6 +919,7 @@ class AresFirmwareService:
                     found,
                     root,
                     hash_algorithms=hash_algorithms,
+                    invalid=invalid,
                 )
             except (OSError, zipfile.BadZipFile, RuntimeError):
                 pass
@@ -1009,9 +1011,12 @@ class AresFirmwareService:
         root: Path,
         *,
         hash_algorithms: frozenset[str],
+        invalid: dict[str, AresFirmwareMatch] | None = None,
     ) -> None:
         archive_identity = cls._hash_file_for_algorithms(path, hash_algorithms)
-        cls._record_matches(hash_index, name_index, archive_identity, path, None, found, root)
+        cls._record_matches(
+            hash_index, name_index, archive_identity, path, None, found, root, invalid
+        )
         with zipfile.ZipFile(path) as archive:
             for member in archive.infolist():
                 if member.is_dir():
@@ -1035,6 +1040,7 @@ class AresFirmwareService:
                     member.filename,
                     found,
                     root,
+                    invalid,
                 )
 
                 archive_name = path.name.casefold()
@@ -1105,6 +1111,7 @@ class AresFirmwareService:
         member: str | None,
         found: dict[str, AresFirmwareMatch],
         root: Path | None = None,
+        invalid: dict[str, AresFirmwareMatch] | None = None,
     ) -> None:
         candidates: dict[str, AresFirmwareEntry] = {}
         for algorithm in ("sha256", "sha1", "md5", "crc32"):
@@ -1146,15 +1153,17 @@ class AresFirmwareService:
         for entry in hash_matches:
             found[entry.key] = AresFirmwareMatch(entry, str(path), member, "hash")
 
-        # O hash sempre tem precedência. Se nenhum hash do arquivo coincidir,
-        # aceita a mesma nomenclatura como fallback, inclusive para entradas
-        # que possuem hash no catálogo. Isso permite usar um dump com nome
-        # reconhecido quando o catálogo não oferece uma identidade coincidente.
         if hash_matches:
             return
         member_name = Path(member).name.casefold() if member else path.name.casefold()
         for entry in name_index.get(member_name, ()):
-            if entry.key not in found and allowed(entry):
+            if entry.key in found:
+                continue
+            if entry.is_verifiable:
+                if invalid is not None and entry.key not in invalid and allowed(entry):
+                    invalid[entry.key] = AresFirmwareMatch(entry, str(path), member, "invalid")
+                continue
+            if allowed(entry):
                 found[entry.key] = AresFirmwareMatch(entry, str(path), member, "name")
 
     @staticmethod
