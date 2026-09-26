@@ -1,4 +1,5 @@
 import hashlib
+import io
 import json
 import zipfile
 import zlib
@@ -510,10 +511,7 @@ def test_scan_uses_only_hash_algorithms_declared_by_catalog() -> None:
     )
 
     assert AresFirmwareService._required_hash_algorithms((entry,)) == {"sha256"}
-    identity = AresFirmwareService._hash_stream(
-        iter([b"payload"]).__iter__(),
-        {"sha256"},
-    )
+    identity = AresFirmwareService._hash_stream(io.BytesIO(b"payload"), {"sha256"})
     assert identity["sha256"] == __import__("hashlib").sha256(b"payload").hexdigest()
     assert identity["sha1"] == ""
     assert identity["md5"] == ""
