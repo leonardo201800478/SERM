@@ -862,7 +862,7 @@ class RetroBiosFirmwarePanel(QWidget):
                 item.setForeground(Qt.GlobalColor.white)
             else:
                 item.setBackground(Qt.GlobalColor.darkYellow)
-                item.setForeground(Qt.GlobalColor.black)
+                item.setForeground(Qt.GlobalColor.white)
             self.items.addItem(item)
 
     def _clear_scan(self, *, preserve_catalog: bool = False) -> None:
