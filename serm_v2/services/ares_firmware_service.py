@@ -148,6 +148,8 @@ class AresFirmwareMatch:
                 evidence[f"expected_{name}"] = value
         if self.entry.size is not None:
             evidence["expected_size"] = self.entry.size
+        if self.archive_member and self.entry.container_name:
+            evidence["container_output_name"] = self.entry.container_name
         if self.archive_member:
             evidence["archive_path"] = self.path
             evidence["archive_member"] = self.archive_member
