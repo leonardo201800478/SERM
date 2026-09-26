@@ -11,14 +11,13 @@ from __future__ import annotations
 import hashlib
 import os
 import shutil
-import tempfile
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
-from typing import Callable
+from collections.abc import Callable
 
 
 class DownloadEngineError(RuntimeError):
