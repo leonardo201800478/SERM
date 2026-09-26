@@ -190,6 +190,53 @@ class AresFirmwareService:
     MAX_DATABASE_BYTES = 32 * 1024 * 1024
     MAX_GAPS_BYTES = 8 * 1024 * 1024
     CHUNK_SIZE = 1024 * 1024
+    # Definições de firmware extraídas diretamente do código-fonte do ARES.
+    # Elas têm precedência sobre o RetroBIOS para identificar o firmware que o
+    # emulador realmente declara/carrega. O revision fixa a referência auditada.
+    ARES_SOURCE_REVISION = "4cb8d92b441557cb6bcaf133c4cbc7f6819b1122"
+    ARES_SOURCE_FIRMWARE = (
+        {
+            "name": "BIOS",
+            "system": "Famicom Disk System",
+            "description": "ARES source: Japan",
+            "region": "Japan",
+            "sha256": "fdc1a76e654feea993fcb38366e05ee5f4eb641f86fe6bebaeefd412e112dd72",
+            "strict_hash": True,
+        },
+        {
+            "name": "BIOS",
+            "system": "LaserActive (SEGA PAC)",
+            "description": "ARES source: NTSC-J v1.02",
+            "region": "Japan",
+            "sha256": "dca942d977217f703d8d1c6eb1aeb6b32c78ecc421486bbb46c459d385161c94",
+            "strict_hash": True,
+        },
+        {
+            "name": "BIOS",
+            "system": "LaserActive (SEGA PAC)",
+            "description": "ARES source: NTSC-U v1.04",
+            "region": "US",
+            "sha256": "e89b5a319f66406611ec82fe5c4aa6827c175a05135bd7bd177366cba0465021",
+            "strict_hash": True,
+        },
+        {
+            "name": "neo-epo.bin",
+            "system": "Neo Geo AES",
+            "description": "ARES source: BIOS World; accepts direct file or ZIP member neo-epo.bin",
+            "region": "World",
+            "container_name": "neogeo.zip",
+            "strict_hash": False,
+        },
+        {
+            "name": "sp-45.sp1",
+            "system": "Neo Geo MVS",
+            "description": "ARES source: BIOS World; accepts direct file or ZIP member sp-45.sp1",
+            "region": "World",
+            "container_name": "neogeo.zip",
+            "strict_hash": False,
+        },
+    )
+
     PROFILE_ALIASES = {
         "super_zsnes": ("superzsnes",),
         "rmg": ("mupen64plus_next", "mupen64plus_next_develop"),
@@ -304,7 +351,82 @@ class AresFirmwareService:
         entries = cls._enrich_entries_from_database(entries, database)
         gaps = cls.load_gaps(refresh=refresh)
         entries = cls._enrich_entries_from_gaps(entries, gaps)
+        if emulator.casefold() == "ares":
+            entries = cls._merge_ares_source_entries(entries)
         return version, entries
+
+    @classmethod
+    def _ares_source_entries(cls) -> tuple[AresFirmwareEntry, ...]:
+        """Constrói o catálogo autoritativo a partir das declarações do ARES."""
+        entries: list[AresFirmwareEntry] = []
+        for item in cls.ARES_SOURCE_FIRMWARE:
+            entries.append(
+                AresFirmwareEntry(
+                    name=item["name"],
+                    system=item["system"],
+                    description=item["description"],
+                    required=True,
+                    sha256=item.get("sha256", ""),
+                    output_path=item["name"],
+                    profile_id="ares-source",
+                    container_name=item.get("container_name", ""),
+                    archive_required=False,
+                )
+            )
+        return tuple(entries)
+
+    @classmethod
+    def _merge_ares_source_entries(
+        cls, entries: tuple[AresFirmwareEntry, ...]
+    ) -> tuple[AresFirmwareEntry, ...]:
+        """Mescla o RetroBIOS sem deixar que ele substitua a definição do ARES."""
+        source_entries = cls._ares_source_entries()
+        merged = list(entries)
+        for source_entry in source_entries:
+            same_identity = next(
+                (
+                    index
+                    for index, entry in enumerate(merged)
+                    if (
+                        entry.system.casefold() == source_entry.system.casefold()
+                        and entry.name.casefold() == source_entry.name.casefold()
+                    )
+                    or (
+                        source_entry.sha256
+                        and entry.sha256.casefold() == source_entry.sha256.casefold()
+                    )
+                ),
+                None,
+            )
+            if same_identity is None:
+                merged.append(source_entry)
+                continue
+            existing = merged[same_identity]
+            merged[same_identity] = AresFirmwareEntry(
+                name=source_entry.name,
+                system=source_entry.system,
+                description=source_entry.description,
+                required=source_entry.required,
+                sha256=source_entry.sha256 or existing.sha256,
+                size=existing.size,
+                sha1=existing.sha1,
+                md5=existing.md5,
+                crc32=existing.crc32,
+                validation=existing.validation,
+                output_path=existing.output_path or source_entry.output_path,
+                aliases=existing.aliases,
+                profile_id=source_entry.profile_id,
+                repository_path=existing.repository_path,
+                release_asset=existing.release_asset,
+                catalog_available=existing.catalog_available,
+                gap_layer=existing.gap_layer,
+                gap_status=existing.gap_status,
+                gap_in_repo=existing.gap_in_repo,
+                gap_reason=existing.gap_reason,
+                container_name=source_entry.container_name or existing.container_name,
+                archive_required=source_entry.archive_required,
+            )
+        return tuple(merged)
 
     @classmethod
     def load_database(cls, *, refresh: bool = False) -> object:
@@ -765,6 +887,14 @@ class AresFirmwareService:
                 candidates[entry.key] = entry
 
         def allowed(entry: AresFirmwareEntry) -> bool:
+            if entry.profile_id == "ares-source" and entry.is_verifiable:
+                # Para hashes publicados pelo próprio ARES, não degradar para
+                # identificação por nome: isso poderia atribuir um dump errado.
+                return cls._matches_entry(identity, entry) and (
+                    member is None
+                    or Path(member).name.casefold() == Path(entry.name).name.casefold()
+                )
+            if entry.archive_required:
             if entry.archive_required:
                 if member is None or Path(entry.container_name).name.casefold() != path.name.casefold():
                     return False
