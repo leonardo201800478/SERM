@@ -289,12 +289,6 @@ class RetroBiosFirmwarePanel(QWidget):
             self._destination = Path(configured_destination).expanduser()
         elif not self._destination_selected and isinstance(configured, str) and configured.strip():
             self._destination = Path(configured).expanduser()
-        elif (
-            not self._destination_selected
-            and self._source is not None
-            and self._source.resolve() != RetroBiosPackService.storage_directory().resolve()
-        ):
-            self._destination = self._source
         if self._source and self._source.resolve() == RetroBiosPackService.storage_directory().resolve():
             self.source_label.setText(f"{self._source} (packs RetroBIOS — fonte padrão)")
         else:
