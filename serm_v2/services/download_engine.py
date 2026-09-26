@@ -329,6 +329,8 @@ class DownloadEngine:
 
     @staticmethod
     def _matches(path: Path, size: int | None, digest: str | None) -> bool:
+        if size is None and digest is None:
+            return False
         if size is not None and path.stat().st_size != size:
             return False
         return not digest or DownloadEngine.sha256(path).casefold() == digest.casefold()
