@@ -13,11 +13,11 @@ import os
 import shutil
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
-from collections.abc import Callable
 
 
 class DownloadEngineError(RuntimeError):
