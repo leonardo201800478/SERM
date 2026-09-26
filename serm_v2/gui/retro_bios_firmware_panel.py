@@ -291,7 +291,11 @@ class RetroBiosFirmwarePanel(QWidget):
         )
         self.catalog_button.clicked.connect(self.update_catalog)
         self.scan_button = QPushButton("ATUALIZAR SCAN")
-        self.scan_button.setToolTip("Reexamina manualmente a origem e o destino para atualizar a lista de BIOS.")
+        self.scan_button.setToolTip(
+            "Escaneia somente a pasta de origem e identifica todos os firmwares do ARES disponíveis para reconstrução."
+            if self.emulator == "ares"
+            else "Reexamina manualmente a origem e o destino para atualizar a lista de BIOS."
+        )
         self.scan_button.clicked.connect(self.scan)
         self.refresh_destination_button = QPushButton("REFRESH")
         self.refresh_destination_button.setToolTip(
@@ -329,7 +333,9 @@ class RetroBiosFirmwarePanel(QWidget):
         self.items.setMinimumHeight(110)
         root.addWidget(self.items)
         self.summary = QLabel(
-            "Use ATUALIZAR SCAN para examinar a origem e o destino, ou REFRESH para revalidar somente o destino."
+            "No ARES: SCAN examina a origem; REFRESH examina o destino e prepara a lista de ausentes."
+            if self.emulator == "ares"
+            else "Use ATUALIZAR SCAN para examinar a origem e o destino, ou REFRESH para revalidar somente o destino."
         )
         self.summary.setWordWrap(True)
         root.addWidget(self.summary)
@@ -643,7 +649,7 @@ class RetroBiosFirmwarePanel(QWidget):
         self._render_scan_state()
         self.status.setText(
             f"Scan da fonte concluído em {scan.source_directory}: "
-            f"{len(scan.matches):,} arquivo(s) reconhecido(s). "
+            f"{len(scan.matches):,} firmware(s) reconhecido(s) e disponível(is) para reconstrução. "
             + (
                 "Use REFRESH para validar a pasta de destino e determinar as ausentes reais."
                 if self.emulator == "ares"
