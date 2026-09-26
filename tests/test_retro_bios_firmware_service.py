@@ -362,7 +362,7 @@ def test_bizhawk_sha1_match_is_accepted_from_firmware_root(tmp_path: Path) -> No
     assert scan.missing == ()
 
 
-def test_bizhawk_wrong_sha1_falls_back_to_name_but_not_validation(tmp_path: Path) -> None:
+def test_bizhawk_wrong_sha1_by_name_is_invalid_and_missing(tmp_path: Path) -> None:
     source = tmp_path / "Firmware"
     source.mkdir()
     firmware = source / "boot.rom"
@@ -383,9 +383,10 @@ def test_bizhawk_wrong_sha1_falls_back_to_name_but_not_validation(tmp_path: Path
     entries, _version = AresFirmwareService._parse_catalog(payload, emulator="bizhawk")
     scan = AresFirmwareService.scan(source, entries, emulator="bizhawk")
 
-    assert len(scan.matches) == 1
-    assert scan.matches[0].match_mode == "name"
-    assert scan.matches[0].entry.name == "boot.rom"
+    assert scan.matches == ()
+    assert scan.invalid[0].match_mode == "invalid"
+    assert scan.invalid[0].entry.name == "boot.rom"
+    assert scan.missing[0].name == "boot.rom"
 
 
 
@@ -1126,7 +1127,7 @@ def test_panel_state_marks_required_entry_with_catalog_payload_as_available() ->
     assert enriched[0].panel_state(False) == "AUSENTE — DISPONÍVEL"
 
 
-def test_scan_falls_back_to_same_filename_when_hash_does_not_match(tmp_path: Path) -> None:
+def test_scan_does_not_accept_same_filename_when_hash_does_not_match(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
     firmware = source / "kick13.rom"
