@@ -498,8 +498,6 @@ class RetroBiosFirmwarePanel(QWidget):
         )
         required = sum(entry.required for entry in self._catalog[1])
         optional = len(self._catalog[1]) - required
-        missing_required = sum(entry.required for entry in scan.missing)
-        missing_optional = len(scan.missing) - missing_required
         self.summary.setText(
             f"Examinados={scan.files_examined:,} | "
             f"🟢 validados={state_counts['VALIDADO']:,} | "
