@@ -424,7 +424,7 @@ class RetroBiosFirmwarePanel(QWidget):
             self._missing_report_ready = False
             self.refresh()
 
-    def scan(self) -> None:
+    def scan(self, *, allow_report: bool = False) -> None:
         if self._worker is not None:
             return
         self.refresh()
@@ -436,7 +436,7 @@ class RetroBiosFirmwarePanel(QWidget):
             )
             return
         self._clear_scan()
-        self._destination_scan_allows_report = False
+        self._destination_scan_allows_report = allow_report
         if self._destination is None or not self._destination.is_dir():
             self.status.setText("Configure o diretório de destino para executar o scan.")
             return
@@ -458,7 +458,7 @@ class RetroBiosFirmwarePanel(QWidget):
             return
         self.refresh()
         if self._scan is None:
-            self.scan()
+            self.scan(allow_report=True)
             return
         if self._destination is None or not self._destination.is_dir():
             self.status.setText("Configure um diretório de destino válido para executar o refresh.")
