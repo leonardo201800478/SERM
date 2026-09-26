@@ -662,6 +662,13 @@ class RetroBiosFirmwarePanel(QWidget):
                 foreground = Qt.GlobalColor.green
             else:
                 # BIOS opcional/HLE permanece visualmente amarela, como no preview do catálogo.
+            elif state == "CONFIGURADO — SEM HASH":
+                background = Qt.GlobalColor.darkGreen
+                foreground = Qt.GlobalColor.white
+            elif state == "CONFIGURADO — HASH INVÁLIDO":
+                background = Qt.GlobalColor.darkRed
+                foreground = Qt.GlobalColor.yellow
+            else:
                 background = Qt.GlobalColor.darkYellow
                 foreground = Qt.GlobalColor.white
             state_counts[state] += 1
@@ -669,6 +676,7 @@ class RetroBiosFirmwarePanel(QWidget):
             pack_label = f" | PACK: {pack_name}" if pack_name else ""
             item = QListWidgetItem(
                 f"{state} | {entry.output_path} | {entry.system} | "
+                f"{entry.region or 'REGIÃO NÃO INFORMADA'} | "
                 f"{entry.availability_label} | {entry.distribution_label}{pack_label}"
             )
             item.setData(Qt.ItemDataRole.UserRole + 1, state)
@@ -904,7 +912,7 @@ class RetroBiosFirmwarePanel(QWidget):
         try:
             output.write_text("\n".join(lines), encoding="utf-8-sig")
         except OSError as exc:
-            QMessageBox.warning(f"Firmware {self.label}", f"Não foi possível salvar o relatório.\n\n{exc}")
+            QMessageBox.warning(self, f"Firmware {self.label}", f"Não foi possível salvar o relatório.\n\n{exc}")
             return
         self.status.setText(f"Relatório de ausentes exportado: {output}")
         QMessageBox.information(f"Firmware {self.label}", f"Relatório salvo em:\n{output}")
