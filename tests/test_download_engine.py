@@ -115,3 +115,37 @@ def test_download_resumes_completed_segments(monkeypatch, tmp_path: Path) -> Non
 
     assert target.read_bytes() == payload
     assert f"bytes={len(payload) // 2}-{len(payload) - 1}" in calls
+
+
+def test_single_download_retries_transient_connection_failure(monkeypatch, tmp_path: Path) -> None:
+    payload = b"xm6-pro-68k" * 1024
+    calls = 0
+
+    def fake_urlopen(request, timeout):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise TimeoutError("temporário")
+        return _FakeResponse(payload, 200, {"Content-Length": str(len(payload))})
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+
+    target = tmp_path / "xm6.zip"
+    engine = DownloadEngine(
+        DownloadEngineConfig(
+            segment_size=len(payload) + 1,
+            retries=2,
+            chunk_size=128,
+        )
+    )
+
+    engine.download(
+        "https://example.invalid/xm6.zip",
+        target,
+        expected_size=len(payload),
+        expected_sha256=hashlib.sha256(payload).hexdigest(),
+    )
+
+    assert calls == 2
+    assert target.read_bytes() == payload
