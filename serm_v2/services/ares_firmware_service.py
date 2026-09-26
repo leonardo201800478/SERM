@@ -519,7 +519,10 @@ class AresFirmwareService:
                         (
                             entry.system.casefold() == source_entry.system.casefold()
                             and entry.name.casefold() == source_entry.name.casefold()
-                            and entry.region.casefold() == source_entry.region.casefold()
+                            and (
+                                not entry.region
+                                or entry.region.casefold() == source_entry.region.casefold()
+                            )
                         )
                         or (
                             source_entry.sha256
