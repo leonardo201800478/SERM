@@ -35,6 +35,7 @@ from ..services.reconstruction_service import (
 from ..services.retroarch_bios_service import RetroArchBiosService
 from ..services.retrobios_pack_service import RetroBiosPackService
 from .directory_dialogs import get_existing_directory
+from .ares_directories_page import AresDirectoriesPage
 
 
 class _RetroBiosWorker(QThread):
@@ -275,6 +276,11 @@ class RetroBiosFirmwarePanel(QWidget):
             "Escolhe a pasta de saída. Arquivos fora dos nomes do catálogo serão preservados."
         )
         choose_destination.clicked.connect(self._choose_destination)
+        if self.emulator == "ares":
+            choose_destination.setEnabled(False)
+            choose_destination.setToolTip(
+                "Para o ARES, o destino é sempre Paths.Firmware definido em Diretórios."
+            )
         destination_row.addWidget(choose_destination)
         form.addRow("Reconstrução:", destination_row)
         root.addWidget(paths)
@@ -343,6 +349,10 @@ class RetroBiosFirmwarePanel(QWidget):
         configured = paths.get(self.emulator)
         configured_source = paths.get(self._source_key())
         configured_destination = paths.get(self._destination_key())
+        if self.emulator == "ares":
+            editor = AresDirectoriesPage.editor()
+            firmware_values = editor.values("Paths.Firmware") if editor is not None else []
+            configured_destination = firmware_values[0].strip().strip('"') if firmware_values else None
         if (
             not self._source_selected
             and isinstance(configured_source, str)
@@ -353,7 +363,15 @@ class RetroBiosFirmwarePanel(QWidget):
             self._source = Path(configured).expanduser()
         elif not self._source_selected:
             self._source = RetroBiosPackService.storage_directory()
-        if (
+        if self.emulator == "ares":
+            # Paths.Firmware do settings.bml é a única fonte de verdade do destino.
+            self._destination_selected = False
+            self._destination = (
+                Path(configured_destination).expanduser()
+                if isinstance(configured_destination, str) and configured_destination.strip()
+                else None
+            )
+        elif (
             not self._destination_selected
             and isinstance(configured_destination, str)
             and configured_destination.strip()
