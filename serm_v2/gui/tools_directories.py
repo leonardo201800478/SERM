@@ -52,12 +52,20 @@ class _RetroBiosPackWorker(QThread):
                 target = RetroBiosPackService.download_and_extract(
                     self.pack,
                     destination=self.destination,
-                    progress_callback=self.progress.emit,
+                    progress_callback=self._emit_progress,
                     cancel_callback=lambda: self.cancel_requested,
                 )
                 self.completed.emit(target)
         except Exception as exc:  # noqa: BLE001
             self.failed.emit(f"{type(exc).__name__}: {exc}")
+
+    def _emit_progress(self, done: int, total: int) -> None:
+        """Converte bytes para a escala segura usada pelo QProgressBar."""
+        if total <= 0:
+            self.progress.emit(0, 1000)
+            return
+        value = min(1000, max(0, int(done * 1000 / total)))
+        self.progress.emit(value, 1000)
 
     def cancel(self) -> None:
         self.cancel_requested = True
