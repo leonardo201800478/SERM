@@ -32,7 +32,6 @@ from PySide6.QtWidgets import (
 
 from ..models.arcade import RomStatus
 from ..runtime.paths import database_path, scans_root
-from .directory_dialogs import get_existing_directory
 from ..services.arcade.chd_audit import ArcadeChdAuditService, ChdAuditResult
 from ..services.arcade.scan_comparison import (
     ArcadeScanComparisonService,
