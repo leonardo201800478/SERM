@@ -422,6 +422,7 @@ class RetroBiosFirmwarePanel(QWidget):
             self._plan = None
             self._destination_scan = None
             self._destination_matches.clear()
+            self._destination_invalid_matches.clear()
             self.reconstruct_button.setEnabled(False)
             self.export_missing_button.setEnabled(True)
             self.refresh()
