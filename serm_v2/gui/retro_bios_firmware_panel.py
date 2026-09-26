@@ -445,30 +445,21 @@ class RetroBiosFirmwarePanel(QWidget):
         }
         for entry in self._catalog[1]:
             match = self._matches.get(entry.key)
-            if entry.required:
-                if match and entry.is_verifiable:
-                    state = "VALIDADO"
-                    state_detail = "Arquivo encontrado; hash correto."
-                    background = Qt.GlobalColor.darkGreen
-                    foreground = Qt.GlobalColor.white
-                elif match:
-                    state = "PRESENTE — HASH NÃO VERIFICÁVEL"
-                    state_detail = "Arquivo encontrado; catálogo não fornece hash. Identificação por nome."
-                    background = Qt.GlobalColor.darkYellow
-                    foreground = Qt.GlobalColor.black
-                elif entry.catalog_available:
-                    state = "AUSENTE — DISPONÍVEL"
-                    state_detail = "Arquivo não encontrado localmente; RetroBIOS possui o arquivo."
-                    background = Qt.GlobalColor.darkRed
-                    foreground = Qt.GlobalColor.white
-                else:
-                    state = "AUSENTE — NÃO DISPONÍVEL"
-                    state_detail = "Arquivo exigido pelo emulador; RetroBIOS não possui payload."
-                    background = Qt.GlobalColor.black
-                    foreground = Qt.GlobalColor.white
+            state = entry.panel_state(match is not None)
+            state_detail = entry.panel_state_detail(match is not None)
+            if state == "VALIDADO":
+                background = Qt.GlobalColor.darkGreen
+                foreground = Qt.GlobalColor.white
+            elif state == "PRESENTE — HASH NÃO VERIFICÁVEL":
+                background = Qt.GlobalColor.darkYellow
+                foreground = Qt.GlobalColor.black
+            elif state == "AUSENTE — DISPONÍVEL":
+                background = Qt.GlobalColor.darkRed
+                foreground = Qt.GlobalColor.white
+            elif state == "AUSENTE — NÃO DISPONÍVEL":
+                background = Qt.GlobalColor.black
+                foreground = Qt.GlobalColor.white
             else:
-                state = "HLE / OPCIONAL"
-                state_detail = "Arquivo opcional; o emulador possui fallback/HLE."
                 background = Qt.GlobalColor.darkBlue
                 foreground = Qt.GlobalColor.white
 
