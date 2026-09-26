@@ -219,6 +219,7 @@ class DirectoryGuidePage(QWidget):
                 if _key not in members:
                     continue
                 page = QWidget()
+                page.setProperty("serm_emulator_key", _key)
                 page_layout = QVBoxLayout(page)
                 page_layout.setContentsMargins(8, 8, 8, 8)
                 path_group = QGroupBox("Diretórios e arquivos")
