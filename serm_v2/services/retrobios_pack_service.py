@@ -167,7 +167,7 @@ class RetroBiosPackService:
             download_dir,
             progress_callback=(
                 (lambda done: progress_callback(done, pack.size))
-                if progress_callback
+                if progress_callback and pack.multipart
                 else None
             ),
             cancel_callback=cancel_callback,
