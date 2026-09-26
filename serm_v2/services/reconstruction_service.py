@@ -206,13 +206,19 @@ class ReconstructionService:
                     and previous.archive_member == item.archive_member
                 ):
                     continue
+                if (
+                    previous.source_path == item.source_path
+                    and previous.archive_member
+                    and item.archive_member
+                    and previous.output_path == item.output_path
+                ):
+                    items.append(item)
+                    continue
                 raise ReconstructionError(
                     f"Conflito de BIOS/firmware no destino {relative.as_posix()}: "
                     f"{previous.source_path} | {item.source_path}"
                 )
             used_outputs[output_key] = item
-            if previous is not None:
-                continue
             items.append(item)
         return items
 
