@@ -413,3 +413,54 @@ def test_distribution_label_distinguishes_release_repository_and_gap() -> None:
         (base,), {"items": [{"layer": "emulator", "name": "bios.bin", "system": "", "status": "bios", "in_repo": False}]}
     )[0]
     assert gap.distribution_label == "OBTENÇÃO: LACUNA"
+
+
+def test_panel_state_classifies_required_available_and_optional_entries() -> None:
+    payload = {
+        "items": [{
+            "id": "testemu",
+            "profile": {
+                "emulator": "Test",
+                "files": [
+                    {"name": "valid.bin", "sha256": "a" * 64, "required": True},
+                    {"name": "plain.bin", "required": True},
+                    {"name": "missing.bin", "sha256": "b" * 64, "required": True},
+                    {"name": "hle.bin", "required": False},
+                ],
+            },
+        }]
+    }
+    entries, _version = AresFirmwareService._parse_catalog(payload, emulator="testemu")
+    database = {
+        "files": [
+            {"name": "valid.bin", "sha256": "a" * 64, "release_asset": "valid.bin"},
+            {"name": "plain.bin", "name": "plain.bin", "repo_path": "bios/plain.bin"},
+            {"name": "hle.bin", "repo_path": "bios/hle.bin"},
+        ]
+    }
+    enriched = AresFirmwareService._enrich_entries_from_database(entries, database)
+
+    by_name = {entry.name: entry for entry in enriched}
+    assert by_name["valid.bin"].panel_state == "VALIDADO"
+    assert by_name["valid.bin"].panel_state_detail == "Arquivo encontrado; hash correto."
+    assert by_name["plain.bin"].panel_state == "PRESENTE — HASH NÃO VERIFICÁVEL"
+    assert by_name["missing.bin"].panel_state == "AUSENTE — NÃO DISPONÍVEL"
+    assert by_name["hle.bin"].panel_state == "HLE / OPCIONAL"
+
+
+def test_panel_state_marks_required_entry_with_catalog_payload_as_available() -> None:
+    payload = {
+        "items": [{
+            "id": "testemu",
+            "profile": {
+                "emulator": "Test",
+                "files": [{"name": "missing.bin", "sha256": "c" * 64, "required": True}],
+            },
+        }]
+    }
+    entries, _version = AresFirmwareService._parse_catalog(payload, emulator="testemu")
+    enriched = AresFirmwareService._enrich_entries_from_database(
+        entries,
+        {"files": [{"name": "missing.bin", "sha256": "c" * 64, "release_asset": "missing.bin"}]},
+    )
+    assert enriched[0].panel_state == "AUSENTE — DISPONÍVEL"
