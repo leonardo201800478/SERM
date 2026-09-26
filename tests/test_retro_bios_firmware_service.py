@@ -437,6 +437,108 @@ def test_retroarch_info_without_firmware_does_not_create_bios(tmp_path: Path) ->
 
 
 
+
+def test_ares_source_catalog_matches_firmware_declarations() -> None:
+    entries = AresFirmwareService._ares_source_entries()
+
+    assert len(entries) == 39
+    assert sum(entry.is_verifiable for entry in entries) == 34
+    assert len({entry.key for entry in entries}) == len(entries)
+    assert {
+        (entry.system, entry.region)
+        for entry in entries
+        if entry.system == "Saturn"
+    } == {
+        ("Saturn", "US"),
+        ("Saturn", "Japan"),
+        ("Saturn", "Europe"),
+    }
+
+
+def test_ares_configured_scan_uses_settings_assignments(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fds = next(
+        entry
+        for entry in AresFirmwareService._ares_source_entries()
+        if entry.system == "Famicom Disk System"
+    )
+    saturn = next(
+        entry
+        for entry in AresFirmwareService._ares_source_entries()
+        if entry.system == "Saturn" and entry.region == "US"
+    )
+    fds_path = tmp_path / "fds.bin"
+    saturn_path = tmp_path / "saturn.bin"
+    fds_path.write_bytes(b"fds")
+    saturn_path.write_bytes(b"saturn")
+    settings = tmp_path / "settings.bml"
+    settings.write_text(
+        "Famicom Disk System:\n"
+        "  Firmware:\n"
+        f"    BIOS.Japan: {fds_path}\n"
+        "Saturn:\n"
+        "  Firmware:\n"
+        f"    BIOS.US: {saturn_path}\n",
+        encoding="utf-8",
+    )
+
+    real_hash_file = AresFirmwareService._hash_file
+
+    def fake_hash_file(path: Path) -> dict[str, object]:
+        if path == fds_path:
+            return {
+                "size": 3,
+                "sha256": fds.sha256,
+                "sha1": "",
+                "md5": "",
+                "crc32": "",
+            }
+        return real_hash_file(path)
+
+    monkeypatch.setattr(AresFirmwareService, "_hash_file", staticmethod(fake_hash_file))
+    result = AresFirmwareService.scan_configured(
+        settings,
+        (fds, saturn),
+        catalog_version="ARES source test",
+    )
+
+    assert {match.entry.system for match in result.matches} == {
+        "Famicom Disk System",
+        "Saturn",
+    }
+    assert result.missing == ()
+    assert result.invalid == ()
+    assert {match.match_mode for match in result.matches} == {"hash", "configured"}
+
+
+def test_ares_configured_scan_reports_hash_mismatch(tmp_path: Path) -> None:
+    fds = next(
+        entry
+        for entry in AresFirmwareService._ares_source_entries()
+        if entry.system == "Famicom Disk System"
+    )
+    firmware = tmp_path / "wrong.bin"
+    firmware.write_bytes(b"wrong")
+    settings = tmp_path / "settings.bml"
+    settings.write_text(
+        "Famicom Disk System:\n"
+        "  Firmware:\n"
+        f"    BIOS.Japan: {firmware}\n",
+        encoding="utf-8",
+    )
+
+    result = AresFirmwareService.scan_configured(
+        settings,
+        (fds,),
+        catalog_version="ARES source test",
+    )
+
+    assert result.matches == ()
+    assert result.missing == ()
+    assert len(result.invalid) == 1
+    assert result.invalid[0].match_mode == "invalid"
+
 def test_ares_source_catalog_contains_exact_firmware_hashes() -> None:
     entries = AresFirmwareService._ares_source_entries()
     by_system = {(entry.system, entry.description): entry for entry in entries}
