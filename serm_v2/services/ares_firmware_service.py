@@ -494,7 +494,11 @@ class AresFirmwareService:
                 AresFirmwareEntry(
                     name=item["name"],
                     system=item["system"],
-                    description=f"ARES source: {item.get('region', '')}".rstrip(),
+                    description=(
+                        f"ARES source: {item.get('description', '')}"
+                        if item.get("description")
+                        else f"ARES source: {item.get('region', '')}"
+                    ).rstrip(),
                     required=True,
                     sha256=item.get("sha256", ""),
                     output_path=item["name"],
