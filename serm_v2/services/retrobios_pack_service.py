@@ -10,8 +10,8 @@ import tempfile
 import urllib.request
 import zipfile
 from dataclasses import dataclass
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from ..runtime.paths import data_root, integrations_root
 
