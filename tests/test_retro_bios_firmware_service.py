@@ -539,6 +539,21 @@ def test_ares_configured_scan_reports_hash_mismatch(tmp_path: Path) -> None:
     assert len(result.invalid) == 1
     assert result.invalid[0].match_mode == "invalid"
 
+
+def test_ares_merge_does_not_import_retro_bios_only_entries() -> None:
+    source_only = AresFirmwareEntry(
+        name="not-from-ares.bin",
+        system="RetroBIOS only",
+        description="extra",
+        required=True,
+        sha256="a" * 64,
+    )
+
+    merged = AresFirmwareService._merge_ares_source_entries((source_only,))
+
+    assert all(entry.system != "RetroBIOS only" for entry in merged)
+    assert len(merged) == 39
+
 def test_ares_source_catalog_contains_exact_firmware_hashes() -> None:
     entries = AresFirmwareService._ares_source_entries()
     by_system = {(entry.system, entry.description): entry for entry in entries}
