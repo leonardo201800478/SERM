@@ -737,7 +737,7 @@ class RetroBiosFirmwarePanel(QWidget):
         return RetroBiosPackService.pack_name_for_path(match.path, source=self._source)
 
     def export_missing_report(self) -> None:
-        """Exporta BIOS/firmwares ausentes com metadados para pesquisa rápida."""
+        """Exporta o estado real de firmware, respeitando a configuração do emulador."""
         if self._destination_scan is None or self._scan is None:
             QMessageBox.information(
                 self,
@@ -745,6 +745,103 @@ class RetroBiosFirmwarePanel(QWidget):
                 "O scan automático da origem e do destino ainda não foi concluído.",
             )
             return
+
+        if self.emulator == "ares":
+            missing = tuple(self._destination_scan.missing)
+            invalid = tuple(match.entry for match in self._destination_scan.invalid)
+            entries = missing + tuple(
+                entry for entry in invalid if entry.key not in {item.key for item in missing}
+            )
+            assignments = AresFirmwareService.read_firmware_assignments(
+                self._destination_scan.source_directory
+            )
+            assignment_map = {
+                (
+                    assignment.emulator.casefold(),
+                    assignment.firmware_type.casefold(),
+                    assignment.region.casefold(),
+                ): assignment
+                for assignment in assignments
+            }
+            selected, _ = QFileDialog.getSaveFileName(
+                self,
+                "Exportar BIOS/firmwares ARES não validados",
+                str(Path.home() / "bios_firmwares_nao_validados_ares.txt"),
+                "Arquivo de texto (*.txt);;Todos os arquivos (*)",
+            )
+            if not selected:
+                return
+            output = Path(selected)
+            if output.suffix.casefold() != ".txt":
+                output = output.with_suffix(".txt")
+
+            lines = [
+                "SERM — BIOS / FIRMWARES ARES NÃO VALIDADOS",
+                f"Emulador: {self.label} ({self.emulator})",
+                f"Fonte autoritativa: ARES source {self._destination_scan.catalog_version}",
+                f"settings.bml: {self._destination_scan.source_directory}",
+                f"Não configurados/ausentes: {len(missing)}",
+                f"Configurados com hash inválido: {len(invalid)}",
+                "",
+                "Esta relação reproduz as entradas Emulator/Firmware do ARES.",
+                "Um arquivo existente na pasta não é considerado válido se não estiver atribuído pelo ARES.",
+                "",
+            ]
+            for index, entry in enumerate(entries, start=1):
+                assignment = assignment_map.get(
+                    (
+                        entry.system.casefold(),
+                        entry.name.replace(" ", "-").casefold(),
+                        entry.region.casefold(),
+                    )
+                )
+                invalid_match = self._destination_invalid_matches.get(entry.key)
+                source_match = self._matches.get(entry.key)
+                status = "HASH INVÁLIDO" if invalid_match else "NÃO CONFIGURADO/AUSENTE"
+                assigned = assignment.location if assignment and assignment.location else "(unset)"
+                source = source_match.path if source_match else "não encontrado na fonte do SERM"
+                hashes = entry.sha256 or "não fornecido pelo código-fonte do ARES"
+                query = " ".join(
+                    f'"{part}"'
+                    for part in (entry.system, entry.name, entry.region, entry.sha256)
+                    if part
+                )
+                lines.extend(
+                    (
+                        f"{index:03d}. {entry.system} | {entry.name} | {entry.region}",
+                        f"    Status: {status}",
+                        f"    Local atribuído pelo ARES: {assigned}",
+                        f"    Local encontrado na fonte SERM: {source}",
+                        f"    SHA-256 ARES: {hashes}",
+                        f"    Código-fonte ARES: {entry.description}",
+                        f"    Pesquisa Google: {query} ares BIOS firmware ROM",
+                        "",
+                    )
+                )
+            if not entries:
+                lines.extend(
+                    (
+                        "Nenhum firmware ARES não validado foi encontrado.",
+                        "Todas as entradas declaradas no código-fonte possuem atribuição existente e válida no settings.bml.",
+                    )
+                )
+            try:
+                output.write_text("\n".join(lines), encoding="utf-8-sig")
+            except OSError as exc:
+                QMessageBox.warning(
+                    self,
+                    f"Firmware {self.label}",
+                    f"Não foi possível salvar o relatório.\n\n{exc}",
+                )
+                return
+            self.status.setText(f"Relatório ARES exportado: {output}")
+            QMessageBox.information(
+                self,
+                f"Firmware {self.label}",
+                f"Relatório salvo em:\n{output}",
+            )
+            return
+
         missing = tuple(self._missing_candidates)
         selected, _ = QFileDialog.getSaveFileName(
             self,
@@ -760,10 +857,9 @@ class RetroBiosFirmwarePanel(QWidget):
         lines = [
             "SERM — BIOS / FIRMWARES AUSENTES",
             f"Emulador: {self.label} ({self.emulator})",
-            f"Catálogo RetroBIOS: {self._scan.catalog_version}",
+            f"Catálogo: {self._scan.catalog_version}",
             f"Diretório de destino examinado: {self._destination_scan.source_directory}",
             f"Itens ausentes: {len(missing)}",
-            "O campo \"Pack RetroBIOS\" identifica o pack local quando a origem foi o armazenamento de packs do SERM.",
             "",
             "Pesquisa Google: use o hash como identificador principal quando disponível.",
             "",
@@ -790,25 +886,29 @@ class RetroBiosFirmwarePanel(QWidget):
                 pack_name = "DISPONÍVEL NO RETROBIOS, PACK LOCAL NÃO IDENTIFICADO"
             elif not pack_name:
                 pack_name = "não identificado"
-            lines.extend((
-                f"{index:03d}. {entry.name}",
-                f"    Sistema: {entry.system}",
-                f"    Caminho esperado: {entry.output_path or entry.name}",
-                f"    Tamanho: {size} bytes",
-                f"    Hash: {hash_text}",
-                f"    Obrigatório: {required}",
-                f"    Pack RetroBIOS: {pack_name}",
-                f"    Descrição: {entry.description or 'não informada'}",
-                f"    Pesquisa Google: {query} BIOS firmware ROM",
-                "",
-            ))
+            lines.extend(
+                (
+                    f"{index:03d}. {entry.name}",
+                    f"    Sistema: {entry.system}",
+                    f"    Região: {entry.region or 'não informada'}",
+                    f"    Caminho esperado: {entry.output_path or entry.name}",
+                    f"    Tamanho: {size} bytes",
+                    f"    Hash: {hash_text}",
+                    f"    Obrigatório: {required}",
+                    f"    Pack RetroBIOS: {pack_name}",
+                    f"    Descrição: {entry.description or 'não informada'}",
+                    f"    Pesquisa Google: {query} BIOS firmware ROM",
+                    "",
+                )
+            )
         try:
             output.write_text("\n".join(lines), encoding="utf-8-sig")
         except OSError as exc:
-            QMessageBox.warning(self, f"Firmware {self.label}", f"Não foi possível salvar o relatório.\n\n{exc}")
+            QMessageBox.warning(f"Firmware {self.label}", f"Não foi possível salvar o relatório.\n\n{exc}")
             return
         self.status.setText(f"Relatório de ausentes exportado: {output}")
-        QMessageBox.information(self, f"Firmware {self.label}", f"Relatório salvo em:\n{output}")
+        QMessageBox.information(f"Firmware {self.label}", f"Relatório salvo em:\n{output}")
+
     def _is_checked(self, key: str) -> bool:
         for index in range(self.items.count()):
             item = self.items.item(index)
