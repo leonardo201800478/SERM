@@ -734,7 +734,14 @@ class AresFirmwareService:
         matches = tuple(found[key] for key in sorted(found))
         matched_names = set(found)
         missing = tuple(entry for entry in entries if entry.key not in matched_names)
-        return AresFirmwareScan(catalog_version, str(root), matches, missing, examined, emulator)
+        return AresFirmwareScan(
+            catalog_version,
+            str(root),
+            matches,
+            missing,
+            examined,
+            emulator=emulator,
+        )
 
     @classmethod
     def write_filter_file(
