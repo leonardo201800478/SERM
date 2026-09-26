@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QVBoxLayout,
     QWidget,
+    QFileDialog,
 )
 
 from ..runtime.paths import data_root
@@ -166,10 +167,14 @@ class RetroBiosFirmwarePanel(QWidget):
         self.cancel_button = QPushButton("CANCELAR")
         self.cancel_button.setEnabled(False)
         self.cancel_button.clicked.connect(self.cancel)
+        self.export_missing_button = QPushButton("EXPORTAR AUSENTES (.TXT)")
+        self.export_missing_button.clicked.connect(self.export_missing_report)
+        self.export_missing_button.setEnabled(False)
         actions.addWidget(self.catalog_button)
         actions.addWidget(self.scan_button)
         actions.addWidget(self.reconstruct_button)
         actions.addWidget(self.cancel_button)
+        actions.addWidget(self.export_missing_button)
         actions.addStretch()
         root.addLayout(actions)
 
