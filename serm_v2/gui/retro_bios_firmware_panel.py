@@ -334,7 +334,6 @@ class RetroBiosFirmwarePanel(QWidget):
             "Regra geral: SCAN examina somente a origem; REFRESH examina somente o destino; "
             "a reconstrução usa a diferença entre os dois estados."
         )
-        )
         self.summary.setWordWrap(True)
         root.addWidget(self.summary)
         self.progress = QProgressBar()
