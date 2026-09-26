@@ -108,7 +108,13 @@ class ReconstructionService:
                     raise ReconstructionError(
                         "O filtro não contém BIOS verificada por DAT para reconstrução."
                     )
-            items.extend(cls._plan_firmware_items(firmware_evidence, dest))
+            items.extend(
+                cls._plan_firmware_items(
+                    firmware_evidence,
+                    dest,
+                    allow_conflicts=is_ares_firmware,
+                )
+            )
             loose_count = len(items)
             if not bios_only:
                 valid_evidence = [
@@ -154,7 +160,12 @@ class ReconstructionService:
         )
 
     @staticmethod
-    def _plan_firmware_items(evidence: list, destination: Path) -> list[ReconstructionItem]:
+    def _plan_firmware_items(
+        evidence: list,
+        destination: Path,
+        *,
+        allow_conflicts: bool = False,
+    ) -> list[ReconstructionItem]:
         """Plan verified firmware copies and ZIP-member extraction by expected filename."""
         items: list[ReconstructionItem] = []
         used_outputs: dict[str, ReconstructionItem] = {}
@@ -214,11 +225,15 @@ class ReconstructionService:
                 ):
                     items.append(item)
                     continue
-                # Um mesmo destino físico não pode receber dois firmwares diferentes.
-                # Em vez de interromper a reconstrução, mantém o primeiro item selecionado.
-                # Isso é especialmente importante para declarações lógicas do ARES que
-                # podem apontar para o mesmo nome de arquivo.
-                continue
+                # O ARES pode declarar múltiplos firmwares lógicos com o mesmo
+                # nome de saída. Nesse fluxo, mantém o primeiro arquivo selecionado
+                # para que a reconstrução continue sem travar a interface.
+                if allow_conflicts:
+                    continue
+                raise ReconstructionError(
+                    f"Conflito de BIOS/firmware no destino {relative.as_posix()}: "
+                    f"{previous.source_path} | {item.source_path}"
+                )
             used_outputs[output_key] = item
             items.append(item)
         return items
