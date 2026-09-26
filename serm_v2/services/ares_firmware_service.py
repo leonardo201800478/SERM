@@ -73,6 +73,10 @@ class AresFirmwareEntry:
         if not self.required:
             return "HLE / OPCIONAL"
         if present:
+            if match_mode == "invalid":
+                return "CONFIGURADO — HASH INVÁLIDO"
+            if match_mode == "configured":
+                return "CONFIGURADO — SEM HASH"
             if match_mode == "archive":
                 return "PRESENTE — ARQUIVO COMPATÍVEL"
             if self.is_verifiable and match_mode == "name":
@@ -86,6 +90,10 @@ class AresFirmwareEntry:
         if not self.required:
             return "Arquivo opcional; o emulador possui fallback/HLE."
         if present:
+            if match_mode == "invalid":
+                return "O ARES está configurado para este arquivo, mas o SHA-256 não corresponde ao firmware declarado no código-fonte."
+            if match_mode == "configured":
+                return "O ARES está configurado para este arquivo; o código-fonte não fornece SHA-256 para esta entrada."
             if match_mode == "archive":
                 return f"Arquivo encontrado dentro de {self.container_name}; o contêiner é aceito pelo emulador."
             if self.is_verifiable and match_mode == "name":
@@ -168,6 +176,7 @@ class AresFirmwareScan:
     matches: tuple[AresFirmwareMatch, ...]
     missing: tuple[AresFirmwareEntry, ...]
     files_examined: int
+    invalid: tuple[AresFirmwareMatch, ...] = ()
     emulator: str = "ares"
 
 
@@ -246,65 +255,6 @@ class AresFirmwareService:
         "dosbox_staging": ("dosbox-staging",),
         "dosbox_x": ("dosbox-x",),
     }
-
-    @classmethod
-    def read_unassigned_firmware(
-        cls, settings_path: str | Path
-    ) -> tuple[AresUnassignedFirmware, ...]:
-        """Read ares firmware assignments and return unset or unavailable paths.
-
-        ares stores each assignment under ``<Emulator>/Firmware/<Type>.<Region>``.
-        Its firmware panel considers a location valid when the referenced file exists.
-        """
-        path = Path(settings_path).expanduser()
-        try:
-            lines = path.read_text(encoding="utf-8").splitlines()
-        except OSError as exc:
-            raise AresFirmwareError(f"Não foi possível ler o settings.bml do ares: {exc}") from exc
-
-        parents: list[tuple[int, str]] = []
-        missing: list[AresUnassignedFirmware] = []
-        assignments_found = 0
-        for line in lines:
-            stripped = line.strip()
-            if not stripped or stripped.startswith(("#", ";")):
-                continue
-            indent = len(line) - len(line.lstrip())
-            while parents and parents[-1][0] >= indent:
-                parents.pop()
-            if ":" not in stripped:
-                parents.append((indent, stripped))
-                continue
-
-            name, raw_location = stripped.split(":", 1)
-            ancestors = [part for _level, part in parents]
-            try:
-                firmware_index = next(
-                    index for index, part in enumerate(ancestors)
-                    if part.casefold() == "firmware"
-                )
-            except StopIteration:
-                continue
-            if firmware_index == 0:
-                continue
-            identity = name.strip().rsplit(".", 1)
-            if len(identity) != 2:
-                continue
-            assignments_found += 1
-            emulator = ancestors[firmware_index - 1]
-            firmware_type, region = identity
-            location = raw_location.strip().strip('"')
-            target = Path(location).expanduser() if location else None
-            if target is None or not target.is_file():
-                missing.append(
-                    AresUnassignedFirmware(emulator, firmware_type, region, location)
-                )
-        if not assignments_found:
-            raise AresFirmwareError(
-                "O settings.bml não contém atribuições de firmware do ares; "
-                "abra e salve a tela Firmware do ares antes de exportar."
-            )
-        return tuple(missing)
 
     @classmethod
     def load_catalog(
@@ -916,9 +866,11 @@ class AresFirmwareService:
                 candidates[entry.key] = entry
 
         def allowed(entry: AresFirmwareEntry) -> bool:
-            if entry.profile_id == "ares-source" and entry.is_verifiable:
-                # Para hashes publicados pelo próprio ARES, não degradar para
-                # identificação por nome: isso poderia atribuir um dump errado.
+            if entry.profile_id == "ares-source":
+                # O ARES não define nome de arquivo para seu firmware. Entradas
+                # sem SHA-256 só podem ser validadas pela atribuição do settings.bml.
+                if not entry.is_verifiable:
+                    return False
                 return cls._matches_entry(identity, entry) and (
                     member is None
                     or Path(member).name.casefold() == Path(entry.name).name.casefold()
