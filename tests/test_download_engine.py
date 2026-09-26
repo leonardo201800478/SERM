@@ -90,7 +90,10 @@ def test_download_resumes_completed_segments(monkeypatch, tmp_path: Path) -> Non
                 206,
                 {"Content-Range": f"bytes 0-0/{len(payload)}"},
             )
-        start, end = (int(value) for value in range_header.removeprefix("bytes=").split("-"))
+        raw_range = range_header.removeprefix("bytes=")
+        start_text, separator, end_text = raw_range.partition("-")
+        start = int(start_text)
+        end = int(end_text) if separator and end_text else len(payload) - 1
         return _FakeResponse(
             payload[start : end + 1],
             206,
