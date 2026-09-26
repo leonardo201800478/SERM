@@ -465,9 +465,6 @@ class RetroBiosFirmwarePanel(QWidget):
             return
         self._clear_scan()
         self._destination_scan_allows_report = allow_report
-        if self._destination is None or not self._destination.is_dir():
-            self.status.setText("Configure o diretório de destino para executar o scan.")
-            return
         if self.emulator == "ares":
             self.status.setText(f"Escaneando somente a pasta de origem do {self.label}…")
             self._start_worker(
@@ -479,6 +476,9 @@ class RetroBiosFirmwarePanel(QWidget):
                     parent=self,
                 )
             )
+            return
+        if self._destination is None or not self._destination.is_dir():
+            self.status.setText("Configure o diretório de destino para executar o scan.")
             return
         self.status.setText(f"Comparando origem e destino de {self.label}…")
         self._start_worker(
@@ -861,13 +861,6 @@ class RetroBiosFirmwarePanel(QWidget):
             # destino. Um arquivo existente, porém com hash inválido, não entra
             # nesta lista: ele será substituído pela reconstrução, mas não é uma
             # ROM ausente para pesquisa na internet.
-            if self._destination_scan is None:
-                QMessageBox.information(
-                    self,
-                    f"Firmware {self.label}",
-                    "Execute REFRESH antes de exportar os BIOS não validados.",
-                )
-                return
             missing = tuple(self._destination_scan.missing)
             selected, _ = QFileDialog.getSaveFileName(
                 self,
