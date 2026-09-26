@@ -864,11 +864,16 @@ class AresFirmwareService:
         hash_index = cls._build_hash_index(entries)
         name_index = cls._build_name_index(entries)
         hash_algorithms = cls._required_hash_algorithms(entries)
+        # Um arquivo só pode coincidir por hash se o tamanho também puder
+        # coincidir. Isso evita ler/hashar executáveis, capas, logs e outros
+        # arquivos grandes quando o catálogo já declara o tamanho esperado.
+        hash_sizes = {
+            entry.size
+            for entry in entries
+            if entry.is_verifiable and entry.size is not None
+        }
 
-        candidates = sorted(
-            (path for path in root.rglob("*") if path.is_file()),
-            key=lambda path: str(path).casefold(),
-        )
+        candidates = tuple(path for path in root.rglob("*") if path.is_file())
         found: dict[str, AresFirmwareMatch] = {}
         invalid: dict[str, AresFirmwareMatch] = {}
         examined = 0
@@ -891,7 +896,19 @@ class AresFirmwareService:
                     hash_algorithms,
                 ): candidate
                 for candidate in loose_candidates
+                if not hash_sizes or candidate.stat().st_size in hash_sizes
             }
+
+            # Arquivos cujo tamanho já impossibilita qualquer identidade por
+            # hash ainda podem ser reconhecidos como "inválidos" pelo nome.
+            for candidate in loose_candidates:
+                if hash_sizes and candidate.stat().st_size not in hash_sizes:
+                    identity = {"size": candidate.stat().st_size}
+                    cls._record_matches(
+                        hash_index, name_index, identity, candidate, None, found, root, invalid
+                    )
+                    examined += 1
+                    report_progress()
             for future in as_completed(futures):
                 if cancel_callback and cancel_callback():
                     for pending in futures:
@@ -919,6 +936,7 @@ class AresFirmwareService:
                     found,
                     root,
                     hash_algorithms=hash_algorithms,
+                    hash_sizes=hash_sizes,
                     invalid=invalid,
                 )
             except (OSError, zipfile.BadZipFile, RuntimeError):
@@ -1012,6 +1030,7 @@ class AresFirmwareService:
         root: Path,
         *,
         hash_algorithms: frozenset[str],
+        hash_sizes: set[int | None] | None = None,
         invalid: dict[str, AresFirmwareMatch] | None = None,
     ) -> None:
         archive_identity = cls._hash_file_for_algorithms(path, hash_algorithms)
@@ -1026,10 +1045,12 @@ class AresFirmwareService:
                 # Conteúdo renomeado dentro de ZIP também precisa ser auditado
                 # pelo hash. O nome só pode limitar o trabalho quando não há
                 # nenhum checksum no catálogo.
-                if hash_algorithms:
+                if hash_algorithms and (
+                    not hash_sizes or member.file_size in hash_sizes
+                ):
                     with archive.open(member, "r") as stream:
                         identity: dict[str, object] = cls._hash_stream(stream, hash_algorithms)
-                elif member_name in name_index:
+                elif member_name in name_index or member.file_size not in (hash_sizes or set()):
                     identity = {"size": member.file_size}
                 else:
                     continue
