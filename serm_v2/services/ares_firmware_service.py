@@ -257,6 +257,25 @@ class AresFirmwareService:
     }
 
     @classmethod
+    def read_unassigned_firmware(
+        cls, settings_path: str | Path
+    ) -> tuple[AresUnassignedFirmware, ...]:
+        """Retorna somente atribuições de firmware sem arquivo existente."""
+        assignments = cls._read_firmware_assignments(settings_path)
+        settings = Path(settings_path).expanduser().resolve()
+        missing: list[AresUnassignedFirmware] = []
+        for assignment in assignments:
+            if not assignment.location:
+                missing.append(assignment)
+                continue
+            location = Path(assignment.location).expanduser()
+            if not location.is_absolute():
+                location = settings.parent / location
+            if not location.is_file():
+                missing.append(assignment)
+        return tuple(missing)
+
+    @classmethod
     def load_catalog(
         cls, *, emulator: str = "ares", refresh: bool = False
     ) -> tuple[str, tuple[AresFirmwareEntry, ...]]:
