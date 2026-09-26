@@ -517,7 +517,11 @@ class RetroBiosFirmwarePanel(QWidget):
             source_match = self._matches.get(entry.key)
             destination_match = self._destination_matches.get(entry.key)
             match = destination_match or source_match
-            present = destination_match is not None
+            present = (
+                destination_match is not None
+                if destination is not None
+                else source_match is not None
+            )
             state = entry.panel_state(present)
             state_detail = entry.panel_state_detail(present)
             if state == "VALIDADO":
@@ -574,8 +578,12 @@ class RetroBiosFirmwarePanel(QWidget):
             f"RetroBIOS {self._catalog[0]} | {len(self._catalog[1]):,} arquivo(s) | "
             f"{verifiable:,} com identidade verificável | acervo={available:,} | {scan_label}"
         )
+        examined_label = (
+            f"{destination.files_examined:,}" if destination is not None
+            else f"{scan.files_examined:,}" if (scan := self._scan) is not None else "0"
+        )
         self.summary.setText(
-            f"Destino: examinados={destination.files_examined:,} | "
+            f"Examinados={examined_label} | "
             f"🟢 presentes/validados={state_counts['VALIDADO']:,} | "
             f"🟡 presentes sem hash={state_counts['PRESENTE — HASH NÃO VERIFICÁVEL']:,} | "
             f"🔴 ausentes/disponíveis={state_counts['AUSENTE — DISPONÍVEL']:,} | "
