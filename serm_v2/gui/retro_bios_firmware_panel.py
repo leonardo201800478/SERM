@@ -7,6 +7,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal, Qt
 from PySide6.QtWidgets import (
+    QFileDialog,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -17,13 +18,11 @@ from PySide6.QtWidgets import (
     QPushButton,
     QVBoxLayout,
     QWidget,
-    QFileDialog,
 )
 
 from ..runtime.paths import data_root
 from ..services.ares_firmware_service import (
     AresFirmwareEntry,
-    AresFirmwareError,
     AresFirmwareMatch,
     AresFirmwareScan,
     AresFirmwareService,
