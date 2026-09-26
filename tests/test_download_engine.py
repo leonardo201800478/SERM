@@ -104,7 +104,7 @@ def test_download_resumes_completed_segments(monkeypatch, tmp_path: Path) -> Non
 
     target = tmp_path / "pack.zip"
     engine = DownloadEngine(
-        DownloadEngineConfig(max_connections=1, segment_size=len(payload), chunk_size=128)
+        DownloadEngineConfig(max_connections=1, segment_size=len(payload) // 2, chunk_size=128)
     )
     engine.download(
         "https://example.invalid/pack.zip",
