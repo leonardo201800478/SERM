@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..runtime.paths import data_root, integrations_root
+from .download_engine import DownloadEngine, DownloadEngineError
 
 
 class RetroBiosPackError(RuntimeError):
@@ -55,6 +56,7 @@ class RetroBiosPackService:
     MAX_RELEASE_BYTES = 4 * 1024 * 1024
     MAX_CHECKSUM_BYTES = 2 * 1024 * 1024
     CHUNK_SIZE = 1024 * 1024
+    DOWNLOAD_ENGINE = DownloadEngine()
     PACK_RE = re.compile(r"^(?P<base>.+_BIOS_Pack\.zip)(?:\.(?P<part>\d{3}))?$", re.IGNORECASE)
     SAFE_PART_RE = re.compile(r"^\d{3}$")
 
@@ -170,36 +172,16 @@ class RetroBiosPackService:
             if progress_callback:
                 progress_callback(asset.size, asset.size)
             return
-        request = urllib.request.Request(
-            asset.url,
-            headers={"User-Agent": "SERM/2.x", "Accept": "application/octet-stream"},
-        )
-        temp = target.with_suffix(target.suffix + ".part")
         try:
-            with urllib.request.urlopen(request, timeout=60) as response, temp.open("wb") as stream:
-                done = 0
-                while True:
-                    if cancel_callback and cancel_callback():
-                        raise RetroBiosPackError("Download do pack cancelado.")
-                    chunk = response.read(cls.CHUNK_SIZE)
-                    if not chunk:
-                        break
-                    stream.write(chunk)
-                    done += len(chunk)
-                    if progress_callback:
-                        progress_callback(done, asset.size)
-            if asset.size and temp.stat().st_size != asset.size:
-                raise RetroBiosPackError(
-                    f"Tamanho inesperado para {asset.name}: {temp.stat().st_size} bytes."
-                )
-            if asset.sha256 and cls._sha256_file(temp) != asset.sha256:
-                raise RetroBiosPackError(f"SHA-256 inválido para {asset.name}.")
-            temp.replace(target)
-        except RetroBiosPackError:
-            temp.unlink(missing_ok=True)
-            raise
-        except Exception as exc:  # noqa: BLE001
-            temp.unlink(missing_ok=True)
+            cls.DOWNLOAD_ENGINE.download(
+                asset.url,
+                target,
+                expected_size=asset.size or None,
+                expected_sha256=asset.sha256 or None,
+                progress_callback=progress_callback,
+                cancel_callback=cancel_callback,
+            )
+        except DownloadEngineError as exc:
             raise RetroBiosPackError(f"Não foi possível baixar {asset.name}: {exc}") from exc
 
     @classmethod
