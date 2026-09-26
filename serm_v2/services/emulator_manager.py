@@ -21,6 +21,8 @@ from urllib.error import URLError
 from urllib.parse import urlencode, urljoin, urlparse
 from urllib.request import Request, urlopen
 
+from .download_engine import DownloadEngine, DownloadEngineError
+
 logger = logging.getLogger(__name__)
 USER_AGENT = "SERM/2.0"
 VERSION_MARKER = ".serm-version"
@@ -1175,20 +1177,20 @@ class EmulatorManager:
 
     @staticmethod
     def _download(url: str, target: Path, expected: int, progress=None, log=None) -> None:
-        """Baixa um arquivo com progresso."""
-        request = Request(url, headers={"User-Agent": USER_AGENT, "Accept-Encoding": "identity"})
-        received = 0
-        with urlopen(request, timeout=120) as response, target.open("wb") as output:
-            total = int(response.headers.get("Content-Length") or expected or 0)
-            while chunk := response.read(1024 * 1024):
-                output.write(chunk)
-                received += len(chunk)
-                if progress:
-                    progress(received, total)
-        if received <= 0:
-            raise RuntimeError("Download retornou zero bytes.")
+        """Baixa um arquivo usando o motor HTTP compartilhado."""
+        try:
+            DownloadEngine().download(
+                url,
+                target,
+                expected_size=expected or None,
+                headers={"Accept-Encoding": "identity"},
+                progress_callback=progress,
+            )
+        except DownloadEngineError as exc:
+            raise RuntimeError(str(exc)) from exc
         if log:
-            log(f"DOWNLOAD | recebido={received:,} bytes | esperado={total:,} bytes")
+            received = Path(target).stat().st_size
+            log(f"DOWNLOAD | recebido={received:,} bytes | esperado={expected:,} bytes")
 
     @classmethod
     def _extract(cls, archive: Path, destination: Path, log=None, *, install_progress=None) -> None:
@@ -1918,46 +1920,18 @@ class RetroArchManager:
 
     @classmethod
     def _download_file(cls, url: str, target: Path, progress=None, log=None) -> None:
-        """Baixa um arquivo em blocos com retry."""
+        """Baixa um arquivo usando o motor HTTP compartilhado."""
         target = Path(target)
         if target.is_dir():
             raise IsADirectoryError(f"Destino do download é um diretório, não um arquivo: {target}")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        last: Exception | None = None
-        for attempt in range(1, cls.RETRIES + 1):
-            try:
-                received = cls._download_attempt(url, target, progress)
-                if log:
-                    log(f"DOWNLOAD | {received:,} bytes | tentativa={attempt}")
-                return
-            except (OSError, RuntimeError) as exc:
-                last = exc
-                cls._remove_partial_download(target)
-                if log:
-                    log(f"DOWNLOAD ERRO | tentativa={attempt}/{cls.RETRIES} | {exc}")
-        raise RuntimeError(f"Falha no download: {url} | {last}") from last
-
-    @classmethod
-    def _download_attempt(cls, url: str, target: Path, progress=None) -> int:
-        """Executa uma tentativa de download e retorna o total recebido."""
-        if target.exists():
-            target.unlink()
-        request = Request(url, headers={"User-Agent": USER_AGENT, "Accept-Encoding": "identity"})
-        with urlopen(request, timeout=cls.TIMEOUT) as response, target.open("wb") as output:
-            total = int(response.headers.get("Content-Length") or 0)
-            received = 0
-            while chunk := response.read(cls.CHUNK_SIZE):
-                output.write(chunk)
-                received += len(chunk)
-                if progress:
-                    progress(received, total)
-        if received <= 0:
-            raise RuntimeError("Download retornou zero bytes.")
-        return received
-
-    @staticmethod
-    def _remove_partial_download(target: Path) -> None:
         try:
-            target.unlink(missing_ok=True)
-        except OSError:
-            pass
+            DownloadEngine().download(
+                url,
+                target,
+                headers={"Accept-Encoding": "identity"},
+                progress_callback=progress,
+            )
+        except DownloadEngineError as exc:
+            raise RuntimeError(f"Falha no download: {url} | {exc}") from exc
+        if log:
+            log(f"DOWNLOAD | recebido={target.stat().st_size:,} bytes")
