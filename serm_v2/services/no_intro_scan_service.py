@@ -141,10 +141,13 @@ class NoIntroScanService:
         expected, header = self._load_dat(dat_path)
         if not expected:
             raise NoIntroScanError(f"Nenhuma ROM encontrada no DAT: {dat_path}")
+        source_name = str(getattr(profile, "source", "No-Intro") or "No-Intro").strip()
+        if source_name.casefold() not in {"no-intro", "redump"}:
+            raise NoIntroScanError(f"Fonte DAT não suportada pelo scanner: {source_name}")
         result = ScanResult(
             scan_id=self._make_scan_id(profile),
             profile_id=str(profile.profile_id),
-            source="No-Intro",
+            source=source_name,
             system=str(profile.system),
             started_at=started,
             catalog_label=f"{profile.system} - {self._catalog_label(dat_path, header)}",

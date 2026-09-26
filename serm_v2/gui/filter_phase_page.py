@@ -64,10 +64,14 @@ class _GenericFilterTab(QWidget):
         self.current_only = QCheckBox("Manter somente itens CURRENT")
         self.current_only.setChecked(True)
         self.keep_duplicates = QCheckBox("Manter ocorrências DUPLICATE")
+        self.bios_only = QCheckBox("Manter somente BIOS/firmware verificados")
+        self.bios_only.setVisible(self.source.casefold() in {"no-intro", "redump"})
         rules_layout.addWidget(self.current_only)
         rules_layout.addWidget(self.keep_duplicates)
+        rules_layout.addWidget(self.bios_only)
         self.current_only.toggled.connect(self._preview)
         self.keep_duplicates.toggled.connect(self._preview)
+        self.bios_only.toggled.connect(self._preview)
         layout.addWidget(rules)
         self.preview = QLabel("Selecione um scan para visualizar o resultado.")
         self.preview.setWordWrap(True)
@@ -127,7 +131,15 @@ class _GenericFilterTab(QWidget):
 
     def _keep(self, evidence: dict) -> bool:
         status = str(evidence.get("status") or "").upper()
-        return status == "CURRENT" or (status == "DUPLICATE" and self.keep_duplicates.isChecked())
+        status_kept = status == "CURRENT" or (
+            status == "DUPLICATE" and self.keep_duplicates.isChecked()
+        )
+        if not status_kept:
+            return False
+        if self.bios_only.isChecked():
+            tags = {str(tag).casefold() for tag in evidence.get("categories", [])}
+            return "type:bios" in tags
+        return True
 
     def _preview(self, *_args) -> None:
         data = self.scan_combo.currentData()
@@ -162,6 +174,12 @@ class _GenericFilterTab(QWidget):
             out_dir.mkdir(parents=True, exist_ok=True)
             label = str(payload.get("catalog_label") or "catalog").replace("/", "_").replace("\\", "_")
             out = out_dir / f"{self.source}_{label}_{payload.get('scan_type', 'full')}_FILTER_{run_id}.json"
+            filters = {
+                "current_only": self.current_only.isChecked(),
+                "keep_duplicates": self.keep_duplicates.isChecked(),
+            }
+            if self.source.casefold() in {"no-intro", "redump"}:
+                filters["bios_only"] = self.bios_only.isChecked()
             result = {
                 "format": "SERM-FILTER-V2", "schema_version": 2, "filter_run_id": run_id,
                 "scan_id": payload.get("scan_id"), "profile_id": f"generic-{self.source.casefold()}",
@@ -170,7 +188,7 @@ class _GenericFilterTab(QWidget):
                 "catalog_hash": payload.get("catalog_hash"), "source_scan_file": str(source_path.resolve()),
                 "created_at": datetime.now(UTC).isoformat(), "input_count": source_count,
                 "output_count": len(evidence), "filtered_count": source_count - len(evidence),
-                "filters": {"current_only": self.current_only.isChecked(), "keep_duplicates": self.keep_duplicates.isChecked()},
+                "filters": filters,
                 "evidence": evidence,
             }
             out.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")

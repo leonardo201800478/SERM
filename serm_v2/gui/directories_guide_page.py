@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..runtime.paths import data_root
+from .directory_dialogs import get_existing_directory
 from .emulator_catalog import grouped_emulators
 
 
@@ -313,7 +314,7 @@ class DirectoryGuidePage(QWidget):
 
     def _browse_directory(self, emulator: str) -> None:
         current = self._directory_fields[emulator].text()
-        selected = QFileDialog.getExistingDirectory(
+        selected = get_existing_directory(
             self,
             f"Selecionar diretório do {dict((key, label) for key, label, _ in self.EMULATORS)[emulator]}",
             current or str(Path.home()),

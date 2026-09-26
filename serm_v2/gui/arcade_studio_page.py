@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
 
 from ..models.arcade import RomStatus
 from ..runtime.paths import database_path, scans_root
+from .directory_dialogs import get_existing_directory
 from ..services.arcade.chd_audit import ArcadeChdAuditService, ChdAuditResult
 from ..services.arcade.scan_comparison import (
     ArcadeScanComparisonService,
@@ -524,7 +525,7 @@ class ArcadeStudioPage(QWidget):
             target.addChild(item)
 
     def _choose_chd_source(self) -> None:
-        path = QFileDialog.getExistingDirectory(self, "Selecionar pasta de CHDs")
+        path = get_existing_directory(self, "Selecionar pasta de CHDs")
         if path:
             self.chd_source.setText(path)
 

@@ -39,6 +39,8 @@ A V2 possui:
 - `ArcadeChdReconstructionEngine` para CHD;
 - `Materializer` como camada de materialização física.
 
+BIOS de No-Intro/Redump também podem usar o planejador comum: o filtro deve selecionar BIOS e a evidência precisa estar `CURRENT` ou `DUPLICATE` após validação pelo DAT. O executor extrai cada membro para o caminho/nome/extensão definidos no catálogo. Ares continua usando seu adaptador RetroBIOS e o mesmo `ReconstructionService`. Para RetroArch, BizHawk e outros emuladores, o DAT selecionado fornece a identidade; o diretório de destino deve ser a pasta que o emulador espera usar.
+
 A lógica de ROM foi validada contra catálogo MAME real com 179.667 relações `merge`, sem divergências entre evidência esperada e decisão do planner.
 
 ## Matching físico
@@ -72,10 +74,13 @@ origem somente leitura
 ```
 
 O destino final não deve apresentar arquivos parciais de uma reconstrução incompleta.
+Depois de uma reconstrução concluída sem erros, o diretório de destino é reduzido aos arquivos do plano;
+membros inválidos de ZIPs não são copiados. A origem continua somente leitura e serve como fonte/backup.
 
 ## Segurança
 
 - origem física somente leitura;
+- conteúdo fora do plano é removido somente do destino, e apenas após materialização bem-sucedida;
 - path traversal deve ser rejeitado;
 - conflitos de destino devem bloquear publicação;
 - identidades ambíguas devem bloquear publicação;
@@ -139,4 +144,6 @@ A próxima etapa não é criar mais heurísticas de matching. É fechar o ciclo 
 
 **Materialização física end-to-end: ainda em validação.**
 
-**Integração completa com GUI: pendente.**
+**Fluxo compartilhado de BIOS por DAT: disponível para No-Intro/Redump e reutilizável para destinos RetroArch/BizHawk.**
+
+**Integração completa com GUI: parcial; a fase de reconstrução está exposta no menu principal.**

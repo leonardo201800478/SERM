@@ -33,6 +33,7 @@ from .home import HomePage
 from .input_connection_monitor import InputConnectionMonitor
 from .log_handler import LogViewer
 from .mame_studio_page import MameStudioPage
+from .reconstruction_phase_page import ReconstructionPhasePage
 from .ui_preferences import UiPreferences
 from .ui_translation_runtime import retranslate_widget_tree
 
@@ -46,6 +47,7 @@ class MainWindow(QMainWindow):
         ("sources", "Aquisição e atualização de DATs e recursos externos", "SP_FileIcon"),
         ("mame", "Catálogo, scan, filtros e reconstrução MAME", "SP_DriveHDIcon"),
         ("other_systems", "Filtragem pós-scan para No-Intro, Redump, WHLoader e C64", "SP_FileDialogInfoView"),
+        ("reconstruction", "Reconstrução de ROMs, BIOS e firmware", "SP_DriveHDIcon"),
     )
     _GEOMETRY_KEY = "main_window/geometry"
     _STATE_KEY = "main_window/state"
@@ -182,9 +184,10 @@ class MainWindow(QMainWindow):
         self.data_sources_page = DataSourcesPage(self)
         self.mame_studio_page = MameStudioPage(self)
         self.other_systems_page = FilteringPhasePage(self)
+        self.reconstruction_page = ReconstructionPhasePage(self)
         self.pages = (
             self.home_section, self.configuration_page, self.data_sources_page,
-            self.mame_studio_page, self.other_systems_page,
+            self.mame_studio_page, self.other_systems_page, self.reconstruction_page,
         )
         for page in self.pages:
             self.page_stack.addWidget(page)

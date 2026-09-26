@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..runtime.paths import data_root
+from .directory_dialogs import get_existing_directory
 from .winuae_config import WinUAEConfigEditor
 
 
@@ -116,7 +117,7 @@ class WinUAEDirectoriesPage(QWidget):
 
     def _browse(self, key):
         current = self.fields[key].text()
-        path = QFileDialog.getExistingDirectory(
+        path = get_existing_directory(
             self, "Selecionar diretório", current or str(Path.home())
         )
         if path:

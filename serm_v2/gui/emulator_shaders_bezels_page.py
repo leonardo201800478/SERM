@@ -38,6 +38,7 @@ from .ares_settings_page import AresSettingsPage
 from .directories_guide_page import ConfigFileEditor
 from .emulator_catalog import grouped_emulators
 from .emulator_settings_page import EmulatorSettingsPage
+from .directory_dialogs import get_existing_directory
 
 
 @dataclass(frozen=True, slots=True)
@@ -363,7 +364,7 @@ class EmulatorShadersBezelsPage(QWidget):
         """Seleciona arquivo/diretório e coloca o caminho no campo visual."""
         current = self.controls[(emulator, layer, key)].text().strip()
         if key.endswith(("_path", "_dir", "artpath")):
-            selected = QFileDialog.getExistingDirectory(
+            selected = get_existing_directory(
                 self, "Selecionar diretório", current or str(Path.home())
             )
         else:

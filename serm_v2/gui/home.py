@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 
 from ..services.retroarch_catalog_service import RetroArchCatalogService
 from .emulator_home import EmulatorHomePage, _Worker
+from .directory_dialogs import get_existing_directory
 
 
 class HomePage(EmulatorHomePage):
@@ -72,6 +73,14 @@ class HomePage(EmulatorHomePage):
     def _retroarch_tab(self) -> QWidget:
         """Adiciona filtros persistentes e uma listagem mais limpa ao catálogo."""
         page = super()._retroarch_tab()
+        install_selected_button = page.findChild(
+            QPushButton, "retroarchInstallSelectedCores"
+        )
+        if install_selected_button is not None:
+            install_selected_button.clicked.disconnect()
+            install_selected_button.clicked.connect(
+                lambda _checked=False: HomePage.install_selected_cores(self)
+            )
         layout = page.layout()
         if isinstance(layout, QVBoxLayout):
             filters = QGroupBox("Catálogo de cores")
@@ -302,7 +311,7 @@ class HomePage(EmulatorHomePage):
             f"restantes={len(self._core_queue_with_channels)} | máximo={self.CORE_MAX_ATTEMPTS} tentativas"
         )
         self._start_retro(
-            lambda progress, log, f=filename, d=destination, c=download_channel: (
+            lambda progress, install_progress, log, f=filename, d=destination, c=download_channel: (
                 self._install_core_with_retries(f, d, c, progress, log)
             ),
             continuation=lambda f=filename: self._finish_core_queue_item(f, destination),
@@ -395,7 +404,7 @@ class HomePage(EmulatorHomePage):
 
     def configure(self, key: str) -> None:
         """Seleciona somente o diretório de instalação."""
-        selected = QFileDialog.getExistingDirectory(
+        selected = get_existing_directory(
             self, f"Diretório de instalação — {self.LABELS[key]}", str(Path.home())
         )
         if not selected:

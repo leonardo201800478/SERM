@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..runtime.paths import scans_root
+from .directory_dialogs import get_existing_directory
 from ..services.reconstruction_service import (
     ReconstructionError,
     ReconstructionPlan,
@@ -183,7 +184,7 @@ class ReconstructionPage(QWidget):
         self.status.setText("Arquivo filtrado validado. Escolha o destino e gere o plano.")
 
     def choose_destination(self) -> None:
-        path = QFileDialog.getExistingDirectory(self, "Selecionar diretório de destino")
+        path = get_existing_directory(self, "Selecionar diretório de destino")
         if not path:
             return
         self._destination = Path(path).resolve()
@@ -220,7 +221,9 @@ class ReconstructionPage(QWidget):
             f"CHD={self._plan.chd_count:,} | destino={self._plan.destination}"
         )
         self.execute_button.setEnabled(True)
-        self.status.setText("Plano validado. A execução somente escreverá no destino escolhido.")
+        self.status.setText(
+            "Plano validado. O destino será limpo e receberá o set reconstruído; a origem ficará intacta."
+        )
 
     def execute(self) -> None:
         if self._plan is None or (self._worker and self._worker.isRunning()):
@@ -228,7 +231,8 @@ class ReconstructionPage(QWidget):
         answer = QMessageBox.question(
             self,
             "Confirmar reconstrução",
-            f"Montar {self._plan.item_count:,} itens em:\n{self._plan.destination}?",
+            f"Montar {self._plan.item_count:,} itens em:\n{self._plan.destination}?\n\n"
+            "Arquivos fora da reconstrução serão removidos do destino. A origem não será alterada.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if answer != QMessageBox.StandardButton.Yes:

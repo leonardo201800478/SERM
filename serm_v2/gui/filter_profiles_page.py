@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
 from ..runtime.paths import data_root
 from ..services.rom_scan_service import RomScanService, ScanResult
 from ..services.scan_repository import ScanRepository
+from .directory_dialogs import get_existing_directory
 
 
 @dataclass(slots=True)
@@ -917,7 +918,7 @@ class FilterProfilesPage(QWidget):
         if self.source_list.count() >= 3:
             QMessageBox.information(self, "Fontes", "Máximo de 3 diretórios por perfil.")
             return
-        directory = QFileDialog.getExistingDirectory(self, "Diretório de origem", str(Path.home()))
+        directory = get_existing_directory(self, "Diretório de origem", str(Path.home()))
         if directory:
             self.source_list.addItem(str(Path(directory).resolve()))
 

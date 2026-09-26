@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
 
 from ..runtime.paths import data_root
 from ..services.emulator_manager import EmulatorManager, RetroArchManager
+from .directory_dialogs import get_existing_directory
 from .emulator_catalog import grouped_emulators
 
 if TYPE_CHECKING:
@@ -316,10 +317,16 @@ class EmulatorHomePage(QWidget):
         for text, slot in (
             ("☑ Selecionar todos", self.select_all_cores),
             ("☐ Limpar seleção", self.clear_core_selection),
-            ("⬇ Instalar selecionados", self.install_selected_cores),
+            ("⬇ Instalar selecionados", None),
         ):
             button = QPushButton(text)
-            button.clicked.connect(slot)
+            if slot is None:
+                button.setObjectName("retroarchInstallSelectedCores")
+                button.clicked.connect(
+                    lambda _checked=False: self.install_selected_cores()
+                )
+            else:
+                button.clicked.connect(slot)
             selection.addWidget(button)
         selection.addStretch()
         self.core_summary = QLabel("0 selecionado(s)")
@@ -413,7 +420,7 @@ class EmulatorHomePage(QWidget):
 
     def configure(self, key: str) -> None:
         """Seleciona somente o diretório de instalação do emulador."""
-        selected = QFileDialog.getExistingDirectory(
+        selected = get_existing_directory(
             self, f"Diretório do {self.LABELS[key]}", str(Path.home())
         )
         if not selected:
@@ -428,7 +435,7 @@ class EmulatorHomePage(QWidget):
         """Instala/atualiza um emulador em background."""
         destination = self.manager.roots.get(key)
         if not destination:
-            selected = QFileDialog.getExistingDirectory(
+            selected = get_existing_directory(
                 self, f"Instalar {self.LABELS[key]} em", str(Path.home())
             )
             if not selected:
@@ -580,7 +587,7 @@ class EmulatorHomePage(QWidget):
 
     def configure_retroarch(self) -> None:
         """Seleciona e persiste a instalação do RetroArch."""
-        selected = QFileDialog.getExistingDirectory(
+        selected = get_existing_directory(
             self, "Diretório do RetroArch", str(Path.home())
         )
         if not selected:
@@ -600,7 +607,7 @@ class EmulatorHomePage(QWidget):
             return
         destination = self.manager.roots.get("retroarch")
         if not destination:
-            selected = QFileDialog.getExistingDirectory(
+            selected = get_existing_directory(
                 self, f"Instalar RetroArch {channel.title()} em", str(Path.home())
             )
             if not selected:
@@ -617,8 +624,8 @@ class EmulatorHomePage(QWidget):
             f"DOWNLOAD | RetroArch | canal={channel} | destino={Path(destination).resolve()}"
         )
         self._start_retro(
-            lambda progress, log, c=channel, d=Path(destination): self.retroarch.install_frontend(
-                d, channel=c, progress=progress, log=log
+            lambda progress, install_progress, log, c=channel, d=Path(destination): self.retroarch.install_frontend(
+                d, channel=c, progress=progress, install_progress=install_progress, log=log
             )
         )
 
@@ -765,7 +772,7 @@ class EmulatorHomePage(QWidget):
             )
             return
 
-        def install_all(progress, log):
+        def install_all(progress, install_progress, log):
             for filename in selected:
                 self.retroarch.install_core(
                     filename, destination, channel=self._retro_channel, progress=progress, log=log

@@ -102,6 +102,7 @@ def _install_frontend(
     *,
     channel: str = "stable",
     progress=None,
+    install_progress=None,
     log=None,
 ) -> DownloadResult:
     """Baixa, testa, descompacta e instala o frontend RetroArch x64."""
@@ -133,12 +134,16 @@ def _install_frontend(
             log(f"DOWNLOAD | {url}")
         self._download_file(url, archive, progress, log)
 
-        EmulatorManager._extract(archive, extracted, log)
+        EmulatorManager._extract(
+            archive, extracted, log, install_progress=install_progress
+        )
         if not any(path.is_file() for path in extracted.rglob("retroarch.exe")):
             raise RuntimeError(
                 "O pacote RetroArch foi baixado, mas a descompactação não produziu retroarch.exe."
             )
-        EmulatorManager._merge(extracted, destination)
+        EmulatorManager._merge(
+            extracted, destination, install_progress=install_progress, start=40
+        )
         self._flatten_retroarch_wrappers(destination, log=log)
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)

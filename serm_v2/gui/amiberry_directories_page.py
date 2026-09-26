@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..runtime.paths import data_root
+from .directory_dialogs import get_existing_directory
 from .directories_guide_page import ConfigFileEditor
 
 
@@ -183,7 +184,7 @@ class AmiberryDirectoriesPage(QWidget):
                 str(Path(current).parent) if current else str(Path.home()),
             )
         else:
-            path = QFileDialog.getExistingDirectory(
+            path = get_existing_directory(
                 self, "Selecionar diretório", current or str(Path.home())
             )
         if path:

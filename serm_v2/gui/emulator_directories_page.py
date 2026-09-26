@@ -21,7 +21,9 @@ from PySide6.QtWidgets import (
 from .altirra_directories_page import AltirraDirectoriesPage
 from .amiberry_directories_page import AmiberryDirectoriesPage
 from .ares_directories_page import AresDirectoriesPage
+from .ares_firmware_page import AresFirmwarePage
 from .directories_guide_page import DirectoryGuidePage
+from .directory_dialogs import get_existing_directory
 from .winuae_directories_page import WinUAEDirectoriesPage
 
 MAME_EXECUTABLE_TITLE = "Executável do MAME"
@@ -37,6 +39,11 @@ class DirectoriesPage(DirectoryGuidePage):
             paths_layout = QVBoxLayout(paths_group)
             paths_layout.addWidget(self.ares_paths_page)
             page.layout().addWidget(paths_group)
+            self.ares_firmware_page = AresFirmwarePage(self)
+            firmware_group = QGroupBox("Scan e reconstrução de firmware ares")
+            firmware_layout = QVBoxLayout(firmware_group)
+            firmware_layout.addWidget(self.ares_firmware_page)
+            page.layout().addWidget(firmware_group)
             group = QGroupBox("Pastas de recursos do ares")
             form = QFormLayout(group)
             self.ares_resource_fields = {}
@@ -45,6 +52,9 @@ class DirectoriesPage(DirectoryGuidePage):
                 field = QLineEdit()
                 field.setReadOnly(True)
                 button = QPushButton("Selecionar pasta")
+                button.setToolTip(
+                    f"Seleciona e registra a pasta de recursos {name} do ares nas configurações do SERM."
+                )
                 button.clicked.connect(
                     lambda _=False, k=key, n=name, f=field: self._browse_ares_resource(k, n, f)
                 )
@@ -103,7 +113,7 @@ class DirectoriesPage(DirectoryGuidePage):
         layout.insertWidget(1, group)
 
     def _browse_ares_resource(self, key: str, label: str, field: QLineEdit) -> None:
-        selected = QFileDialog.getExistingDirectory(
+        selected = get_existing_directory(
             self, f"Selecionar pasta {label} do ares", field.text() or str(Path.home())
         )
         if not selected:

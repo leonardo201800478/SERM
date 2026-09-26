@@ -31,9 +31,11 @@ from ..services.no_intro_scan_service import NoIntroScanService
 from ..services.rom_scan_engine import StableRomScanService
 from ..services.rom_scan_service import RomScanService
 from ..services.scan_repository import ScanRepository
+from .directory_dialogs import get_existing_directory
 
 DIRECTORIES_DIALOG_TITLE = "Diretórios"
 SCAN_SETTINGS_PATH = data_root() / "scan_settings.json"
+DAT_SCAN_SOURCES = frozenset({"no-intro", "redump"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,7 +61,7 @@ class _PhaseScanWorker(QThread):
 
     def run(self) -> None:
         try:
-            if self.target.source == "No-Intro":
+            if self.target.source.casefold() in DAT_SCAN_SOURCES:
                 self.service = NoIntroScanService(progress_callback=self.progress.emit)
                 self.state_changed.emit("running")
                 result = self.service.scan(self.profile)
@@ -135,7 +137,7 @@ class _SystemScanTab(QWidget):
         form.addRow("Sistema:", self.system_combo)
 
         self.dat_combo = QComboBox()
-        self.dat_combo.setVisible(self.source == "No-Intro")
+        self.dat_combo.setVisible(self.source.casefold() in DAT_SCAN_SOURCES)
         form.addRow("DAT:", self.dat_combo)
 
         self.scan_type = QComboBox()
@@ -234,7 +236,7 @@ class _SystemScanTab(QWidget):
             self.source_list.item(i).text() for i in range(self.source_list.count())
         ]
         state["system"] = self.system_combo.currentText().strip()
-        if self.source == "No-Intro":
+        if self.source.casefold() in DAT_SCAN_SOURCES:
             state["dat_path"] = str(self.dat_combo.currentData() or "")
         if self.source == "MAME":
             state["scan_type"] = str(self.scan_type.currentData() or "arcade")
@@ -262,7 +264,7 @@ class _SystemScanTab(QWidget):
                 if index < 0:
                     index = self.scan_type.findData("arcade")
                 self.scan_type.setCurrentIndex(max(index, 0))
-            elif self.source == "No-Intro":
+            elif self.source.casefold() in DAT_SCAN_SOURCES:
                 dat_path = str(state.get("dat_path") or "")
                 if dat_path:
                     index = self.dat_combo.findData(dat_path)
@@ -274,8 +276,8 @@ class _SystemScanTab(QWidget):
         self._update_source_controls()
 
     def refresh(self) -> None:
-        if self.source == "No-Intro":
-            self._refresh_no_intro()
+        if self.source.casefold() in DAT_SCAN_SOURCES:
+            self._refresh_dat()
         elif self.source == "MAME":
             self.system_combo.blockSignals(True)
             self.system_combo.clear()
@@ -291,8 +293,9 @@ class _SystemScanTab(QWidget):
         self._update_source_controls()
         self._update_action_controls()
 
-    def _refresh_no_intro(self) -> None:
-        dat_root = data_root() / "sources" / "no_intro" / "dats"
+    def _refresh_dat(self) -> None:
+        source_directory = "no_intro" if self.source.casefold() == "no-intro" else "redump"
+        dat_root = data_root() / "sources" / source_directory / "dats"
         files = (
             sorted(dat_root.glob("*.dat"), key=lambda p: p.name.casefold())
             if dat_root.is_dir()
@@ -321,7 +324,7 @@ class _SystemScanTab(QWidget):
         return text
 
     def _dat_changed(self, *_args) -> None:
-        if self.source != "No-Intro":
+        if self.source.casefold() not in DAT_SCAN_SOURCES:
             return
         index = self.dat_combo.currentIndex()
         if index < 0:
@@ -386,7 +389,7 @@ class _SystemScanTab(QWidget):
                 f"O limite é de {self.MAX_SOURCES} diretórios por scan.",
             )
             return
-        path = QFileDialog.getExistingDirectory(self, "Selecionar diretório de ROMs")
+        path = get_existing_directory(self, "Selecionar diretório de ROMs")
         if not path:
             return
         path = str(Path(path).expanduser().resolve())
@@ -424,7 +427,11 @@ class _SystemScanTab(QWidget):
         target = ScanTarget(
             source=self.source,
             system=self.system_combo.currentText().strip(),
-            dat_path=self.dat_combo.currentData() if self.source == "No-Intro" else None,
+            dat_path=(
+                self.dat_combo.currentData()
+                if self.source.casefold() in DAT_SCAN_SOURCES
+                else None
+            ),
             scan_type=(str(self.scan_type.currentData()) if self.source == "MAME" else "full"),
         )
         from .filter_profiles_page import FilterProfileData
@@ -457,8 +464,8 @@ class _SystemScanTab(QWidget):
         if self.source_list.count() == 0:
             QMessageBox.information(self, "Scan", "Adicione pelo menos um diretório de origem.")
             return
-        if self.source == "No-Intro" and self.dat_combo.currentData() is None:
-            QMessageBox.information(self, "Scan", "Selecione um DAT No-Intro.")
+        if self.source.casefold() in DAT_SCAN_SOURCES and self.dat_combo.currentData() is None:
+            QMessageBox.information(self, "Scan", f"Selecione um DAT {self.source}.")
             return
 
         profile = self._profile()

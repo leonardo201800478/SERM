@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 
 from PySide6.QtWidgets import (
-    QFileDialog,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -17,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..runtime.paths import data_root
+from .directory_dialogs import get_existing_directory
 from .directories_guide_page import ConfigFileEditor
 
 
@@ -39,15 +39,30 @@ class AresDirectoriesPage(QWidget):
             field = QLineEdit()
             field.setReadOnly(True)
             choose = QPushButton("Selecionar pasta")
+            choose.setToolTip(f"Seleciona o diretório para {label} no settings.bml do ares.")
             choose.clicked.connect(lambda _=False, k=key: self.choose(k))
-            reset = QPushButton("Padrão")
-            reset.clicked.connect(lambda _=False, k=key: self.reset(k))
             row = QHBoxLayout()
             row.addWidget(field, 1)
             row.addWidget(choose)
-            row.addWidget(reset)
             form.addRow(label, row)
             self.fields[key] = field
+        actions = QHBoxLayout()
+        actions.addStretch(1)
+        self.save_button = QPushButton("Salvar configurações")
+        self.save_button.setToolTip(
+            "Grava os diretórios exibidos no settings.bml do ares e cria um backup do arquivo."
+        )
+        self.save_button.setProperty("role", "primary")
+        self.save_button.clicked.connect(self.save)
+        self.defaults_button = QPushButton("Restaurar padrão do ares")
+        self.defaults_button.setToolTip(
+            "Limpa os caminhos personalizados para o ares voltar a usar seus diretórios padrão; "
+            "salva a alteração imediatamente e cria um backup."
+        )
+        self.defaults_button.clicked.connect(self.restore_defaults)
+        actions.addWidget(self.defaults_button)
+        actions.addWidget(self.save_button)
+        form.addRow("", actions)
         self.status = QLabel()
         form.addRow("Estado", self.status)
         self.refresh()
@@ -72,26 +87,49 @@ class AresDirectoriesPage(QWidget):
 
     def choose(self, key: str) -> None:
         current = self.fields[key].text()
-        selected = QFileDialog.getExistingDirectory(
+        selected = get_existing_directory(
             self, "Selecionar diretório", current or str(Path.home())
         )
         if not selected:
             return
-        self._write(key, str(Path(selected).resolve()))
+        self.fields[key].setText(str(Path(selected).resolve()))
+        self.status.setText("Alterações pendentes. Clique em Salvar configurações.")
 
-    def reset(self, key: str) -> None:
-        self._write(key, "")
+    def restore_defaults(self) -> None:
+        """Clear custom paths so ares resumes using its built-in paths."""
+        for field in self.fields.values():
+            field.clear()
+        self.save()
 
-    def _write(self, key: str, value: str) -> None:
+    def save(self) -> None:
+        """Persist all directory values to the selected native settings file."""
         editor = self.editor()
-        if editor is None or not editor.values(key):
-            QMessageBox.warning(self, "ares", "A chave não existe no settings.bml atual.")
+        if editor is None:
+            QMessageBox.warning(
+                self,
+                "ares",
+                "Selecione a pasta de instalação do ares em Diretórios para localizar o settings.bml.",
+            )
+            return
+        missing = [key for key, _label in self.PATHS if not editor.values(key)]
+        if missing:
+            QMessageBox.warning(
+                self,
+                "ares",
+                "O settings.bml não contém estas chaves de diretório: "
+                + ", ".join(missing),
+            )
             return
         try:
-            editor.set_value(key, value)
+            for key, _label in self.PATHS:
+                editor.set_value(key, self.fields[key].text().strip())
             backup = editor.save()
         except (OSError, KeyError, ValueError) as exc:
-            QMessageBox.critical(self, "ares", f"Falha ao salvar o caminho.\n\n{exc}")
+            QMessageBox.critical(self, "ares", f"Falha ao salvar as configurações.\n\n{exc}")
             return
         self.refresh()
-        QMessageBox.information(self, "ares", f"Caminho salvo. Backup:\n{backup}")
+        QMessageBox.information(
+            self,
+            "ares",
+            f"Configurações salvas em:\n{editor.path}\n\nBackup:\n{backup}",
+        )

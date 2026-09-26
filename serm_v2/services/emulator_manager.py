@@ -1761,7 +1761,13 @@ class RetroArchManager:
             )
 
     def install_frontend(
-        self, destination: Path, *, channel: str = "stable", progress=None, log=None
+        self,
+        destination: Path,
+        *,
+        channel: str = "stable",
+        progress=None,
+        install_progress=None,
+        log=None,
     ) -> DownloadResult:
         """Baixa e instala o frontend RetroArch x64 Stable ou Nightly diretamente no diretório selecionado."""
         channel = channel.casefold().strip()
