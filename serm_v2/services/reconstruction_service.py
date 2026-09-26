@@ -177,11 +177,27 @@ class ReconstructionService:
                 raise ReconstructionError("EvidÃªncia de firmware com caminho invÃ¡lido.")
             output = destination.joinpath(*relative.parts)
             output_key = str(output).casefold()
+            container_name = str(entry.get("container_output_name") or "").strip()
+            if member and container_name:
+                container = PurePosixPath(container_name.replace("\\", "/"))
+                if (
+                    container.is_absolute()
+                    or PureWindowsPath(container_name).drive
+                    or ".." in container.parts
+                    or not container.parts
+                ):
+                    raise ReconstructionError(
+                        f"Nome de contêiner de firmware inválido: {container_name!r}"
+                    )
+                output = destination.joinpath(*container.parts)
+                kind = "archive"
+            else:
+                kind = "firmware_archive" if member else "firmware"
             item = ReconstructionItem(
                 source,
                 member or None,
                 str(output),
-                "firmware_archive" if member else "firmware",
+                kind,
             )
             previous = used_outputs.get(output_key)
             if previous is not None:
