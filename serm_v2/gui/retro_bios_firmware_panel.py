@@ -283,8 +283,6 @@ class RetroBiosFirmwarePanel(QWidget):
         self._source = RetroBiosPackService.storage_directory()
         self._source_selected = False
         self._remove_saved_source()
-        if not self._destination_selected:
-            self._destination = self._source
         self._clear_scan()
         self.refresh()
 
