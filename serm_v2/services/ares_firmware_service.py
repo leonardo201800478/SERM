@@ -205,7 +205,7 @@ class AresFirmwareService:
         {"system": "Mega CD", "name": "BIOS", "region": "US", "sha256": "fb477cdbf94c84424c2feca4fe40656d85393fe7b7b401911b45ad2eb991258c", "source_path": "desktop-ui/emulator/mega-cd.cpp"},
         {"system": "Mega CD", "name": "BIOS", "region": "Japan", "sha256": "7133fc2dd2fe5b7d0acd53a5f10f3d00b5d31270239ad20d74ef32393e24af88", "source_path": "desktop-ui/emulator/mega-cd.cpp"},
         {"system": "Mega CD", "name": "BIOS", "region": "Europe", "sha256": "fe608a2a07676a23ab5fd5eee2f53c9e2526d69a28aa16ccd85c0ec42e6933cb", "source_path": "desktop-ui/emulator/mega-cd.cpp"},
-        {"system": "Game Gear", "name": "BIOS", "region": "World", "sha256": "8c8a21335038285cfa03dc076100c1f0bfadf3e4ff70796f11f3dfaaab2e85fd87350abd36570", "source_path": "desktop-ui/emulator/game-gear.cpp"},
+        {"system": "Game Gear", "name": "BIOS", "region": "World", "sha256": "8c8a21335038285cfa03dc076100c1f0bfadf3e4ff70796f11f3dfaaab60eee2", "source_path": "desktop-ui/emulator/game-gear.cpp"},
         {"system": "PC Engine CD", "name": "System-Card 1.0", "region": "Japan", "sha256": "afe9f27f91ac918348555b86298b4f984643eafa2773196f2c5441ea84f0c3bb", "source_path": "desktop-ui/emulator/pc-engine-cd.cpp"},
         {"system": "PC Engine CD", "name": "System Card 3.0", "region": "Japan", "sha256": "e11527b3b96ce112a037138988ca72fd117a6b0779c2480d9e03eaebece3d9ce", "source_path": "desktop-ui/emulator/pc-engine-cd.cpp"},
         {"system": "PC Engine CD", "name": "System Card 3.0", "region": "US", "sha256": "cadac2725711b3c442bcf237b02f5a5210c96f17625c35fa58f009e0ed39e4db", "source_path": "desktop-ui/emulator/pc-engine-cd.cpp"},
@@ -383,7 +383,7 @@ class AresFirmwareService:
                 AresFirmwareEntry(
                     name=item["name"],
                     system=item["system"],
-                    description=item["description"],
+                    description=f"ARES source: {item.get('region', '')}".rstrip(),
                     required=True,
                     sha256=item.get("sha256", ""),
                     output_path=item["name"],
@@ -409,14 +409,19 @@ class AresFirmwareService:
                     index
                     for index, entry in enumerate(merged)
                     if (
-                        entry.system.casefold() == source_entry.system.casefold()
-                        and entry.name.casefold() == source_entry.name.casefold()
-                    )
-                    and entry.region.casefold() == source_entry.region.casefold()
-                    )
-                    or (
-                        source_entry.sha256
-                        and entry.sha256.casefold() == source_entry.sha256.casefold()
+                        (
+                            entry.system.casefold() == source_entry.system.casefold()
+                            and entry.name.casefold() == source_entry.name.casefold()
+                            and entry.region.casefold() == source_entry.region.casefold()
+                        )
+                        or (
+                            source_entry.sha256
+                            and entry.sha256.casefold() == source_entry.sha256.casefold()
+                            and (
+                                not entry.region
+                                or entry.region.casefold() == source_entry.region.casefold()
+                            )
+                        )
                     )
                 ),
                 None,
