@@ -126,10 +126,18 @@ class _RetroBiosWorker(QThread):
                 if self.cancel_requested:
                     return
                 self.scanned.emit((catalog, source_scan))
-                destination_scan = AresFirmwareService.scan(
-                    self.destination, entries, catalog_version=version, emulator=self.emulator,
-                    progress_callback=self.progress.emit,
-                    cancel_callback=lambda: self.cancel_requested,
+                destination_scan = (
+                    RetroArchBiosService.scan(
+                        self.destination, entries, catalog_version=version,
+                        progress_callback=self.progress.emit,
+                        cancel_callback=lambda: self.cancel_requested,
+                    )
+                    if self.emulator == "retroarch"
+                    else AresFirmwareService.scan(
+                        self.destination, entries, catalog_version=version, emulator=self.emulator,
+                        progress_callback=self.progress.emit,
+                        cancel_callback=lambda: self.cancel_requested,
+                    )
                 )
                 self.destination_scanned.emit((catalog, destination_scan))
             elif self.operation == "destination_scan" and self.destination is not None:
