@@ -17,18 +17,14 @@ def test_redump_dat_scan_uses_shared_hash_audit_and_source_label(tmp_path, monke
 
     dat_path = tmp_path / "system.dat"
     dat_path.write_text(
-        """<?xml version="1.0"?>
+        f"""<?xml version="1.0"?>
 <datafile>
   <header><name>Test System</name></header>
   <game name="[BIOS] System">
-    <rom name="bios/system.rom" size="%d" crc="%08x" sha1="%s" />
+    <rom name="bios/system.rom" size="{len(bios_data)}" crc="{zlib.crc32(bios_data):08x}" sha1="{hashlib.sha1(bios_data).hexdigest()}" />
   </game>
 </datafile>
-""" % (
-      len(bios_data),
-      zlib.crc32(bios_data),
-      hashlib.sha1(bios_data).hexdigest(),
-    ),
+""",
         encoding="utf-8",
     )
     monkeypatch.setattr(no_intro_scan_service, "scans_root", lambda: tmp_path / "scans")
