@@ -646,28 +646,26 @@ class EmulatorManager:
             f"https://www.emu-france.com/?{urlencode({'s': query})}",
             "https://www.emu-france.com/",
         ]
-        # Emu-France only exposes a small, recent window on its homepage and
-        # its WordPress search can omit older posts. Walk the chronological
-        # archive until the first page containing this emulator; those posts
-        # are newer than any matching posts on later archive pages.
-        archive_page = 2
-        archive_match_found = False
-        while archive_page <= 12 and not archive_match_found:
-            listing_urls.append(f"https://www.emu-france.com/?paged={archive_page}")
-            listing_url = listing_urls[-1]
+        # Emu-France paginates news aggressively. Do not stop at the first
+        # page containing a match: a page can expose an older matching post
+        # while a newer release is present on a subsequent page. Scan a
+        # bounded recent window and select the highest release afterwards.
+        for archive_page in range(1, 13):
+            listing_url = f"https://www.emu-france.com/?paged={archive_page}"
+            if archive_page == 1:
+                listing_url = "https://www.emu-france.com/"
+            if listing_url in listing_urls:
+                continue
+            listing_urls.append(listing_url)
             try:
                 listing = cls._download_text(listing_url)
             except (OSError, URLError):
-                archive_page += 1
                 continue
-            page_candidates = {
+            candidates.update(
                 url
                 for url in cls._extract_links(listing, listing_url)
                 if post_slug.search(urlparse(url).path)
-            }
-            candidates.update(page_candidates)
-            archive_match_found = bool(page_candidates)
-            archive_page += 1
+            )
 
         # Search results and the current homepage may contain a newer post
         # than the archive scan. Include them before reading the post pages.
@@ -701,7 +699,10 @@ class EmulatorManager:
                 label = re.sub(r"<[^>]+>", " ", anchor.group(2))
                 label = re.sub(r"\s+", " ", html.unescape(label)).strip()
                 if not download_label.search(label):
-                    continue
+                    # Some Emu-France pages vary the anchor text slightly
+                    # while keeping the emulator name and "Télécharger".
+                    if "télécharger" not in label.casefold() or query.casefold() not in label.casefold():
+                        continue
                 href = re.search(r"\bhref\s*=\s*['\"]([^'\"]+)['\"]", anchor.group(1), re.I)
                 if not href:
                     continue
