@@ -77,7 +77,12 @@ class RetroBiosPackService:
         """
         configured_root = cls.storage_directory()
         root = Path(source).expanduser().resolve() if source is not None else configured_root
-        if source is not None and root != configured_root and root != cls.PACKS_ROOT.resolve():
+        if (
+            source is not None
+            and root != configured_root
+            and root != cls.PACKS_ROOT.resolve()
+            and root.name.casefold() != cls.PACKS_ROOT.name.casefold()
+        ):
             return ""
         candidate = Path(path).expanduser().resolve()
         try:
