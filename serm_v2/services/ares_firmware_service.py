@@ -147,7 +147,11 @@ class AresFirmwareMatch:
         evidence: dict[str, object] = {
             "match_mode": self.match_mode,
             "kind": "firmware",
-            "output_name": self.entry.output_path or self.entry.name,
+            "output_name": (
+                Path(self.path).name
+                if self.entry.profile_id == "ares-source" and not self.archive_member
+                else self.entry.output_path or self.entry.name
+            ),
             "system": self.entry.system,
             "description": self.entry.description,
             "required": self.entry.required,
