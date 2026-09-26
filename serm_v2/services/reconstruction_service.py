@@ -214,10 +214,11 @@ class ReconstructionService:
                 ):
                     items.append(item)
                     continue
-                raise ReconstructionError(
-                    f"Conflito de BIOS/firmware no destino {relative.as_posix()}: "
-                    f"{previous.source_path} | {item.source_path}"
-                )
+                # Um mesmo destino físico não pode receber dois firmwares diferentes.
+                # Em vez de interromper a reconstrução, mantém o primeiro item selecionado.
+                # Isso é especialmente importante para declarações lógicas do ARES que
+                # podem apontar para o mesmo nome de arquivo.
+                continue
             used_outputs[output_key] = item
             items.append(item)
         return items
