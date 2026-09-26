@@ -348,6 +348,91 @@ def test_bizhawk_wrong_sha1_falls_back_to_name_but_not_validation(tmp_path: Path
 
 
 
+def test_retroarch_info_is_structural_authority(tmp_path: Path) -> None:
+    from serm_v2.services.retroarch_bios_service import RetroArchBiosService
+
+    install = tmp_path / "retroarch"
+    system = install / "system"
+    info = install / "info"
+    system.mkdir(parents=True)
+    info.mkdir()
+    (info / "bluemsx_libretro.info").write_text(
+        'firmware_count = 2\\n'
+        'firmware0_path = "Databases/msxromdb.xml"\\n'
+        'firmware0_opt = "false"\\n'
+        'firmware1_path = "Machines/Shared Roms/MSX.rom"\\n'
+        'firmware1_opt = "false"\\n',
+        encoding="utf-8",
+    )
+    entries = (
+        AresFirmwareEntry(
+            name="msxromdb.xml",
+            system="MSX",
+            description="database",
+            required=True,
+            sha1=hashlib.sha1(b"db", usedforsecurity=False).hexdigest(),
+            output_path="Databases/msxromdb.xml",
+            profile_id="bluemsx",
+        ),
+        AresFirmwareEntry(
+            name="MSX.rom",
+            system="MSX",
+            description="machines",
+            required=True,
+            sha1=hashlib.sha1(b"rom", usedforsecurity=False).hexdigest(),
+            output_path="Machines/Shared Roms/MSX.rom",
+            profile_id="bluemsx",
+        ),
+    )
+    result = RetroArchBiosService._firmware_from_info(
+        info / "bluemsx_libretro.info",
+        RetroArchBiosService._parse_info(info / "bluemsx_libretro.info"),
+        entries,
+    )
+    assert [entry.output_path for entry in result] == [
+        "Databases/msxromdb.xml",
+        "Machines/Shared Roms/MSX.rom",
+    ]
+    assert all(entry.required for entry in result)
+
+
+def test_retroarch_info_optional_firmware_is_not_required(tmp_path: Path) -> None:
+    from serm_v2.services.retroarch_bios_service import RetroArchBiosService
+
+    info = tmp_path / "genesis_plus_gx_libretro.info"
+    info.write_text(
+        'firmware_count = 2\\n'
+        'firmware0_path = "bios_MD.bin"\\n'
+        'firmware0_opt = "true"\\n'
+        'firmware1_path = "bios_CD_E.bin"\\n'
+        'firmware1_opt = "true"\\n',
+        encoding="utf-8",
+    )
+    result = RetroArchBiosService._firmware_from_info(
+        info,
+        RetroArchBiosService._parse_info(info),
+        (),
+    )
+    assert len(result) == 2
+    assert all(not entry.required for entry in result)
+
+
+def test_retroarch_info_without_firmware_does_not_create_bios(tmp_path: Path) -> None:
+    from serm_v2.services.retroarch_bios_service import RetroArchBiosService
+
+    info = tmp_path / "nes_libretro.info"
+    info.write_text(
+        'systemname = "Nintendo Entertainment System"\\n'
+        'systemid = "nes"\\n',
+        encoding="utf-8",
+    )
+    assert RetroArchBiosService._firmware_from_info(
+        info, RetroArchBiosService._parse_info(info), ()
+    ) == []
+
+
+
+
 def test_ares_neo_geo_direct_files_remain_supported(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
