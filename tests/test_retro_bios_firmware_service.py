@@ -441,11 +441,11 @@ def test_panel_state_classifies_required_available_and_optional_entries() -> Non
     enriched = AresFirmwareService._enrich_entries_from_database(entries, database)
 
     by_name = {entry.name: entry for entry in enriched}
-    assert by_name["valid.bin"].panel_state == "VALIDADO"
-    assert by_name["valid.bin"].panel_state_detail == "Arquivo encontrado; hash correto."
-    assert by_name["plain.bin"].panel_state == "PRESENTE — HASH NÃO VERIFICÁVEL"
-    assert by_name["missing.bin"].panel_state == "AUSENTE — NÃO DISPONÍVEL"
-    assert by_name["hle.bin"].panel_state == "HLE / OPCIONAL"
+    assert by_name["valid.bin"].panel_state(True) == "VALIDADO"
+    assert by_name["valid.bin"].panel_state_detail(True) == "Arquivo encontrado; hash correto."
+    assert by_name["plain.bin"].panel_state(True) == "PRESENTE — HASH NÃO VERIFICÁVEL"
+    assert by_name["missing.bin"].panel_state(False) == "AUSENTE — NÃO DISPONÍVEL"
+    assert by_name["hle.bin"].panel_state(False) == "HLE / OPCIONAL"
 
 
 def test_panel_state_marks_required_entry_with_catalog_payload_as_available() -> None:
@@ -463,4 +463,4 @@ def test_panel_state_marks_required_entry_with_catalog_payload_as_available() ->
         entries,
         {"files": [{"name": "missing.bin", "sha256": "c" * 64, "release_asset": "missing.bin"}]},
     )
-    assert enriched[0].panel_state == "AUSENTE — DISPONÍVEL"
+    assert enriched[0].panel_state(False) == "AUSENTE — DISPONÍVEL"
