@@ -292,9 +292,8 @@ class RetroBiosFirmwarePanel(QWidget):
         self.catalog_button.clicked.connect(self.update_catalog)
         self.scan_button = QPushButton("SCAN")
         self.scan_button.setToolTip(
-            "Escaneia somente a pasta de origem e identifica todos os firmwares do ARES disponíveis para reconstrução."
-            if self.emulator == "ares"
-            else "Reexamina manualmente a origem e o destino para atualizar a lista de BIOS."
+            "Escaneia somente a pasta de origem; o destino é validado exclusivamente pelo REFRESH."
+        )
         )
         self.scan_button.clicked.connect(self.scan)
         self.refresh_destination_button = QPushButton("REFRESH")
@@ -333,9 +332,9 @@ class RetroBiosFirmwarePanel(QWidget):
         self.items.setMinimumHeight(110)
         root.addWidget(self.items)
         self.summary = QLabel(
-            "No ARES: SCAN examina a origem; REFRESH examina o destino e prepara a lista de ausentes."
-            if self.emulator == "ares"
-            else "Use ATUALIZAR SCAN para examinar a origem e o destino, ou REFRESH para revalidar somente o destino."
+            "Regra geral: SCAN examina somente a origem; REFRESH examina somente o destino; "
+            "a reconstrução usa a diferença entre os dois estados."
+        )
         )
         self.summary.setWordWrap(True)
         root.addWidget(self.summary)
@@ -465,29 +464,15 @@ class RetroBiosFirmwarePanel(QWidget):
             return
         self._clear_scan()
         self._destination_scan_allows_report = allow_report
-        if self.emulator == "ares":
-            self.status.setText(f"Escaneando somente a pasta de origem do {self.label}…")
-            self._start_worker(
-                _RetroBiosWorker(
-                    "source_scan",
-                    self.emulator,
-                    source=self._source,
-                    catalog=self._catalog,
-                    parent=self,
-                )
-            )
-            return
-        if self._destination is None or not self._destination.is_dir():
-            self.status.setText("Configure o diretório de destino para executar o scan.")
-            return
-        self.status.setText(f"Comparando origem e destino de {self.label}…")
+        self.status.setText(
+            f"Escaneando somente a pasta de origem do {self.label}…"
+        )
         self._start_worker(
             _RetroBiosWorker(
-                "compare",
+                "source_scan",
                 self.emulator,
                 source=self._source,
                 catalog=self._catalog,
-                destination=self._destination,
                 parent=self,
             )
         )
