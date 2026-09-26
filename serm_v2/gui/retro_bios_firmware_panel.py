@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QThread, QTimer, Signal
+from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
@@ -132,12 +132,6 @@ class _RetroBiosWorker(QThread):
                         progress_callback=self.progress.emit,
                         cancel_callback=lambda: self.cancel_requested,
                     )
-                elif self.emulator == "ares" and AresFirmwareService.configured_settings_path():
-                    destination_scan = AresFirmwareService.scan_configured(
-                        AresFirmwareService.configured_settings_path(),
-                        entries,
-                        catalog_version=version,
-                    )
                 else:
                     destination_scan = AresFirmwareService.scan(
                         self.destination, entries, catalog_version=version, emulator=self.emulator,
@@ -159,12 +153,6 @@ class _RetroBiosWorker(QThread):
                         self.destination, entries, catalog_version=version,
                         progress_callback=self.progress.emit,
                         cancel_callback=lambda: self.cancel_requested,
-                    )
-                elif self.emulator == "ares" and AresFirmwareService.configured_settings_path():
-                    scan = AresFirmwareService.scan_configured(
-                        AresFirmwareService.configured_settings_path(),
-                        entries,
-                        catalog_version=version,
                     )
                 else:
                     scan = AresFirmwareService.scan(
@@ -246,7 +234,6 @@ class RetroBiosFirmwarePanel(QWidget):
         self._destination_selected = False
         self._build_ui()
         self.refresh()
-        QTimer.singleShot(0, self.scan)
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
@@ -331,13 +318,15 @@ class RetroBiosFirmwarePanel(QWidget):
         self.items = QListWidget()
         self.items.setMinimumHeight(110)
         root.addWidget(self.items)
-        self.summary = QLabel("Execute o scan para listar arquivos verificados, ausentes e sem hash.")
+        self.summary = QLabel(
+            "Use ATUALIZAR SCAN para examinar a origem e o destino, ou REFRESH para revalidar somente o destino."
+        )
         self.summary.setWordWrap(True)
         root.addWidget(self.summary)
         self.progress = QProgressBar()
         self.progress.setValue(0)
         root.addWidget(self.progress)
-        self.status = QLabel("Pronto.")
+        self.status = QLabel("Pronto. Nenhum scan automático foi iniciado.")
         self.status.setWordWrap(True)
         root.addWidget(self.status)
 
@@ -449,9 +438,8 @@ class RetroBiosFirmwarePanel(QWidget):
         self._clear_scan()
         self._destination_scan_allows_report = False
         if self._destination is None or not self._destination.is_dir():
-            self.status.setText("Configure o diretório de destino para iniciar o scan automático.")
+            self.status.setText("Configure o diretório de destino para executar o scan.")
             return
-        self._clear_scan()
         self.status.setText(f"Comparando origem e destino de {self.label}…")
         self._start_worker(
             _RetroBiosWorker(
@@ -618,7 +606,7 @@ class RetroBiosFirmwarePanel(QWidget):
         self._render_scan_state(destination_scan=scan)
         if self.emulator == "ares":
             self.status.setText(
-                f"Configuração do ARES verificada em {scan.source_directory}: "
+                f"Pasta de destino do ARES verificada em {scan.source_directory}: "
                 f"{len(scan.matches):,} válido(s), {len(scan.invalid):,} hash inválido(s), "
                 f"{len(scan.missing):,} ausente(s)."
             )
@@ -788,8 +776,11 @@ class RetroBiosFirmwarePanel(QWidget):
             entries = missing + tuple(
                 entry for entry in invalid if entry.key not in {item.key for item in missing}
             )
-            assignments = AresFirmwareService.read_firmware_assignments(
-                self._destination_scan.source_directory
+            settings_path = AresFirmwareService.configured_settings_path()
+            assignments = (
+                AresFirmwareService.read_firmware_assignments(settings_path)
+                if settings_path is not None
+                else ()
             )
             assignment_map = {
                 (
@@ -815,7 +806,8 @@ class RetroBiosFirmwarePanel(QWidget):
                 "SERM — BIOS / FIRMWARES ARES NÃO VALIDADOS",
                 f"Emulador: {self.label} ({self.emulator})",
                 f"Fonte autoritativa: ARES source {self._destination_scan.catalog_version}",
-                f"settings.bml: {self._destination_scan.source_directory}",
+                f"Pasta de destino examinada: {self._destination_scan.source_directory}",
+                f"settings.bml: {settings_path if settings_path is not None else '(não configurado)'}",
                 f"Não configurados/ausentes: {len(missing)}",
                 f"Configurados com hash inválido: {len(invalid)}",
                 "",
@@ -970,7 +962,7 @@ class RetroBiosFirmwarePanel(QWidget):
         self.status.setText(
             f"Reconstrução concluída: {created:,} arquivo(s) materializado(s); "
             f"{removed:,} arquivo(s) inválido(s) removido(s). "
-            "Execute o scan do destino novamente para atualizar o estado real."
+            "Validando agora a pasta de destino…"
         )
 
     def _failed(self, message: str) -> None:
@@ -1049,8 +1041,10 @@ class RetroBiosFirmwarePanel(QWidget):
         self._destination_scan = None
         self._matches.clear()
         self._destination_matches.clear()
+        self._destination_invalid_matches.clear()
         self._missing_candidates = ()
         self._missing_report_ready = False
+        self._destination_scan_allows_report = False
         self._post_reconstruction_refresh = False
         if preserve_catalog:
             self._populate_catalog_preview()
