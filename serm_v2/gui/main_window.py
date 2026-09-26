@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMainWindow,
+    QPushButton,
     QSizePolicy,
     QStackedWidget,
     QStyle,
@@ -77,6 +78,7 @@ class MainWindow(QMainWindow):
         self.configuration_page.appearance_page.language_changed.connect(self._language_changed)
         self._retranslate_navigation()
         self._restore_window_layout()
+        self._apply_button_tooltips()
 
     @staticmethod
     def _qt_settings() -> QSettings:
@@ -242,10 +244,26 @@ class MainWindow(QMainWindow):
             item = self.navigation.item(index)
             self.status_bar.showMessage((item.data(Qt.ItemDataRole.UserRole) or item.text()) if item else UiPreferences.text("ready"))
 
+    @staticmethod
+    def _apply_button_tooltips(root: QWidget | None = None) -> None:
+        """Garante ajuda contextual mínima para botões sem tooltip explícito."""
+        widget = root
+        if widget is None:
+            return
+        for button in widget.findChildren(QPushButton):
+            if button.toolTip().strip():
+                continue
+            text = " ".join(button.text().split()).strip()
+            if text:
+                button.setToolTip(f"Ação: {text}. Clique para executar.")
+            else:
+                button.setToolTip("Executa a ação associada a este botão.")
+
     def _refresh_page(self, index: int) -> None:
         refresh = getattr(self.pages[index], "refresh", None)
         if callable(refresh):
             refresh()
+        self._apply_button_tooltips(self.pages[index])
 
     def closeEvent(self, event) -> None:
         self.input_connection_monitor.stop()
