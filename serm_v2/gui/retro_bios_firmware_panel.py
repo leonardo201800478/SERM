@@ -248,8 +248,14 @@ class RetroBiosFirmwarePanel(QWidget):
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
         intro = QLabel(
-            "Compara o diretório configurado com o perfil RetroBIOS deste emulador; "
-            "somente arquivos com checksum compatível podem ser reconstruídos."
+            (
+                "Para o ARES, usa as entradas de firmware declaradas no código-fonte do "
+                "emulador e o settings.bml para validar exatamente o que está configurado."
+                if self.emulator == "ares"
+                else
+                "Compara o diretório configurado com o perfil RetroBIOS deste emulador; "
+                "somente arquivos com checksum compatível podem ser reconstruídos."
+            )
         )
         intro.setWordWrap(True)
         root.addWidget(intro)
@@ -284,7 +290,9 @@ class RetroBiosFirmwarePanel(QWidget):
         root.addWidget(paths)
 
         actions = QHBoxLayout()
-        self.catalog_button = QPushButton("ATUALIZAR RETROBIOS")
+        self.catalog_button = QPushButton(
+            "ATUALIZAR ARES" if self.emulator == "ares" else "ATUALIZAR RETROBIOS"
+        )
         self.catalog_button.clicked.connect(self.update_catalog)
         self.scan_button = QPushButton("ATUALIZAR SCAN")
         self.scan_button.setToolTip("Reexamina automaticamente a origem e o destino para atualizar a lista de BIOS faltantes.")
