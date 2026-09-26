@@ -414,7 +414,7 @@ class RetroBiosFirmwarePanel(QWidget):
                 label = f"AUSENTE | {entry.output_path} | {entry.system}"
                 state = "missing"
             availability = entry.availability_label
-            label = f"{label} | {availability}"
+            label = f"{label} | {availability} | {entry.distribution_label}"
             item = QListWidgetItem(label)
             item.setData(Qt.ItemDataRole.UserRole + 1, state)
             item.setData(Qt.ItemDataRole.UserRole, entry.key)
@@ -445,9 +445,15 @@ class RetroBiosFirmwarePanel(QWidget):
         optional = len(self._catalog[1]) - required
         missing_required = sum(entry.required for entry in scan.missing)
         missing_optional = len(scan.missing) - missing_required
+        missing_release = sum(bool(entry.release_asset) for entry in scan.missing)
+        missing_repository = sum(bool(entry.repository_path) and not entry.release_asset for entry in scan.missing)
+        missing_unavailable = sum(not entry.catalog_available for entry in scan.missing)
+        missing_gaps = sum(entry.gap_layer == "emulator" for entry in scan.missing)
         self.summary.setText(
             f"Examinados={scan.files_examined:,} | validados={len(scan.matches):,} | "
             f"ausentes={len(scan.missing):,} (obrigatórios={missing_required:,}, opcionais={missing_optional:,}) | "
+            f"obtenção: release={missing_release:,}, repositório={missing_repository:,}, "
+            f"não disponíveis={missing_unavailable:,}, lacunas={missing_gaps:,} | "
             f"catálogo: obrigatórios={required:,}, opcionais={optional:,}, sem hash={len(self._catalog[1]) - verifiable:,}"
         )
         self.reconstruct_button.setEnabled(bool(self._matches))
@@ -579,6 +585,7 @@ class RetroBiosFirmwarePanel(QWidget):
                 f"Tipo: {required}\n"
                 f"Hash verificável: {hash_label}\n"
                 f"Disponibilidade: {entry.availability_label}\n"
+                f"Distribuição: {entry.distribution_label}\n"
                 f"Cobertura: {entry.coverage_label}\n"
                 f"Repo path: {entry.repository_path or 'não informado'}\n"
                 f"Release asset: {entry.release_asset or 'não informado'}\n"
