@@ -362,6 +362,24 @@ def test_scan_matches_profiles_without_checksums_by_filename(tmp_path) -> None:
     assert scan.files_examined == 1
     assert not entries[0].is_verifiable
 
+
+def test_pack_name_for_path_identifies_platform_pack(tmp_path: Path) -> None:
+    packs = tmp_path / "retrobios_packs"
+    source = packs / "Nintendo 64" / "firmware"
+    source.mkdir(parents=True)
+    bios = source / "IPL.n64"
+    bios.write_bytes(b"bios")
+
+    from serm_v2.services.retrobios_pack_service import RetroBiosPackService
+
+    assert (
+        RetroBiosPackService.pack_name_for_path(bios, source=packs)
+        == "Nintendo 64_BIOS_Pack.zip"
+    )
+    assert RetroBiosPackService.pack_name_for_path(bios, source=tmp_path) == ""
+
+
+
 def test_ares_filter_file_requests_preserving_destination(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(ares_firmware_service, "scans_root", lambda: tmp_path / "scans")
     scan = AresFirmwareScan("v1", str(tmp_path / "source"), (), (), 0)
