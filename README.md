@@ -137,6 +137,10 @@ Initialization and migration behavior live under `serm_v2/database`. Versioned S
 
 The database is application state, not a copy of the user's ROM collection. Physical content stays outside the database.
 
+## Scan, refresh e reconstrução
+
+Todo fluxo físico com origem e destino segue a mesma regra: **SCAN examina somente a origem; REFRESH examina somente o destino; reconstrução usa a diferença entre os dois estados; após reconstruir, o destino deve ser revalidado por REFRESH.** Arquivos com hash inválido não são tratados como válidos apenas por coincidirem no nome. Consulte [`docs/scan-policy.md`](docs/scan-policy.md).
+
 ## Documentation
 
 The complete technical documentation is indexed in [`docs/index.md`](docs/index.md).
