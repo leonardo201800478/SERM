@@ -286,7 +286,7 @@ class RetroBiosFirmwarePanel(QWidget):
         self._clear_scan()
         self.refresh()
 
-    def _remove_saved_source -> None:
+    def _remove_saved_source(self) -> None:
         data: dict[str, object] = {}
         try:
             value = json.loads(self.PATHS_FILE.read_text(encoding="utf-8"))
