@@ -19,8 +19,8 @@ from PySide6.QtWidgets import (
 )
 
 from ..services.retroarch_catalog_service import RetroArchCatalogService
-from .emulator_home import EmulatorHomePage, _Worker
 from .directory_dialogs import get_existing_directory
+from .emulator_home import EmulatorHomePage, _Worker
 
 
 class HomePage(EmulatorHomePage):
