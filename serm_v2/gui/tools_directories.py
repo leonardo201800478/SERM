@@ -330,7 +330,10 @@ class ToolsDirectoriesPage(QWidget):
         if answer != QMessageBox.StandardButton.Yes:
             return
         destination.mkdir(parents=True, exist_ok=True)
-        self.retrobios_pack_progress.setRange(0, max(pack.size, 1))
+        # QProgressBar usa inteiros assinados de 32 bits no Qt.
+        # Packs RetroBIOS podem ultrapassar 2 GiB, então usamos uma escala fixa
+        # de 0..1000 e convertemos o progresso real para essa faixa.
+        self.retrobios_pack_progress.setRange(0, 1000)
         self.retrobios_pack_progress.setValue(0)
         self.retrobios_pack_status.setText(f"Baixando {pack.platform}…")
         self._set_pack_controls(False)
@@ -344,8 +347,13 @@ class ToolsDirectoriesPage(QWidget):
         self._pack_worker.start()
 
     def _retrobios_pack_progress(self, done: int, total: int) -> None:
-        self.retrobios_pack_progress.setMaximum(max(total, 1))
-        self.retrobios_pack_progress.setValue(min(done, max(total, 1)))
+        # O valor real pode exceder o limite de int32 do QProgressBar.
+        # A barra representa a fração concluída em milésimos.
+        if total <= 0:
+            self.retrobios_pack_progress.setValue(0)
+            return
+        value = min(1000, max(0, int(done * 1000 / total)))
+        self.retrobios_pack_progress.setValue(value)
 
     def _retrobios_pack_completed(self, payload: object) -> None:
         self.retrobios_pack_status.setText(
