@@ -1103,3 +1103,21 @@ def test_panel_state_distinguishes_filename_fallback() -> None:
     assert entries[0].panel_state(True, match_mode="hash") == "VALIDADO"
     assert entries[0].panel_state(True, match_mode="name") == "PRESENTE — NOME COMPATÍVEL"
     assert "não coincidiu" in entries[0].panel_state_detail(True, match_mode="name")
+
+
+def test_ares_source_reconstruction_uses_physical_filename_for_loose_firmware(tmp_path: Path) -> None:
+    source = tmp_path / "ColecoVision - BIOS (World).bin"
+    source.write_bytes(b"coleco")
+    entry = AresFirmwareEntry(
+        name="BIOS",
+        system="ColecoVision",
+        description="ARES source: World",
+        required=True,
+        profile_id="ares-source",
+        region="World",
+    )
+
+    evidence = AresFirmwareMatch(entry, str(source)).to_evidence()
+
+    assert evidence["output_name"] == source.name
+
