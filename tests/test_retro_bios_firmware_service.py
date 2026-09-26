@@ -278,10 +278,11 @@ def test_catalog_cleanup_removes_only_invalid_known_firmware(tmp_path: Path) -> 
     assert unknown_file.read_bytes() == b"emulator"
 
 
-def test_scan_reports_profiles_without_checksums_as_unverifiable(tmp_path: Path) -> None:
+def test_scan_matches_profiles_without_checksums_by_filename(tmp_path) -> None:
     source = tmp_path / "source"
     source.mkdir()
-    (source / "kick13.rom").write_bytes(b"amiga firmware")
+    firmware = source / "kick13.rom"
+    firmware.write_bytes(b"amiga firmware")
     payload = {
         "items": [
             {
@@ -297,11 +298,11 @@ def test_scan_reports_profiles_without_checksums_as_unverifiable(tmp_path: Path)
 
     scan = AresFirmwareService.scan(source, entries, emulator="amiberry")
 
-    assert scan.matches == ()
-    assert scan.missing == entries
-    assert scan.files_examined == 0
+    assert len(scan.matches) == 1
+    assert scan.matches[0].path == str(firmware)
+    assert scan.missing == ()
+    assert scan.files_examined == 1
     assert not entries[0].is_verifiable
-
 
 def test_ares_filter_file_requests_preserving_destination(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(ares_firmware_service, "scans_root", lambda: tmp_path / "scans")
