@@ -62,14 +62,6 @@ class _RetroBiosPackWorker(QThread):
             self.failed.emit(f"{type(exc).__name__}: {exc}")
 
     def _emit_progress(self, done: int, total: int) -> None:
-        """Converte bytes para a escala segura usada pelo QProgressBar."""
-        if total <= 0:
-            self.progress.emit(0, 1000)
-            return
-        value = min(1000, max(0, int(done * 1000 / total)))
-        self.progress.emit(value, 1000)
-
-    def _emit_progress(self, done: int, total: int) -> None:
         """Converte o progresso da etapa para a escala segura do Qt."""
         if total <= 0:
             self.progress.emit(0, 1000)
