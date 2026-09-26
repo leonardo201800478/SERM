@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..runtime.paths import data_root
+from ..services.retroarch_bios_service import RetroArchBiosService
 from ..services.ares_firmware_service import (
     AresFirmwareEntry,
     AresFirmwareMatch,
@@ -67,28 +68,60 @@ class _RetroBiosWorker(QThread):
     def run(self) -> None:
         try:
             if self.operation == "catalog":
-                self.catalog_ready.emit(
-                    AresFirmwareService.load_catalog(emulator=self.emulator, refresh=True)
-                )
+                if self.emulator == "retroarch" and self.source is not None:
+                    catalog_result = RetroArchBiosService.load_catalog(self.source, refresh=True)
+                else:
+                    catalog_result = AresFirmwareService.load_catalog(
+                        emulator=self.emulator, refresh=True
+                    )
+                self.catalog_ready.emit(catalog_result)
             elif self.operation == "scan" and self.source is not None:
-                catalog = self.catalog or AresFirmwareService.load_catalog(emulator=self.emulator)
+                catalog = self.catalog
+                if catalog is None:
+                    catalog = (
+                        RetroArchBiosService.load_catalog(self.source)
+                        if self.emulator == "retroarch"
+                        else AresFirmwareService.load_catalog(emulator=self.emulator)
+                    )
                 version, entries = catalog
-                scan = AresFirmwareService.scan(
-                    self.source,
-                    entries,
-                    catalog_version=version,
-                    emulator=self.emulator,
-                    progress_callback=self.progress.emit,
-                    cancel_callback=lambda: self.cancel_requested,
+                scan = (
+                    RetroArchBiosService.scan(
+                        self.source, entries, catalog_version=version,
+                        progress_callback=self.progress.emit,
+                        cancel_callback=lambda: self.cancel_requested,
+                    )
+                    if self.emulator == "retroarch"
+                    else AresFirmwareService.scan(
+                        self.source,
+                        entries,
+                        catalog_version=version,
+                        emulator=self.emulator,
+                        progress_callback=self.progress.emit,
+                        cancel_callback=lambda: self.cancel_requested,
+                    )
                 )
                 self.scanned.emit((catalog, scan))
             elif self.operation == "compare" and self.source is not None and self.destination is not None:
-                catalog = self.catalog or AresFirmwareService.load_catalog(emulator=self.emulator)
+                catalog = self.catalog
+                if catalog is None:
+                    catalog = (
+                        RetroArchBiosService.load_catalog(self.source)
+                        if self.emulator == "retroarch"
+                        else AresFirmwareService.load_catalog(emulator=self.emulator)
+                    )
                 version, entries = catalog
-                source_scan = AresFirmwareService.scan(
-                    self.source, entries, catalog_version=version, emulator=self.emulator,
-                    progress_callback=self.progress.emit,
-                    cancel_callback=lambda: self.cancel_requested,
+                source_scan = (
+                    RetroArchBiosService.scan(
+                        self.source, entries, catalog_version=version,
+                        progress_callback=self.progress.emit,
+                        cancel_callback=lambda: self.cancel_requested,
+                    )
+                    if self.emulator == "retroarch"
+                    else AresFirmwareService.scan(
+                        self.source, entries, catalog_version=version, emulator=self.emulator,
+                        progress_callback=self.progress.emit,
+                        cancel_callback=lambda: self.cancel_requested,
+                    )
                 )
                 if self.cancel_requested:
                     return
@@ -100,15 +133,29 @@ class _RetroBiosWorker(QThread):
                 )
                 self.destination_scanned.emit((catalog, destination_scan))
             elif self.operation == "destination_scan" and self.destination is not None:
-                catalog = self.catalog or AresFirmwareService.load_catalog(emulator=self.emulator)
+                catalog = self.catalog
+                if catalog is None:
+                    catalog = (
+                        RetroArchBiosService.load_catalog(self.destination)
+                        if self.emulator == "retroarch"
+                        else AresFirmwareService.load_catalog(emulator=self.emulator)
+                    )
                 version, entries = catalog
-                scan = AresFirmwareService.scan(
-                    self.destination,
-                    entries,
-                    catalog_version=version,
-                    emulator=self.emulator,
-                    progress_callback=self.progress.emit,
-                    cancel_callback=lambda: self.cancel_requested,
+                scan = (
+                    RetroArchBiosService.scan(
+                        self.destination, entries, catalog_version=version,
+                        progress_callback=self.progress.emit,
+                        cancel_callback=lambda: self.cancel_requested,
+                    )
+                    if self.emulator == "retroarch"
+                    else AresFirmwareService.scan(
+                        self.destination,
+                        entries,
+                        catalog_version=version,
+                        emulator=self.emulator,
+                        progress_callback=self.progress.emit,
+                        cancel_callback=lambda: self.cancel_requested,
+                    )
                 )
                 self.destination_scanned.emit((catalog, scan))
             elif self.operation == "reconstruct" and self.plan is not None:
