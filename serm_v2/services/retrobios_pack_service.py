@@ -75,7 +75,10 @@ class RetroBiosPackService:
         armazenamento identifica a plataforma/pack. Para fontes alternativas,
         retorna string vazia porque não há evidência de qual pack originou o arquivo.
         """
-        root = Path(source).expanduser().resolve() if source is not None else cls.storage_directory()
+        configured_root = cls.storage_directory()
+        root = Path(source).expanduser().resolve() if source is not None else configured_root
+        if source is not None and root != configured_root and root != cls.PACKS_ROOT.resolve():
+            return ""
         candidate = Path(path).expanduser().resolve()
         try:
             relative = candidate.relative_to(root)
