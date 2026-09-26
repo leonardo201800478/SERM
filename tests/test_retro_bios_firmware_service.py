@@ -167,6 +167,66 @@ def test_scan_matches_renamed_loose_and_zip_content_by_catalog_hashes(tmp_path) 
     assert altirra_scan.matches[0].archive_member == "renamed/member.rom"
 
 
+
+def test_enrich_entries_from_database_marks_repository_and_release_availability() -> None:
+    entry = AresFirmwareService._parse_catalog(
+        {
+            "generated_at": "2026-09-26",
+            "items": [
+                {
+                    "id": "testemu",
+                    "profile": {
+                        "emulator": "Test Emulator",
+                        "files": [
+                            {
+                                "name": "bios.bin",
+                                "sha256": "a" * 64,
+                                "required": True,
+                            }
+                        ],
+                    },
+                }
+            ],
+        },
+        emulator="testemu",
+    )[0][0]
+
+    database = {
+        "files": [
+            {
+                "name": "bios.bin",
+                "sha256": "a" * 64,
+                "repo_path": "bios/Test/bios.bin",
+            },
+            {
+                "name": "large.bin",
+                "sha256": "b" * 64,
+                "release_asset": "large.bin",
+            },
+        ]
+    }
+
+    enriched = AresFirmwareService._enrich_entries_from_database((entry,), database)
+
+    assert enriched[0].catalog_available
+    assert enriched[0].repository_path == "bios/Test/bios.bin"
+    assert enriched[0].availability_label == "DISPONÍVEL (REPOSITÓRIO)"
+
+
+def test_database_records_ignore_hash_only_entries_without_storage() -> None:
+    records = AresFirmwareService._database_records(
+        {
+            "files": [
+                {"name": "missing.bin", "sha256": "a" * 64},
+                {"name": "available.bin", "sha256": "b" * 64, "repo_path": "bios/available.bin"},
+            ]
+        }
+    )
+
+    assert len(records) == 1
+    assert records[0]["name"] == "available.bin"
+
+
 def test_reconstruction_preserves_unrelated_emulator_install_files(tmp_path: Path) -> None:
     source = tmp_path / "verified-bios.bin"
     source.write_bytes(b"verified BIOS")
