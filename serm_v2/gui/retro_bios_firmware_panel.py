@@ -290,7 +290,7 @@ class RetroBiosFirmwarePanel(QWidget):
             "ATUALIZAR ARES" if self.emulator == "ares" else "ATUALIZAR RETROBIOS"
         )
         self.catalog_button.clicked.connect(self.update_catalog)
-        self.scan_button = QPushButton("ATUALIZAR SCAN")
+        self.scan_button = QPushButton("SCAN")
         self.scan_button.setToolTip(
             "Escaneia somente a pasta de origem e identifica todos os firmwares do ARES disponíveis para reconstrução."
             if self.emulator == "ares"
