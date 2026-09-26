@@ -294,7 +294,6 @@ class RetroBiosFirmwarePanel(QWidget):
         self.scan_button.setToolTip(
             "Escaneia somente a pasta de origem; o destino é validado exclusivamente pelo REFRESH."
         )
-        )
         self.scan_button.clicked.connect(self.scan)
         self.refresh_destination_button = QPushButton("REFRESH")
         self.refresh_destination_button.setToolTip(
