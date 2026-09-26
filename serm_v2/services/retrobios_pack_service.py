@@ -55,8 +55,8 @@ class RetroBiosPackService:
     MAX_RELEASE_BYTES = 4 * 1024 * 1024
     MAX_CHECKSUM_BYTES = 2 * 1024 * 1024
     CHUNK_SIZE = 1024 * 1024
-    PACK_RE = re.compile(r"^(?P<base>.+_BIOS_Pack\\.zip)(?:\\.(?P<part>\\d{3}))?$", re.IGNORECASE)
-    SAFE_PART_RE = re.compile(r"^\\d{3}$")
+    PACK_RE = re.compile(r"^(?P<base>.+_BIOS_Pack\.zip)(?:\.(?P<part>\d{3}))?$", re.IGNORECASE)
+    SAFE_PART_RE = re.compile(r"^\d{3}$")
 
     @classmethod
     def default_directory(cls) -> Path:
