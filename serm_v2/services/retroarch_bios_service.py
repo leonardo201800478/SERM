@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
-from typing import Callable
 
 from .ares_firmware_service import (
     AresFirmwareEntry,
@@ -26,7 +24,6 @@ class RetroArchBiosService:
 
     INFO_DIR_NAME = "info"
     INFO_SUFFIX = "_libretro.info"
-    _KEY_VALUE = re.compile(r"^([A-Za-z0-9_]+)\\s*=\\s*"(.*)"$")
 
     @classmethod
     def _info_directory(cls, system_directory: str | Path) -> Path:
@@ -48,12 +45,9 @@ class RetroArchBiosService:
             raise RetroArchBiosError(f"Não foi possível ler {path}: {exc}") from exc
         for raw in lines:
             line = raw.strip()
-            match = cls._KEY_VALUE.match(line)
-            if match:
-                values[match.group(1)] = match.group(2).replace("\\n", "\n")
-            elif "=" in line and not line.startswith("#"):
+            if "=" in line and not line.startswith("#"):
                 key, value = line.split("=", 1)
-                values[key.strip()] = value.strip().strip('"')
+                values[key.strip()] = value.strip().strip('"').replace("\\n", "\n")
         return values
 
     @classmethod
