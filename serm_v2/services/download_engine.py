@@ -217,12 +217,18 @@ class DownloadEngine:
             return 0
 
         range_start = start + existing
-        temp = target.with_suffix(target.suffix + ".tmp")
         last_error: Exception | None = None
         for attempt in range(self.config.retries):
             try:
                 if cancel_callback and cancel_callback():
                     raise DownloadEngineError("Download cancelado.")
+                existing = target.stat().st_size if target.is_file() else 0
+                if existing > expected:
+                    target.unlink(missing_ok=True)
+                    existing = 0
+                if existing == expected:
+                    return expected
+                range_start = start + existing
                 request_headers = dict(headers)
                 request_headers["Range"] = f"bytes={range_start}-{end}"
                 request = urllib.request.Request(url, headers=request_headers)
@@ -241,7 +247,6 @@ class DownloadEngine:
                                 break
                             output.write(chunk)
                 if self._segment_complete(target, start, end):
-                    temp.unlink(missing_ok=True)
                     return expected
                 raise DownloadEngineError(f"Segmento {index + 1} terminou incompleto.")
             except DownloadEngineError as exc:
