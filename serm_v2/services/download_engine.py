@@ -15,9 +15,9 @@ import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from collections.abc import Callable
 from pathlib import Path
 from threading import Lock
-from collections.abc import Callable
 
 
 class DownloadEngineError(RuntimeError):
