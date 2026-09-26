@@ -701,7 +701,7 @@ class AresFirmwareService:
     ) -> dict[str, tuple[AresFirmwareEntry, ...]]:
         """Indexa todos os nomes para fallback quando não houver hash compatível."""
         index: dict[str, list[AresFirmwareEntry]] = {}
-        for entry in entries
+        for entry in entries:
             names = {
                 Path(entry.name).name.casefold(),
                 Path(entry.output_path).name.casefold(),
