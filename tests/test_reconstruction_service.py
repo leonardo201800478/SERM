@@ -300,3 +300,37 @@ def test_ares_firmware_filter_uses_shared_reconstruction_executor(tmp_path: Path
     assert (destination / "colecovision.rom").read_bytes() == b"ares bios"
     with zipfile.ZipFile(source_archive) as archive:
         assert archive.read("download/colecovision.rom") == b"ares bios"
+
+
+def test_firmware_destination_conflict_keeps_first_selected_item(tmp_path: Path) -> None:
+    destination = tmp_path / "destination"
+    destination.mkdir()
+    first = tmp_path / "first.bin"
+    second = tmp_path / "second.bin"
+    first.write_bytes(b"first")
+    second.write_bytes(b"second")
+    filter_path = tmp_path / "filter.json"
+    filter_path.write_text(
+        json.dumps(
+            {
+                "format": "SERM-FILTER-V1",
+                "source": "ares-firmware",
+                "system": "ares",
+                "evidence": [
+                    {"output_name": "BIOS.bin", "path": str(first), "status": "CURRENT"},
+                    {"output_name": "BIOS.bin", "path": str(second), "status": "CURRENT"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    plan = ReconstructionService.plan(filter_path, destination)
+
+    assert plan.item_count == 1
+    assert plan.items[0].source_path == str(first)
+
+    result = ReconstructionService.execute(plan)
+    assert result["created_count"] == 1
+    assert (destination / "BIOS.bin").read_bytes() == b"first"
+
