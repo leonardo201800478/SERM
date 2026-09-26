@@ -248,7 +248,13 @@ class RetroBiosFirmwarePanel(QWidget):
             and configured_destination.strip()
         ):
             self._destination = Path(configured_destination).expanduser()
-        elif not self._destination_selected and self._source is not None:
+        elif not self._destination_selected and isinstance(configured, str) and configured.strip():
+            self._destination = Path(configured).expanduser()
+        elif (
+            not self._destination_selected
+            and self._source is not None
+            and self._source.resolve() != RetroBiosPackService.storage_directory().resolve()
+        ):
             self._destination = self._source
         if self._source and self._source.resolve() == RetroBiosPackService.storage_directory().resolve():
             self.source_label.setText(f"{self._source} (packs RetroBIOS — fonte padrão)")
@@ -279,11 +285,10 @@ class RetroBiosFirmwarePanel(QWidget):
         self._remove_saved_source()
         if not self._destination_selected:
             self._destination = self._source
-        self._save_paths()
         self._clear_scan()
         self.refresh()
 
-    def _remove_saved_source(self) -> None:
+    def _remove_saved_source -> None:
         data: dict[str, object] = {}
         try:
             value = json.loads(self.PATHS_FILE.read_text(encoding="utf-8"))
