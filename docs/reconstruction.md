@@ -149,3 +149,19 @@ A próxima etapa não é criar mais heurísticas de matching. É fechar o ciclo 
 **Fluxo RetroBIOS compartilhado: painéis por emulador configurado, com MAME excluído.**
 
 **Cobertura do catálogo: depende de cada perfil RetroBIOS ter checksum; emuladores sem perfil/checksum compatível não podem ser validados automaticamente.**
+
+
+## Packs de BIOS RetroBIOS
+
+A aquisição RetroBIOS possui um repositório local de packs configurável em **Configuração > Ferramentas > Packs de BIOS RetroBIOS**. O SERM consulta a release oficial do RetroBIOS, apresenta os packs por plataforma e permite baixar/extrair o pack escolhido em segundo plano.
+
+- volumes `.zip.001`, `.002`, etc. são baixados em conjunto e montados antes da extração;
+- cada volume é validado pelo SHA-256 publicado pela release;
+- quando `SHA256SUMS.txt` da release está disponível, o ZIP montado também é conferido;
+- a extração rejeita caminhos absolutos, componentes `..` e links simbólicos;
+- arquivos locais existentes não são substituídos automaticamente;
+- o diretório de packs é a **fonte padrão** do painel RetroBIOS;
+- **Fonte alternativa…** permite usar outra pasta sem remover o repositório local de packs;
+- MAME permanece fora desse fluxo.
+
+Os packs contêm software de terceiros. O SERM apenas automatiza o download, validação e organização local; a disponibilização/licença dos arquivos permanece sujeita às condições aplicáveis aos respectivos conteúdos.
