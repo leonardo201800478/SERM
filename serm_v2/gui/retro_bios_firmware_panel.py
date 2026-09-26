@@ -568,7 +568,7 @@ class RetroBiosFirmwarePanel(QWidget):
             hash_state = "com hash" if entry.is_verifiable else "sem hash"
             item = QListWidgetItem(
                 f"{required} | {entry.output_path} | {entry.system} | {hash_state} | "
-                f"{entry.availability_label}"
+                f"{entry.availability_label} | {entry.coverage_label}"
             )
             item.setData(Qt.ItemDataRole.UserRole, entry.key)
             item.setData(Qt.ItemDataRole.UserRole + 1, "catalog")
@@ -579,8 +579,10 @@ class RetroBiosFirmwarePanel(QWidget):
                 f"Tipo: {required}\n"
                 f"Hash verificável: {hash_label}\n"
                 f"Disponibilidade: {entry.availability_label}\n"
+                f"Cobertura: {entry.coverage_label}\n"
                 f"Repo path: {entry.repository_path or 'não informado'}\n"
                 f"Release asset: {entry.release_asset or 'não informado'}\n"
+                f"Lacuna: {entry.gap_reason or 'não informada'}\n"
                 f"Descrição: {entry.description or 'não informada'}"
             )
             if entry.required:
