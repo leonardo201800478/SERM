@@ -196,6 +196,7 @@ class MainWindow(QMainWindow):
         root_layout.addWidget(sidebar)
         root_layout.addWidget(self.page_stack, 1)
         self.setCentralWidget(root)
+        self._refreshed_pages: set[int] = set()
         self.navigation.currentRowChanged.connect(self._on_navigation_changed)
 
     def _build_log_dock(self) -> None:
@@ -240,7 +241,9 @@ class MainWindow(QMainWindow):
     def _on_navigation_changed(self, index: int) -> None:
         if 0 <= index < len(self.pages):
             self.page_stack.setCurrentIndex(index)
-            self._refresh_page(index)
+            if index not in self._refreshed_pages:
+                self._refresh_page(index)
+                self._refreshed_pages.add(index)
             item = self.navigation.item(index)
             self.status_bar.showMessage((item.data(Qt.ItemDataRole.UserRole) or item.text()) if item else UiPreferences.text("ready"))
 
@@ -263,7 +266,6 @@ class MainWindow(QMainWindow):
         refresh = getattr(self.pages[index], "refresh", None)
         if callable(refresh):
             refresh()
-        self._apply_button_tooltips(self.pages[index])
 
     def closeEvent(self, event) -> None:
         self.input_connection_monitor.stop()
