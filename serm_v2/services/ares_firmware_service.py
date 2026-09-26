@@ -878,11 +878,14 @@ class AresFirmwareService:
         invalid: dict[str, AresFirmwareMatch] = {}
         examined = 0
         total = len(candidates)
+        # Atualizações de progresso a cada arquivo atravessam a fila de eventos
+        # do Qt e podem degradar bastante a responsividade em diretórios grandes.
+        progress_stride = max(1, total // 100)
         zip_candidates = [path for path in candidates if path.suffix.casefold() == ".zip"]
         loose_candidates = [path for path in candidates if path.suffix.casefold() != ".zip"]
 
-        def report_progress() -> None:
-            if progress_callback:
+        def report_progress(*, force: bool = False) -> None:
+            if progress_callback and (force or examined == total or examined % progress_stride == 0):
                 progress_callback(examined, total)
 
         with ThreadPoolExecutor(
@@ -943,6 +946,9 @@ class AresFirmwareService:
                 pass
             examined += 1
             report_progress()
+
+        if progress_callback:
+            progress_callback(examined, total)
 
         matches = tuple(found[key] for key in sorted(found))
         matched_names = set(found)
