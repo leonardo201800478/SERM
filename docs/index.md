@@ -49,6 +49,7 @@ A V1 é referência histórica e comportamental. A árvore ativa de `main` cont�
 | [`launchbox.md`](launchbox.md) | LaunchBox como provider opcional |
 | [`download-manager.md`](download-manager.md) | Aquisição, cache, validação e downloads |
 | [`torrents.md`](torrents.md) | Torrents e aquisição |
+| [`scan-policy.md`](scan-policy.md) | Regra geral de SCAN, REFRESH, reconstrução e exportação |
 | [`status/scan_status.md`](status/scan_status.md) | Estado e invariantes do scanner |
 | [`phases.md`](phases.md) | Roadmap e critérios de conclusão |
 
@@ -65,6 +66,8 @@ A V1 é referência histórica e comportamental. A árvore ativa de `main` cont�
 - **SQLite administra o estado e os metadados do SERM;** ROMs, ISOs, CHDs e arquivos permanecem no filesystem do usuário.
 - **A GUI coordena e apresenta;** serviços concentram regras de negócio e I/O.
 - **Adapters isolam formatos externos.**
+- **SCAN observa somente a origem; REFRESH valida somente o destino.**
+- **Reconstrução usa a diferença entre origem reconhecida e destino validado.**
 - **Scan produz evidência; reconstrução transforma e publica.**
 - **A origem física não deve ser modificada silenciosamente por uma reconstrução.**
 - **O código deve ser a referência final para o que realmente está implementado.**
