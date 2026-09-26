@@ -166,6 +166,82 @@ def test_scan_matches_renamed_loose_and_zip_content_by_catalog_hashes(tmp_path) 
 
 
 
+def test_ares_neo_geo_zip_satisfies_aes_and_mvs_members(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    archive_path = source / "neogeo.zip"
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        archive.writestr("neo-epo.bin", b"aes bios")
+        archive.writestr("sp-45.sp1", b"mvs bios")
+
+    payload = {
+        "items": [{
+            "id": "ares",
+            "profile": {
+                "emulator": "ares",
+                "files": [
+                    {"name": "neo-epo.bin", "system": "neo-geo", "required": True},
+                    {"name": "sp-45.sp1", "system": "neo-geo", "required": True},
+                ],
+            },
+        }]
+    }
+    entries, _version = AresFirmwareService._parse_catalog(payload, emulator="ares")
+
+    scan = AresFirmwareService.scan(source, entries, emulator="ares")
+
+    assert {match.entry.name for match in scan.matches} == {"neo-epo.bin", "sp-45.sp1"}
+    assert all(match.archive_member for match in scan.matches)
+    assert all(match.match_mode == "archive" for match in scan.matches)
+    assert scan.missing == ()
+    assert {entry.container_name for entry in entries} == {"neogeo.zip"}
+
+
+def test_ares_neo_geo_direct_files_remain_supported(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "neo-epo.bin").write_bytes(b"aes bios")
+    (source / "sp-45.sp1").write_bytes(b"mvs bios")
+
+    payload = {
+        "items": [{
+            "id": "ares",
+            "profile": {
+                "emulator": "ares",
+                "files": [
+                    {"name": "neo-epo.bin", "system": "neo-geo", "required": True},
+                    {"name": "sp-45.sp1", "system": "neo-geo", "required": True},
+                ],
+            },
+        }]
+    }
+    entries, _version = AresFirmwareService._parse_catalog(payload, emulator="ares")
+
+    scan = AresFirmwareService.scan(source, entries, emulator="ares")
+
+    assert {match.entry.name for match in scan.matches} == {"neo-epo.bin", "sp-45.sp1"}
+    assert all(match.match_mode == "name" for match in scan.matches)
+    assert scan.missing == ()
+
+
+def test_ares_neo_geo_archive_state_is_explicit() -> None:
+    payload = {
+        "items": [{
+            "id": "ares",
+            "profile": {
+                "emulator": "ares",
+                "files": [{"name": "neo-epo.bin", "system": "neo-geo", "required": True}],
+            },
+        }]
+    }
+    entries, _version = AresFirmwareService._parse_catalog(payload, emulator="ares")
+
+    entry = entries[0]
+    assert entry.container_name == "neogeo.zip"
+    assert entry.panel_state(True, match_mode="archive") == "PRESENTE — ARQUIVO COMPATÍVEL"
+    assert "neogeo.zip" in entry.panel_state_detail(True, match_mode="archive")
+
+
 def test_enrich_entries_from_database_marks_repository_and_release_availability() -> None:
     entry = AresFirmwareService._parse_catalog(
         {
