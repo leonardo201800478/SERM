@@ -121,6 +121,39 @@ def test_unmapped_emulator_does_not_borrow_another_profile() -> None:
     assert entries == ()
 
 
+def test_scan_marks_catalog_named_wrong_hash_as_invalid(tmp_path) -> None:
+    wrong = b"wrong firmware"
+    path = tmp_path / "bios.bin"
+    path.write_bytes(wrong)
+    expected = b"correct firmware"
+    payload = {
+        "items": [
+            {
+                "id": "ares",
+                "profile": {
+                    "emulator": "ares",
+                    "files": [
+                        {
+                            "name": "bios.bin",
+                            "sha256": hashlib.sha256(expected).hexdigest(),
+                            "size": len(expected),
+                        }
+                    ],
+                },
+            }
+        ]
+    }
+    entries, _version = AresFirmwareService._parse_catalog(payload, emulator="ares")
+
+    scan = AresFirmwareService.scan(tmp_path, entries, emulator="ares")
+
+    assert scan.matches == ()
+    assert len(scan.invalid) == 1
+    assert scan.invalid[0].entry.name == "bios.bin"
+    assert scan.invalid[0].match_mode == "invalid"
+    assert scan.missing == (entries[0],)
+
+
 def test_scan_matches_renamed_loose_and_zip_content_by_catalog_hashes(tmp_path) -> None:
     loose_data = b"duckstation bios"
     zipped_data = b"altirra firmware"
