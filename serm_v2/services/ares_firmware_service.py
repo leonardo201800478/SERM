@@ -863,6 +863,7 @@ class AresFirmwareService:
             raise AresFirmwareError("O scan RetroBIOS não opera no MAME.")
         hash_index = cls._build_hash_index(entries)
         name_index = cls._build_name_index(entries)
+        hash_algorithms = cls._required_hash_algorithms(entries)
 
         candidates = sorted(
             (path for path in root.rglob("*") if path.is_file()),
@@ -883,7 +884,11 @@ class AresFirmwareService:
             thread_name_prefix="SERM-hash",
         ) as executor:
             futures = {
-                executor.submit(cls._hash_file, candidate): candidate
+                executor.submit(
+                    cls._hash_file_for_algorithms,
+                    candidate,
+                    hash_algorithms,
+                ): candidate
                 for candidate in loose_candidates
             }
             for future in as_completed(futures):
@@ -906,7 +911,14 @@ class AresFirmwareService:
             if cancel_callback and cancel_callback():
                 raise AresFirmwareError(f"Scan de firmware do {emulator} cancelado.")
             try:
-                cls._scan_zip(candidate, hash_index, name_index, found, root)
+                cls._scan_zip(
+                    candidate,
+                    hash_index,
+                    name_index,
+                    found,
+                    root,
+                    hash_algorithms=hash_algorithms,
+                )
             except (OSError, zipfile.BadZipFile, RuntimeError):
                 pass
             examined += 1
@@ -995,19 +1007,34 @@ class AresFirmwareService:
         name_index: dict[str, tuple[AresFirmwareEntry, ...]],
         found: dict[str, AresFirmwareMatch],
         root: Path,
+        *,
+        hash_algorithms: frozenset[str],
     ) -> None:
-        archive_identity = cls._hash_file(path)
+        archive_identity = cls._hash_file_for_algorithms(path, hash_algorithms)
         cls._record_matches(hash_index, name_index, archive_identity, path, None, found, root)
         with zipfile.ZipFile(path) as archive:
             for member in archive.infolist():
                 if member.is_dir():
                     continue
-                with archive.open(member, "r") as stream:
-                    identity = cls._hash_stream(stream)
-                cls._record_matches(hash_index, name_index, identity, path, member.filename, found, root)
+                member_name = Path(member.filename).name.casefold()
+                if member_name not in name_index:
+                    continue
+                if hash_algorithms:
+                    with archive.open(member, "r") as stream:
+                        identity = cls._hash_stream(stream, hash_algorithms)
+                else:
+                    identity = {"size": member.file_size}
+                cls._record_matches(
+                    hash_index,
+                    name_index,
+                    identity,
+                    path,
+                    member.filename,
+                    found,
+                    root,
+                )
 
                 archive_name = path.name.casefold()
-                member_name = Path(member.filename).name.casefold()
                 for entry in name_index.get(member_name, ()):
                     if (
                         entry.container_name
@@ -1025,6 +1052,16 @@ class AresFirmwareService:
                             found[entry.key] = AresFirmwareMatch(
                                 entry, str(path), member.filename, "archive"
                             )
+
+    @staticmethod
+    def _required_hash_algorithms(
+        entries: tuple[AresFirmwareEntry, ...],
+    ) -> frozenset[str]:
+        return frozenset(
+            algorithm
+            for algorithm in ("sha256", "sha1", "md5", "crc32")
+            if any(bool(getattr(entry, algorithm)) for entry in entries)
+        )
 
     @staticmethod
     def _build_hash_index(
@@ -1312,24 +1349,38 @@ class AresFirmwareService:
             return cls._hash_stream(stream)
 
     @classmethod
-    def _hash_stream(cls, stream) -> dict[str, object]:
-        sha256 = hashlib.sha256()
-        sha1 = hashlib.sha1(usedforsecurity=False)
-        md5 = hashlib.md5(usedforsecurity=False)
+    def _hash_file_for_algorithms(
+        cls, path: Path, algorithms: frozenset[str]
+    ) -> dict[str, object]:
+        with path.open("rb") as stream:
+            return cls._hash_stream(stream, algorithms)
+
+    @classmethod
+    def _hash_stream(
+        cls, stream, algorithms: frozenset[str] | None = None
+    ) -> dict[str, object]:
+        selected = algorithms or frozenset({"sha256", "sha1", "md5", "crc32"})
+        sha256 = hashlib.sha256() if "sha256" in selected else None
+        sha1 = hashlib.sha1(usedforsecurity=False) if "sha1" in selected else None
+        md5 = hashlib.md5(usedforsecurity=False) if "md5" in selected else None
         crc32 = 0
         size = 0
         while chunk := stream.read(cls.CHUNK_SIZE):
             size += len(chunk)
-            sha256.update(chunk)
-            sha1.update(chunk)
-            md5.update(chunk)
-            crc32 = zlib.crc32(chunk, crc32)
+            if sha256 is not None:
+                sha256.update(chunk)
+            if sha1 is not None:
+                sha1.update(chunk)
+            if md5 is not None:
+                md5.update(chunk)
+            if "crc32" in selected:
+                crc32 = zlib.crc32(chunk, crc32)
         return {
             "size": size,
-            "sha256": sha256.hexdigest(),
-            "sha1": sha1.hexdigest(),
-            "md5": md5.hexdigest(),
-            "crc32": f"{crc32 & 0xFFFFFFFF:08x}",
+            "sha256": sha256.hexdigest() if sha256 is not None else "",
+            "sha1": sha1.hexdigest() if sha1 is not None else "",
+            "md5": md5.hexdigest() if md5 is not None else "",
+            "crc32": f"{crc32 & 0xFFFFFFFF:08x}" if "crc32" in selected else "",
         }
 
 
