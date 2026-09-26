@@ -248,14 +248,14 @@ class RetroBiosFirmwarePanel(QWidget):
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
         intro = QLabel(
-            (
+            
                 "Para o ARES, usa as entradas de firmware declaradas no código-fonte do "
                 "emulador e o settings.bml para validar exatamente o que está configurado."
                 if self.emulator == "ares"
                 else
                 "Compara o diretório configurado com o perfil RetroBIOS deste emulador; "
                 "somente arquivos com checksum compatível podem ser reconstruídos."
-            )
+            
         )
         intro.setWordWrap(True)
         root.addWidget(intro)
