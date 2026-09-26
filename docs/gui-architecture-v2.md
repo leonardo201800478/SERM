@@ -22,6 +22,10 @@ Toda tela relacionada a **Diretórios** ou **Configurações de Emuladores** dev
 
 Essas regras complementam a política de configuração de emuladores em [`emulator-config-policy.md`](emulator-config-policy.md) e são parte do padrão visual e funcional da V2.
 
+## Implementação dos padrões
+
+A implementação atual aplica os padrões de interface diretamente na GUI: a central de Diretórios possui **Salvar** e **Restaurar Padrões** para o emulador selecionado; as configurações suportadas possuem **Salvar configurações** e **Restaurar Padrões**; e a janela principal aplica tooltip mínimo aos botões que não declararam uma ajuda própria. Telas específicas devem continuar declarando tooltips mais descritivos e, quando administrarem estado persistente próprio, manter suas ações de salvar e restauração coerentes com o formato nativo.
+
 ## Navegação principal
 
 A aplicação separa a Home, a central de Configuração e os fluxos de trabalho de catálogo e reconstrução. A Home organiza a gestão de instalações por grupos de sistemas; a central de Configuração reúne as preferências do ambiente em uma navegação própria.
