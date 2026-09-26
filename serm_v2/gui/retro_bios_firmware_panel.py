@@ -349,7 +349,7 @@ class RetroBiosFirmwarePanel(QWidget):
             self._destination_scan = None
             self._destination_matches.clear()
             self.reconstruct_button.setEnabled(False)
-            self.export_missing_button.setEnabled(False)
+            self.export_missing_button.setEnabled(True)
             self.refresh()
 
     def scan(self) -> None:
@@ -584,9 +584,11 @@ class RetroBiosFirmwarePanel(QWidget):
                 background = Qt.GlobalColor.darkYellow
                 foreground = Qt.GlobalColor.black
             state_counts[state] += 1
+            pack_name = self._pack_name_for_entry(entry) if state == "AUSENTE — DISPONÍVEL" else ""
+            pack_label = f" | PACK: {pack_name}" if pack_name else ""
             item = QListWidgetItem(
                 f"{state} | {entry.output_path} | {entry.system} | "
-                f"{entry.availability_label} | {entry.distribution_label}"
+                f"{entry.availability_label} | {entry.distribution_label}{pack_label}"
             )
             item.setData(Qt.ItemDataRole.UserRole + 1, state)
             item.setData(Qt.ItemDataRole.UserRole, entry.key)
@@ -598,6 +600,7 @@ class RetroBiosFirmwarePanel(QWidget):
                     f"{match.path}"
                     + (f" :: {match.archive_member}" if match.archive_member else "")
                     + f"\n\nEstado no destino: {state}\n{state_detail}"
+                    + (f"\nPack RetroBIOS: {pack_name}" if pack_name else "")
                 )
             else:
                 item.setToolTip(
