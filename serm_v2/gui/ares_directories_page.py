@@ -16,8 +16,8 @@ from PySide6.QtWidgets import (
 )
 
 from ..runtime.paths import data_root
-from .directory_dialogs import get_existing_directory
 from .directories_guide_page import ConfigFileEditor
+from .directory_dialogs import get_existing_directory
 
 
 class AresDirectoriesPage(QWidget):
