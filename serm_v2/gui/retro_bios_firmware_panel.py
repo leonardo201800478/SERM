@@ -671,7 +671,6 @@ class RetroBiosFirmwarePanel(QWidget):
             self.items.addItem(item)
         verifiable = sum(entry.is_verifiable for entry in self._catalog[1])
         available = sum(entry.catalog_available for entry in self._catalog[1])
-        required = sum(entry.required for entry in self._catalog[1])
         scan_label = (
             f"destino={len(destination.matches):,} reconhecido(s)"
             if destination else "destino ainda não escaneado"
