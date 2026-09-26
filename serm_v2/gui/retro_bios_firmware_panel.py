@@ -355,7 +355,10 @@ class RetroBiosFirmwarePanel(QWidget):
         for entry in self._catalog[1]:
             match = self._matches.get(entry.key)
             if match:
-                label = f"VALIDADO | {entry.output_path} | {entry.system}"
+                if entry.is_verifiable:
+                    label = f"VALIDADO | {entry.output_path} | {entry.system}"
+                else:
+                    label = f"IMPORTADO PELO NOME | {entry.output_path} | {entry.system}"
                 state = "valid"
             elif not entry.is_verifiable:
                 label = f"HASH NÃO CHECADO | {entry.output_path} | {entry.system}"
