@@ -43,6 +43,7 @@ class AresFirmwareEntry:
     gap_in_repo: bool | None = None
     gap_reason: str = ""
     container_name: str = ""
+    archive_required: bool = False
 
     @property
     def coverage_label(self) -> str:
@@ -435,6 +436,7 @@ class AresFirmwareService:
                     gap_in_repo=(bool(candidate.get("in_repo")) if "in_repo" in candidate else None),
                     gap_reason=str(candidate.get("reason") or "").strip(),
                     container_name=entry.container_name,
+                    archive_required=entry.archive_required,
                 )
             )
         return tuple(enriched)
@@ -528,6 +530,7 @@ class AresFirmwareService:
                     release_asset=release_asset,
                     catalog_available=bool(repository_path or release_asset),
                     container_name=entry.container_name,
+                    archive_required=entry.archive_required,
                 )
             )
         return tuple(enriched)
@@ -684,6 +687,8 @@ class AresFirmwareService:
         name_index: dict[str, tuple[AresFirmwareEntry, ...]],
         found: dict[str, AresFirmwareMatch],
     ) -> None:
+        archive_identity = cls._hash_file(path)
+        cls._record_matches(hash_index, name_index, archive_identity, path, None, found)
         with zipfile.ZipFile(path) as archive:
             for member in archive.infolist():
                 if member.is_dir():
@@ -757,9 +762,16 @@ class AresFirmwareService:
             for entry in hash_index.get((algorithm, digest), ()):
                 candidates[entry.key] = entry
 
+        def allowed(entry: AresFirmwareEntry) -> bool:
+            if not entry.archive_required:
+                return True
+            if member is None:
+                return False
+            return Path(entry.container_name).name.casefold() == path.name.casefold()
+
         hash_matches = [
             entry for entry in candidates.values()
-            if entry.key not in found and cls._matches_entry(identity, entry)
+            if entry.key not in found and allowed(entry) and cls._matches_entry(identity, entry)
         ]
         for entry in hash_matches:
             found[entry.key] = AresFirmwareMatch(entry, str(path), member, "hash")
@@ -772,7 +784,7 @@ class AresFirmwareService:
             return
         member_name = Path(member).name.casefold() if member else path.name.casefold()
         for entry in name_index.get(member_name, ()):
-            if entry.key not in found:
+            if entry.key not in found and allowed(entry):
                 found[entry.key] = AresFirmwareMatch(entry, str(path), member, "name")
 
     @staticmethod
@@ -880,6 +892,7 @@ class AresFirmwareService:
                     or item.get("container")
                     or ""
                 ).strip()
+                archive_required = bool(container_name)
                 if (
                     not container_name
                     and target == "ares"
@@ -902,6 +915,7 @@ class AresFirmwareService:
                     aliases=file_aliases,
                     profile_id=profile_id,
                     container_name=container_name,
+                    archive_required=archive_required,
                 )
                 entries.setdefault(entry.key, entry)
         catalog_version = payload.get("generated_at") if isinstance(payload, dict) else None
