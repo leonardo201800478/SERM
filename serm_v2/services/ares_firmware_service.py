@@ -892,7 +892,7 @@ class AresFirmwareService:
                     or item.get("container")
                     or ""
                 ).strip()
-                archive_required = bool(container_name)
+                catalog_container_name = container_name
                 if (
                     not container_name
                     and target == "ares"
@@ -900,6 +900,7 @@ class AresFirmwareService:
                     and name.casefold() in {"neo-epo.bin", "sp-45.sp1"}
                 ):
                     container_name = "neogeo.zip"
+                archive_required = bool(catalog_container_name)
                 entry = AresFirmwareEntry(
                     name=name,
                     system=system,
