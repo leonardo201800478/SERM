@@ -507,63 +507,62 @@ class AresFirmwareService:
     def _merge_ares_source_entries(
         cls, entries: tuple[AresFirmwareEntry, ...]
     ) -> tuple[AresFirmwareEntry, ...]:
-        """Mescla o RetroBIOS sem deixar que ele substitua a definição do ARES."""
+        """Usa o ARES como conjunto fechado e o RetroBIOS apenas como enriquecimento."""
         source_entries = cls._ares_source_entries()
-        merged = list(entries)
+        merged: list[AresFirmwareEntry] = []
         for source_entry in source_entries:
-            same_identity = next(
+            existing = next(
                 (
-                    index
-                    for index, entry in enumerate(merged)
+                    entry
+                    for entry in entries
                     if (
-                        (
-                            entry.system.casefold() == source_entry.system.casefold()
-                            and entry.name.casefold() == source_entry.name.casefold()
-                            and (
-                                not entry.region
-                                or entry.region.casefold() == source_entry.region.casefold()
-                            )
+                        entry.system.casefold() == source_entry.system.casefold()
+                        and entry.name.casefold() == source_entry.name.casefold()
+                        and (
+                            not entry.region
+                            or entry.region.casefold() == source_entry.region.casefold()
                         )
-                        or (
-                            source_entry.sha256
-                            and entry.sha256.casefold() == source_entry.sha256.casefold()
-                            and (
-                                not entry.region
-                                or entry.region.casefold() == source_entry.region.casefold()
-                            )
+                    )
+                    or (
+                        source_entry.sha256
+                        and entry.sha256.casefold() == source_entry.sha256.casefold()
+                        and (
+                            not entry.region
+                            or entry.region.casefold() == source_entry.region.casefold()
                         )
                     )
                 ),
                 None,
             )
-            if same_identity is None:
+            if existing is None:
                 merged.append(source_entry)
                 continue
-            existing = merged[same_identity]
-            merged[same_identity] = AresFirmwareEntry(
-                name=source_entry.name,
-                system=source_entry.system,
-                description=source_entry.description,
-                required=source_entry.required,
-                sha256=source_entry.sha256 or existing.sha256,
-                size=existing.size,
-                sha1=existing.sha1,
-                md5=existing.md5,
-                crc32=existing.crc32,
-                validation=existing.validation,
-                output_path=existing.output_path or source_entry.output_path,
-                aliases=existing.aliases,
-                profile_id=source_entry.profile_id,
-                repository_path=existing.repository_path,
-                release_asset=existing.release_asset,
-                catalog_available=existing.catalog_available,
-                gap_layer=existing.gap_layer,
-                gap_status=existing.gap_status,
-                gap_in_repo=existing.gap_in_repo,
-                gap_reason=existing.gap_reason,
-                container_name=source_entry.container_name or existing.container_name,
-                archive_required=source_entry.archive_required,
-                region=source_entry.region or existing.region,
+            merged.append(
+                AresFirmwareEntry(
+                    name=source_entry.name,
+                    system=source_entry.system,
+                    description=source_entry.description,
+                    required=source_entry.required,
+                    sha256=source_entry.sha256,
+                    size=existing.size,
+                    sha1=existing.sha1,
+                    md5=existing.md5,
+                    crc32=existing.crc32,
+                    validation=existing.validation,
+                    output_path=source_entry.output_path,
+                    aliases=existing.aliases,
+                    profile_id=source_entry.profile_id,
+                    repository_path=existing.repository_path,
+                    release_asset=existing.release_asset,
+                    catalog_available=existing.catalog_available,
+                    gap_layer=existing.gap_layer,
+                    gap_status=existing.gap_status,
+                    gap_in_repo=existing.gap_in_repo,
+                    gap_reason=existing.gap_reason,
+                    container_name=source_entry.container_name,
+                    archive_required=source_entry.archive_required,
+                    region=source_entry.region,
+                )
             )
         return tuple(merged)
 
