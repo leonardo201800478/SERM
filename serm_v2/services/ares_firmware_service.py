@@ -768,6 +768,7 @@ class AresFirmwareService:
             if entry.archive_required:
                 if member is None or Path(entry.container_name).name.casefold() != path.name.casefold():
                     return False
+                return Path(member).name.casefold() == Path(entry.name).name.casefold()
             expected = PurePosixPath(entry.output_path.replace("\\", "/"))
             if len(expected.parts) <= 1:
                 return True
