@@ -1359,7 +1359,11 @@ class AresFirmwareService:
     def _hash_stream(
         cls, stream, algorithms: frozenset[str] | None = None
     ) -> dict[str, object]:
-        selected = algorithms or frozenset({"sha256", "sha1", "md5", "crc32"})
+        selected = (
+            frozenset({"sha256", "sha1", "md5", "crc32"})
+            if algorithms is None
+            else algorithms
+        )
         sha256 = hashlib.sha256() if "sha256" in selected else None
         sha1 = hashlib.sha1(usedforsecurity=False) if "sha1" in selected else None
         md5 = hashlib.md5(usedforsecurity=False) if "md5" in selected else None
