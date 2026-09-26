@@ -257,6 +257,144 @@ class AresFirmwareService:
     }
 
     @classmethod
+    def _read_firmware_assignments(
+        cls, settings_path: str | Path
+    ) -> tuple[AresUnassignedFirmware, ...]:
+        """Lê todas as atribuições Emulator/Firmware do settings.bml do ARES."""
+        path = Path(settings_path).expanduser()
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError as exc:
+            raise AresFirmwareError(f"Não foi possível ler o settings.bml do ares: {exc}") from exc
+
+        parents: list[tuple[int, str]] = []
+        assignments: list[AresUnassignedFirmware] = []
+        for line in lines:
+            stripped = line.strip()
+            if not stripped or stripped.startswith(("#", ";")):
+                continue
+            indent = len(line) - len(line.lstrip())
+            while parents and parents[-1][0] >= indent:
+                parents.pop()
+            if ":" not in stripped:
+                parents.append((indent, stripped))
+                continue
+            name, raw_location = stripped.split(":", 1)
+            ancestors = [part for _level, part in parents]
+            try:
+                firmware_index = next(
+                    index for index, part in enumerate(ancestors)
+                    if part.casefold() == "firmware"
+                )
+            except StopIteration:
+                continue
+            if firmware_index == 0:
+                continue
+            identity = name.strip().rsplit(".", 1)
+            if len(identity) != 2:
+                continue
+            emulator = ancestors[firmware_index - 1]
+            firmware_type, region = identity
+            location = raw_location.strip().strip('"')
+            assignments.append(AresUnassignedFirmware(emulator, firmware_type, region, location))
+        return tuple(assignments)
+
+    @classmethod
+    def read_firmware_assignments(
+        cls, settings_path: str | Path
+    ) -> tuple[AresUnassignedFirmware, ...]:
+        """Retorna todas as atribuições de firmware declaradas pelo ARES."""
+        return cls._read_firmware_assignments(settings_path)
+
+    @classmethod
+    def configured_settings_path(cls) -> Path | None:
+        """Localiza o settings.bml do ARES configurado no SERM."""
+        paths_file = data_root() / "emulator_paths.json"
+        try:
+            payload = json.loads(paths_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            return None
+        raw = payload.get("ares_config") if isinstance(payload, dict) else None
+        path = Path(raw).expanduser() if isinstance(raw, str) and raw.strip() else None
+        return path if path is not None and path.is_file() else None
+
+    @classmethod
+    def scan_configured(
+        cls,
+        settings_path: str | Path,
+        entries: tuple[AresFirmwareEntry, ...],
+        *,
+        catalog_version: str = "unknown",
+    ) -> AresFirmwareScan:
+        """Valida exatamente os arquivos atribuídos pelo ARES no settings.bml."""
+        settings = Path(settings_path).expanduser().resolve()
+        assignments = cls._read_firmware_assignments(settings)
+        matches: dict[str, AresFirmwareMatch] = {}
+        invalid: dict[str, AresFirmwareMatch] = {}
+
+        def assignment_for(entry: AresFirmwareEntry, assignment: AresUnassignedFirmware) -> bool:
+            return (
+                entry.system.casefold() == assignment.emulator.casefold()
+                and entry.name.replace(" ", "-").casefold() == assignment.firmware_type.casefold()
+                and entry.region.casefold() == assignment.region.casefold()
+            )
+
+        for assignment in assignments:
+            candidates = [entry for entry in entries if assignment_for(entry, assignment)]
+            for entry in candidates:
+                if not assignment.location:
+                    continue
+                location = Path(assignment.location).expanduser()
+                if not location.is_absolute():
+                    location = settings.parent / location
+                if not location.is_file():
+                    continue
+                try:
+                    identity = (
+                        cls._hash_first_zip_member(location)
+                        if location.suffix.casefold() == ".zip"
+                        else cls._hash_file(location)
+                    )
+                except (OSError, zipfile.BadZipFile, RuntimeError):
+                    continue
+                if not entry.is_verifiable:
+                    matches[entry.key] = AresFirmwareMatch(
+                        entry, str(location), None, "configured"
+                    )
+                elif cls._matches_entry(identity, entry):
+                    matches[entry.key] = AresFirmwareMatch(
+                        entry, str(location), None, "hash"
+                    )
+                else:
+                    invalid[entry.key] = AresFirmwareMatch(
+                        entry, str(location), None, "invalid"
+                    )
+
+        missing = tuple(
+            entry
+            for entry in entries
+            if entry.key not in matches and entry.key not in invalid
+        )
+        return AresFirmwareScan(
+            catalog_version,
+            str(settings),
+            tuple(matches.values()),
+            missing,
+            sum(1 for assignment in assignments if assignment.location),
+            tuple(invalid.values()),
+            "ares",
+        )
+
+    @classmethod
+    def _hash_first_zip_member(cls, path: Path) -> dict[str, object]:
+        with zipfile.ZipFile(path) as archive:
+            member = next((item for item in archive.infolist() if not item.is_dir()), None)
+            if member is None:
+                raise zipfile.BadZipFile(f"ZIP sem arquivos: {path}")
+            with archive.open(member, "r") as stream:
+                return cls._hash_stream(stream)
+
+    @classmethod
     def read_unassigned_firmware(
         cls, settings_path: str | Path
     ) -> tuple[AresUnassignedFirmware, ...]:
