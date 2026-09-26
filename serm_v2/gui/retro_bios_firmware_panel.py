@@ -541,7 +541,6 @@ class RetroBiosFirmwarePanel(QWidget):
         version, entries = payload
         self._catalog = (str(version), tuple(entries))
         required = sum(entry.required for entry in self._catalog[1])
-        optional = len(self._catalog[1]) - required
         verifiable = sum(entry.is_verifiable for entry in self._catalog[1])
         available = sum(entry.catalog_available for entry in self._catalog[1])
         self.catalog_status.setText(
