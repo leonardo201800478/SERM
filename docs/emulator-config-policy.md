@@ -10,6 +10,18 @@ A central de configuração oferece áreas compartilhadas para Diretórios, Emul
 
 Para Amiberry, `amiberry.conf` guarda preferências globais e caminhos; `amiberry.ini` guarda estado da interface e ROMs detectadas. Perfis Quickstart, hardware e CPU pertencem a configurações UAE específicas e não devem ser escritos no arquivo global. Listas dependentes de dispositivo não devem ser apresentadas como opções universais.
 
+## Padrões obrigatórios de GUI
+
+Além das regras de persistência e segurança deste documento, toda tela de Diretórios ou Configurações de Emuladores deve seguir os padrões funcionais definidos na [Arquitetura da GUI V2](gui-architecture-v2.md):
+
+1. controles interativos devem oferecer ajuda contextual por tooltip ao passar o mouse, especialmente ações representadas por ícones;
+2. telas com configurações persistentes devem oferecer **Salvar** e **Restaurar Padrões**;
+3. **Salvar** deve respeitar somente as chaves/opções suportadas pelo editor;
+4. **Restaurar Padrões** deve ser uma ação explícita e documentada, sem sobrescrever configurações externas não administradas pela tela.
+
+A implementação de novos editores deve considerar esses requisitos desde a composição da GUI, e não como uma etapa posterior de acabamento.
+
+
 ## Princípios
 
 1. A instalação do emulador é um recurso externo.
