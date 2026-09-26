@@ -551,6 +551,7 @@ class RetroBiosFirmwarePanel(QWidget):
             "VALIDADO": 0,
             "PRESENTE — HASH NÃO VERIFICÁVEL": 0,
             "PRESENTE — NOME COMPATÍVEL": 0,
+            "PRESENTE — ARQUIVO COMPATÍVEL": 0,
             "AUSENTE — DISPONÍVEL": 0,
             "AUSENTE — NÃO DISPONÍVEL": 0,
             "HLE / OPCIONAL": 0,
@@ -634,6 +635,7 @@ class RetroBiosFirmwarePanel(QWidget):
             f"🟢 presentes/validados={state_counts['VALIDADO']:,} | "
             f"🟡 presentes sem hash={state_counts['PRESENTE — HASH NÃO VERIFICÁVEL']:,} | "
             f"🟠 presentes por nomenclatura={state_counts['PRESENTE — NOME COMPATÍVEL']:,} | "
+            f"🟢 presentes dentro de ZIP compatível={state_counts['PRESENTE — ARQUIVO COMPATÍVEL']:,} | "
             f"🔴 ausentes/disponíveis={state_counts['AUSENTE — DISPONÍVEL']:,} | "
             f"⚫ ausentes/não disponíveis={state_counts['AUSENTE — NÃO DISPONÍVEL']:,} | "
             f"🔵 HLE/opcional={state_counts['HLE / OPCIONAL']:,} | "
