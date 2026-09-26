@@ -290,7 +290,9 @@ class RetroBiosFirmwarePanel(QWidget):
         self.refresh_destination_button = QPushButton("REFRESH")
         self.refresh_destination_button.setToolTip("Reescaneia somente o diretório de destino e atualiza imediatamente as BIOS ainda ausentes para exportação.")
         self.refresh_destination_button.clicked.connect(self.refresh_destination_scan)
-        self.reconstruct_button = QPushButton("RECONSTRUIR SELECIONADOS")
+        self.reconstruct_button = QPushButton(
+            "RECONSTRUIR AUSENTES" if self.emulator == "ares" else "RECONSTRUIR SELECIONADOS"
+        )
         self.reconstruct_button.setEnabled(False)
         self.reconstruct_button.clicked.connect(self.reconstruct)
         self.cancel_button = QPushButton("CANCELAR")
@@ -496,16 +498,29 @@ class RetroBiosFirmwarePanel(QWidget):
                 self, f"Firmware {self.label}", "Selecione o diretório de destino."
             )
             return
-        selected = tuple(
-            match
-            for key, match in self._matches.items()
-            if key not in self._destination_matches and self._is_checked(key)
-        )
+        if self.emulator == "ares":
+            # A reconstrução do ARES não possui seleção manual. O destino configurado
+            # em Diretórios é a fonte da verdade: todo firmware que não estiver
+            # validado no destino e que exista na fonte reconhecida será reconstruído.
+            missing_keys = {entry.key for entry in self._missing_candidates}
+            selected = tuple(
+                match for key, match in self._matches.items() if key in missing_keys
+            )
+        else:
+            selected = tuple(
+                match
+                for key, match in self._matches.items()
+                if key not in self._destination_matches and self._is_checked(key)
+            )
         if not selected:
             QMessageBox.information(
                 self,
                 f"Firmware {self.label}",
-                "Marque pelo menos um arquivo verificado para reconstruir.",
+                (
+                    "Não há firmware ausente disponível na fonte reconhecida para reconstrução."
+                    if self.emulator == "ares"
+                    else "Marque pelo menos um arquivo verificado para reconstruir."
+                ),
             )
             return
         try:
@@ -519,8 +534,15 @@ class RetroBiosFirmwarePanel(QWidget):
             self,
             f"Reconstruir firmware {self.label}",
             f"Reconstruir {len(selected):,} arquivo(s) em:\n{self._destination}?\n\n"
-            "Arquivos não identificados pelo catálogo serão preservados; arquivos com nomes do catálogo "
-            "e hashes inválidos poderão ser removidos.",
+            + (
+                "O ARES reconstruirá automaticamente todos os firmwares ausentes ou inválidos "
+                "no diretório de destino configurado em Diretórios. "
+                "Arquivos não identificados pelo catálogo serão preservados."
+                if self.emulator == "ares"
+                else
+                "Arquivos não identificados pelo catálogo serão preservados; arquivos com nomes do catálogo "
+                "e hashes inválidos poderão ser removidos."
+            ),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if answer != QMessageBox.StandardButton.Yes:
@@ -697,7 +719,7 @@ class RetroBiosFirmwarePanel(QWidget):
             )
             item.setData(Qt.ItemDataRole.UserRole + 1, state)
             item.setData(Qt.ItemDataRole.UserRole, entry.key)
-            if source_match is not None and not present:
+            if self.emulator != "ares" and source_match is not None and not present:
                 item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
                 item.setCheckState(Qt.CheckState.Checked)
             if match:
