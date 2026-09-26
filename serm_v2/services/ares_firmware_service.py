@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import urllib.request
 import zipfile
 import zlib
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -206,6 +208,7 @@ class AresFirmwareService:
     MAX_DATABASE_BYTES = 32 * 1024 * 1024
     MAX_GAPS_BYTES = 8 * 1024 * 1024
     CHUNK_SIZE = 1024 * 1024
+    SCAN_WORKERS = max(2, min(8, os.cpu_count() or 2))
     # Definições de firmware extraídas diretamente do código-fonte do ARES.
     # Elas têm precedência sobre o RetroBIOS para identificar o firmware que o
     # emulador realmente declara/carrega. O revision fixa a referência auditada.
@@ -868,20 +871,46 @@ class AresFirmwareService:
         found: dict[str, AresFirmwareMatch] = {}
         examined = 0
         total = len(candidates)
-        for candidate in candidates:
+        zip_candidates = [path for path in candidates if path.suffix.casefold() == ".zip"]
+        loose_candidates = [path for path in candidates if path.suffix.casefold() != ".zip"]
+
+        def report_progress() -> None:
+            if progress_callback:
+                progress_callback(examined, total)
+
+        with ThreadPoolExecutor(
+            max_workers=cls.SCAN_WORKERS,
+            thread_name_prefix="SERM-hash",
+        ) as executor:
+            futures = {
+                executor.submit(cls._hash_file, candidate): candidate
+                for candidate in loose_candidates
+            }
+            for future in as_completed(futures):
+                if cancel_callback and cancel_callback():
+                    for pending in futures:
+                        pending.cancel()
+                    raise AresFirmwareError(f"Scan de firmware do {emulator} cancelado.")
+                candidate = futures[future]
+                try:
+                    identity = future.result()
+                    cls._record_matches(
+                        hash_index, name_index, identity, candidate, None, found, root
+                    )
+                except (OSError, RuntimeError):
+                    pass
+                examined += 1
+                report_progress()
+
+        for candidate in zip_candidates:
             if cancel_callback and cancel_callback():
                 raise AresFirmwareError(f"Scan de firmware do {emulator} cancelado.")
             try:
-                if candidate.suffix.casefold() == ".zip":
-                    cls._scan_zip(candidate, hash_index, name_index, found, root)
-                else:
-                    identity = cls._hash_file(candidate)
-                    cls._record_matches(hash_index, name_index, identity, candidate, None, found, root)
+                cls._scan_zip(candidate, hash_index, name_index, found, root)
             except (OSError, zipfile.BadZipFile, RuntimeError):
                 pass
             examined += 1
-            if progress_callback:
-                progress_callback(examined, total)
+            report_progress()
 
         matches = tuple(found[key] for key in sorted(found))
         matched_names = set(found)
