@@ -1352,6 +1352,8 @@ class AresFirmwareService:
     def _hash_file_for_algorithms(
         cls, path: Path, algorithms: frozenset[str]
     ) -> dict[str, object]:
+        if not algorithms:
+            return {"size": path.stat().st_size}
         with path.open("rb") as stream:
             return cls._hash_stream(stream, algorithms)
 
