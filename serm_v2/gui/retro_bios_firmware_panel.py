@@ -607,11 +607,18 @@ class RetroBiosFirmwarePanel(QWidget):
         self._destination_invalid_matches = {match.entry.key: match for match in scan.invalid}
         self._update_missing_candidates()
         self._render_scan_state(destination_scan=scan)
-        self.status.setText(
-            f"Scan do destino concluído em {scan.source_directory}: "
-            f"{len(scan.matches):,} arquivo(s) reconhecido(s), "
-            f"{len(scan.missing):,} ausente(s)."
-        )
+        if self.emulator == "ares":
+            self.status.setText(
+                f"Configuração do ARES verificada em {scan.source_directory}: "
+                f"{len(scan.matches):,} válido(s), {len(scan.invalid):,} hash inválido(s), "
+                f"{len(scan.missing):,} ausente(s)."
+            )
+        else:
+            self.status.setText(
+                f"Scan do destino concluído em {scan.source_directory}: "
+                f"{len(scan.matches):,} arquivo(s) reconhecido(s), "
+                f"{len(scan.missing):,} ausente(s)."
+            )
 
     def _update_missing_candidates(self) -> None:
         if self._catalog is None:
