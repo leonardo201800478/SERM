@@ -394,3 +394,22 @@ def test_gap_records_ignore_platform_layer() -> None:
     records = AresFirmwareService._gap_records({"items": [{"layer": "platform", "name": "platform.bin"}, {"layer": "emulator", "name": "emulator.bin"}]})
     assert len(records) == 1
     assert records[0]["name"] == "emulator.bin"
+
+def test_distribution_label_distinguishes_release_repository_and_gap() -> None:
+    base = AresFirmwareService._parse_catalog(
+        {"items": [{"id": "testemu", "profile": {"emulator": "Test", "files": [{"name": "bios.bin", "sha256": "a" * 64}]}}]},
+        emulator="testemu",
+    )[0][0]
+    database = {"files": [{"name": "bios.bin", "sha256": "a" * 64, "release_asset": "bios.bin"}]}
+    release = AresFirmwareService._enrich_entries_from_database((base,), database)[0]
+    assert release.distribution_label == "OBTENÇÃO: RELEASE"
+
+    repository = AresFirmwareService._enrich_entries_from_database(
+        (base,), {"files": [{"name": "bios.bin", "sha256": "a" * 64, "repo_path": "bios/bios.bin"}]}
+    )[0]
+    assert repository.distribution_label == "OBTENÇÃO: REPOSITÓRIO"
+
+    gap = AresFirmwareService._enrich_entries_from_gaps(
+        (base,), {"items": [{"layer": "emulator", "name": "bios.bin", "system": "", "status": "bios", "in_repo": False}]}
+    )[0]
+    assert gap.distribution_label == "OBTENÇÃO: LACUNA"
