@@ -480,18 +480,48 @@ def test_retroarch_info_without_firmware_does_not_create_bios(tmp_path: Path) ->
 def test_ares_source_catalog_matches_firmware_declarations() -> None:
     entries = AresFirmwareService._ares_source_entries()
 
-    assert len(entries) == 39
-    assert sum(entry.is_verifiable for entry in entries) == 34
+    assert len(entries) == 35
+    assert sum(entry.is_verifiable for entry in entries) == 35
     assert len({entry.key for entry in entries}) == len(entries)
-    assert {
-        (entry.system, entry.region)
-        for entry in entries
-        if entry.system == "Saturn"
-    } == {
-        ("Saturn", "US"),
-        ("Saturn", "Japan"),
-        ("Saturn", "Europe"),
-    }
+    assert all(entry.system != "Saturn" for entry in entries)
+    assert all(entry.system != "Atari 5200" for entry in entries)
+    neo = {entry.system: entry for entry in entries if entry.system in {"Neo Geo AES", "Neo Geo MVS"}}
+    assert neo["Neo Geo AES"].sha256 == "70f7906d68acbc3630b6e7792ebb485288b05ca72c6d4c243e07e230aae8d1e4"
+    assert neo["Neo Geo MVS"].sha256 == "0fbeee82b463187d6360e92811f1fad58649feb8ab2584c524222d0b5bf53a17"
+
+
+def test_ares_scan_auto_assigns_loose_neo_geo_bios_to_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    aes = source / "neo-epo.bin"
+    mvs = source / "sp-45.sp1"
+    aes.write_bytes(b"aes")
+    mvs.write_bytes(b"mvs")
+
+    entries = (
+        AresFirmwareEntry(
+            name="neo-epo.bin", system="Neo Geo AES", description="", required=True,
+            sha256=hashlib.sha256(b"aes").hexdigest(), region="World", profile_id="ares-source"
+        ),
+        AresFirmwareEntry(
+            name="sp-45.sp1", system="Neo Geo MVS", description="", required=True,
+            sha256=hashlib.sha256(b"mvs").hexdigest(), region="World", profile_id="ares-source"
+        ),
+    )
+    settings = tmp_path / "settings.bml"
+    settings.write_text("Paths:\n  Firmware: \"Firmware\"\n", encoding="utf-8")
+    monkeypatch.setattr(AresFirmwareService, "configured_settings_path", classmethod(lambda cls: settings))
+
+    result = AresFirmwareService.scan(source, entries, emulator="ares")
+
+    assert len(result.matches) == 2
+    text = settings.read_text(encoding="utf-8")
+    assert 'Neo Geo AES:' in text
+    assert 'Neo Geo MVS:' in text
+    assert 'BIOS.World: "' in text
+    assert str(aes.resolve()) in text
+    assert str(mvs.resolve()) in text
+    assert settings.with_suffix(settings.suffix + ".bak").exists()
 
 
 def test_ares_destination_scan_validates_physical_destination_files(
