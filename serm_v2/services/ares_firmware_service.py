@@ -212,7 +212,7 @@ class AresFirmwareService:
     # Definições de firmware extraídas diretamente do código-fonte do ARES.
     # Elas têm precedência sobre o RetroBIOS para identificar o firmware que o
     # emulador realmente declara/carrega. O revision fixa a referência auditada.
-    ARES_SOURCE_REVISION = "4cb8d92b441557cb6bcaf133c4cbc7f6819b1122"
+    ARES_SOURCE_REVISION = "0aafd85789215e84e1e43415c07d4c88461b7899"
     ARES_SOURCE_FIRMWARE = (
         {"system": "MSX2", "name": "MAIN", "region": "Japan", "sha256": "0c672d86ead61a97f49a583b88b7c1905da120645cd44f0c9f2baf4f4631e0b1", "source_path": "desktop-ui/emulator/msx2.cpp"},
         {"system": "MSX2", "name": "SUB", "region": "Japan", "sha256": "6c6f421a10c428d960b7ecc990f99af1c638147f747bddca7b0bf0e2ab738300", "source_path": "desktop-ui/emulator/msx2.cpp"},
@@ -242,8 +242,8 @@ class AresFirmwareService:
         {"system": "PlayStation", "name": "BIOS", "region": "Japan", "sha256": "9c0421858e217805f4abe18698afea8d5aa36ff0727eb8484944e00eb5e7eadb", "source_path": "desktop-ui/emulator/playstation.cpp"},
         {"system": "PlayStation", "name": "BIOS", "region": "Europe", "sha256": "1faaa18fa820a0225e488d9f086296b8e6c46df739666093987ff7d8fd352c09", "source_path": "desktop-ui/emulator/playstation.cpp"},
         {"system": "Neo Geo Pocket", "name": "BIOS", "region": "World", "sha256": "0293555b21c4fac516d25199df7809b26beeae150e1d4504a050db32264a6ad7", "source_path": "desktop-ui/emulator/neo-geo-pocket.cpp"},
-        {"system": "Neo Geo AES", "name": "neo-epo.bin", "region": "World", "container_name": "neogeo.zip", "source_path": "mia/system/neo-geo-aes.cpp"},
-        {"system": "Neo Geo MVS", "name": "sp-45.sp1", "region": "World", "container_name": "neogeo.zip", "source_path": "mia/system/neo-geo-mvs.cpp"},
+        {"system": "Neo Geo AES", "name": "neo-epo.bin", "region": "World", "sha256": "70f7906d68acbc3630b6e7792ebb485288b05ca72c6d4c243e07e230aae8d1e4", "container_name": "neogeo.zip", "source_path": "desktop-ui/emulator/neo-geo-aes.cpp"},
+        {"system": "Neo Geo MVS", "name": "sp-45.sp1", "region": "World", "sha256": "0fbeee82b463187d6360e92811f1fad58649feb8ab2584c524222d0b5bf53a17", "container_name": "neogeo.zip", "source_path": "desktop-ui/emulator/neo-geo-mvs.cpp"},
         {"system": "Nintendo 64DD", "name": "BIOS", "region": "Japan", "sha256": "806400ec0df94b0755de6c5b8249d6b6a9866124c5ddbdac198bde22499bfb8b", "source_path": "desktop-ui/emulator/nintendo-64dd.cpp"},
         {"system": "Nintendo 64DD", "name": "BIOS", "region": "US", "sha256": "e9fec87a45fba02399e88064b9e2f8cf0f2106e351c58279a87f05da5bc984ad", "source_path": "desktop-ui/emulator/nintendo-64dd.cpp"},
         {"system": "Nintendo 64DD", "name": "BIOS", "region": "DEV", "sha256": "9c2962a8b994a29e4cd04b3a6e4ed730a751414655ab6a9799ebf5fc08b79d44", "source_path": "desktop-ui/emulator/nintendo-64dd.cpp"},
@@ -263,6 +263,101 @@ class AresFirmwareService:
         "dosbox_staging": ("dosbox-staging",),
         "dosbox_x": ("dosbox-x",),
     }
+
+    @classmethod
+    def _auto_assign_neo_geo_settings(
+        cls, matches: tuple[AresFirmwareMatch, ...]
+    ) -> None:
+        """Configura automaticamente AES/MVS no settings.bml quando há arquivos soltos válidos.
+
+        O ARES v148 expõe Neo Geo AES e MVS como BIOS/World e exige o apontamento
+        manual pelo menu Firmware. Arquivos dentro de neogeo.zip não são atribuídos
+        automaticamente porque o carregador do ARES extrai o primeiro membro do ZIP,
+        o que não é seguro para distinguir AES de MVS.
+        """
+        settings = cls.configured_settings_path()
+        if settings is None:
+            return
+
+        targets: dict[str, str] = {}
+        for match in matches:
+            if match.archive_member is not None:
+                continue
+            if match.entry.system not in {"Neo Geo AES", "Neo Geo MVS"}:
+                continue
+            if match.entry.name not in {"neo-epo.bin", "sp-45.sp1"}:
+                continue
+            targets[match.entry.system] = str(Path(match.path).resolve())
+
+        if not targets:
+            return
+
+        try:
+            lines = settings.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return
+
+        def find_block(name: str) -> tuple[int, int] | None:
+            start = None
+            for index, line in enumerate(lines):
+                if line.strip() == f"{name}:" and len(line) - len(line.lstrip()) == 0:
+                    start = index
+                    break
+            if start is None:
+                return None
+            end = len(lines)
+            for index in range(start + 1, len(lines)):
+                if lines[index].strip() and len(lines[index]) - len(lines[index].lstrip()) == 0:
+                    end = index
+                    break
+            return start, end
+
+        changed = False
+        for system, location in targets.items():
+            block = find_block(system)
+            if block is None:
+                if lines and lines[-1].strip():
+                    lines.append("")
+                lines.extend((f"{system}:", "  Firmware:", f'    BIOS.World: "{location}"'))
+                changed = True
+                continue
+
+            start, end = block
+            firmware_index = None
+            for index in range(start + 1, end):
+                if lines[index].strip() == "Firmware:" and len(lines[index]) - len(lines[index].lstrip()) == 2:
+                    firmware_index = index
+                    break
+            if firmware_index is None:
+                lines[start + 1:start + 1] = ["  Firmware:"]
+                firmware_index = start + 1
+                end += 1
+                changed = True
+
+            assignment = f'    BIOS.World: "{location}"'
+            replaced = False
+            for index in range(firmware_index + 1, end):
+                if lines[index].strip().startswith("BIOS.World:") and len(lines[index]) - len(lines[index].lstrip()) == 4:
+                    if lines[index] != assignment:
+                        lines[index] = assignment
+                        changed = True
+                    replaced = True
+                    break
+            if not replaced:
+                insert_at = firmware_index + 1
+                while insert_at < len(lines) and lines[insert_at].strip() and len(lines[insert_at]) - len(lines[insert_at].lstrip()) >= 4:
+                    insert_at += 1
+                lines.insert(insert_at, assignment)
+                changed = True
+
+        if changed:
+            backup = settings.with_suffix(settings.suffix + '.bak')
+            try:
+                if not backup.exists():
+                    backup.write_text(settings.read_text(encoding="utf-8"), encoding="utf-8")
+                settings.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            except OSError:
+                return
 
     @classmethod
     def _read_firmware_assignments(
@@ -951,6 +1046,8 @@ class AresFirmwareService:
             progress_callback(examined, total)
 
         matches = tuple(found[key] for key in sorted(found))
+        if emulator.casefold() == "ares":
+            cls._auto_assign_neo_geo_settings(matches)
         matched_names = set(found)
         missing = tuple(entry for entry in entries if entry.key not in matched_names)
         return AresFirmwareScan(
