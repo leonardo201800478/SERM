@@ -250,7 +250,6 @@ class AresFirmwareService:
         {"system": "Neo Geo Pocket Color", "name": "BIOS", "region": "World", "sha256": "8fb845a2f71514cec20728e2f0fecfade69444f8d50898b92c2259f1ba63e10d", "source_path": "desktop-ui/emulator/neo-geo-pocket-color.cpp"},
         {"system": "ColecoVision", "name": "BIOS", "region": "World", "sha256": "990bf1956f10207d8781b619eb74f89b00d921c8d45c95c334c16c8cceca09ad", "source_path": "desktop-ui/emulator/colecovision.cpp"},
         {"system": "Game Boy Advance", "name": "BIOS", "region": "World", "sha256": "fd2547724b505f487e6dcb29ec2ecff3af35a841a77ab2e85fd87350abd36570", "source_path": "desktop-ui/emulator/game-boy-advance.cpp"},
-        {"system": "Atari 5200", "name": "BIOS", "region": "NTSC-U Four-port", "sha256": "06b250f18983d058c0f156ce7ee88ae48b6eaf11e6f10f21dccf6ac7ffb6a6af", "source_path": "desktop-ui/emulator/atari-5200.cpp"},
         {"system": "MSX", "name": "BIOS", "region": "Japan", "sha256": "413a2b601a94b3792e054be2439cc77a1819cceadbfa9542f88d51c7480f2ef0", "source_path": "desktop-ui/emulator/msx.cpp"},
         {"system": "Famicom Disk System", "name": "BIOS", "region": "Japan", "sha256": "fdc1a76e654feea993fcb38366e05ee5f4eb641f86fe6bebaeefd412e112dd72", "source_path": "desktop-ui/emulator/famicom-disk-system.cpp"},
     )
