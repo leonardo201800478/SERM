@@ -1,0 +1,45 @@
+name: ARES v148 firmware cleanup
+
+on:
+  push:
+    branches: [fix/ares-v148-firmware]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Finish ARES v148 cleanup
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          service = Path('serm_v2/services/ares_firmware_service.py')
+          text = service.read_text(encoding='utf-8')
+          line = '        {"system": "Atari 5200", "name": "BIOS", "region": "NTSC-U Four-port", "sha256": "06b250f18983d058c0f156ce7ee88ae48b6eaf11e6f10f21dccf6ac7ffb6a6af", "source_path": "desktop-ui/emulator/atari-5200.cpp"},\n'
+          if line not in text:
+              raise SystemExit('Atari 5200 source entry not found')
+          text = text.replace(line, '', 1)
+          service.write_text(text, encoding='utf-8')
+
+          tests = Path('tests/test_retro_bios_firmware_service.py')
+          test_text = tests.read_text(encoding='utf-8')
+          test_text = test_text.replace('    assert len(entries) == 39\n    assert sum(entry.is_verifiable for entry in entries) == 34', '    assert len(entries) == 35\n    assert sum(entry.is_verifiable for entry in entries) == 35')
+          old = '''    assert {\n        (entry.system, entry.region)\n        for entry in entries\n        if entry.system == "Saturn"\n    } == {\n        ("Saturn", "US"),\n        ("Saturn", "Japan"),\n        ("Saturn", "Europe"),\n    }'''
+          new = '''    assert all(entry.system != "Saturn" for entry in entries)\n    assert all(entry.system != "Atari 5200" for entry in entries)\n    neo = {entry.system: entry for entry in entries if entry.system in {"Neo Geo AES", "Neo Geo MVS"}}\n    assert neo["Neo Geo AES"].sha256 == "70f7906d68acbc3630b6e7792ebb485288b05ca72c6d4c243e07e230aae8d1e4"\n    assert neo["Neo Geo MVS"].sha256 == "0fbeee82b463187d6360e92811f1fad58649feb8ab2584c524222d0b5bf53a17"'''
+          if old not in test_text:
+              raise SystemExit('ARES source test block not found')
+          test_text = test_text.replace(old, new, 1)
+          tests.write_text(test_text, encoding='utf-8')
+          PY
+          rm -f .github/workflows/ares-v148-fix2.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix(ares): remove unsupported Atari 5200 firmware'
+          git push origin HEAD:fix/ares-v148-firmware
