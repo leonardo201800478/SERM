@@ -216,9 +216,6 @@ class AresFirmwareService:
     ARES_SOURCE_FIRMWARE = (
         {"system": "MSX2", "name": "MAIN", "region": "Japan", "sha256": "0c672d86ead61a97f49a583b88b7c1905da120645cd44f0c9f2baf4f4631e0b1", "source_path": "desktop-ui/emulator/msx2.cpp"},
         {"system": "MSX2", "name": "SUB", "region": "Japan", "sha256": "6c6f421a10c428d960b7ecc990f99af1c638147f747bddca7b0bf0e2ab738300", "source_path": "desktop-ui/emulator/msx2.cpp"},
-        {"system": "Saturn", "name": "BIOS", "region": "US", "source_path": "desktop-ui/emulator/saturn.cpp"},
-        {"system": "Saturn", "name": "BIOS", "region": "Japan", "source_path": "desktop-ui/emulator/saturn.cpp"},
-        {"system": "Saturn", "name": "BIOS", "region": "Europe", "source_path": "desktop-ui/emulator/saturn.cpp"},
         {"system": "Mega CD", "name": "BIOS", "region": "US", "sha256": "fb477cdbf94c84424c2feca4fe40656d85393fe7b7b401911b45ad2eb991258c", "source_path": "desktop-ui/emulator/mega-cd.cpp"},
         {"system": "Mega CD", "name": "BIOS", "region": "Japan", "sha256": "7133fc2dd2fe5b7d0acd53a5f10f3d00b5d31270239ad20d74ef32393e24af88", "source_path": "desktop-ui/emulator/mega-cd.cpp"},
         {"system": "Mega CD", "name": "BIOS", "region": "Europe", "sha256": "fe608a2a07676a23ab5fd5eee2f53c9e2526d69a28aa16ccd85c0ec42e6933cb", "source_path": "desktop-ui/emulator/mega-cd.cpp"},
