@@ -34,8 +34,8 @@ from ..services.reconstruction_service import (
 )
 from ..services.retroarch_bios_service import RetroArchBiosService
 from ..services.retrobios_pack_service import RetroBiosPackService
-from .directory_dialogs import get_existing_directory
 from .ares_directories_page import AresDirectoriesPage
+from .directory_dialogs import get_existing_directory
 
 
 class _RetroBiosWorker(QThread):
@@ -919,6 +919,7 @@ class RetroBiosFirmwarePanel(QWidget):
             return
 
         missing = tuple(self._missing_candidates)
+        catalog_version = self._scan.catalog_version if self._scan is not None else "não informado"
         selected, _ = QFileDialog.getSaveFileName(
             self,
             "Exportar BIOS/firmwares ausentes",
@@ -933,7 +934,7 @@ class RetroBiosFirmwarePanel(QWidget):
         lines = [
             "SERM — BIOS / FIRMWARES AUSENTES",
             f"Emulador: {self.label} ({self.emulator})",
-            f"Catálogo: {self._scan.catalog_version}",
+            f"Catálogo: {catalog_version}",
             f"Diretório de destino examinado: {self._destination_scan.source_directory}",
             f"Itens ausentes: {len(missing)}",
             "",
@@ -983,7 +984,7 @@ class RetroBiosFirmwarePanel(QWidget):
             QMessageBox.warning(self, f"Firmware {self.label}", f"Não foi possível salvar o relatório.\n\n{exc}")
             return
         self.status.setText(f"Relatório de ausentes exportado: {output}")
-        QMessageBox.information(f"Firmware {self.label}", f"Relatório salvo em:\n{output}")
+        QMessageBox.information(self, f"Firmware {self.label}", f"Relatório salvo em:\n{output}")
 
     def _is_checked(self, key: str) -> bool:
         for index in range(self.items.count()):
