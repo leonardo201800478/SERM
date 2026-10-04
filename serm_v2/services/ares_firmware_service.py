@@ -906,7 +906,7 @@ class AresFirmwareService:
             # hash ainda podem ser reconhecidos como "inválidos" pelo nome.
             for candidate in loose_candidates:
                 if hash_sizes and candidate.stat().st_size not in hash_sizes:
-                    identity = {"size": candidate.stat().st_size}
+                    identity: dict[str, object] = {"size": candidate.stat().st_size}
                     cls._record_matches(
                         hash_index, name_index, identity, candidate, None, found, root, invalid
                     )
@@ -1036,7 +1036,7 @@ class AresFirmwareService:
         root: Path,
         *,
         hash_algorithms: frozenset[str],
-        hash_sizes: set[int | None] | None = None,
+        hash_sizes: set[int] | None = None,
         invalid: dict[str, AresFirmwareMatch] | None = None,
     ) -> None:
         archive_identity = cls._hash_file_for_algorithms(path, hash_algorithms)
