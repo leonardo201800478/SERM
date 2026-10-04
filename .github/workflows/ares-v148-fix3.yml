@@ -28,3 +28,4 @@ jobs:
           git add -A
           git commit -m 'fix(ares): remove unsupported Saturn and Atari 5200 firmware'
           git push origin HEAD:fix/ares-v148-firmware
+# retrigger
