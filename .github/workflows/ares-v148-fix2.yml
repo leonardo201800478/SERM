@@ -26,7 +26,6 @@ jobs:
               raise SystemExit('Atari 5200 source entry not found')
           text = text.replace(line, '', 1)
           service.write_text(text, encoding='utf-8')
-
           tests = Path('tests/test_retro_bios_firmware_service.py')
           test_text = tests.read_text(encoding='utf-8')
           test_text = test_text.replace('    assert len(entries) == 39\n    assert sum(entry.is_verifiable for entry in entries) == 34', '    assert len(entries) == 35\n    assert sum(entry.is_verifiable for entry in entries) == 35')
@@ -43,3 +42,4 @@ jobs:
           git add -A
           git commit -m 'fix(ares): remove unsupported Atari 5200 firmware'
           git push origin HEAD:fix/ares-v148-firmware
+# retrigger
