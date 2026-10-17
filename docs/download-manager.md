@@ -50,9 +50,10 @@ O provider possui referência explícita para:
 - Languages 0.289;
 - GameInit 0.289;
 - Command 0.273;
-- MAME Samples FullPack 0.289.
+- MAME Samples FullPack, descoberto pela página de Samples;
+- SupportFiles Pack, descoberto pela página de Support.
 
-A versão de cada recurso é independente da versão do MAME. O provider não deve fabricar uma versão nova somente porque o MAME foi atualizado.
+A versão de cada recurso é independente da versão do MAME. Para recursos versionados, o provider lê a página de publicação e segue o link publicado mais recente; não fabrica uma versão nova somente porque o MAME foi atualizado.
 
 ## Princípios
 
@@ -60,6 +61,7 @@ A versão de cada recurso é independente da versão do MAME. O provider não de
 - validar tamanho/hash quando a fonte fornecer referência;
 - não considerar download concluído antes da validação mínima;
 - permitir retry e falha explícita;
+- validar certificados HTTPS com o bundle de autoridades certificadoras do `certifi`;
 - registrar origem e versão quando possível;
 - não executar conteúdo baixado durante a validação;
 - impedir path traversal na extração;

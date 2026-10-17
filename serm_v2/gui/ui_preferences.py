@@ -11,9 +11,60 @@ from .ui_density import apply_compact_density
 LANGUAGES = {"pt-BR": "Português (Brasil)", "en": "English", "es": "Español"}
 
 TRANSLATIONS = {
-    "pt-BR": {"home": "Início", "configuration": "Configuração", "sources": "Fontes e Dados", "mame": "MAME Studio", "other_systems": "Outros Sistemas", "ready": "Pronto", "logs": "Logs", "settings": "Aparência e Idioma", "directories": "Diretórios", "tools": "Ferramentas", "emulators": "Emuladores", "video": "Vídeo", "sound": "Som"},
-    "en": {"home": "Home", "configuration": "Settings", "sources": "Sources & Data", "mame": "MAME Studio", "other_systems": "Other Systems", "ready": "Ready", "logs": "Logs", "settings": "Appearance & Language", "directories": "Directories", "tools": "Tools", "emulators": "Emulators", "video": "Video", "sound": "Sound"},
-    "es": {"home": "Inicio", "configuration": "Configuración", "sources": "Fuentes y Datos", "mame": "MAME Studio", "other_systems": "Otros Sistemas", "ready": "Listo", "logs": "Registros", "settings": "Apariencia e Idioma", "directories": "Directorios", "tools": "Herramientas", "emulators": "Emuladores", "video": "Vídeo", "sound": "Sonido"},
+    "pt-BR": {
+        "home": "Início",
+        "configuration": "Configuração",
+        "sources": "Fontes e Dados",
+        "mame": "MAME Studio",
+        "other_systems": "Outros Sistemas",
+        "reconstruction": "Reconstrução",
+        "ready": "Pronto",
+        "logs": "Logs",
+        "settings": "Aparência e Idioma",
+        "directories": "Diretórios",
+        "tools": "Ferramentas",
+        "emulators": "Emuladores",
+        "video": "Vídeo",
+        "drivers": "Drivers",
+        "sound": "Som",
+        "controls": "Controles",
+    },
+    "en": {
+        "home": "Home",
+        "configuration": "Settings",
+        "sources": "Sources & Data",
+        "mame": "MAME Studio",
+        "other_systems": "Other Systems",
+        "reconstruction": "Reconstruction",
+        "ready": "Ready",
+        "logs": "Logs",
+        "settings": "Appearance & Language",
+        "directories": "Directories",
+        "tools": "Tools",
+        "emulators": "Emulators",
+        "video": "Video",
+        "drivers": "Drivers",
+        "sound": "Sound",
+        "controls": "Controls",
+    },
+    "es": {
+        "home": "Inicio",
+        "configuration": "Configuración",
+        "sources": "Fuentes y Datos",
+        "mame": "MAME Studio",
+        "other_systems": "Otros Sistemas",
+        "reconstruction": "Reconstrucción",
+        "ready": "Listo",
+        "logs": "Registros",
+        "settings": "Apariencia e Idioma",
+        "directories": "Directorios",
+        "tools": "Herramientas",
+        "emulators": "Emuladores",
+        "video": "Vídeo",
+        "drivers": "Drivers",
+        "sound": "Sonido",
+        "controls": "Controles",
+    },
 }
 
 LIGHT_THEME = """
@@ -33,7 +84,7 @@ QLabel#navigationFooter { color:#8290a0; font-size:7.5pt; }
 QGroupBox { background:#ffffff; border:1px solid #d7e0ea; border-radius:9px; margin-top:12px; padding:15px 10px 10px; }
 QGroupBox::title { color:#1769aa; background:#f4f7fb; padding:0 6px; font-weight:800; }
 QFrame#panel { background:#ffffff; border:1px solid #d7e0ea; }
-QPushButton { background:#ffffff; color:#26384b; border:1px solid #c7d3df; border-radius:7px; padding:7px 13px; min-height:22px; font-weight:700; }
+QPushButton { background:#ffffff; color:#26384b; border:1px solid #c7d3df; border-radius:7px; padding:7px 13px; min-height:22px; min-width:0; font-weight:700; }
 QPushButton:hover { background:#edf5fc; border-color:#1976d2; color:#125b98; }
 QPushButton:pressed { background:#dbeeff; }
 QPushButton:disabled { color:#9aa6b2; background:#eef1f4; border-color:#d8dee5; }

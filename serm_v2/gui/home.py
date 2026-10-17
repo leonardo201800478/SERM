@@ -8,7 +8,6 @@ from PySide6.QtCore import QSettings, Qt
 from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (
     QCheckBox,
-    QFileDialog,
     QFrame,
     QGroupBox,
     QHBoxLayout,
@@ -20,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..services.retroarch_catalog_service import RetroArchCatalogService
+from .directory_dialogs import get_existing_directory
 from .emulator_home import EmulatorHomePage, _Worker
 
 
@@ -72,6 +72,14 @@ class HomePage(EmulatorHomePage):
     def _retroarch_tab(self) -> QWidget:
         """Adiciona filtros persistentes e uma listagem mais limpa ao catálogo."""
         page = super()._retroarch_tab()
+        install_selected_button = page.findChild(
+            QPushButton, "retroarchInstallSelectedCores"
+        )
+        if install_selected_button is not None:
+            install_selected_button.clicked.disconnect()
+            install_selected_button.clicked.connect(
+                lambda _checked=False: HomePage.install_selected_cores(self)
+            )
         layout = page.layout()
         if isinstance(layout, QVBoxLayout):
             filters = QGroupBox("Catálogo de cores")
@@ -267,6 +275,11 @@ class HomePage(EmulatorHomePage):
             QMessageBox.information(self, "RetroArch", "Nenhum core foi selecionado.")
             return
         self._core_queue_with_channels = selected
+        self._core_total_count = len(selected)
+        self._core_completed_count = 0
+        self.core_queue_progress.setRange(0, 100)
+        self.core_queue_progress.setValue(0)
+        self.core_queue_progress.show()
         self._core_destination = Path(destination).resolve()
         self._core_current_filename = None
         self.core_list.setEnabled(False)
@@ -281,6 +294,10 @@ class HomePage(EmulatorHomePage):
             self._core_current_filename = None
             self._core_destination = None
             self.core_list.setEnabled(True)
+            self.core_queue_progress.setValue(100)
+            self.core_queue_progress.hide()
+            self._core_total_count = 0
+            self._core_completed_count = 0
             self._append_retro_log("FILA | todos os cores selecionados foram processados")
             self._update_core_summary()
             self.refresh()
@@ -293,7 +310,7 @@ class HomePage(EmulatorHomePage):
             f"restantes={len(self._core_queue_with_channels)} | máximo={self.CORE_MAX_ATTEMPTS} tentativas"
         )
         self._start_retro(
-            lambda progress, log, f=filename, d=destination, c=download_channel: (
+            lambda progress, install_progress, log, f=filename, d=destination, c=download_channel: (
                 self._install_core_with_retries(f, d, c, progress, log)
             ),
             continuation=lambda f=filename: self._finish_core_queue_item(f, destination),
@@ -329,6 +346,9 @@ class HomePage(EmulatorHomePage):
         if item is not None:
             item.setCheckState(Qt.CheckState.Unchecked)
             item.setData(Qt.ItemDataRole.UserRole + 1, "processed")
+        self._core_completed_count = min(self._core_total_count, self._core_completed_count + 1)
+        if self._core_total_count:
+            self.core_queue_progress.setValue(int(self._core_completed_count * 100 / self._core_total_count))
         self._append_retro_log(
             f"FILA | {filename} | processado | seleção removida | próximos={len(self._core_queue_with_channels)}"
         )
@@ -383,7 +403,7 @@ class HomePage(EmulatorHomePage):
 
     def configure(self, key: str) -> None:
         """Seleciona somente o diretório de instalação."""
-        selected = QFileDialog.getExistingDirectory(
+        selected = get_existing_directory(
             self, f"Diretório de instalação — {self.LABELS[key]}", str(Path.home())
         )
         if not selected:

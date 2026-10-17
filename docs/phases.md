@@ -6,6 +6,8 @@ Este documento é a fonte de planejamento macro da V2. O status deve refletir o 
 
 A V2 possui uma fundação funcional e uma base MAME significativamente validada, mas **ainda não é uma versão de produção**. A prioridade atual é fechar o ciclo completo **catálogo → scan → matching → reconstrução → materialização → execução** antes de ampliar integrações ou otimizações.
 
+O código da GUI também avançou na central de configuração de emuladores: as áreas de vídeo, drivers, som e controles usam páginas por emulador; páginas específicas cobrem WinUAE, Amiberry, Altirra, ares e Azahar. A integração atual do ares cobre vídeo/shaders/bezels, áudio, opções gerais, paths, drivers e mapeamentos de Virtual Gamepad em `settings.bml`. Esse trabalho de interface não altera os critérios de saída das metas do Arcade Studio abaixo.
+
 ## Concluído e validado
 
 ### Fundação

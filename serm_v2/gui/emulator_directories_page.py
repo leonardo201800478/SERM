@@ -5,6 +5,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
     QBoxLayout,
     QFileDialog,
@@ -15,15 +16,151 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QVBoxLayout,
 )
 
-from .directory_guide_v2 import DirectoryGuidePage
+from .altirra_directories_page import AltirraDirectoriesPage
+from .amiberry_directories_page import AmiberryDirectoriesPage
+from .ares_directories_page import AresDirectoriesPage
+from .directories_guide_page import DirectoryGuidePage
+from .directory_dialogs import get_existing_directory
+from .retro_bios_firmware_panel import RetroBiosFirmwarePanel
+from .winuae_directories_page import WinUAEDirectoriesPage
 
 MAME_EXECUTABLE_TITLE = "Executável do MAME"
 
 
 class DirectoriesPage(DirectoryGuidePage):
     """Expose emulator directories with compact controls and MAME executable selection."""
+
+    def __init__(self, parent=None) -> None:
+        self.retro_bios_panels: list[RetroBiosFirmwarePanel] = []
+        self._retro_bios_by_emulator: dict[str, RetroBiosFirmwarePanel] = {}
+        super().__init__(parent)
+        self._connect_lazy_retro_bios_tabs()
+        self.category_tabs.currentChanged.connect(self._category_tab_changed)
+        QTimer.singleShot(0, self._ensure_active_category_panel)
+
+    def _build_emulator_directory_settings(self, emulator: str, page) -> None:
+        if emulator == "ares":
+            self.ares_paths_page = AresDirectoriesPage(self)
+            paths_group = QGroupBox("Paths do ares")
+            paths_layout = QVBoxLayout(paths_group)
+            paths_layout.addWidget(self.ares_paths_page)
+            page.layout().addWidget(paths_group)
+            # O firmware ares usa o mesmo reconstrutor universal RetroBIOS.
+            # O painel específico antigo foi removido para evitar dois motores na mesma aba.
+            group = QGroupBox("Pastas de recursos do ares")
+            form = QFormLayout(group)
+            self.ares_resource_fields = {}
+            for name in ("Database", "hiro", "Nintendo 64", "Shaders", "Systems"):
+                key = f"ares_{name.casefold().replace(' ', '_')}"
+                field = QLineEdit()
+                field.setReadOnly(True)
+                button = QPushButton("Selecionar pasta")
+                button.setToolTip(
+                    f"Seleciona e registra a pasta de recursos {name} do ares nas configurações do SERM."
+                )
+                button.clicked.connect(
+                    lambda _=False, k=key, n=name, f=field: self._browse_ares_resource(k, n, f)
+                )
+                row = QHBoxLayout()
+                row.addWidget(field, 1)
+                row.addWidget(button)
+                form.addRow(name, row)
+                self.ares_resource_fields[key] = field
+            form.addRow(
+                "Bibliotecas", QLabel("librashader.dll e SDL3.dll permanecem junto ao ares.exe.")
+            )
+            page.layout().addWidget(group)
+            self.refresh()
+            return
+        elif emulator == "altirra":
+            self.altirra_paths_page = AltirraDirectoriesPage(self)
+            widget = self.altirra_paths_page
+        elif emulator == "amiberry":
+            self.amiberry_paths_page = AmiberryDirectoriesPage(self)
+            widget = self.amiberry_paths_page
+        elif emulator == "winuae":
+            self.winuae_paths_page = WinUAEDirectoriesPage(self)
+            widget = self.winuae_paths_page
+        else:
+            widget = None
+        layout = page.layout()
+        if isinstance(layout, QBoxLayout) and widget is not None:
+            layout.addWidget(widget)
+        # O reconstrutor universal é carregado sob demanda, quando a aba é aberta.
+        # Isso evita construir dezenas de árvores Qt pesadas durante o boot.
+        return
+
+    def _connect_lazy_retro_bios_tabs(self) -> None:
+        """Liga a criação do painel universal à seleção de cada aba."""
+        for tabs in self.emulator_tabs.values():
+            tabs.currentChanged.connect(self._retro_bios_tab_changed)
+
+    def _ensure_active_category_panel(self) -> None:
+        """Materializa somente o reconstrutor da categoria atualmente visível."""
+        category_index = self.category_tabs.currentIndex()
+        if category_index < 0 or category_index >= len(self.CATEGORIES):
+            return
+        category = self.CATEGORIES[category_index][0]
+        tabs = self.emulator_tabs.get(category)
+        if tabs is not None and tabs.currentIndex() >= 0:
+            self._ensure_retro_bios_panel(tabs, tabs.currentIndex())
+
+    def _category_tab_changed(self, _index: int) -> None:
+        """Carrega o reconstrutor apenas ao entrar em uma categoria."""
+        self._ensure_active_category_panel()
+
+    def _retro_bios_tab_changed(self, index: int) -> None:
+        """Inicializa o reconstrutor somente quando o usuário abre a aba."""
+        tabs = self.sender()
+        if index >= 0 and tabs is not None:
+            self._ensure_retro_bios_panel(tabs, index)
+
+    def _ensure_retro_bios_panel(self, tabs, index: int) -> None:
+        """Instancia e anexa o painel universal uma única vez por emulador."""
+        if index < 0 or index >= tabs.count():
+            return
+        scroll_area = tabs.widget(index)
+        if scroll_area is None or scroll_area.widget() is None:
+            return
+        content = scroll_area.widget()
+        emulator = str(content.property("serm_emulator_key") or "").casefold()
+        if not emulator or emulator == "mame" or emulator in self._retro_bios_by_emulator:
+            return
+        label = next(
+            (name for key, name, _config in self.EMULATORS if key == emulator),
+            emulator,
+        )
+        layout = content.layout()
+        if not isinstance(layout, QBoxLayout):
+            return
+        panel = RetroBiosFirmwarePanel(emulator, label, content)
+        group = QGroupBox(f"Reconstrutor universal de BIOS / firmware — {label}")
+        firmware_layout = QVBoxLayout(group)
+        firmware_layout.addWidget(panel)
+        layout.addWidget(group)
+        self._retro_bios_by_emulator[emulator] = panel
+        self.retro_bios_panels.append(panel)
+
+    def _active_retro_bios_panel(self) -> RetroBiosFirmwarePanel | None:
+        category_index = self.category_tabs.currentIndex()
+        if category_index < 0 or category_index >= len(self.CATEGORIES):
+            return None
+        category = self.CATEGORIES[category_index][0]
+        tabs = self.emulator_tabs.get(category)
+        if tabs is None:
+            return None
+        index = tabs.currentIndex()
+        if index < 0 or index >= tabs.count():
+            return None
+        page = tabs.widget(index)
+        if page is None or page.widget() is None:
+            return None
+        content = page.widget()
+        emulator = str(content.property("serm_emulator_key") or "").casefold()
+        return self._retro_bios_by_emulator.get(emulator)
 
     def _build_mame_tab(self, page) -> None:
         super()._build_mame_tab(page)
@@ -52,6 +189,17 @@ class DirectoriesPage(DirectoryGuidePage):
         info.setWordWrap(True)
         form.addRow("", info)
         layout.insertWidget(1, group)
+
+    def _browse_ares_resource(self, key: str, label: str, field: QLineEdit) -> None:
+        selected = get_existing_directory(
+            self, f"Selecionar pasta {label} do ares", field.text() or str(Path.home())
+        )
+        if not selected:
+            return
+        data = self._load_json(self.PATHS_FILE)
+        data[key] = str(Path(selected).resolve())
+        self._save_json(self.PATHS_FILE, data)
+        field.setText(data[key])
 
     def select_mame_executable(self) -> None:
         current = self.mame_executable_edit.text().strip()
@@ -116,9 +264,23 @@ class DirectoriesPage(DirectoryGuidePage):
 
     def refresh(self) -> None:
         super().refresh()
+        if hasattr(self, "altirra_paths_page"):
+            self.altirra_paths_page.refresh()
+        if hasattr(self, "amiberry_paths_page"):
+            self.amiberry_paths_page.refresh()
+        if hasattr(self, "winuae_paths_page"):
+            self.winuae_paths_page.refresh()
+        active_panel = self._active_retro_bios_panel()
+        if active_panel is not None:
+            active_panel.refresh()
+        if hasattr(self, "ares_paths_page"):
+            self.ares_paths_page.refresh()
         if hasattr(self, "mame_executable_edit"):
-            raw = self._load_json(self.PATHS_FILE).get("mame_executable")
+            paths = self._load_json(self.PATHS_FILE)
+            raw = paths.get("mame_executable") or paths.get("mame_exe")
             self.mame_executable_edit.setText(str(raw) if raw else "")
+        for key, field in getattr(self, "ares_resource_fields", {}).items():
+            field.setText(str(self._load_json(self.PATHS_FILE).get(key) or ""))
 
 
 __all__ = ["DirectoriesPage"]

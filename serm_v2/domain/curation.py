@@ -162,13 +162,13 @@ def _one_game_one_rom(games: list[ArcadeGame], policy: CurationPolicy) -> tuple[
     selected: list[ArcadeGame] = []
     decisions: list[CurationDecision] = []
     for root_name, members in sorted(families.items()):
-        def key(game: ArcadeGame) -> tuple[object, ...]:
+        def key(game: ArcadeGame, family_root: str = root_name) -> tuple[object, ...]:
             regions = _metadata_strings(game, "regions")
             languages = _metadata_strings(game, "languages")
             return (
                 _rank(regions, policy.preferred_regions),
                 _rank(languages, policy.preferred_languages),
-                0 if game.machine_name == root_name else 1,
+                0 if game.machine_name == family_root else 1,
                 1 if bool(game.metadata.get("is_bootleg")) else 0,
                 game.machine_name.casefold(),
             )

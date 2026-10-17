@@ -11,6 +11,7 @@ from typing import Any
 from urllib.parse import urljoin
 
 from ...models.external_resource import ExternalResource
+from ..tls import DEFAULT_SSL_CONTEXT
 
 
 class _HrefParser(HTMLParser):
@@ -155,7 +156,7 @@ class LatestResourceResolver:
     @staticmethod
     def _fetch_text(url: str, resource: ExternalResource) -> str:
         request = urllib.request.Request(url, headers=LatestResourceResolver._headers(resource))
-        with urllib.request.urlopen(request, timeout=30) as response:
+        with urllib.request.urlopen(request, timeout=30, context=DEFAULT_SSL_CONTEXT) as response:
             return response.read().decode("utf-8", errors="replace")
 
     @staticmethod
@@ -165,7 +166,9 @@ class LatestResourceResolver:
             headers={**LatestResourceResolver._headers(resource), "Range": "bytes=0-0"},
         )
         try:
-            with urllib.request.urlopen(request, timeout=15) as response:
+            with urllib.request.urlopen(
+                request, timeout=15, context=DEFAULT_SSL_CONTEXT
+            ) as response:
                 response.read(1)
             return True
         except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError):

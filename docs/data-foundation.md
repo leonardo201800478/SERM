@@ -42,7 +42,9 @@ Relaciona identidades de fontes diferentes e deve preservar a evidência e a con
 
 ## Scan
 
-Scan registra o estado observado no filesystem em relação ao catálogo. Não modifica o catálogo authoritative.
+SCAN registra a evidência observada **na origem** em relação ao catálogo. Não modifica o catálogo authoritative e não deve inferir o estado do destino.
+
+Quando existe destino físico, sua situação é uma segunda evidência, obtida exclusivamente pelo REFRESH. O destino pode estar `valid`, `missing` ou `invalid`; essa evidência não deve ser misturada ao resultado do SCAN de origem.
 
 ## Configuration
 

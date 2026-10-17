@@ -56,15 +56,16 @@ Recursos de referência analisados para esta etapa:
 
 | Recurso | Versão | Membros úteis | Destino |
 |---|---:|---|---|
+| SupportFiles Pack | 0.288 (referência) | INIs/DATs mapeados | `folders` / `dats` |
 | CatVer | 0.289 | `catver.ini`; `catlist.ini`; `genre.ini`; complementos | SERM metadata / `folders` |
 | Series | 0.289 | `series.ini` | `folders` |
 | Languages | 0.289 | `languages.ini` | `folders` |
 | GameInit | 0.289 | `gameinit.dat`; `gameinit.ini` | `dats` / `folders` |
 | BestGames | 0.280 | `bestgames.ini` | `folders` |
 | Command | 0.273 | `command.dat`; `command.ini` | `dats` / `folders` |
-| MAME Samples FullPack | 0.289 | 75 ZIPs | `samples` |
+| MAME Samples FullPack | 0.289 (referência) | 75 ZIPs | `samples` |
 
-As versões são independentes. O SERM não deve assumir que a versão de um recurso é igual à versão do MAME, porque alguns providers atualizam esses arquivos em cadências próprias.
+As versões são independentes. O SERM não deve assumir que a versão de um recurso é igual à versão do MAME, porque alguns providers atualizam esses arquivos em cadências próprias. O SupportFiles Pack, os pacotes individuais e o Samples FullPack são resolvidos pelos links de download publicados em suas páginas, em vez de dependerem permanentemente das URLs de referência desta tabela.
 
 ### Conteúdo efetivamente verificado nos pacotes de referência
 

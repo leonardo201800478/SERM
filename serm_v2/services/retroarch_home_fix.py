@@ -102,6 +102,7 @@ def _install_frontend(
     *,
     channel: str = "stable",
     progress=None,
+    install_progress=None,
     log=None,
 ) -> DownloadResult:
     """Baixa, testa, descompacta e instala o frontend RetroArch x64."""
@@ -133,24 +134,26 @@ def _install_frontend(
             log(f"DOWNLOAD | {url}")
         self._download_file(url, archive, progress, log)
 
-        EmulatorManager._extract(archive, extracted, log)
+        EmulatorManager._extract(
+            archive, extracted, log, install_progress=install_progress
+        )
         if not any(path.is_file() for path in extracted.rglob("retroarch.exe")):
             raise RuntimeError(
                 "O pacote RetroArch foi baixado, mas a descompactação não produziu retroarch.exe."
             )
-        EmulatorManager._merge(extracted, destination)
+        EmulatorManager._merge(
+            extracted, destination, install_progress=install_progress, start=40
+        )
+        self._flatten_retroarch_wrappers(destination, log=log)
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
-    executable = next(
-        (path.resolve() for path in destination.rglob("retroarch.exe") if path.is_file()),
-        None,
-    )
-    if executable is None:
+    executable = destination / "retroarch.exe"
+    if not executable.is_file():
         raise RuntimeError(
-            f"Download/descompactação concluídos, mas retroarch.exe não foi encontrado em {destination}."
+            f"Download/descompactação concluídos, mas retroarch.exe não foi encontrado diretamente em {destination}."
         )
-    return DownloadResult("retroarch", version_label, executable, archive_name)
+    return DownloadResult("retroarch", version_label, executable.resolve(), archive_name)
 
 
 def _patch_gui() -> None:
@@ -171,7 +174,7 @@ def _patch_gui() -> None:
                 child.setEnabled(False)
         return page
 
-    retroarch_tab_without_channel._serm_distribution_channel_removed = True
+    retroarch_tab_without_channel.__dict__["_serm_distribution_channel_removed"] = True
     EmulatorHomePage._retroarch_tab = retroarch_tab_without_channel
 
     original_load = EmulatorHomePage._load_paths

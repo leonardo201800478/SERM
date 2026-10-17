@@ -25,6 +25,7 @@ dependencies = [
     "SQLAlchemy>=2.0,<3",
     "PySDL3>=0.9.12b1,<1",
     "hidapi>=0.15,<1",
+    "certifi>=2025.1.31",
 ]
 
 [project.optional-dependencies]

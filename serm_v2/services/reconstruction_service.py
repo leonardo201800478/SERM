@@ -10,7 +10,7 @@ import zipfile
 from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,6 +37,7 @@ class ReconstructionPlan:
     loose_count: int
     chd_count: int
     items: tuple[ReconstructionItem, ...]
+    preserve_destination_files: bool = False
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -48,6 +49,7 @@ class ReconstructionError(RuntimeError):
 
 class ReconstructionService:
     FILTER_FORMAT = "SERM-FILTER-V1"
+    FILTER_FORMATS = frozenset({FILTER_FORMAT, "SERM-FILTER-V2"})
     MAME_SET_TYPES = frozenset({"split", "non_merged", "full_merged"})
     MAME_TARGET_PREFIX = "__MAME_TARGET__:"
 
@@ -60,8 +62,8 @@ class ReconstructionService:
             payload = json.loads(source.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise ReconstructionError(f"Não foi possível ler o arquivo filtrado: {exc}") from exc
-        if payload.get("format") != cls.FILTER_FORMAT:
-            raise ReconstructionError("O arquivo selecionado não é um SERM-FILTER-V1 válido.")
+        if payload.get("format") not in cls.FILTER_FORMATS:
+            raise ReconstructionError("O arquivo selecionado não é um formato SERM-FILTER válido.")
         if not isinstance(payload.get("evidence"), list):
             raise ReconstructionError("O arquivo filtrado não contém a lista de evidências.")
         return payload
@@ -70,19 +72,73 @@ class ReconstructionService:
     def plan(cls, filter_path: str | Path, destination: str | Path) -> ReconstructionPlan:
         payload = cls.load_filter(filter_path)
         dest = Path(destination).expanduser().resolve()
-        is_mame = str(payload.get("source", "")).casefold() == "mame"
+        source_name = str(payload.get("source", "")).casefold()
+        is_mame = source_name == "mame"
+        is_ares_firmware = source_name == "ares-firmware"
+        filters = payload.get("filters")
+        bios_only = isinstance(filters, dict) and filters.get("bios_only") is True
+        include_bios = isinstance(filters, dict) and filters.get("include_bios") is True
+        has_bios_reconstruction = (
+            source_name not in {"mame", "ares-firmware"} and (bios_only or include_bios)
+        )
         set_type = cls._mame_set_type(payload)
+        items: list[ReconstructionItem] = []
+        archive_count = loose_count = chd_count = 0
+        grouped: OrderedDict[str, list[dict]] = OrderedDict()
+        loose: list[dict] = []
 
         if is_mame:
             grouped, loose = cls._group_mame_evidence(payload["evidence"], set_type)
+        elif is_ares_firmware or has_bios_reconstruction:
+            firmware_evidence = payload["evidence"]
+            if has_bios_reconstruction:
+                firmware_evidence = [
+                    {
+                        **entry,
+                        "output_name": entry.get("output_name") or entry.get("rom_name"),
+                    }
+                    for entry in firmware_evidence
+                    if isinstance(entry, dict)
+                    and "type:bios"
+                    in {str(tag).casefold() for tag in entry.get("categories", [])}
+                    and str(entry.get("status") or "").strip().upper()
+                    in {"CURRENT", "DUPLICATE"}
+                ]
+                if bios_only and not firmware_evidence:
+                    raise ReconstructionError(
+                        "O filtro não contém BIOS verificada por DAT para reconstrução."
+                    )
+            items.extend(
+                cls._plan_firmware_items(
+                    firmware_evidence,
+                    dest,
+                    allow_conflicts=is_ares_firmware,
+                )
+            )
+            loose_count = len(items)
+            if not bios_only:
+                valid_evidence = [
+                    entry
+                    for entry in payload["evidence"]
+                    if isinstance(entry, dict)
+                    and str(entry.get("status") or "").strip().upper()
+                    in {"CURRENT", "DUPLICATE"}
+                    and "type:bios"
+                    not in {str(tag).casefold() for tag in entry.get("categories", [])}
+                ]
+                grouped, loose = cls._group_evidence(valid_evidence)
         else:
             grouped, loose = cls._group_evidence(payload["evidence"])
 
-        items, archive_count, seen_outputs = cls._plan_archive_items(grouped, dest)
-        loose_items, loose_count, chd_count = cls._plan_loose_items(
-            loose, dest, seen_outputs, set_type if is_mame else "standard"
-        )
-        items.extend(loose_items)
+        if not is_ares_firmware:
+            archive_items, archive_count, seen_outputs = cls._plan_archive_items(grouped, dest)
+            loose_items, loose_count, chd_count = cls._plan_loose_items(
+                loose, dest, seen_outputs, set_type if is_mame else "standard"
+            )
+            items.extend(archive_items)
+            items.extend(loose_items)
+            if has_bios_reconstruction:
+                loose_count += sum(item.kind.startswith("firmware") for item in items)
         return ReconstructionPlan(
             filter_run_id=str(payload.get("filter_run_id") or ""),
             scan_id=str(payload.get("scan_id") or ""),
@@ -98,7 +154,89 @@ class ReconstructionService:
             loose_count=loose_count,
             chd_count=chd_count,
             items=tuple(items),
+            preserve_destination_files=(
+                isinstance(filters, dict) and filters.get("preserve_destination_files") is True
+            ),
         )
+
+    @staticmethod
+    def _plan_firmware_items(
+        evidence: list,
+        destination: Path,
+        *,
+        allow_conflicts: bool = False,
+    ) -> list[ReconstructionItem]:
+        """Plan verified firmware copies and ZIP-member extraction by expected filename."""
+        items: list[ReconstructionItem] = []
+        used_outputs: dict[str, ReconstructionItem] = {}
+        for entry in evidence:
+            if not isinstance(entry, dict):
+                continue
+            output_name = str(entry.get("output_name") or entry.get("rom_name") or "").strip()
+            relative = PurePosixPath(output_name.replace("\\", "/"))
+            if (
+                not output_name
+                or relative.is_absolute()
+                or PureWindowsPath(output_name).drive
+                or ".." in relative.parts
+                or not relative.parts
+            ):
+                raise ReconstructionError(f"Nome de firmware invÃ¡lido: {output_name!r}")
+            source = str(entry.get("archive_path") or entry.get("path") or "").strip()
+            member = str(entry.get("archive_member") or "").replace("\\", "/").strip()
+            if not source or (member and (member.startswith("/") or ".." in Path(member).parts)):
+                raise ReconstructionError("EvidÃªncia de firmware com caminho invÃ¡lido.")
+            output = destination.joinpath(*relative.parts)
+            output_key = str(output).casefold()
+            container_name = str(entry.get("container_output_name") or "").strip()
+            if member and container_name:
+                container = PurePosixPath(container_name.replace("\\", "/"))
+                if (
+                    container.is_absolute()
+                    or PureWindowsPath(container_name).drive
+                    or ".." in container.parts
+                    or not container.parts
+                ):
+                    raise ReconstructionError(
+                        f"Nome de contêiner de firmware inválido: {container_name!r}"
+                    )
+                output = destination.joinpath(*container.parts)
+                kind = "archive"
+            else:
+                kind = "firmware_archive" if member else "firmware"
+            item = ReconstructionItem(
+                source,
+                member or None,
+                str(output),
+                kind,
+            )
+            previous = used_outputs.get(output_key)
+            if previous is not None:
+                if (
+                    previous.source_path == item.source_path
+                    and previous.archive_member == item.archive_member
+                ):
+                    continue
+                if (
+                    previous.source_path == item.source_path
+                    and previous.archive_member
+                    and item.archive_member
+                    and previous.output_path == item.output_path
+                ):
+                    items.append(item)
+                    continue
+                # O ARES pode declarar múltiplos firmwares lógicos com o mesmo
+                # nome de saída. Nesse fluxo, mantém o primeiro arquivo selecionado
+                # para que a reconstrução continue sem travar a interface.
+                if allow_conflicts:
+                    continue
+                raise ReconstructionError(
+                    f"Conflito de BIOS/firmware no destino {relative.as_posix()}: "
+                    f"{previous.source_path} | {item.source_path}"
+                )
+            used_outputs[output_key] = item
+            items.append(item)
+        return items
 
     @classmethod
     def _mame_set_type(cls, payload: dict) -> str:
@@ -142,7 +280,7 @@ class ReconstructionService:
         loose: list[dict] = []
 
         for entry in evidence:
-            if not isinstance(entry, dict):
+            if str(entry.get("status") or "").strip().upper() != "CURRENT":
                 continue
             archive = str(entry.get("archive_path") or "").strip()
             member = str(entry.get("archive_member") or "").strip()
@@ -269,10 +407,15 @@ class ReconstructionService:
         progress_callback: Callable[[int, int], None] | None = None,
         cancel_callback: Callable[[], bool] | None = None,
     ) -> dict:
-        destination = Path(plan.destination)
+        destination = Path(plan.destination).expanduser().resolve()
         destination.mkdir(parents=True, exist_ok=True)
         if not plan.items:
             raise ReconstructionError("O plano não contém arquivos físicos para reconstruir.")
+        expected_outputs = cls._validate_destination_outputs(
+            plan.items,
+            destination,
+            validate_sources=not plan.preserve_destination_files,
+        )
         archive_groups, loose_items = cls._group_execution_items(plan.items)
         total = len(archive_groups) + len(loose_items)
         created: list[str] = []
@@ -287,6 +430,8 @@ class ReconstructionService:
             raise ReconstructionError(
                 "Reconstrução concluída com erros:\n" + "\n".join(errors[:20])
             )
+        if not plan.preserve_destination_files:
+            cls._clean_destination(destination, expected_outputs)
         return {
             "destination": str(destination),
             "filter_run_id": plan.filter_run_id,
@@ -295,6 +440,75 @@ class ReconstructionService:
             "created": created,
             "set_type": plan.set_type,
         }
+
+    @staticmethod
+    def _validate_destination_outputs(
+        items: tuple[ReconstructionItem, ...],
+        destination: Path,
+        *,
+        validate_sources: bool = True,
+    ) -> set[Path]:
+        expected: set[Path] = set()
+        for item in items:
+            output = Path(item.output_path).expanduser().resolve()
+            try:
+                relative = output.relative_to(destination)
+            except ValueError as exc:
+                raise ReconstructionError(
+                    f"Saída fora do diretório de destino: {item.output_path}"
+                ) from exc
+            if not relative.parts:
+                raise ReconstructionError("Uma saída não pode ser o próprio diretório de destino.")
+
+            current = destination
+            for part in relative.parts:
+                current = current / part
+                if current.is_symlink():
+                    raise ReconstructionError(
+                        f"Saída atravessa link simbólico no destino: {current}"
+                    )
+            if output.exists() and output.is_dir():
+                raise ReconstructionError(f"Saída aponta para um diretório: {output}")
+            expected.add(output)
+
+        if validate_sources:
+            for item in items:
+                source = Path(item.source_path).expanduser().resolve()
+                try:
+                    source.relative_to(destination)
+                except ValueError:
+                    continue
+                if source not in expected:
+                    raise ReconstructionError(
+                        f"Arquivo de origem dentro do diretório de destino: {source}"
+                    )
+        return expected
+
+    @staticmethod
+    def _clean_destination(destination: Path, expected_outputs: set[Path]) -> None:
+        def raise_walk_error(error: OSError) -> None:
+            raise ReconstructionError(f"Não foi possível limpar o destino: {error}") from error
+
+        for root, directories, files in os.walk(
+            destination,
+            topdown=False,
+            onerror=raise_walk_error,
+            followlinks=False,
+        ):
+            current = Path(root)
+            for name in files:
+                path = current / name
+                if path.is_symlink() or path.resolve() not in expected_outputs:
+                    path.unlink()
+            for name in directories:
+                path = current / name
+                if path.is_symlink():
+                    path.unlink()
+                    continue
+                try:
+                    path.rmdir()
+                except OSError:
+                    pass
 
     @staticmethod
     def _group_execution_items(
@@ -377,7 +591,17 @@ class ReconstructionService:
                 if not source.is_file():
                     raise FileNotFoundError(source)
                 output.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(source, output)
+                if item.kind == "firmware_archive":
+                    if source.resolve() == output.resolve():
+                        raise ReconstructionError(
+                            f"Fonte ZIP e destino de firmware coincidem: {source}"
+                        )
+                    with zipfile.ZipFile(source, "r") as archive:
+                        with archive.open(item.archive_member or "", "r") as member:
+                            with output.open("wb") as target:
+                                shutil.copyfileobj(member, target, length=1024 * 1024)
+                elif source.resolve() != output.resolve():
+                    shutil.copy2(source, output)
                 created.append(str(output))
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"{item.source_path}: {type(exc).__name__}: {exc}")

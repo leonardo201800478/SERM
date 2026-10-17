@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QSettings, QSize, Qt
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QApplication,
     QDockWidget,
@@ -15,6 +16,8 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMainWindow,
+    QPushButton,
+    QSizePolicy,
     QStackedWidget,
     QStyle,
     QVBoxLayout,
@@ -31,6 +34,7 @@ from .home import HomePage
 from .input_connection_monitor import InputConnectionMonitor
 from .log_handler import LogViewer
 from .mame_studio_page import MameStudioPage
+from .reconstruction_phase_page import ReconstructionPhasePage
 from .ui_preferences import UiPreferences
 from .ui_translation_runtime import retranslate_widget_tree
 
@@ -44,18 +48,21 @@ class MainWindow(QMainWindow):
         ("sources", "Aquisição e atualização de DATs e recursos externos", "SP_FileIcon"),
         ("mame", "Catálogo, scan, filtros e reconstrução MAME", "SP_DriveHDIcon"),
         ("other_systems", "Filtragem pós-scan para No-Intro, Redump, WHLoader e C64", "SP_FileDialogInfoView"),
+        ("reconstruction", "Reconstrução de ROMs, BIOS e firmware", "SP_DriveHDIcon"),
     )
     _GEOMETRY_KEY = "main_window/geometry"
     _STATE_KEY = "main_window/state"
     _SCREEN_KEY = "main_window/screen_key"
     _SCREEN_GEOMETRY_KEY = "main_window/screen_geometry"
-    _DEFAULT_SIZE = QSize(1200, 700)
+    _DEFAULT_SIZE = QSize(1200, 760)
 
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("SERM V2")
-        self.resize(self._DEFAULT_SIZE)
-        self.setMinimumSize(1100, 620)
+        screen = QGuiApplication.primaryScreen()
+        available = screen.availableGeometry().size() if screen else self._DEFAULT_SIZE
+        self.setMinimumSize(min(820, available.width()), min(540, available.height()))
+        self.resize(min(self._DEFAULT_SIZE.width(), int(available.width() * .92)), min(self._DEFAULT_SIZE.height(), int(available.height() * .90)))
         self.status_bar = self.statusBar()
         self.status_bar.showMessage(UiPreferences.text("ready"))
         settings = Settings()
@@ -71,6 +78,7 @@ class MainWindow(QMainWindow):
         self.configuration_page.appearance_page.language_changed.connect(self._language_changed)
         self._retranslate_navigation()
         self._restore_window_layout()
+        self._apply_button_tooltips(self)
 
     @staticmethod
     def _qt_settings() -> QSettings:
@@ -140,8 +148,9 @@ class MainWindow(QMainWindow):
 
         sidebar = QFrame()
         sidebar.setObjectName("navigationSidebar")
-        sidebar.setMinimumWidth(176)
-        sidebar.setMaximumWidth(205)
+        sidebar.setMinimumWidth(142)
+        sidebar.setMaximumWidth(220)
+        sidebar.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         sidebar_layout = QVBoxLayout(sidebar)
         sidebar_layout.setContentsMargins(7, 8, 7, 8)
         sidebar_layout.setSpacing(4)
@@ -177,15 +186,17 @@ class MainWindow(QMainWindow):
         self.data_sources_page = DataSourcesPage(self)
         self.mame_studio_page = MameStudioPage(self)
         self.other_systems_page = FilteringPhasePage(self)
+        self.reconstruction_page = ReconstructionPhasePage(self)
         self.pages = (
             self.home_section, self.configuration_page, self.data_sources_page,
-            self.mame_studio_page, self.other_systems_page,
+            self.mame_studio_page, self.other_systems_page, self.reconstruction_page,
         )
         for page in self.pages:
             self.page_stack.addWidget(page)
         root_layout.addWidget(sidebar)
         root_layout.addWidget(self.page_stack, 1)
         self.setCentralWidget(root)
+        self._refreshed_pages: set[int] = set()
         self.navigation.currentRowChanged.connect(self._on_navigation_changed)
 
     def _build_log_dock(self) -> None:
@@ -208,7 +219,7 @@ class MainWindow(QMainWindow):
             key, _, style_icon = self.NAV_ITEMS[index]
             icon = self.style().standardIcon(getattr(QStyle, style_icon))
             item = QListWidgetItem(icon, UiPreferences.text(key))
-            item.setSizeHint(QSize(0, 38))
+            item.setSizeHint(QSize(0, 42))
             self.navigation.addItem(item)
         for index, (key, description, _style_icon) in enumerate(self.NAV_ITEMS):
             item = self.navigation.item(index)
@@ -230,9 +241,26 @@ class MainWindow(QMainWindow):
     def _on_navigation_changed(self, index: int) -> None:
         if 0 <= index < len(self.pages):
             self.page_stack.setCurrentIndex(index)
-            self._refresh_page(index)
+            if index not in self._refreshed_pages:
+                self._refresh_page(index)
+                self._refreshed_pages.add(index)
             item = self.navigation.item(index)
             self.status_bar.showMessage((item.data(Qt.ItemDataRole.UserRole) or item.text()) if item else UiPreferences.text("ready"))
+
+    @staticmethod
+    def _apply_button_tooltips(root: QWidget | None = None) -> None:
+        """Garante ajuda contextual mínima para botões sem tooltip explícito."""
+        widget = root
+        if widget is None:
+            return
+        for button in widget.findChildren(QPushButton):
+            if button.toolTip().strip():
+                continue
+            text = " ".join(button.text().split()).strip()
+            if text:
+                button.setToolTip(f"Ação: {text}. Clique para executar.")
+            else:
+                button.setToolTip("Executa a ação associada a este botão.")
 
     def _refresh_page(self, index: int) -> None:
         refresh = getattr(self.pages[index], "refresh", None)

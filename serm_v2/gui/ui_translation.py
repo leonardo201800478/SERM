@@ -13,6 +13,7 @@ TEXTS = {
         "MAME — FILTROS": "MAME — FILTROS",
         "Classificação → curadoria → filtragem física → reconstrução. Configure os critérios abaixo e acompanhe o resultado no preview.": "Classificação → curadoria → filtragem física → reconstrução. Configure os critérios abaixo e acompanhe o resultado no preview.",
         "SCAN DE ENTRADA": "SCAN DE ENTRADA",
+        "Manter somente BIOS/firmware verificados": "Manter somente BIOS/firmware verificados",
         "ATUALIZAR": "ATUALIZAR",
         "1 — TIPO DE JOGOS": "1 — TIPO DE JOGOS",
         "2 — CURADORIA": "2 — CURADORIA",
@@ -38,7 +39,7 @@ TEXTS = {
     "en": {
         "Filtros": "Filters", "Filtros e Curadoria": "Filters & Curation", "MAME — FILTROS": "MAME — FILTERS",
         "Classificação → curadoria → filtragem física → reconstrução. Configure os critérios abaixo e acompanhe o resultado no preview.": "Classification → curation → physical filtering → reconstruction. Configure the criteria below and review the preview.",
-        "SCAN DE ENTRADA": "INPUT SCAN", "ATUALIZAR": "REFRESH", "1 — TIPO DE JOGOS": "1 — GAME TYPES", "2 — CURADORIA": "2 — CURATION", "3 — TIPO DE SET": "3 — SET TYPE", "4 — Reconstrução": "4 — Reconstruction",
+        "SCAN DE ENTRADA": "INPUT SCAN", "Manter somente BIOS/firmware verificados": "Keep verified BIOS/firmware only", "ATUALIZAR": "REFRESH", "1 — TIPO DE JOGOS": "1 — GAME TYPES", "2 — CURADORIA": "2 — CURATION", "3 — TIPO DE SET": "3 — SET TYPE", "4 — Reconstrução": "4 — Reconstruction",
         "CLASSIFICAÇÃO DO JOGO": "GAME CLASSIFICATION", "Marque os tipos que devem ser EXCLUÍDOS do set final. A classificação vem congelada do snapshot do scan.": "Select the types that must be EXCLUDED from the final set. Classification is frozen in the scan snapshot.",
         "FORMATO DO SET": "SET FORMAT", "SELEÇÃO DE MÁQUINAS": "MACHINE SELECTION", "NOVO PERFIL": "NEW PROFILE", "SALVAR FILTROS": "SAVE FILTERS", "APLICAR E GERAR ARQUIVO": "APPLY & GENERATE FILE", "RESULTADO": "RESULT",
         "PREFERÊNCIAS DE SELEÇÃO": "SELECTION PREFERENCES", "REGRAS DA CURADORIA": "CURATION RULES",
@@ -51,7 +52,7 @@ TEXTS = {
     "es": {
         "Filtros": "Filtros", "Filtros e Curadoria": "Filtros y Curaduría", "MAME — FILTROS": "MAME — FILTROS",
         "Classificação → curadoria → filtragem física → reconstrução. Configure os critérios abaixo e acompanhe o resultado no preview.": "Clasificación → curaduría → filtrado físico → reconstrucción. Configure los criterios y revise la vista previa.",
-        "SCAN DE ENTRADA": "ESCANEO DE ENTRADA", "ATUALIZAR": "ACTUALIZAR", "1 — TIPO DE JOGOS": "1 — TIPOS DE JUEGO", "2 — CURADORIA": "2 — CURADURÍA", "3 — TIPO DE SET": "3 — TIPO DE SET", "4 — Reconstrução": "4 — Reconstrucción",
+        "SCAN DE ENTRADA": "ESCANEO DE ENTRADA", "Manter somente BIOS/firmware verificados": "Mantener solo BIOS/firmware verificados", "ATUALIZAR": "ACTUALIZAR", "1 — TIPO DE JOGOS": "1 — TIPOS DE JUEGO", "2 — CURADORIA": "2 — CURADURÍA", "3 — TIPO DE SET": "3 — TIPO DE SET", "4 — Reconstrução": "4 — Reconstrucción",
         "CLASSIFICAÇÃO DO JOGO": "CLASIFICACIÓN DEL JUEGO", "Marque os tipos que devem ser EXCLUÍDOS do set final. A classificação vem congelada do snapshot do scan.": "Seleccione los tipos que deben EXCLUIRSE del set final. La clasificación queda congelada en el snapshot.",
         "FORMATO DO SET": "FORMATO DEL SET", "SELEÇÃO DE MÁQUINAS": "SELECCIÓN DE MÁQUINAS", "NOVO PERFIL": "NUEVO PERFIL", "SALVAR FILTROS": "GUARDAR FILTROS", "APLICAR E GERAR ARQUIVO": "APLICAR Y GENERAR ARCHIVO", "RESULTADO": "RESULTADO",
         "PREFERÊNCIAS DE SELEÇÃO": "PREFERENCIAS DE SELECCIÓN", "REGRAS DA CURADORIA": "REGLAS DE CURADURÍA", "A curadoria escolhe as machines antes da montagem do SET. O scan original permanece intacto e cada exclusão gera uma decisão auditável.": "La curaduría selecciona las máquinas antes de montar el SET. El escaneo original permanece intacto y cada exclusión genera una decisión auditable.",

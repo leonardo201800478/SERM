@@ -38,6 +38,21 @@ def test_support_manifest_does_not_claim_external_files() -> None:
     assert "folders/gameinit.ini" not in members
 
 
+def test_support_pack_uses_published_download_url_and_listing() -> None:
+    provider = ProgettoSnapsProvider()
+    resource = next(item for item in provider.resources() if item.name == "support-files")
+    discovery = resource.metadata["latest_discovery"]
+
+    assert resource.version == "0.288"
+    assert resource.url == (
+        "https://www.progettosnaps.net/download/?tipo=support_pack"
+        "&file=/support/packs/pS_SupportFiles_288.zip"
+    )
+    assert discovery["strategy"] == "link"
+    assert discovery["listing_url"] == "https://www.progettosnaps.net/support/"
+    assert discovery["href_pattern"] == r"pS_SupportFiles_(\d{3})\.zip"
+
+
 def test_nplayers_uses_official_arcade_belgium_source_with_mirror_fallback() -> None:
     provider = ProgettoSnapsProvider()
     resource = next(item for item in provider.resources() if item.name == "nplayers")
@@ -61,10 +76,10 @@ def test_samples_fullpack_uses_published_samples_link() -> None:
 
     assert resource.version == "0.289"
     assert resource.url == provider.samples_url
-    assert resource.metadata["source_page"] == provider.samples_url
+    assert resource.metadata["source_page"] == provider.samples_page_url
     discovery = resource.metadata["latest_discovery"]
     assert discovery["strategy"] == "link"
-    assert discovery["listing_url"] == provider.samples_url
+    assert discovery["listing_url"] == provider.samples_page_url
     assert discovery["href_pattern"] == r"MAME_samples_(0\.\d{3})\.zip"
 
 
@@ -76,12 +91,30 @@ def test_category_and_version_manifests_are_complete() -> None:
     version = resources["version"]
 
     assert category.version == "0.289"
+    assert category.url == (
+        "https://www.progettosnaps.net/download/"
+        "?tipo=category&file=/support/packs/pS_category_289.zip"
+    )
     assert tuple(category.metadata["expected_members"]) == provider._CATEGORY_MEMBERS
     assert len(category.metadata["expected_members"]) == 25
+    assert category.metadata["latest_discovery"] == {
+        "strategy": "link",
+        "listing_url": "https://www.progettosnaps.net/support/",
+        "href_pattern": r"pS_category_(\d{3})\.zip",
+    }
 
     assert version.version == "0.289"
+    assert version.url == (
+        "https://www.progettosnaps.net/download/"
+        "?tipo=version&file=/support/packs/pS_version_289.zip"
+    )
     assert tuple(version.metadata["expected_members"]) == provider._VERSION_MEMBERS
     assert len(version.metadata["expected_members"]) == 3
+    assert version.metadata["latest_discovery"] == {
+        "strategy": "link",
+        "listing_url": "https://www.progettosnaps.net/support/",
+        "href_pattern": r"pS_version_(\d{3})\.zip",
+    }
 
 
 def test_messinfo_is_pinned_to_dedicated_0289_package() -> None:

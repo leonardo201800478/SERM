@@ -1,10 +1,10 @@
 # SERM V2
 
-**Strife Emulator and ROMs Manager — V2**
+## Strife Emulator and ROMs Manager — V2
 
 SERM is a desktop application for managing emulators, catalogs, ROM collections, scans, filtering, reconstruction and execution metadata from a single local workspace.
 
-> **V2 is the active implementation.** The current `main` tree contains the V2 project; no V1 source tree is present in the active filesystem hierarchy. Historical V1 behavior is treated as reference material and must not become a V2 runtime dependency.
+> **V2 is the active implementation.** The current `main` tree contains the V2 project. Historical V1 behavior is treated as reference material and must not become a V2 runtime dependency.
 
 ## Architecture
 
@@ -64,7 +64,7 @@ V1 is not part of the active V2 package hierarchy. If historical V1 material is 
 
 ## Development status
 
-The project is in **alpha development**. The current V2 tree contains functional application infrastructure, Home and emulator-management flows, catalog acquisition/normalization, MAME and No-Intro filtering/scanning foundations, scan persistence/resilience, and reconstruction components. Some source families and advanced reconstruction workflows remain under active development.
+The project is in **alpha development**. The V2 tree contains functional application infrastructure, Home and emulator-management flows, catalog acquisition/normalization, MAME and No-Intro filtering/scanning foundations, scan persistence/resilience, and reconstruction components. Emulator configuration is organized into shared Directories, Emulators, Video, Drivers, Sound and Controls areas, with dedicated pages for supported native formats. The complete implementation status and remaining work are tracked in [`docs/phases.md`](docs/phases.md).
 
 The roadmap in [`docs/phases.md`](docs/phases.md) is authoritative for planned work. Historical audit documents are not current status documents.
 
@@ -79,7 +79,7 @@ Development dependencies: pytest, pytest-cov and Ruff.
 
 ## Installation
 
-From the `v2` directory:
+From the **repository root**:
 
 ```powershell
 python -m venv .venv
@@ -137,6 +137,10 @@ Initialization and migration behavior live under `serm_v2/database`. Versioned S
 
 The database is application state, not a copy of the user's ROM collection. Physical content stays outside the database.
 
+## Scan, refresh e reconstrução
+
+Todo fluxo físico com origem e destino segue a mesma regra: **SCAN examina somente a origem; REFRESH examina somente o destino; reconstrução usa a diferença entre os dois estados; após reconstruir, o destino deve ser revalidado por REFRESH.** Arquivos com hash inválido não são tratados como válidos apenas por coincidirem no nome. Consulte [`docs/scan-policy.md`](docs/scan-policy.md).
+
 ## Documentation
 
 The complete technical documentation is indexed in [`docs/index.md`](docs/index.md).
@@ -145,12 +149,14 @@ Recommended reading order:
 
 1. [`docs/architecture.md`](docs/architecture.md) — architecture and boundaries;
 2. [`docs/project-tree.md`](docs/project-tree.md) — source tree;
-3. [`docs/development-environment.md`](docs/development-environment.md) — development setup;
-4. [`docs/database.md`](docs/database.md) — persistence and migrations;
-5. [`docs/catalogs.md`](docs/catalogs.md) — catalog model;
-6. [`docs/source-strategy.md`](docs/source-strategy.md) — source authority;
-7. [`docs/status/scan_status.md`](docs/status/scan_status.md) — scanner invariants;
-8. [`docs/phases.md`](docs/phases.md) — roadmap.
+3. [`docs/gui-architecture-v2.md`](docs/gui-architecture-v2.md) — configuration navigation and emulator settings;
+4. [`docs/emulator-config-policy.md`](docs/emulator-config-policy.md) — native configuration editing rules;
+5. [`docs/development-environment.md`](docs/development-environment.md) — development setup;
+6. [`docs/database.md`](docs/database.md) — persistence and migrations;
+7. [`docs/catalogs.md`](docs/catalogs.md) — catalog model;
+8. [`docs/source-strategy.md`](docs/source-strategy.md) — source authority;
+9. [`docs/status/scan_status.md`](docs/status/scan_status.md) — scanner invariants;
+10. [`docs/phases.md`](docs/phases.md) — roadmap and current work status.
 
 ## License
 

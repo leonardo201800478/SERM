@@ -6,24 +6,32 @@
 
 A V2 possui engine e services dedicados a scan, persistência, checkpoints, cache, filtros e páginas de GUI. O scanner ainda está em consolidação para suportar de forma uniforme diferentes famílias de catálogo.
 
+## Regra geral de origem e destino
+
+Para fluxos com origem e destino, consulte `docs/scan-policy.md`. O contrato é: **SCAN = origem; REFRESH = destino; reconstrução = diferença; REFRESH final = validação pós-materialização**.
+
+O SCAN não deve executar automaticamente um scan do destino. O REFRESH não deve executar automaticamente um scan da origem.
+
 ## Pipeline atual
 
 ```text
 Catalog
   ↓
-Scan settings
+SCAN → origem
   ↓
-Filter pipeline
+evidência física da origem
   ↓
-Filesystem discovery
+REFRESH → destino
   ↓
-File metadata / hashes
+validação física do destino
   ↓
-Matching
+diferença
   ↓
-Persistent scan result
+reconstruction candidates
   ↓
-Reconstruction candidates
+reconstrução
+  ↓
+REFRESH final
 ```
 
 ## Invariantes MAME/CHD

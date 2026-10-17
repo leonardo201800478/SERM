@@ -4,7 +4,9 @@
 
 Reconstrução converte conteúdo disponível no filesystem em uma organização compatível com um catálogo e um destino de execução, usando evidências do scan e regras do sistema.
 
-Reconstrução não é scan: **scan observa; reconstrução transforma.**
+Reconstrução não é scan: **SCAN observa a origem; REFRESH observa o destino; reconstrução transforma.**
+
+O contrato completo está em [`scan-policy.md`](scan-policy.md). Para qualquer fluxo com duas pastas físicas, a reconstrução deve partir da diferença entre a origem reconhecida e o destino validado.
 
 ## Pipeline V2
 
@@ -39,6 +41,10 @@ A V2 possui:
 - `ArcadeChdReconstructionEngine` para CHD;
 - `Materializer` como camada de materialização física.
 
+BIOS de No-Intro/Redump também podem usar o planejador comum: o filtro deve selecionar BIOS e a evidência precisa estar `CURRENT` ou `DUPLICATE` após validação pelo DAT. O executor extrai cada membro para o caminho/nome/extensão definidos no catálogo. Ares continua usando seu adaptador RetroBIOS e o mesmo `ReconstructionService`. Para RetroArch, BizHawk e outros emuladores, o DAT selecionado fornece a identidade; o diretório de destino deve ser a pasta que o emulador espera usar.
+
+As abas de Diretórios oferecem um painel RetroBIOS por emulador configurado, exceto MAME. O painel usa o perfil direto ou um alias conhecido, examina arquivos soltos e membros ZIP por SHA-256, SHA-1, MD5 ou CRC32, e reconstrói nos caminhos relativos do perfil. RetroArch agrega perfis libretro, excluindo MAME. Arquivos sem checksum utilizável e emuladores sem perfil correspondente são mostrados como não verificáveis/indisponíveis; não são reconstruídos. O destino preserva executáveis e conteúdo sem relação com o catálogo, removendo somente arquivos reconhecidos como firmware inválido.
+
 A lógica de ROM foi validada contra catálogo MAME real com 179.667 relações `merge`, sem divergências entre evidência esperada e decisão do planner.
 
 ## Matching físico
@@ -72,10 +78,13 @@ origem somente leitura
 ```
 
 O destino final não deve apresentar arquivos parciais de uma reconstrução incompleta.
+Depois de uma reconstrução concluída sem erros, o diretório de destino é reduzido aos arquivos do plano;
+membros inválidos de ZIPs não são copiados. A origem continua somente leitura e serve como fonte/backup.
 
 ## Segurança
 
 - origem física somente leitura;
+- conteúdo fora do plano é removido somente do destino, e apenas após materialização bem-sucedida;
 - path traversal deve ser rejeitado;
 - conflitos de destino devem bloquear publicação;
 - identidades ambíguas devem bloquear publicação;
@@ -139,4 +148,22 @@ A próxima etapa não é criar mais heurísticas de matching. É fechar o ciclo 
 
 **Materialização física end-to-end: ainda em validação.**
 
-**Integração completa com GUI: pendente.**
+**Fluxo RetroBIOS compartilhado: painéis por emulador configurado, com MAME excluído.**
+
+**Cobertura do catálogo: depende de cada perfil RetroBIOS ter checksum; emuladores sem perfil/checksum compatível não podem ser validados automaticamente.**
+
+
+## Packs de BIOS RetroBIOS
+
+A aquisição RetroBIOS possui um repositório local de packs configurável em **Configuração > Ferramentas > Packs de BIOS RetroBIOS**. O SERM consulta a release oficial do RetroBIOS, apresenta os packs por plataforma e permite baixar/extrair o pack escolhido em segundo plano.
+
+- volumes `.zip.001`, `.002`, etc. são baixados em conjunto e montados antes da extração;
+- cada volume é validado pelo SHA-256 publicado pela release;
+- quando `SHA256SUMS.txt` da release está disponível, o ZIP montado também é conferido;
+- a extração rejeita caminhos absolutos, componentes `..` e links simbólicos;
+- arquivos locais existentes não são substituídos automaticamente;
+- o diretório de packs é a **fonte padrão** do painel RetroBIOS;
+- **Fonte alternativa…** permite usar outra pasta sem remover o repositório local de packs;
+- MAME permanece fora desse fluxo.
+
+Os packs contêm software de terceiros. O SERM apenas automatiza o download, validação e organização local; a disponibilização/licença dos arquivos permanece sujeita às condições aplicáveis aos respectivos conteúdos.

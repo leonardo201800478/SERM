@@ -23,8 +23,9 @@ class ReconstructionPhasePage(QWidget):
         layout.addWidget(self.tabs, 1)
 
     def refresh(self) -> None:
-        for page in self.pages:
-            page.refresh()
+        index = self.tabs.currentIndex()
+        if 0 <= index < len(self.pages):
+            self.pages[index].refresh()
 
 
 __all__ = ["ReconstructionPhasePage"]

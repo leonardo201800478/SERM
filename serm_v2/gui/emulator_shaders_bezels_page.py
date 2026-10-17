@@ -34,7 +34,11 @@ from PySide6.QtWidgets import (
 )
 
 from ..runtime.paths import data_root
+from .ares_settings_page import AresSettingsPage
 from .directories_guide_page import ConfigFileEditor
+from .directory_dialogs import get_existing_directory
+from .emulator_catalog import grouped_emulators
+from .emulator_settings_page import EmulatorSettingsPage
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,7 +54,7 @@ class LayerSpec:
 class EmulatorShadersBezelsPage(QWidget):
     """Exibe cada emulador no nível 2 e Shaders/Bezels no nível 3."""
 
-    PAGE_TITLE = "Shaders / Bezels"
+    PAGE_TITLE = "Vídeo, Shaders e Bezels"
     PATHS_FILE = data_root() / "emulator_paths.json"
     ASSETS_FILE = data_root() / "emulator_visual_assets.json"
     CONFIG_KEYS = {
@@ -59,6 +63,7 @@ class EmulatorShadersBezelsPage(QWidget):
         "flycast": "flycast_config",
         "supermodel": "supermodel_config",
         "retroarch": "retroarch_cfg",
+        "ares": "ares_config",
     }
     LABELS = {
         "mame": "MAME",
@@ -66,6 +71,7 @@ class EmulatorShadersBezelsPage(QWidget):
         "flycast": "Flycast",
         "supermodel": "Supermodel",
         "retroarch": "RetroArch",
+        "ares": "ares",
     }
 
     SHADERS: dict[str, tuple[LayerSpec, ...]] = {
@@ -84,8 +90,6 @@ class EmulatorShadersBezelsPage(QWidget):
                 "Vector CRT",
                 "Ativa o renderer CRT persistente para jogos vetoriais.",
             ),
-            LayerSpec("gl_glsl", "GLSL", "Ativa o pipeline GLSL legado do MAME."),
-            LayerSpec("gl_glsl_filter", "Filtro GLSL", "Filtragem aplicada à saída GLSL."),
             LayerSpec(
                 "glsl_shader_mame0",
                 "GLSL shader 0",
@@ -93,16 +97,7 @@ class EmulatorShadersBezelsPage(QWidget):
             ),
         ),
         "fbneo": (
-            LayerSpec("nVidDX9HardFX", "HardFX", "Índice do efeito HardFX do blitter DirectX 9."),
             LayerSpec("bVidDX9Bilinear", "Bilinear", "Ativa filtragem bilinear no blitter DX9."),
-            LayerSpec("bVidScanlines", "Scanlines", "Ativa scanlines no pipeline de vídeo."),
-            LayerSpec(
-                "bVidScanDelay",
-                "Scan delay / phosphor",
-                "Ativa o efeito de persistência de fósforo documentado pelo template do FBNeo.",
-            ),
-            LayerSpec("bVidMotionBlur", "Motion blur", "Ativa motion blur do vídeo."),
-            LayerSpec("bVidHardwareVertex", "Hardware vertex", "Usa hardware vertex processing."),
         ),
         "flycast": (
             LayerSpec(
@@ -116,9 +111,6 @@ class EmulatorShadersBezelsPage(QWidget):
                 "Modo de filtragem de texturas do renderer.",
             ),
             LayerSpec("rend.TextureUpscale2", "Texture upscale", "Fator de upscale das texturas."),
-            LayerSpec(
-                "rend.MaxFilteredTextureSize", "Max filtered texture", "Limite da textura filtrada."
-            ),
             LayerSpec(
                 "rend.CustomTextures",
                 "Custom textures",
@@ -176,9 +168,6 @@ class EmulatorShadersBezelsPage(QWidget):
                 "override_artwork",
                 "Override artwork",
                 "Substitui o artwork selecionado por um layout específico.",
-            ),
-            LayerSpec(
-                "artwork_crop", "Cortar artwork", "Recorta artwork para preencher a área de vídeo."
             ),
         ),
         "fbneo": (),
@@ -249,24 +238,48 @@ class EmulatorShadersBezelsPage(QWidget):
     def _build_ui(self) -> None:
         """Cria nível 2 por emulador e nível 3 por camada visual."""
         root = QVBoxLayout(self)
+        self.ares_page: AresSettingsPage | None = None
         title = QLabel(self.PAGE_TITLE)
         title.setProperty("role", "title")
         root.addWidget(title)
         info = QLabel(
-            "Shaders e Bezels são tratados separadamente. Chaves só ficam editáveis quando existem no arquivo real; camadas não nativas não inventam configurações do emulador."
+            "Opções de vídeo, shaders e bezels são organizados por emulador. Chaves só ficam editáveis quando existem no arquivo real; camadas não nativas não inventam configurações do emulador."
         )
         info.setWordWrap(True)
         root.addWidget(info)
-        self.emulators = QTabWidget()
-        for emulator, label in self.LABELS.items():
-            page = QWidget()
-            layout = QVBoxLayout(page)
-            layers = QTabWidget()
-            layers.addTab(self._layer_page(emulator, "shader", self.SHADERS[emulator]), "Shaders")
-            layers.addTab(self._layer_page(emulator, "bezel", self.BEZELS[emulator]), "Bezels")
-            layout.addWidget(layers, 1)
-            self.emulators.addTab(page, label)
-        root.addWidget(self.emulators, 1)
+        self.category_tabs = QTabWidget()
+        self.video_pages: dict[str, EmulatorSettingsPage] = {}
+        groups = grouped_emulators(self.LABELS)
+        for category, members in groups:
+            category_page = QWidget()
+            category_layout = QVBoxLayout(category_page)
+            category_layout.setContentsMargins(0, 0, 0, 0)
+            emulator_tabs = QTabWidget()
+            for emulator in members:
+                label = self.LABELS[emulator]
+                if emulator == "ares":
+                    self.ares_page = AresSettingsPage(self)
+                    emulator_tabs.addTab(self.ares_page, label)
+                    continue
+                page = QWidget()
+                layout = QVBoxLayout(page)
+                layers = QTabWidget()
+                video_page = EmulatorSettingsPage(page, section="video", only_emulator=emulator)
+                self.video_pages[emulator] = video_page
+                layers.addTab(video_page, "Vídeo")
+                layers.addTab(
+                    self._layer_page(emulator, "shader", self.SHADERS[emulator]),
+                    "Shaders",
+                )
+                layers.addTab(
+                    self._layer_page(emulator, "bezel", self.BEZELS[emulator]),
+                    "Bezels",
+                )
+                layout.addWidget(layers, 1)
+                emulator_tabs.addTab(page, label)
+            category_layout.addWidget(emulator_tabs, 1)
+            self.category_tabs.addTab(category_page, category)
+        root.addWidget(self.category_tabs, 1)
 
     def _layer_page(self, emulator: str, layer: str, specs: tuple[LayerSpec, ...]) -> QWidget:
         """Monta uma camada visual com status, arquivo e opções nativas."""
@@ -351,7 +364,7 @@ class EmulatorShadersBezelsPage(QWidget):
         """Seleciona arquivo/diretório e coloca o caminho no campo visual."""
         current = self.controls[(emulator, layer, key)].text().strip()
         if key.endswith(("_path", "_dir", "artpath")):
-            selected = QFileDialog.getExistingDirectory(
+            selected = get_existing_directory(
                 self, "Selecionar diretório", current or str(Path.home())
             )
         else:
@@ -367,6 +380,11 @@ class EmulatorShadersBezelsPage(QWidget):
     def refresh(self) -> None:
         """Lê novamente os arquivos e preenche as duas camadas sem gravar."""
         for emulator in self.LABELS:
+            if emulator == "ares":
+                if self.ares_page is not None:
+                    self.ares_page.refresh()
+                continue
+            self.video_pages[emulator].refresh()
             editor = self._editor(emulator)
             for layer, specs in (
                 ("shader", self.SHADERS[emulator]),

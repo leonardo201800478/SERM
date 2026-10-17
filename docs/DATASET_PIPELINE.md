@@ -2,6 +2,8 @@
 
 ## Pipeline canônico
 
+A separação física definida em [`scan-policy.md`](scan-policy.md) é normativa para qualquer fluxo que possua origem e destino.
+
 ```text
 External source
       ↓
@@ -22,7 +24,7 @@ Reconstruction
 
 ## Regras
 
-A aquisição preserva a origem. A normalização cria o modelo consumido pelo SERM. Filtros produzem visões/datasets derivados. Scan compara o catálogo com o filesystem. Reconstruction produz arquivos de destino.
+A aquisição preserva a origem. A normalização cria o modelo consumido pelo SERM. Filtros produzem visões/datasets derivados. SCAN examina somente a origem. REFRESH examina somente o destino. A reconstrução usa a diferença entre a evidência da origem e a validação do destino para produzir os arquivos de destino.
 
 Nenhuma etapa deve alterar silenciosamente a fonte anterior.
 

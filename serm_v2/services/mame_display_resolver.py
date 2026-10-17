@@ -339,12 +339,11 @@ class MameDisplayResolver:
         """Aplica precedência ListXML → fallback por campo."""
         resolved_width, res_source = width, "listxml"
         resolved_height = height
+        resolved_refresh, refresh_source = refresh, "listxml"
         if (resolved_width is None or resolved_height is None) and resolution_fact:
             if resolution_fact[0] is not None and resolution_fact[1] is not None:
                 resolved_width, resolved_height = resolution_fact[0], resolution_fact[1]
                 res_source = MameDisplayResolver.RESOLUTION_SOURCE
-
-            resolved_refresh, refresh_source = refresh, "listxml"
         if resolved_refresh is None and vsync_fact and vsync_fact[2] is not None:
             resolved_refresh, refresh_source = vsync_fact[2], MameDisplayResolver.VSYNC_SOURCE
 

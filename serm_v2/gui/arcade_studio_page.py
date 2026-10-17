@@ -39,6 +39,7 @@ from ..services.arcade.scan_comparison import (
     ScanComparisonResult,
 )
 from ..services.chd_header import ChdFormatError, ChdHeaderReader
+from .directory_dialogs import get_existing_directory
 from .mame_filters_panel import MameFiltersPanel
 
 _STATUS_LABELS = {
@@ -410,8 +411,7 @@ class ArcadeStudioPage(QWidget):
     def _refresh_scan_choices(self) -> None:
         root = scans_root() / "mame"
         files = sorted(root.glob("*.json"), key=lambda path: path.stat().st_mtime, reverse=True) if root.is_dir() else []
-        preferred = root / "MAME - 0.289_mame0289 - Arcade.json"
-        selected = preferred if preferred.is_file() else (files[0] if files else None)
+        selected = files[0] if files else None
         self.scan_source.setText(str(selected) if selected else "Nenhum scan MAME JSON encontrado em data/scans/mame.")
 
     def _choose_scan(self) -> None:
@@ -525,7 +525,7 @@ class ArcadeStudioPage(QWidget):
             target.addChild(item)
 
     def _choose_chd_source(self) -> None:
-        path = QFileDialog.getExistingDirectory(self, "Selecionar pasta de CHDs")
+        path = get_existing_directory(self, "Selecionar pasta de CHDs")
         if path:
             self.chd_source.setText(path)
 
