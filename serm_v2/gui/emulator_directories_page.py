@@ -16,13 +16,14 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QTabWidget,
     QVBoxLayout,
 )
 
 from .altirra_directories_page import AltirraDirectoriesPage
 from .amiberry_directories_page import AmiberryDirectoriesPage
 from .ares_directories_page import AresDirectoriesPage
-from .directories_guide_page import DirectoryGuidePage
+from .directories_guide_page import DirectoryGuidePage, SmoothScrollArea
 from .directory_dialogs import get_existing_directory
 from .retro_bios_firmware_panel import RetroBiosFirmwarePanel
 from .winuae_directories_page import WinUAEDirectoriesPage
@@ -115,17 +116,19 @@ class DirectoriesPage(DirectoryGuidePage):
     def _retro_bios_tab_changed(self, index: int) -> None:
         """Inicializa o reconstrutor somente quando o usuário abre a aba."""
         tabs = self.sender()
-        if index >= 0 and tabs is not None:
+        if index >= 0 and isinstance(tabs, QTabWidget):
             self._ensure_retro_bios_panel(tabs, index)
 
-    def _ensure_retro_bios_panel(self, tabs, index: int) -> None:
+    def _ensure_retro_bios_panel(self, tabs: QTabWidget, index: int) -> None:
         """Instancia e anexa o painel universal uma única vez por emulador."""
         if index < 0 or index >= tabs.count():
             return
         scroll_area = tabs.widget(index)
-        if scroll_area is None or scroll_area.widget() is None:
+        if not isinstance(scroll_area, SmoothScrollArea):
             return
         content = scroll_area.widget()
+        if content is None:
+            return
         emulator = str(content.property("serm_emulator_key") or "").casefold()
         if not emulator or emulator == "mame" or emulator in self._retro_bios_by_emulator:
             return
@@ -156,9 +159,11 @@ class DirectoriesPage(DirectoryGuidePage):
         if index < 0 or index >= tabs.count():
             return None
         page = tabs.widget(index)
-        if page is None or page.widget() is None:
+        if not isinstance(page, SmoothScrollArea):
             return None
         content = page.widget()
+        if content is None:
+            return None
         emulator = str(content.property("serm_emulator_key") or "").casefold()
         return self._retro_bios_by_emulator.get(emulator)
 

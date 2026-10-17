@@ -29,7 +29,8 @@ def test_progetto_snaps_catalog_maps_selected_support_packages() -> None:
     assert by_name["samples-fullpack"].resource_type is ExternalResourceType.SAMPLE
     assert by_name["samples-fullpack"].url.endswith("/samples/packs/MAME_samples_289.zip")
 
-    gameinit_members = by_name["gameinit"].metadata["members"]
+    gameinit_members = by_name["gameinit"].metadata.get("members")
+    assert isinstance(gameinit_members, dict)
     assert gameinit_members["dats/gameinit.dat"] == "mame_dats"
     assert gameinit_members["folders/gameinit.ini"] == "mame_folders"
 

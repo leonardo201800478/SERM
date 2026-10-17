@@ -217,7 +217,7 @@ class EmulatorManager:
         "amiberry": ("amiberry.exe", "Amiberry.exe"),
     }
     _FBNEO_VERSION_CACHE: str | None = None
-    _FBNEO_VERSION_LOOKED_UP = False
+    _FBNEO_VERSION_LOOKED_UP: bool = False
 
     def __init__(self, roots: dict[str, Path | None] | None = None) -> None:
         """Inicializa com as raízes persistidas."""
@@ -461,9 +461,6 @@ class EmulatorManager:
             asset = {"name": archive_name, "browser_download_url": url, "size": 0}
         elif key == "vice":
             url, archive_name, version = self._latest_vice_build()
-            asset = {"name": archive_name, "browser_download_url": url, "size": 0}
-        elif key == "xm6pro68k":
-            url, archive_name, version = self._latest_xm6pro68k_build()
             asset = {"name": archive_name, "browser_download_url": url, "size": 0}
         elif key == "dosbox_x":
             release = self._release(key)
@@ -1271,6 +1268,8 @@ class EmulatorManager:
             received = Path(target).stat().st_size
             log(f"DOWNLOAD | recebido={received:,} bytes | esperado={expected:,} bytes")
 
+
+
     @classmethod
     def _extract(cls, archive: Path, destination: Path, log=None, *, install_progress=None) -> None:
         """Extrai ZIP internamente ou usa 7-Zip."""
@@ -2014,164 +2013,3 @@ class RetroArchManager:
             raise RuntimeError(f"Falha no download: {url} | {exc}") from exc
         if log:
             log(f"DOWNLOAD | recebido={target.stat().st_size:,} bytes")
-
-    @classmethod
-    def _extract(cls, archive: Path, destination: Path, log=None, *, install_progress=None) -> None:
-        """Extrai ZIP internamente ou usa 7-Zip."""
-        if install_progress:
-            install_progress(0, 0)
-        if archive.suffix.casefold() == ".zip" or zipfile.is_zipfile(archive):
-            with zipfile.ZipFile(archive) as zf:
-                zf.extractall(destination)
-            if install_progress:
-                install_progress(40, 100)
-            return
-        seven_zip = cls.find_7zip()
-        if seven_zip is None:
-            raise RuntimeError("7z.exe não foi encontrado.")
-        result = subprocess.run(
-            [str(seven_zip), "x", "-y", f"-o{destination}", str(archive)],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            shell=False,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            timeout=300,
-            check=False,
-        )
-        if result.returncode != 0:
-            raise RuntimeError(
-                f"7-Zip falhou ({result.returncode}): {(result.stdout or '').strip()}"
-            )
-        if install_progress:
-            install_progress(40, 100)
-
-    @staticmethod
-    def _merge(source: Path, destination: Path, *, install_progress=None, start: int = 0) -> None:
-        """Mescla a árvore extraída no diretório de instalação."""
-        files = [path for path in source.rglob("*") if path.is_file()]
-        directories = [path for path in source.rglob("*") if path.is_dir()]
-        for directory in directories:
-            (destination / directory.relative_to(source)).mkdir(parents=True, exist_ok=True)
-        if not files:
-            if install_progress:
-                install_progress(100, 100)
-            return
-        for index, path in enumerate(files, start=1):
-            target = destination / path.relative_to(source)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(path, target)
-            if install_progress:
-                install_progress(start + int(index * (100 - start) / len(files)), 100)
-
-    def _find_executable(self, key: str, root: Path | None) -> Path | None:
-        """Procura somente o executável oficial esperado."""
-        names = self.EXECUTABLE_ALIASES.get(key, (self.EXECUTABLES[key],))
-        candidates: list[Path] = []
-        if root:
-            for name in names:
-                candidates.extend((root / name, root / "bin" / name))
-            if key in self.EXECUTABLE_ALIASES:
-                candidates.extend(path for name in names for path in root.rglob(name))
-        return next((path.resolve() for path in candidates if path.is_file()), None)
-
-    @staticmethod
-    def _read_version(key: str, root: Path | None, executable: Path | None) -> str | None:
-        """Detecta a versão instalada."""
-        version = EmulatorManager._read_version_file(root) if root else None
-        if version:
-            return version
-        if key == "fbneo":
-            if root:
-                version = EmulatorManager._read_fbneo_changelog_version(root)
-                if version:
-                    return version
-            return EmulatorManager._fetch_fbneo_version()
-        if key == "mame" and executable:
-            return EmulatorManager._probe_mame_version(executable)
-        return None
-
-    @staticmethod
-    def _read_fbneo_changelog_version(root: Path) -> str | None:
-        """Obtém a versão que acompanha o pacote FBNeo, se o changelog existir."""
-        paths = tuple(root.rglob("whatsnew.html")) + tuple(root.rglob("WhatsNew.html"))
-        for path in paths:
-            try:
-                content = path.read_text(encoding="utf-8", errors="ignore")
-            except OSError:
-                continue
-            match = re.search(r"<h3>\s*v?(\d+(?:\.\d+){2,3})\s*</h3>", content, re.I)
-            if match:
-                return match.group(1)
-        return None
-
-    @staticmethod
-    def _fetch_fbneo_version() -> str | None:
-        """Lê os campos de versão usados para compilar o nightly FBNeo."""
-        if EmulatorManager._FBNEO_VERSION_CACHE is not None:
-            return EmulatorManager._FBNEO_VERSION_CACHE
-        if EmulatorManager._FBNEO_VERSION_LOOKED_UP:
-            return None
-        EmulatorManager._FBNEO_VERSION_LOOKED_UP = True
-        url = "https://raw.githubusercontent.com/finalburnneo/FBNeo/master/src/burn/version.h"
-        try:
-            request = Request(url, headers={"User-Agent": USER_AGENT})
-            with urlopen(request, timeout=8) as response:
-                source = response.read().decode("utf-8", errors="replace")
-        except (OSError, URLError):
-            return None
-        fields = {
-            name: re.search(rf"^#define\s+VER_{name}\s+(\d+)", source, re.M)
-            for name in ("MAJOR", "MINOR", "BETA", "ALPHA")
-        }
-        if any(match is None for match in fields.values()):
-            return None
-        numbers = {name: int(match.group(1)) for name, match in fields.items() if match is not None}
-        version = f"{numbers['MAJOR']}.{numbers['MINOR']}.{numbers['BETA']}.{numbers['ALPHA']:02d}"
-        EmulatorManager._FBNEO_VERSION_CACHE = version
-        return version
-
-    @staticmethod
-    def _read_version_file(root: Path) -> str | None:
-        """Lê a versão a partir dos arquivos de versão conhecidos."""
-        for filename in (VERSION_MARKER, "VERSION", "version.txt", "build.txt"):
-            version = EmulatorManager._parse_version_file(root / filename)
-            if version:
-                return version
-        return None
-
-    @staticmethod
-    def _parse_version_file(path: Path) -> str | None:
-        if not path.is_file():
-            return None
-        try:
-            text = path.read_text(encoding="utf-8-sig", errors="ignore").strip()
-        except OSError:
-            return None
-        match = re.search(r"(\d+(?:\.\d+){1,3}(?:[a-z]-\d{8})?)", text, re.I)
-        return match.group(1) if match else None
-
-    @staticmethod
-    def _probe_mame_version(executable: Path) -> str | None:
-        """Consulta a versão do MAME."""
-        try:
-            result = subprocess.run(
-                [str(executable), "-noreadconfig", "-version"],
-                cwd=str(executable.parent),
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                shell=False,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                timeout=4,
-                check=False,
-            )
-            match = re.search(r"\b(?:v)?(\d+\.\d+)\b", (result.stdout or "").strip())
-            return match.group(1) if match else None
-        except (OSError, subprocess.SubprocessError):
-            return None

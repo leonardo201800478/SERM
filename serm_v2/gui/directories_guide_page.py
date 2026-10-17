@@ -294,7 +294,11 @@ class DirectoryGuidePage(QWidget):
         if tabs is None or tabs.currentIndex() < 0:
             return None
         page = tabs.widget(tabs.currentIndex())
+        if page is None:
+            return None
         content = page.widget() if isinstance(page, SmoothScrollArea) else page
+        if content is None:
+            return None
         return str(content.property("serm_emulator_key") or "") or None
 
     def save_directory_settings(self) -> None:

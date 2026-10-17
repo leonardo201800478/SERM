@@ -14,6 +14,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
+    QBoxLayout,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -682,6 +683,8 @@ class MameFiltersPanel(QWidget):
             layout = QHBoxLayout(self.summary)
             layout.setContentsMargins(0, 0, 0, 0)
             layout.setSpacing(6)
+        if not isinstance(layout, QBoxLayout):
+            return
         while layout.count():
             item = layout.takeAt(0)
             if item is None:

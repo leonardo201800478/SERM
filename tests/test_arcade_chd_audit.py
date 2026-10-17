@@ -1,4 +1,5 @@
 import sqlite3
+from pathlib import Path
 
 from serm_v2.services.arcade.chd_audit import ArcadeChdAuditService
 from serm_v2.services.chd_header import ChdFormatError, ChdHeader
@@ -8,7 +9,7 @@ class FakeReader:
     def __init__(self, headers: dict[str, ChdHeader]) -> None:
         self.headers = headers
 
-    def read(self, path):
+    def read(self, path: Path) -> ChdHeader:
         if path.name == "bad.chd":
             raise ChdFormatError("invalid test CHD")
         return self.headers[str(path)]

@@ -31,6 +31,13 @@ def _scalar(db: sqlite3.Connection, sql: str, params: tuple = ()) -> object:
     return None if row is None else row[0]
 
 
+def _integer_scalar(db: sqlite3.Connection, sql: str) -> int:
+    value = _scalar(db, sql)
+    if not isinstance(value, int):
+        raise TypeError(f"Expected an integer scalar for query: {sql}")
+    return value
+
+
 def _explain(db: sqlite3.Connection, sql: str, params: tuple = ()) -> list[sqlite3.Row]:
     return db.execute(f"EXPLAIN QUERY PLAN {sql}", params).fetchall()
 
@@ -118,11 +125,11 @@ def test_database_performance_audit() -> None:
         queries = {
             "MAME machine by import": (
                 "SELECT id,name FROM mame_machine WHERE import_id = ?",
-                (int(_scalar(db, "SELECT COALESCE(MAX(id), 0) FROM mame_listxml_import")),),
+                (_integer_scalar(db, "SELECT COALESCE(MAX(id), 0) FROM mame_listxml_import"),),
             ),
             "MAME ROM by machine": (
                 "SELECT machine_id,name,sha1,crc,size FROM mame_rom WHERE machine_id = ?",
-                (int(_scalar(db, "SELECT COALESCE(MIN(id), 0) FROM mame_machine")),),
+                (_integer_scalar(db, "SELECT COALESCE(MIN(id), 0) FROM mame_machine"),),
             ),
             "MAME ROM identity SHA1": (
                 "SELECT machine_id,name FROM mame_rom WHERE sha1 = ?",

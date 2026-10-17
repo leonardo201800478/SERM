@@ -17,8 +17,12 @@ def qident(value: str) -> str:
     return '"' + value.replace('"', '""') + '"'
 
 
-def add(parent: ET.Element, tag: str, text: object | None = None, **attrs: object) -> ET.Element:
-    element = ET.SubElement(parent, tag, {k: str(v) for k, v in attrs.items() if v is not None})
+def add(
+    element_parent: ET.Element, tag: str, text: object | None = None, **attrs: object
+) -> ET.Element:
+    element = ET.SubElement(
+        element_parent, tag, {k: str(v) for k, v in attrs.items() if v is not None}
+    )
     if text is not None:
         element.text = str(text)
     return element
@@ -26,6 +30,16 @@ def add(parent: ET.Element, tag: str, text: object | None = None, **attrs: objec
 
 def scalar(db: sqlite3.Connection, sql: str, params: Iterable[object] = ()) -> object:
     return db.execute(sql, tuple(params)).fetchone()[0]
+
+
+def integer(value: object, context: str) -> int:
+    if not isinstance(value, int):
+        raise TypeError(f"Expected an integer value for {context}, got {type(value).__name__}")
+    return value
+
+
+def scalar_int(db: sqlite3.Connection, sql: str) -> int:
+    return integer(scalar(db, sql), sql)
 
 
 def table_names(db: sqlite3.Connection) -> list[str]:
@@ -71,10 +85,10 @@ def normalized_type(value: object) -> str:
 def column_stats(db: sqlite3.Connection, table: str, column: str) -> dict[str, object]:
     ident = qident(column)
     tbl = qident(table)
-    total = int(scalar(db, f"SELECT COUNT(*) FROM {tbl}"))
-    nulls = int(scalar(db, f"SELECT COUNT(*) FROM {tbl} WHERE {ident} IS NULL"))
+    total = scalar_int(db, f"SELECT COUNT(*) FROM {tbl}")
+    nulls = scalar_int(db, f"SELECT COUNT(*) FROM {tbl} WHERE {ident} IS NULL")
     non_null = total - nulls
-    distinct = int(scalar(db, f"SELECT COUNT(DISTINCT {ident}) FROM {tbl}"))
+    distinct = scalar_int(db, f"SELECT COUNT(DISTINCT {ident}) FROM {tbl}")
 
     stats: dict[str, object] = {
         "rows": total,
@@ -84,17 +98,15 @@ def column_stats(db: sqlite3.Connection, table: str, column: str) -> dict[str, o
     }
 
     if non_null:
-        stats["empty"] = int(
-            scalar(
-                db,
-                f"SELECT COUNT(*) FROM {tbl} WHERE {ident} IS NOT NULL AND CAST({ident} AS TEXT) = ''",
-            )
+        stats["empty"] = scalar_int(
+            db,
+            f"SELECT COUNT(*) FROM {tbl} WHERE {ident} IS NOT NULL AND CAST({ident} AS TEXT) = ''",
         )
-        stats["min_length"] = int(
-            scalar(db, f"SELECT MIN(LENGTH(CAST({ident} AS TEXT))) FROM {tbl} WHERE {ident} IS NOT NULL")
+        stats["min_length"] = scalar_int(
+            db, f"SELECT MIN(LENGTH(CAST({ident} AS TEXT))) FROM {tbl} WHERE {ident} IS NOT NULL"
         )
-        stats["max_length"] = int(
-            scalar(db, f"SELECT MAX(LENGTH(CAST({ident} AS TEXT))) FROM {tbl} WHERE {ident} IS NOT NULL")
+        stats["max_length"] = scalar_int(
+            db, f"SELECT MAX(LENGTH(CAST({ident} AS TEXT))) FROM {tbl} WHERE {ident} IS NOT NULL"
         )
 
         # These are diagnostics, not assumptions about the declared SQLite type.
@@ -102,7 +114,7 @@ def column_stats(db: sqlite3.Connection, table: str, column: str) -> dict[str, o
             f"SELECT typeof({ident}), COUNT(*) FROM {tbl} "
             f"WHERE {ident} IS NOT NULL GROUP BY typeof({ident}) ORDER BY typeof({ident})"
         ).fetchall()
-        stats["types"] = {str(row[0]): int(row[1]) for row in types}
+        stats["types"] = {str(row[0]): integer(row[1], f"storage type count for {table}.{column}") for row in types}
 
         sample = db.execute(
             f"SELECT CAST({ident} AS TEXT) FROM {tbl} WHERE {ident} IS NOT NULL "
@@ -135,8 +147,13 @@ def validate_constraints(db: sqlite3.Connection, root: ET.Element) -> int:
         for row in fk:
             add(violations, "violation", table=row[0], rowid=row[1], parent=row[2], fk_index=row[3])
 
-    user_version = int(scalar(db, "PRAGMA user_version"))
-    add(validation, "pragma", user_version=user_version, foreign_keys=int(scalar(db, "PRAGMA foreign_keys")))
+    user_version = scalar_int(db, "PRAGMA user_version")
+    add(
+        validation,
+        "pragma",
+        user_version=user_version,
+        foreign_keys=scalar_int(db, "PRAGMA foreign_keys"),
+    )
 
     return errors
 
@@ -157,14 +174,18 @@ def build_report(db: sqlite3.Connection, db_path: Path) -> tuple[ET.ElementTree,
     meta = ET.SubElement(root, "summary")
     add(meta, "database_size_bytes", db_path.stat().st_size)
     add(meta, "tables", len(tables))
-    add(meta, "total_rows", int(sum(int(scalar(db, f"SELECT COUNT(*) FROM {qident(t)}")) for t in tables)))
+    add(
+        meta,
+        "total_rows",
+        sum(scalar_int(db, f"SELECT COUNT(*) FROM {qident(table)}") for table in tables),
+    )
 
     errors = validate_constraints(db, root)
     tables_node = ET.SubElement(root, "tables")
 
     for table in tables:
         columns = table_schema(db, table)
-        row_count = int(scalar(db, f"SELECT COUNT(*) FROM {qident(table)}"))
+        row_count = scalar_int(db, f"SELECT COUNT(*) FROM {qident(table)}")
         table_node = ET.SubElement(tables_node, "table", {"name": table, "rows": str(row_count), "columns": str(len(columns))})
 
         cols_node = ET.SubElement(table_node, "columns")
@@ -189,14 +210,17 @@ def build_report(db: sqlite3.Connection, db_path: Path) -> tuple[ET.ElementTree,
                     add(stats_node, key, stats[key])
             if "types" in stats:
                 type_node = ET.SubElement(stats_node, "storage_types")
-                for storage_type, count in stats["types"].items():
+                storage_types = stats["types"]
+                if not isinstance(storage_types, dict):
+                    raise TypeError(f"Expected storage type counts for {table}.{name}")
+                for storage_type, count in storage_types.items():
                     add(type_node, "type", count, name=storage_type)
             if "sample_sha256" in stats:
                 add(stats_node, "first_non_null_sha256", stats["sample_sha256"])
 
             if notnull and stats["null"]:
                 add(col_node, "validation", status="FAIL", rule="NOT NULL", violations=stats["null"])
-                errors += int(stats["null"])
+                errors += integer(stats["null"], f"null count for {table}.{name}")
 
         indexes_node = ET.SubElement(table_node, "indexes")
         for idx in indexes(db, table):
@@ -235,7 +259,7 @@ def build_report(db: sqlite3.Connection, db_path: Path) -> tuple[ET.ElementTree,
         # It hashes every scalar field in primary-key order when a PK exists;
         # otherwise SQLite rowid order is used. No row contents are written to XML.
         names = [str(c[1]) for c in columns]
-        order = next((qident(str(c[1])) for c in columns if int(c[5]) == 1), "rowid")
+        order = next((qident(str(c[1])) for c in columns if integer(c[5], "primary key position") == 1), "rowid")
         digest = hashlib.sha256()
         cursor = db.execute(
             f"SELECT {', '.join(qident(n) for n in names)} FROM {qident(table)} ORDER BY {order}"
@@ -282,6 +306,8 @@ def main() -> int:
     tree.write(output, encoding="utf-8", xml_declaration=True, short_empty_elements=True)
 
     root = tree.getroot()
+    if root is None:
+        raise RuntimeError("O relatório XML foi criado sem elemento raiz.")
     summary = root.find("summary")
     result = root.find("result")
     print(f"XML: {output}")

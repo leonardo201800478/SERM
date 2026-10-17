@@ -19,8 +19,17 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
+from typing import Protocol
 
 from .tls import DEFAULT_SSL_CONTEXT
+
+
+class _Headers(Protocol):
+    def get(self, key: str, default: str = "") -> str | None: ...
+
+
+class _Response(Protocol):
+    headers: _Headers
 
 
 class DownloadEngineError(RuntimeError):
@@ -333,7 +342,7 @@ class DownloadEngine:
         return path.is_file() and path.stat().st_size == end - start + 1
 
     @staticmethod
-    def _content_length(response: object) -> int | None:
+    def _content_length(response: _Response) -> int | None:
         try:
             value = response.headers.get("Content-Length")
             return int(value) if value else None

@@ -10,8 +10,13 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol
 
-from ..chd_header import ChdFormatError, ChdHeaderReader
+from ..chd_header import ChdFormatError, ChdHeader, ChdHeaderReader
+
+
+class _ChdHeaderReader(Protocol):
+    def read(self, path: Path) -> ChdHeader: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,8 +55,8 @@ class ChdAuditResult:
 class ArcadeChdAuditService:
     """Varre CHDs e cruza sua identidade lógica com o catálogo MAME."""
 
-    def __init__(self, reader: ChdHeaderReader | None = None) -> None:
-        self.reader = reader or ChdHeaderReader()
+    def __init__(self, reader: _ChdHeaderReader | None = None) -> None:
+        self.reader = reader if reader is not None else ChdHeaderReader()
 
     def audit(
         self,
